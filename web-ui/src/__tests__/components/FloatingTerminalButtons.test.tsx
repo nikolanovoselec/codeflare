@@ -231,20 +231,25 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
 
   describe('Page navigation', () => {
     const setActiveTerminal = (bufferType: 'normal' | 'alternate') => {
+      const bufferScrollLines = vi.fn();
+      const refresh = vi.fn();
       const term = {
-        buffer: { active: { type: bufferType } },
+        rows: 24,
+        buffer: { active: { type: bufferType, viewportY: 300, baseY: 1000 } },
+        _core: { _bufferService: { scrollLines: bufferScrollLines } },
         scrollPages: vi.fn(),
         scrollToBottom: vi.fn(),
+        refresh,
         textarea: document.createElement('textarea'),
       };
       (sessionStore as any).activeSessionId = 'test-session';
       vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
       vi.mocked(terminalStore.getTerminal).mockReturnValue(term as any);
-      return term;
+      return { term, bufferScrollLines, refresh };
     };
 
     it('REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application', () => {
-      const term = setActiveTerminal('alternate');
+      const { term, bufferScrollLines } = setActiveTerminal('alternate');
       vi.mocked(sendTerminalKey).mockClear();
       render(() => <FloatingTerminalButtons showTerminal={true} />);
 
@@ -255,20 +260,26 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
         [term, '\x1b[5~'],
         [term, '\x1b[6~'],
       ]);
+      expect(bufferScrollLines).not.toHaveBeenCalled();
       expect(term.scrollPages).not.toHaveBeenCalled();
       expect(term.scrollToBottom).not.toHaveBeenCalled();
     });
 
-    it('REQ-MOB-001 AC7: preserves normal-buffer page-up and bottom navigation', () => {
-      const term = setActiveTerminal('normal');
+    it('REQ-MOB-001 AC6: navigates normal-buffer pages through the buffer scroll pipeline', () => {
+      const { term, bufferScrollLines, refresh } = setActiveTerminal('normal');
       vi.mocked(sendTerminalKey).mockClear();
       render(() => <FloatingTerminalButtons showTerminal={true} />);
 
       screen.getByTitle('Page Up').click();
       screen.getByTitle('Scroll to Bottom').click();
 
-      expect(term.scrollPages).toHaveBeenCalledWith(-1);
-      expect(term.scrollToBottom).toHaveBeenCalledTimes(1);
+      // Page up moves one page (rows - 1); bottom moves the exact buffer
+      // distance — deltas come from the buffer, never from DOM scroll state.
+      expect(bufferScrollLines.mock.calls).toEqual([[-23], [700]]);
+      // Each direct buffer scroll must carry its own viewport repaint.
+      expect(refresh.mock.calls).toEqual([[0, 23], [0, 23]]);
+      expect(term.scrollPages).not.toHaveBeenCalled();
+      expect(term.scrollToBottom).not.toHaveBeenCalled();
       expect(sendTerminalKey).not.toHaveBeenCalledWith(term, '\x1b[5~');
       expect(sendTerminalKey).not.toHaveBeenCalledWith(term, '\x1b[6~');
     });

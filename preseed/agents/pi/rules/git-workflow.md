@@ -8,32 +8,52 @@
 
 | Event | Skill |
 |---|---|
-| A push or PR that opens or syncs a PR to `main`/`master` (an open main-bound PR exists for the head), unless the user explicitly says to skip CI monitoring | `ci-monitoring` — the CI monitor is spawned together with `review-monitor` from the PR-boundary `codeflare-visible-monitor-handoff` (one backgrounded agent per head; never tail-follow in the main session). No open main-bound PR ⇒ no CI monitoring. |
-| PR-boundary event with `sdd/` present | `git-review-pipeline` (spec/doc/code review pipeline) |
+| Pi emits a PR-boundary launch plan after a successful push or protected-base PR creation | Follow its ordered reviewer wave, then its independent `ci-monitoring` wave |
+| PR-boundary launch plan includes reviewers | `git-review-pipeline` (visible spec/doc/code reviewers, independent of CI) |
+| User explicitly requests CI monitoring | `ci-monitoring` |
 | User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
 | Need gh/wrangler access, creds unclear | `deploy-credentials` (env-var table + check-then-fallback) |
 
-## SDD opt-in is binary
+## Mandatory stop after boundary commands
 
-- **Vibe-coding** (no `sdd/`): `git push` + `gh pr create` proceed with NO review agents.
-- **SDD mode** (`sdd/` + `sdd/README.md`): review agents fire only on PR-boundary events targeting `main`/`master`. PRs into integration branches (`develop`, `staging`) defer until the integration→main PR opens.
+After any successful `git push` or `gh pr create`, **end the current assistant turn immediately**. The extension queues its boundary message with `deliverAs: "followUp"`; becoming idle is the delivery trigger.
 
-## Review push gate
+In the boundary-command turn, report only the push result or PR URL. Do not call another tool, inspect session JSONL, search for the plan, run `gh pr edit`, invoke the CI resolver, or attempt another boundary command. A plan that is not yet visible while the turn is active is queued, not missing. Execute it exactly once when it starts the next turn.
 
-Do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
-incomplete for the current head unless the user explicitly authorizes pushing despite that
-active or incomplete review.
+## Unified PR-boundary launch plan
+
+The Pi extension is the sole automatic boundary dispatcher. Do not independently infer or duplicate an automatic CI launch from the preceding Git command. When it emits a launch plan or follow-up in the next turn:
+
+1. Launch every review agent listed in wave 1 together through public `subagent` calls with `run_in_background: true` and `inherit_context: false`. Preserve the exact `review_range=<acknowledged>..<current>` marker when supplied. When the current user activated the fully-autonomous override for this task, include `autonomy_override=fully-autonomous` in every reviewer prompt until the user cancels or narrows it.
+2. Immediately after issuing the wave-1 calls—not after reviewer completion—run the plan's wave-2 resolver exactly once:
+
+   ```bash
+   node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
+   ```
+
+3. No stdout means no CI monitor is requested. Otherwise parse the sole JSON object and submit it unchanged exactly once through the public `subagent` tool. CI is the last launch for that boundary.
+4. Wait for every required reviewer result before editing, committing, or pushing. CI completion is independent and never gates review acknowledgement.
+5. After all required reviewer results arrive, automatically publish one consolidated triage summary before the first fixing or other project-mutation tool call. For each finding, classify the finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery.
+6. Reject unsupported or overengineered proposals. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.
+
+A plan may contain reviewers only, CI only, or both. Vibe-coding repositories receive CI-only plans for eligible boundaries. The resolver returns no request when launch order is unresolved, repository cwd is absent, or there is no open PR targeting `main`/`master`. If monitoring aborts, do not relaunch it automatically; a later eligible boundary plan or explicit user request may launch a new monitor.
+
+## SDD review flow
+
+- **Vibe-coding** (no `sdd/`): pushes and PR creation do not launch reviewers; an eligible plan may still launch CI.
+- **SDD mode** (`sdd/` + `sdd/README.md`): the launch plan lists only required reviewer lanes for work headed to `main`/`master`.
+- Reviewers are independent and report-only. The root main session evaluates all findings, fixes legitimate findings, and alone commits or pushes follow-up work. No subagent pushes.
+- Review and CI never launch, wait for, or recover each other. Reload may lose active reviewer or CI work; only a later supported boundary or explicit user request starts fresh work.
 
 ## Hard obligations
 
 <!-- git-workflow-hard-obligations -->
 
-- Do not push while a review is running, unless explicitly authorized by the user.
-- CI monitoring shares the review trigger: the CI monitor is spawned **together with `review-monitor` from the `codeflare-visible-monitor-handoff`** when a push/PR opens or syncs a PR to `main`/`master` (see the handoff obligation below), unless the user explicitly says to skip it. Do **not** also start a separate per-push CI monitor — that second monitor is what collided with the handoff's ("Agent is already processing a prompt") and killed it. A head with no open main-bound PR is not CI-monitored.
-- CI monitoring must run in a backgrounded agent/subagent. Never run `tail -f`, `gh run watch`, a foreground polling loop, or any long-running CI wait in the main assistant turn. Start the backgrounded agent, report the visible agent ID/tracking/log path, and stop so review results can be emitted into the main session.
-- The CI-monitoring background agent does not fix, commit, or push. It reports `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout` plus relevant run/log pointers back to the main session; the main session owns any fix/commit/push work.
-- If a CI monitor task stops, errors, or completes without a `CI_RESULT` for the current head, immediately start a replacement exact-head CI monitor unless the head was superseded or the user explicitly skipped CI monitoring.
-- Any long-running wait/monitor/poll (CI, deploy status, review completion, log tailing, `watch`, `tail -f`, `gh run watch`, `while sleep` loops, or `ctx_execute`/Bash used as a blocking monitor) must run detached/background or in a subagent/background task. Never keep the main session busy waiting for external state; `ctx_execute` is not an exception. Start only a short background launcher, report how to check it, and stop.
-- Never deploy to integration until every required CI run is green.
-- After opening or syncing an SDD PR to `main`/`master`, obey any `codeflare-visible-monitor-handoff` follow-up immediately: spawn **both** the visible `review-monitor` **and** the CI-monitor background agents for the exact head, then report their agent IDs. This handoff is the **single** trigger for both monitors — do not also start a separate per-push CI monitor. If no handoff appears but `.git/codeflare-review-jobs/<head>/job.json` exists, verify/start **both** the `review-monitor` and the CI monitor for the exact head immediately. This is monitor delivery, not reviewer spawning. If a monitor stops/completes without its `REVIEW_RESULT`/`CI_RESULT`, restart it from the existing job prompt/result paths.
-- When a main-bound PR is open, skipping the handoff's CI monitor without an explicit user skip instruction is HIGH `ci-monitoring-skill-not-invoked`.
+- After a successful push or PR creation, stop the current turn before any other tool call so the queued boundary plan can be delivered.
+- Never search for, recreate, or retrigger a boundary plan from the same turn; in particular, never use a no-op `gh pr edit` as a delivery mechanism.
+- Obey each extension-issued launch plan exactly once in the next turn: all listed reviewers first, independent CI last, without waiting between waves.
+- Never create a second automatic CI trigger from the Git command itself.
+- Pass explicit repository cwd and review launch state. Submit a returned CI request unchanged exactly once through public `subagent`; no request means no monitor.
+- Never run long CI, deploy, log, watch, or polling commands in the root session.
+- Wait for all required visible reviewers, then publish the consolidated triage summary before any review follow-up mutation. Triage and apply legitimate minimal fixes automatically unless the user explicitly requests approval.
+- Never deploy to integration until every required CI check is green.

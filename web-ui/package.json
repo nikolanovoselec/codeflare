@@ -16,11 +16,11 @@
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
-    "@solidjs/router": "^0.16.1",
+    "@solidjs/router": "^0.16.2",
     "@thisbeyond/solid-dnd": "^0.7.5",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "6.1.0-beta.288",
-    "solid-js": "^1.9.12",
+    "solid-js": "^1.9.14",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -29,12 +29,12 @@
     "@types/node": "^26.1.1",
     "fast-check": "^4.8.0",
     "jsdom": "^29.1.1",
-    "knip": "^6.26.0",
-    "oxlint": "^1.73.0",
+    "knip": "^6.27.0",
+    "oxlint": "^1.74.0",
     "typescript": "^7.0.2",
     "vite": "^8.1.4",
     "vite-plugin-solid": "^2.11.12",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "yaml": "^2.8.3"

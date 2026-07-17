@@ -48,13 +48,13 @@ To manually invoke code-reviewer or doc-updater on a non-SDD project (e.g., to a
 
 All three review agents run **in parallel** — `code-reviewer` (source lane), `spec-reviewer` (`sdd/` lane), and `doc-updater` (`documentation/` + root `README.md` lane).
 
-**Why parallel:** the review agents are **report-only** — they detect findings and write them to their own lane's triage file (spec-reviewer → `sdd/spec/.review-queue.md`, doc-updater → `documentation/.doc-coverage.md`), and the **main session** applies every fix. They never edit the spec or docs themselves, so there is no shared-write race and no ordering dependency. The old spec→doc sequential gate existed only for the superseded auto-fix model, where spec-reviewer edited `sdd/` in place and doc-updater validated REQ cross-references against the just-moved REQs. The discipline rule (`rules/spec-discipline.md` lane-separation section) makes the report-only/parallel contract explicit.
+**Why parallel:** review agents are **report-only**. Each returns one complete structured report to the root session and writes no project, triage, or review-artifact files. The root waits for every required lane, persists any deferred findings, applies legitimate fixes, and alone owns Git. With immutable reviewer inputs there is no shared-write race or ordering dependency.
 
 ## The three agents (SDD mode only)
 
 1. **code-reviewer**: reviews code quality, security, correctness. Invokes `tdd-enforce` for test files.
-2. **spec-reviewer**: keeps `sdd/` as the single source of truth. When code changes introduce new features, modify behavior, or change APIs without a corresponding spec update, this agent updates `sdd/` to match: adds new REQ-* entries for unspec'd features, updates ACs for changed behavior, marks deprecated requirements, adds changelog entries to `sdd/changes.md`, runs TDD coverage checks (per `enforce_tdd` in `sdd/config.yml`). Invokes `spec-enforce` family.
-3. **doc-updater**: reads the post-edit spec from spec-reviewer and updates `documentation/` to match the code. Flags when API routes, env vars, auth flows, configuration, or architecture change without a corresponding doc update. Generates cross-references from docs to REQ IDs. Never runs on non-SDD projects (manual invocation only). Invokes `doc-enforce` family.
+2. **spec-reviewer**: reviews `sdd/` as the single source of truth, returns drafted REQs, AC edits, status corrections, changelog entries, and `spec-enforce` findings without writing files.
+3. **doc-updater**: reviews documentation against the same immutable range, returns drafted route/configuration/architecture updates and REQ backlinks, and invokes the `doc-enforce` family without writing files. It never runs automatically on non-SDD projects.
 
 ## Branch protection on main (proactive surfacing during CI setup)
 
@@ -83,4 +83,4 @@ The PR-boundary trigger model assumes branch protection is in place. If the user
 
 ## Binding invocation rule
 
-The PostToolUse hook (`git-push-review-reminder.sh`) emits the three-agent directive when an SDD-mode PR-boundary trigger fires. On receipt, launch all three agents per the execution order above. This skill is the operational reference; the directive itself is non-negotiable.
+The PostToolUse hook (`git-push-review-reminder.sh`) emits the three-agent directive when an SDD-mode PR-boundary trigger fires. On receipt, launch all required agents together, wait for every returned report, and keep all file/Git writes in the root session. This skill is the operational reference; the directive itself is non-negotiable.

@@ -631,7 +631,7 @@ None.
 
 ### REQ-AUTH-022: Session-expiry on resume produces a clean sign-in redirect, never a blank page
 
-**Intent:** When a backgrounded SPA returns (mobile app-switch, tab eviction, bfcache restore) and the session cookie has expired, the app must redirect to sign-in cleanly. It must never hang on its loading shell (the blank/white page users had to "Back/reload several times" to clear), never render nothing during a pending hard navigation, and never crash to a blank document on an unhandled bootstrap/render error.
+**Intent:** When a backgrounded SPA returns (mobile app-switch, tab eviction, bfcache restore) and the session cookie has expired, the app must revalidate promptly and redirect to sign-in cleanly. It must never hang on its loading shell, retain a partially styled document after Access intercepts asset revalidation, render nothing during navigation, or crash to a blank document.
 
 **Applies To:** User
 
@@ -639,21 +639,27 @@ None.
 
 1. The API client's 401 handler on an authenticated path (`/app/*`, `/admin/*`) performs `window.location.replace('/')` and **throws** an `ApiError` tagged `authRedirect = true`; it never returns a non-resolving promise, so the bootstrap promise always settles. <!-- @impl: web-ui/src/api/fetch-helper.ts::ApiError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
 2. On a caught `authRedirect`/401 bootstrap error, `AppContent` clears the loading shell and renders a calm "redirecting" state, not the generic auth-error page and not a hung spinner. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
-3. `RootPage` renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
+3. `RootPage` renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @impl: web-ui/src/App.tsx::RootPage --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
 4. A top-level `ErrorBoundary` wraps the app; an unhandled bootstrap/render error renders a recovery fallback (reload control) instead of a blank document. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw) -->
+5. An Access 3xx, opaque manual redirect, or HTML login response on an authenticated API request performs the same top-level `location.replace('/')` and tagged rejection as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::expiredSessionError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
+6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
+7. Fingerprinted Vite CSS and JavaScript requests execute the Worker asset path and receive immutable browser caching only for successful non-HTML assets, preventing an expired Access session from replacing a restored document's styles while keeping SPA fallback HTML revalidating. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) -->
 
 **Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
 
 **Constraints:**
 
 - Redirect uses `location.replace`, not `href`, so the dead page is not left in history.
-- Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding) — the 401-on-authed-path rule and the boundary apply uniformly.
+- Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding); resume revalidation runs only inside the authenticated app shell.
+- Resume checks are deduplicated and event listeners are removed with the app lifecycle.
+- Only fingerprinted build assets are immutable; HTML and missing-asset SPA fallbacks remain revalidating.
+- Wrangler static-asset configuration keeps Worker-first routing enabled for authenticated app assets.
 - The redirecting/fallback states are asserted by structure (testids/branch), not by UI copy (mandate #2).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
 
-**Verification:** Manual check
+**Verification:** [Resume-redirect component tests](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx), [fetch-helper 401-redirect tests](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [asset-serving tests](../../src/__tests__/index.test.ts)
 
 **Status:** Implemented

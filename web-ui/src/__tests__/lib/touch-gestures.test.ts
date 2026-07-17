@@ -9,20 +9,27 @@ function createMockTerminal(options: {
 } = {}) {
   const triggerDataEvent = vi.fn();
   const scrollLines = vi.fn();
+  const bufferScrollLines = vi.fn();
+  const refresh = vi.fn();
   const element = document.createElement('div');
   const terminal = {
     _core: {
       coreService: {
         triggerDataEvent,
       },
+      _bufferService: {
+        scrollLines: bufferScrollLines,
+      },
     },
     options: { fontSize: 14, lineHeight: 1.2 },
     element,
     buffer: { active: { type: options.bufferType ?? 'normal' } },
     modes: { mouseTrackingMode: options.mouseTrackingMode ?? 'none' },
+    rows: 24,
     scrollLines,
+    refresh,
   } as unknown as Terminal;
-  return { terminal, triggerDataEvent, scrollLines, element };
+  return { terminal, triggerDataEvent, scrollLines, bufferScrollLines, refresh, element };
 }
 
 // Helper: create a minimal TouchEvent
@@ -180,9 +187,9 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('vertical swipe with keyboard closed (scroll mode)', () => {
-      it('should call scrollLines on vertical swipe when keyboard is closed', () => {
+      it('scrolls the buffer on vertical swipe when keyboard is closed', () => {
         (window as any).ontouchstart = null;
-        const { terminal, triggerDataEvent, scrollLines } = createMockTerminal();
+        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, refresh } = createMockTerminal();
         const isKeyboardOpen = vi.fn(() => false);
         const cleanup = attachSwipeGestures(container, terminal, isKeyboardOpen)!;
 
@@ -193,8 +200,30 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
 
         // Should NOT send arrow keys — this is scroll, not key mode
         expect(triggerDataEvent).not.toHaveBeenCalled();
-        // Should have scrolled the terminal buffer
+        // Scrolls the buffer service directly; the public viewport-relative
+        // scrollLines() must stay unused (its DOM state can diverge from the
+        // buffer and turn one tick into a jump to the top of scrollback).
+        expect(bufferScrollLines).toHaveBeenCalledWith(2);
+        expect(scrollLines).not.toHaveBeenCalled();
+        // Direct buffer scrolls bypass xterm's DOM-path repaint pairing, so
+        // the helper must repaint the viewport itself — without this the
+        // scrollbar moves while the canvas stays frozen.
+        expect(refresh).toHaveBeenCalledWith(0, 23);
+        cleanup();
+      });
+
+      it('falls back to the public scrollLines API when buffer internals are unavailable', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, scrollLines, refresh } = createMockTerminal();
+        delete ((terminal as any)._core as { _bufferService?: unknown })._bufferService;
+        const cleanup = attachSwipeGestures(container, terminal, () => false)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 60, { cancelable: true }));
+
         expect(scrollLines).toHaveBeenCalledWith(2);
+        // The public API repaints via xterm's own DOM scroll path.
+        expect(refresh).not.toHaveBeenCalled();
         cleanup();
       });
 
@@ -223,7 +252,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
 
       it('should scroll proportionally to finger movement including threshold distance', () => {
         (window as any).ontouchstart = null;
-        const { terminal, scrollLines } = createMockTerminal();
+        const { terminal, bufferScrollLines } = createMockTerminal();
         const isKeyboardOpen = vi.fn(() => false);
         const cleanup = attachSwipeGestures(container, terminal, isKeyboardOpen)!;
 
@@ -233,12 +262,12 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         // Move to y=160 (dy=40, enters scroll mode; pre-seeds accumulator with 40px)
         // 40/17 = 2 lines scrolled immediately
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 160));
-        expect(scrollLines).toHaveBeenCalledWith(2);
+        expect(bufferScrollLines).toHaveBeenCalledWith(2);
 
         // Move another 34px up (y=126) → deltaY=34, accumulator = (40 - 2*17) + 34 = 40
         // 40/17 = 2 more lines
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 126));
-        expect(scrollLines).toHaveBeenCalledWith(2);
+        expect(bufferScrollLines).toHaveBeenCalledWith(2);
 
         cleanup();
       });
@@ -280,7 +309,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     describe('alternate-screen application scrolling', () => {
       it('REQ-MOB-017 AC1: routes keyboard-closed vertical swipes as wheel input', () => {
         (window as any).ontouchstart = null;
-        const { terminal, triggerDataEvent, scrollLines, element } = createMockTerminal({
+        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element } = createMockTerminal({
           bufferType: 'alternate',
           mouseTrackingMode: 'any',
         });
@@ -302,13 +331,14 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
           { deltaY: 1, deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: 100, clientY: 60 },
         ]);
         expect(scrollLines).not.toHaveBeenCalled();
+        expect(bufferScrollLines).not.toHaveBeenCalled();
         expect(triggerDataEvent).not.toHaveBeenCalled();
         cleanup();
       });
 
-      it('REQ-MOB-017 AC1: routes keyboard-open vertical swipes as wheel input', () => {
+      it('REQ-MOB-005 AC7: keyboard-open vertical swipes send arrow keys even under fullscreen wheel tracking', () => {
         (window as any).ontouchstart = null;
-        const { terminal, triggerDataEvent, scrollLines, element } = createMockTerminal({
+        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element } = createMockTerminal({
           bufferType: 'alternate',
           mouseTrackingMode: 'vt200',
         });
@@ -318,11 +348,17 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         const cleanup = attachSwipeGestures(container, terminal, () => true)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
-        container.dispatchEvent(makeTouchEvent('touchmove', 100, 140));
+        const moveEvent = makeTouchEvent('touchmove', 100, 140, { cancelable: true });
+        const preventDefaultSpy = vi.spyOn(moveEvent, 'preventDefault');
+        container.dispatchEvent(moveEvent);
 
-        expect(wheelEvents.map((event) => event.deltaY)).toEqual([-1, -1]);
+        expect(wheelEvents).toEqual([]);
         expect(scrollLines).not.toHaveBeenCalled();
-        expect(triggerDataEvent).not.toHaveBeenCalled();
+        expect(bufferScrollLines).not.toHaveBeenCalled();
+        expect(preventDefaultSpy).toHaveBeenCalled();
+        // dy = +40, downward swipe → down arrow, exactly once per gesture
+        expect(triggerDataEvent).toHaveBeenCalledTimes(1);
+        expect(triggerDataEvent).toHaveBeenCalledWith('\x1b[B', false);
         cleanup();
       });
     });

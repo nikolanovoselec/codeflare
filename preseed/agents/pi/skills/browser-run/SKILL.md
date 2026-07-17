@@ -17,7 +17,7 @@ Both are Pro (advanced) only, and only when a Cloudflare API token with the **Br
 ## Decision order (cheapest that does the job)
 
 1. **Find pages on the web** → `web_search` (pi-web-access), not Browser Run.
-2. **Static / normal page** → `ctx_fetch_and_index` (context-mode, on by default; keeps bytes out of context) or `fetch_content` (pi-web-access). Plain HTTP, no JS — fast and cheap.
+2. **Static / normal page** → use `ctx_fetch_and_index` when context-mode is available; otherwise use `fetch_content` (pi-web-access). Plain HTTP, no JS — fast and cheap. Context-mode is optional.
 3. **Raw HTTP / JSON API** → `curl`.
 4. **Blocked or JS-only, but you only need to READ it** → `browser_markdown` (clean Markdown — smallest, best for content), `browser_content` (rendered HTML/DOM), or `browser_scrape` (specific CSS selectors). One-shot, no session — **prefer this over chrome-devtools whenever you don't need to interact.** Don't retry `curl` on a page you already know needs JS.
 5. **You need to INTERACT** — navigate a multi-step flow, click/fill, take a screenshot, test a viewport → drive `chrome-devtools` through the `mcp` proxy (see the `pi-mcp-adapter` skill for the proxy mechanics; list its tools, then call them). This is where e2e lives; see the `browser-e2e` skill.

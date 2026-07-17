@@ -8,7 +8,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 - **Vault** -- The persistent per-user vault directory. Single source of truth for cross-session memory; holds agent-written session captures plus user-curated notes, inbox, and journal entries. Attachment uploads land next to the note that referenced them. Bisynced to R2 so the vault survives across sessions.
 - **Unified Graph** -- The merged graph combining the vault's graph with every active repo's per-repo graph; merges are hash-keyed. Queryable through the graphify MCP surface so structural questions can span all sources in a single call.
-- **Capture** -- A background subagent runs every fifteen real user messages, prefilters the transcript to strip tool I/O, chunks the remainder, accumulates per-chunk observations, synthesises a markdown capture file into the vault's raw-sessions subdirectory, and merges the resulting subgraph into the unified graph under a shared multi-writer lock so concurrent writers cannot corrupt it.
+- **Capture** -- A background subagent runs every fifteen real user messages, strips tool I/O, synthesises a markdown capture into the vault's raw-sessions subdirectory, and merges its subgraph under a shared multi-writer lock. Claude retains its chunked scratchpad; Pi processes only the bounded uncaptured interval in one pass.
 - **Session Mode** -- Pro mode enables R2 sync of the vault and capture hooks. Standard mode runs the in-session capture flow but the vault is not preserved across container recreations.
 
 ### Out of Scope
@@ -36,21 +36,24 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
-2. Only real user messages are counted; tool results and synthetic agent-generated messages are excluded from the count. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001 AC2: real-user prompt counting matches Claude synthetic-wrapper filtering) -->
-3. When triggered, a background sonnet subagent runs the three-stage capture pipeline (prefilter transcript noise, accumulate per-chunk observations, synthesise the final note) and writes the capture file into the vault's session-captures folder. <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
-4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
-5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
-6. Extracted chunks merge serially and atomically into cumulative `vault-graph.json`, then into the global graph under `user_vault`, making new content queryable in the same turn. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+2. Pi excludes tool results and known synthetic agent envelopes from its real-user count while preserving genuine code-like prompts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001 AC2: Pi excludes synthetic envelopes and preserves genuine code-like prompts) -->
+3. Each triggered Claude capture receives bounded uncaptured user/assistant content from the durable transcript. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh::is_synthetic_marker --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
+4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::ISO_TS --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) -->
+5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md::captured_at --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+6. Extracted chunks merge serially and atomically into cumulative `vault-graph.json`, then into the global graph under `user_vault`, queryable in the same turn. On Pi, post-commit note and chunk artifacts plus an exact successful background-task result precede root-owned counter advancement. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
+7. Pi builds each capture request from only the root-bounded uncaptured interval after the last successful counter. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only prompts after the root-owned successful counter) -->
 
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Pi's root-owned extraction lifecycle is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional); its bounded execution profile is [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
 **Constraints:**
 
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
-- The capture agent is sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model.
+- Claude: the capture agent is sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), with reasoning effort pinned at medium (parity with Pi's [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) profile).
+- Pi: the optional provider-neutral model lever remains, with reasoning effort fixed at medium.
 - The capture agent itself is the LLM that produces the extracted graph (the upstream headless extract CLI is not invoked) to avoid duplicating inference cost.
-- The capture subagent carries Bash and context-mode execution tools and uses whichever surface the session permits, so shell-routing gates cannot abort capture.
+- Claude: the capture subagent retains its existing tools and scratchpad pipeline.
+- Pi: the capture subagent uses Bash-only evidence transport with medium reasoning and a finite public turn ceiling.
 - Claude reads the hook-provided transcript JSONL range; Pi reads message entries from the persisted session returned by `getSessionFile()`.
 - Both runtimes skip capture when the resolved transcript is empty.
 
@@ -58,22 +61,29 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** Manual check
+**Verification:** [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude capture pipeline tests](../../host/__tests__/memory-capture-pipeline.test.js)
 
 **Status:** Implemented
 
 ---
 
-### REQ-MEM-015: Pi Memory Capture Transcript Source and Child-Session Guard
+### REQ-MEM-015: Pi Extraction Transcript Visibility and Child-Session Guard
 
-**Intent:** Pi memory capture must read the durable session transcript and stay inert inside child subagent sessions so captures survive reloads without polluting monitor or capture transcripts.
+**Intent:** Pi extraction must read durable root-session input, expose launch requests to the model, and stay inert inside child subagent sessions so work survives reloads without polluting child transcripts.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Capture reads each runtime's durable resume transcript, never volatile memory, so reload and resume retain full history; an empty resolved transcript skips capture instead of writing a placeholder. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
-2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001/REQ-VAULT-003: memory-vault handlers are inert inside subagent child sessions) -->
+1. Capture reads each runtime's durable resume transcript, never volatile memory, so reload and resume retain full history; an empty resolved transcript skips capture instead of writing a placeholder. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
+2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps all handlers inert in child sessions) -->
+3. After root-session reload or resume, Pi reconstructs each active capture's launch, reminder, running, failure, and success state from durable session JSONL; a bounded turn-limit completion qualifies only with the job's post-commit artifacts, and unrelated or superseded results never count. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (correlates exact public calls and reconstructs running, failed, and successful state) -->
+4. Every capture/extract launch shows a job/delivery summary and pretty-printed JSON whose bounded request items exactly match durable delivery metadata. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata) -->
+5. An emitted request remains pending without duplicate reminders until an exact public call occurs. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC5: keeps an emitted request pending until an exact public call) -->
+6. Each failed exact call advances at most one of six delivery attempts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC6: advances one delivery attempt after each failed exact call) -->
+7. Six failed exact calls emit one structured terminal notice that identifies each failed job and its next automatic opportunity. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC7: identifies the failed job and next automatic opportunity) -->
+
+**Notes:** Reload-safe transcript correlation is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
 
 **Constraints:**
 
@@ -84,7 +94,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
 
-**Verification:** [Pi behavioral tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [child-session guard tests](../../src/__tests__/lib/pi-child-session-guard.test.ts), and [session JSONL fuzz coverage](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts).
+**Verification:** [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [child-session guard tests](../../src/__tests__/lib/pi-child-session-guard.test.ts), [session JSONL fuzz coverage](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts)
 
 **Status:** Implemented
 
@@ -101,12 +111,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 1. The hook tracks the number of user messages since the last capture using a per-session counter file. The counter directory defaults to `/tmp/.memory-counter/` and is overridable via the `MEMCAP_COUNTER_DIR` environment variable for hermetic tests. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
 2. A first run with exactly one user prompt initializes transcript baseline and counter, injects the first-message graph-query directive, and exits without capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 3. If the counter file exists and the delta since the last capture is less than 15 messages, the hook exits silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
-4. When the delta reaches 15, the capture subagent is triggered. <!-- @test: host/__tests__/memory-capture-hook.test.js (counter advances on capture so the next run starts a fresh window) -->
-5. Duplicate capture triggers are suppressed while a capture is pending. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryVarsPending --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-6. Pi advances the prompt counter only after the capture note exists, so a stopped capture retries instead of marking the window complete. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::captureVars --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-002 AC6: Pi capture counter advances only after a capture note exists) -->
+4. When the delta reaches 15, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (counter advances on capture so the next run starts a fresh window) -->
+5. After a Pi memory request reaches GIVEUP, fifteen later real-user prompts re-arm capture without allowing generated extraction follow-ups to advance the cadence. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC5: re-arms only after fifteen later real prompts) -->
+6. Only the Pi root advances the prompt counter, after an exact correlated successful result and post-commit capture note/chunk; failed, late, incomplete, or superseded results cannot advance the counter or clear replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
 7. When the hook fires with no counter file and the transcript already contains more than one real-user prompt (CURRENT_COUNT > 1), it treats the session as resumed: it force-fires a capture covering the transcript from line 1 and re-emits the graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Pi delivery ownership and retry rationale are documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional); request bounds and uncaptured-window compaction are in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
 **Constraints:**
 
@@ -115,13 +125,13 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Detection uses no timestamps, mtimes, or external sentinels.
 - The hook does not detect in-session `/compact`; its surviving counter catches up within the 15-prompt window while the compressed summary preserves orientation.
 - This remains an accepted limitation pending observed harm.
-- On Pi, the `.vars` carrier file is the pending-capture lock and stale retry marker.
+- On Pi, one ephemeral active request pointer enables reload discovery while a request-specific execution snapshot in the shared home-backed cache remains immutable after the first exact public call.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)
 
-**Verification:** Manual check
+**Verification:** [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude hook cadence tests](../../host/__tests__/memory-capture-hook.test.js)
 
 **Status:** Implemented
 
@@ -223,21 +233,23 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Intent:** Every vault writer - the vault-extract and memory-capture pipelines, on both the Claude and Pi runtimes - must add new nodes to the unified global graph's vault contribution without destroying nodes from prior passes. All four converge on a single cumulative `vault-graph.json` maintained by the shared `merge-vault-graph.py`; `--as user_vault` replace-semantics means anything less than the cumulative graph fed to `graphify global add` wipes prior vault knowledge.
 
-**Applies To:** User
+**Applies To:** System
 
 **Acceptance Criteria:**
 
-1. Every vault writer maintains a single persistent incremental vault graph (`vault-graph.json`) that survives across passes; both the vault-extract and memory-capture pipelines on both runtimes author a chunk and fold it in via a shared merge step rather than editing `graph.json` in place. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
-2. Each pass merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append). <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC2: script unions the prior + new graphs via nx.compose (hash-keyed dedup)) -->
-3. The global graph's vault contribution always reflects the cumulative vault content (the persistent `vault-graph.json` is fed to `graphify global add --as user_vault`, never the per-run chunk or `graph.json`), not only the most recent pass. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-VAULT-016 / REQ-MEM-009: Pi vault-extract + memory prompts build the cumulative vault graph via the Pi-local merge-vault-graph.py) -->
-4. If the persistent vault graph is missing or unreadable, the pass starts a fresh one rather than crashing and writes it at the end of the run. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
-5. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks; a short timeout prevents indefinite blocking if the lock holder crashes (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7). <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
+1. Successive vault graph merges preserve nodes from prior passes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs) -->
+2. Each pass emits at most one graph node for each node ID. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs) -->
+3. Edge evidence is keyed by `(source, target, relation, source_file)`, preserving distinct tuples across persisted, prior, and new graph data while collapsing identical tuples. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple) -->
+4. Structurally malformed edge entries are ignored without aborting the merge. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::node_link_edges --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::node_link_edges --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC4: malformed edge entries are ignored without crashing) -->
 
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** The persistent cumulative graph—not a per-run chunk—is the input to `graphify global add --as user_vault`. Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
-- No HTML visualization is generated for the unified global graph; structural queries are the interface; Only the curated vault subset receives a rendered visualization shipped to users.
+- Vault-extract and memory-capture writers on both runtimes author request chunks and fold them through the shared merge path rather than editing `graph.json` in place.
+- Vault graph merges share the capture-pipeline/global-graph lock; its short timeout prevents a crashed holder from blocking extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
+- Missing or unreadable graph files retain the established fresh-graph recovery path.
+- No HTML visualization is generated for the unified global graph; structural queries are the interface; only the curated vault subset receives a rendered visualization shipped to users.
 
 **Priority:** P0
 
@@ -269,7 +281,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- The carrier file acts as the dedup gate: the capture subagent must delete it as its first step; absence on subsequent hook fires short-circuits trigger emission.
+- Claude: the carrier file acts as the dedup gate and the capture subagent deletes it first.
+- Pi: the separate root-owned delivery contract is specified by [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages) AC5–AC6.
 
 **Priority:** P0
 
@@ -373,30 +386,93 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-014: Pi capture contract, transcript prefilter, and model-fidelity lever
 
-**Intent:** Pi's memory-capture and vault-extract subagents must follow the same full capture contract as the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) - chunk the transcript, accumulate per-chunk observations, synthesise a structured note, and cite REQ/ADR/SHA/PR identifiers verbatim - rather than the thin inline contract Pi previously carried. The transcript handed to the capture agent must be prefiltered to preserve the conversational arc, and the capture/extract agents must be able to run on a higher-fidelity model without a hardcoded model name.
+**Intent:** Pi's memory-capture and vault-extract subagents must preserve the citation fidelity and prefiltered conversational arc established by the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) without inheriting Claude's multi-pass scratchpad cost. Pi extraction must cite REQ/ADR/SHA/PR identifiers verbatim and use a provider-neutral fidelity lever.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi ships a full capture-contract prompt file and a vault-extract prompt file, replacing the prior thin inline contract that the extension wrote at runtime. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. The Pi extension points its prompt-file constants at the deployed prompt files under `~/.pi/agent/prompts/` and no longer writes the prompt contracts inline. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. The seed generator maps `prompts/` source files to the deployed `~/.pi/agent/prompts/` location, and both prompt files are delivered advanced-only via the Pi manifest. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-4. Before the transcript is handed to the capture agent, it is prefiltered to user and assistant text only - tool-use, tool-result, and thinking blocks are dropped - bounded to the last 200 turns at up to 8000 characters per turn. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
-5. The capture/extract subagent spawn accepts an optional model argument sourced from `CODEFLARE_MEMORY_MODEL`; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildSpawnOptions --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory model-fidelity lever / REQ-MEM-014 AC5/AC6 (buildSpawnOptions applies the model only when set; no hardcoded model)) -->
-6. The Pi memory-capture agent runs in the background so main-session work cannot cancel it. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildSpawnOptions --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. Pi ships a full capture-contract prompt file and a vault-extract prompt file, replacing the prior thin inline contract that the extension wrote at runtime. <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::Pi Memory Capture Contract --> <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::Pi Vault Extraction Contract --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. The Pi extension points its prompt-file constants at the deployed prompt files under `~/.pi/agent/prompts/` and no longer writes the prompt contracts inline. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::defaultDependencies --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+3. The seed generator maps `prompts/` source files to the deployed `~/.pi/agent/prompts/` location, and both prompt files are delivered advanced-only via the Pi manifest. <!-- @impl: scripts/generate-agent-seed.mjs::piNativeKey --> <!-- @impl: preseed/agents/pi/manifest.json::prompts/memory-agent-prompt.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+4. Capture input contains only uncaptured user/assistant text. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
+5. Capture input contains no more than 40 text turns of 4000 characters each. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
+6. Each Pi capture/extract request includes the optional model from `CODEFLARE_MEMORY_MODEL` only when non-empty; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) -->
+7. Each Pi memory launch makes its immutable execution snapshot readable to the background child before exposing the public `subagent` request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryExecutionVarsPath --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
 
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). The execution profile is owned by [REQ-MEM-016](#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
 **Constraints:**
 
 - The model-fidelity lever is the Pi-runtime expression of the [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rationale; Claude pins the model at the subagent-definition level per [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) while Pi reads it from the environment so no model name is committed.
-- The prefilter mirrors the Claude prefilter rationale (drop tool/recency noise, preserve the conversational arc); it does not change the capture cadence or the dedup-gate carrier-file protocol.
+- The prefilter removes tool-use, tool-result, thinking, and synthetic directive content before capture.
+- The successful prompt counter defines the start of the uncaptured interval.
+- Pi delivery state is root-owned and transcript-derived, while Claude retains its hook carrier-file protocol.
+- Memory execution snapshots use the shared home-backed cache.
+- Active legacy temp snapshots migrate to the shared cache before retry.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-008](#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline)
 
-**Verification:** Manual check
+**Verification:** [Public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [generated agent contract tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-016: Pi extraction jobs have a bounded execution profile
+
+**Intent:** Pi memory and Vault extraction must finish as bounded background jobs without inheriting an open-ended foreground execution profile.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Generated Pi memory-capture and vault-extract agent definitions expose only Bash. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter) -->
+2. Generated Pi memory-capture and vault-extract agent definitions use provider-neutral medium reasoning. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter) -->
+3. Every emitted Pi capture/extract request disables inherited context. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+4. Every emitted Pi capture/extract request uses provider-neutral medium reasoning. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+5. Every emitted Pi capture/extract request stops after four agent turns. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+
+**Constraints:**
+
+- Memory capture treats the immutable snapshot's `transcript` field as its sole conversation input and does not discover an `INPUT_FILE` or separate transcript path.
+- Vault extraction reads only its request snapshot and frozen input files.
+- Model identity remains independently configurable through `CODEFLARE_MEMORY_MODEL`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)
+
+**Verification:** [Generated agent contract tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-017: Session memory graph identity is deterministic
+
+**Intent:** Repeated Pi session capture must produce stable graph identities and evidence for the same note content.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. A session document node uses the note H1 as its label. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges) -->
+2. A session document node uses a stable identifier derived from its Vault-relative path. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges) -->
+3. Repeated references to the same concept label produce one canonical concept identifier. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges) -->
+4. Exact duplicate source/target/relation/source-file edges collapse to one edge. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges) -->
+
+**Constraints:**
+
+- The generated advanced Pi seed carries the same graph-builder source as the canonical preseed.
+- Graph output remains compatible with the cumulative Vault merge path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
+
+**Verification:** [Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js)
 
 **Status:** Implemented

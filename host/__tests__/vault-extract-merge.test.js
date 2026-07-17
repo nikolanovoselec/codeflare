@@ -1,29 +1,19 @@
 // REQ-MEM-009: vault-extract cumulative merge pipeline.
 //
-// AC1/AC2/AC4 are now implemented by merge-vault-graph.py (extracted
-// from the prompt). Tests inspect the Python script's AST via a
-// subprocess: py_compile validates syntax, ast.parse + dump verifies
-// the expected imports and function calls actually exist as Python
-// nodes (not just byte patterns in prose). Gut-check: rename
-// nx.compose to nx.union and AC2 fails; remove the try/except and AC4
-// fails; remove to_json(...vault_graph_path...) and AC1 fails.
-//
-// AC3 + AC5 still test the prompt: the global-add invocation and the
-// flock scope live in the orchestrating bash, not the Python script,
-// and rewriting them as a separate script would add no behavioural
-// coverage (the bash is a single command line).
+// Behavioral cases execute merge-vault-graph.py against persisted and
+// request graphs. Focused AST checks cover static export/composition wiring.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VAULT_DIR = path.join(__dirname, '..', '..', 'preseed', 'agents', 'claude', 'plugins', 'codeflare-vault', 'scripts');
 const SCRIPT = path.join(VAULT_DIR, 'merge-vault-graph.py');
-const PROMPT = path.join(VAULT_DIR, 'vault-extract-prompt.md');
 
 function pyAst(query) {
   const code = `
@@ -82,6 +72,101 @@ print(len(hits))
   assert.equal(r.stdout.trim(), '1', 'merge-vault-graph.py must call nx.compose exactly once');
 });
 
+test('REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs', () => {
+  const code = `
+import json, runpy
+module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
+empty = {'nodes': [], 'links': []}
+first_chunk = {
+  'nodes': [{'id': 'document', 'label': 'first'}],
+  'links': [],
+}
+second_chunk = {
+  'nodes': [
+    {'id': 'document', 'label': 'replacement'},
+    {'id': 'concept', 'label': 'new'},
+  ],
+  'links': [],
+}
+first = module['merge_node_link_evidence'](empty, first_chunk)
+second = module['merge_node_link_evidence'](first, second_chunk)
+print(json.dumps(second, sort_keys=True))
+`;
+  const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).nodes, [
+    { id: 'document', label: 'first' },
+    { id: 'concept', label: 'new' },
+  ]);
+});
+
+test('REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple', () => {
+  const code = `
+import json, runpy
+module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
+duplicated = {
+  'nodes': [],
+  'links': [
+    {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/note.md'},
+    {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/note.md'},
+  ],
+}
+persisted = {
+  'nodes': [{'id': 'document'}, {'id': 'concept'}],
+  'links': [
+    {'source': 'document', 'target': 'concept', 'relation': 'mentions', 'source_file': '/new.md'},
+  ],
+}
+prior = {
+  'links': [
+    {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/prior.md'},
+  ],
+}
+print(json.dumps({
+  'deduplicated': module['dedupe_node_link_edges'](duplicated),
+  'merged': module['merge_node_link_evidence'](persisted, prior, duplicated),
+}, sort_keys=True))
+`;
+  const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.deduplicated.links, [
+    { source: 'document', target: 'concept', relation: 'references', source_file: '/note.md' },
+  ]);
+  assert.deepEqual(output.merged.links, [
+    { source: 'document', target: 'concept', relation: 'mentions', source_file: '/new.md' },
+    { source: 'document', target: 'concept', relation: 'references', source_file: '/prior.md' },
+    { source: 'document', target: 'concept', relation: 'references', source_file: '/note.md' },
+  ]);
+});
+
+test('REQ-MEM-009 AC4: malformed edge entries are ignored without crashing', () => {
+  const code = `
+import json, runpy
+module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
+persisted = {'nodes': [{'id': 'document'}, {'id': 'concept'}], 'links': []}
+missing_edges = {'nodes': [], 'links': None}
+malformed_prior = {
+  'nodes': [],
+  'links': [
+    {'source': ['document'], 'target': 'concept', 'relation': 'mentions', 'source_file': '/bad.md'},
+    {'source': 'document', 'target': {'id': 'concept'}, 'relation': 'mentions', 'source_file': '/bad.md'},
+  ],
+}
+new = {
+  'links': [
+    {'source': 'document', 'target': 'concept', 'relation': 'mentions', 'source_file': '/new.md'},
+  ],
+}
+print(json.dumps(module['merge_node_link_evidence'](persisted, missing_edges, malformed_prior, new), sort_keys=True))
+`;
+  const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).links, [
+    { source: 'document', target: 'concept', relation: 'mentions', source_file: '/new.md' },
+  ]);
+});
+
 test('REQ-MEM-009 AC2: script normalises both operands to directed before nx.compose (no crash on an undirected prior graph)', () => {
   // build_from_json returns an undirected Graph, and a prior vault-graph.json
   // written by an older release (directed:false, or lacking the flag) also
@@ -103,39 +188,65 @@ print(len(calls))
   );
 });
 
-test('REQ-MEM-009 AC4: script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph', () => {
-  const r = pyAst(`
-tries = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
-ok = False
-for t in tries:
-    body_src = ast.unparse(t)
-    if 'vault_graph_path' in body_src and t.handlers:
-        ok = True
-        break
-print('OK' if ok else 'MISSING')
-`);
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), 'OK', 'merge-vault-graph.py must wrap the vault_graph_path read in a try/except block');
-});
+test('REQ-MEM-009: missing or corrupt persistent graph input recovers to a valid merged graph', () => {
+  for (const [name, persisted] of [['missing', null], ['corrupt', '{not-json']]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), `vault-merge-${name}-`));
+    const chunkPath = path.join(directory, 'chunk.json');
+    const vaultPath = path.join(directory, 'vault-graph.json');
+    const outPath = path.join(directory, 'graph.json');
 
-test('REQ-MEM-009 AC3: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)', () => {
-  const body = fs.readFileSync(PROMPT, 'utf8');
-  assert.match(
-    body,
-    /graphify\s+global\s+add\s[\s\S]{0,200}vault-graph\.json[\s\S]{0,200}--as\s+user_vault/,
-    'prompt step 5 must call `graphify global add <vault-graph.json> --as user_vault`',
-  );
-});
+    try {
+      fs.writeFileSync(chunkPath, JSON.stringify({ nodes: [{ id: 'new' }], links: [] }));
+      if (persisted !== null) fs.writeFileSync(vaultPath, persisted);
+      const code = `
+import json, runpy, sys, types
 
-test('REQ-MEM-009 AC5: prompt wraps the merge invocation under flock /tmp/graphify-global.lock', () => {
-  const body = fs.readFileSync(PROMPT, 'utf8');
-  const flockMatches = body.match(/flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock/g) || [];
-  assert.ok(flockMatches.length >= 2, `expected >=2 flock wrappers (steps 4 + 5), got ${flockMatches.length}`);
-  assert.match(
-    body,
-    /flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock\s+\S*python\S*\s+\S*merge-vault-graph\.py/,
-    'prompt step 4 must invoke merge-vault-graph.py under flock',
-  );
+class Graph:
+    def __init__(self, blob=None):
+        self.blob = blob or {'nodes': [], 'links': []}
+    def is_directed(self):
+        return True
+    def to_directed(self):
+        return self
+    def number_of_nodes(self):
+        return len(self.blob.get('nodes', []))
+
+def compose(left, right):
+    nodes = {}
+    for item in left.blob.get('nodes', []) + right.blob.get('nodes', []):
+        if isinstance(item, dict) and isinstance(item.get('id'), str):
+            nodes.setdefault(item['id'], item)
+    return Graph({'nodes': list(nodes.values()), 'links': left.blob.get('links', []) + right.blob.get('links', [])})
+
+networkx = types.ModuleType('networkx')
+networkx.DiGraph = Graph
+networkx.node_link_graph = lambda blob, edges='edges': Graph(blob)
+networkx.compose = compose
+sys.modules['networkx'] = networkx
+
+graphify = types.ModuleType('graphify')
+graphify.__path__ = []
+build = types.ModuleType('graphify.build')
+build.build_from_json = lambda blob: Graph(blob)
+cluster_module = types.ModuleType('graphify.cluster')
+cluster_module.cluster = lambda graph: {}
+export = types.ModuleType('graphify.export')
+export.to_json = lambda graph, communities, output: open(output, 'w', encoding='utf-8').write(json.dumps(graph.blob))
+sys.modules.update({'graphify': graphify, 'graphify.build': build, 'graphify.cluster': cluster_module, 'graphify.export': export})
+
+sys.argv = [${JSON.stringify(SCRIPT)}, ${JSON.stringify(chunkPath)}, ${JSON.stringify(vaultPath)}, ${JSON.stringify(outPath)}]
+runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='__main__')
+`;
+      const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+      assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+      const persistedGraph = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
+      assert.deepEqual(persistedGraph.nodes.map((node) => node.id), ['new'], name);
+      assert.deepEqual(persistedGraph.links, [], name);
+      assert.deepEqual(JSON.parse(fs.readFileSync(outPath, 'utf8')), persistedGraph, name);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
 });
 
 test('REQ-MEM-009: the Pi-local merge-vault-graph.py is byte-identical to the Claude copy (path-agnostic, no drift)', () => {

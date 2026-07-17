@@ -221,40 +221,52 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(liveDeviated).toBe(true); // the overlay actually animated
   });
 
-  it('REQ-LANDING-006: the hover-decode sign-in CTA locks each word span to its resting width so the header never reflows', async () => {
+  it('REQ-LANDING-006: the hover-decode sign-in CTA holds a resting-width ghost box per word so the header never reflows', async () => {
     const el = document.createElement('a');
     el.setAttribute('data-scramble-hover', '');
     el.textContent = 'Enter The Matrix';
     document.body.appendChild(el);
     mockMatchMedia(false);
     mockFontsReady();
-    // happy-dom has no layout engine, so stub the resting width the lock measures.
-    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
-      width: 42,
-      height: 0,
-      top: 0,
-      left: 0,
-      right: 42,
-      bottom: 0,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
 
     await import('../scripts/scramble');
     await Promise.resolve();
     vi.runAllTicks();
-    vi.advanceTimersByTime(50); // fire the rAF that runs the width lock
 
-    const spans = el.querySelectorAll<HTMLElement>('.scramble-word');
-    // "Enter" + "The" + "Matrix" -> three word boxes, each pinned to its measured resting
-    // width so the per-frame glyph churn cannot resize the button and shove the nav.
-    expect(spans.length).toBe(3);
-    for (const span of spans) {
-      expect(span.style.display).toBe('inline-block');
-      expect(span.style.width).toBe('42px');
+    // "Enter" + "The" + "Matrix" -> three centered ghost/overlay boxes. The in-flow
+    // ghost IS the footprint (no measured pixel lock exists to be captured while the
+    // nav is hidden and go stale), so churn can never resize the button.
+    const boxes = el.querySelectorAll<HTMLElement>('.scramble-box');
+    expect(boxes.length).toBe(3);
+    const labels: string[] = [];
+    for (const box of Array.from(boxes)) {
+      expect(box.classList.contains('scramble-box--center')).toBe(true);
+      const ghost = box.querySelector<HTMLElement>('.scramble-ghost');
+      const live = box.querySelector<HTMLElement>('.scramble-word');
+      expect(ghost).not.toBeNull();
+      expect(live).not.toBeNull();
+      expect(live!.style.width).toBe(''); // no stale inline pixel lock
+      expect(live!.textContent).toBe(ghost!.textContent);
+      labels.push(ghost!.textContent ?? '');
     }
-    rectSpy.mockRestore();
+    expect(labels).toEqual(['Enter', 'The', 'Matrix']);
+
+    // The decode animates the overlay only; the ghost (the layout box) never mutates.
+    el.dispatchEvent(new Event('mouseenter'));
+    const live = boxes[0].querySelector<HTMLElement>('.scramble-word')!;
+    const ghost = boxes[0].querySelector<HTMLElement>('.scramble-ghost')!;
+    // Sample several early frames (settle probability is 0 before frame 8): the
+    // overlay must actually churn away from the label, or the decode is a no-op.
+    let liveDeviated = false;
+    for (let tick = 0; tick < 6; tick++) {
+      vi.advanceTimersByTime(50);
+      if (live.textContent !== 'Enter') liveDeviated = true;
+      expect(ghost.textContent).toBe('Enter'); // the layout box never mutates
+    }
+    expect(liveDeviated).toBe(true);
+    // After the full decode pass the overlay settles back to the exact label.
+    vi.advanceTimersByTime(30 * 50);
+    expect(live.textContent).toBe('Enter');
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {

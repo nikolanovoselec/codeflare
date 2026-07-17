@@ -10,7 +10,7 @@ import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { markScrollIntent } from '../lib/terminal-scroll-intent';
 import { loadSettings } from '../lib/settings';
 import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
-import { getIframeInput } from '../lib/xterm-internals';
+import { getIframeInput, scrollBufferLines } from '../lib/xterm-internals';
 import { isSpeechSupported, isListening, startListening, stopListening, getMicPermissionState } from '../lib/speech-input';
 import '../styles/floating-terminal-buttons.css';
 
@@ -90,8 +90,15 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
         sendTerminalKey(target.term, sequence);
       } else {
         markScrollIntent(target.sessionId, target.terminalId);
-        if (direction === 'up') target.term.scrollPages(-1);
-        else target.term.scrollToBottom();
+        // Buffer-authoritative navigation: the public scrollPages/scrollToBottom
+        // resolve against DOM scroll state that can diverge from the buffer and
+        // land the viewport at the wrong line (see scrollBufferLines).
+        if (direction === 'up') {
+          scrollBufferLines(target.term, -(target.term.rows - 1));
+        } else {
+          const active = target.term.buffer.active;
+          scrollBufferLines(target.term, active.baseY - active.viewportY);
+        }
       }
     }
     refocusTerminal();

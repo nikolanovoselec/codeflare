@@ -10,7 +10,6 @@
  *   REQ-MOB-001 AC3 - e2e-ui-mobile CI job passes (CI job, not a unit test)
  *   REQ-MOB-016 AC1 - iframe compositor jail (not exported; Playwright + Android IME)
  *   REQ-MOB-016 AC1 - iframe focus check via iframe.contentDocument.hasFocus() (not exported; Playwright)
- *   REQ-MOB-004 AC1 - .xterm-viewport overflow:hidden CSS rule (visual / Playwright)
  *   REQ-MOB-004 AC2 - _syncTextArea not frozen (xterm internal; Playwright)
  */
 
@@ -322,9 +321,39 @@ describe('REQ-MOB-002: Virtual keyboard opens reliably on tap', () => {
 // source-string-matching assertions here were theater (they passed even if
 // the production detector were deleted) and have been removed.
 //
-// AC1 (CSS overflow:hidden) is a Playwright candidate.
 // AC2 (_syncTextArea) is an xterm internal / Playwright candidate.
 // ============================================================================
+
+describe('REQ-MOB-004: scroll-drop defenses', () => {
+  // The overflow rule is the load-bearing defense that strips the viewport
+  // element of native-scroll-container status so browser focus validation
+  // cannot reset it. This asserts the PARSED stylesheet contract via CSSOM
+  // (selector + declaration + !important priority), not source text — a
+  // removed, renamed, or de-prioritized rule fails regardless of formatting.
+  // Whether the rule wins the full cascade on-device remains a Playwright
+  // concern.
+  it('REQ-MOB-004 AC1: the terminal stylesheet disables native scrolling on the xterm viewport', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const css = readFileSync(resolve(__dirname, '../../styles/terminal.css'), 'utf8');
+
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+    try {
+      const rules = Array.from(style.sheet!.cssRules).filter(
+        (rule): rule is CSSStyleRule => rule instanceof CSSStyleRule,
+      );
+      const viewportRule = rules.find((rule) => rule.selectorText === '.xterm .xterm-viewport');
+      expect(viewportRule, 'a .xterm .xterm-viewport rule must exist').toBeTruthy();
+      expect(viewportRule!.style.getPropertyValue('overflow')).toBe('hidden');
+      expect(viewportRule!.style.getPropertyPriority('overflow')).toBe('important');
+      expect(viewportRule!.style.getPropertyValue('overscroll-behavior')).toBe('contain');
+    } finally {
+      style.remove();
+    }
+  });
+});
 
 // ============================================================================
 // REQ-MOB-010: FitAddon fit calls are coordinated

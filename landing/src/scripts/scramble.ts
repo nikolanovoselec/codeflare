@@ -75,8 +75,16 @@ function animateWord(span: HTMLElement, target: string): void {
   }, TICK_MS);
 }
 
-/** Split one [data-scramble] element into per-word ghost + churn-overlay boxes, then run. */
-function setupElement(el: HTMLElement): void {
+/**
+ * Split an element's text into per-word ghost + churn-overlay boxes.
+ *
+ * A resting-width ghost (invisible, in flow) reserves the layout box; the churning
+ * text is overlaid absolutely on top, so a glyph wider than the resting letters
+ * paints past the box without clipping and without growing it -- wrap points and
+ * siblings never move. `centered` centers the overlay over the ghost (the hover
+ * CTA) so wide churn glyphs spill symmetrically instead of escaping rightward.
+ */
+function buildWordBoxes(el: HTMLElement, centered: boolean): { live: HTMLElement; text: string }[] {
   const full = el.textContent ?? '';
   // Keep whitespace runs as their own tokens so word boundaries are preserved.
   const parts = full.split(/(\s+)/);
@@ -88,12 +96,8 @@ function setupElement(el: HTMLElement): void {
     if (/^\s+$/.test(part)) {
       el.appendChild(document.createTextNode(part));
     } else {
-      // A resting-width ghost (invisible, in flow) reserves the layout box; the churning
-      // text is overlaid absolutely on top, so a glyph wider than the resting letters
-      // paints past the box without clipping and without growing it -- the phrase's wrap
-      // points never move, so the headline never reflows.
       const box = document.createElement('span');
-      box.className = 'scramble-box';
+      box.className = centered ? 'scramble-box scramble-box--center' : 'scramble-box';
       const ghost = document.createElement('span');
       ghost.className = 'scramble-ghost';
       ghost.textContent = part;
@@ -106,6 +110,12 @@ function setupElement(el: HTMLElement): void {
       words.push({ live, text: part });
     }
   }
+  return words;
+}
+
+/** Split one [data-scramble] element into per-word ghost + churn-overlay boxes, then run. */
+function setupElement(el: HTMLElement): void {
+  const words = buildWordBoxes(el, false);
 
   // Start only after the webfont has loaded, so the first churn frame is Inter, not the
   // fallback font.
@@ -138,9 +148,9 @@ initScramble();
 /**
  * Hover / focus decode: [data-scramble-hover] elements (the header "Enter The
  * Matrix" sign-in CTA) rest static and run a single scramble -> decode pass when
- * hovered or focused. The button paints solid coral (not the flare gradient), so
- * content-sized word spans never clip. Disabled under reduced motion; with no JS
- * the label is plain, legible text.
+ * hovered or focused, painting on the same ghost + centered-overlay structure as
+ * the idle scramble so the button footprint never changes. Disabled under
+ * reduced motion; with no JS the label is plain, legible text.
  */
 const HOVER_FRAMES = 26;
 
@@ -161,47 +171,20 @@ function decodeWord(span: HTMLElement, target: string): void {
 }
 
 function setupHoverElement(el: HTMLElement): void {
-  const parts = (el.textContent ?? '').split(/(\s+)/);
-  el.textContent = '';
-  const words: { span: HTMLElement; text: string }[] = [];
-  for (const part of parts) {
-    if (part === '') continue;
-    if (/^\s+$/.test(part)) {
-      el.appendChild(document.createTextNode(part));
-    } else {
-      const span = document.createElement('span');
-      span.className = 'scramble-word';
-      span.textContent = part;
-      el.appendChild(span);
-      words.push({ span, text: part });
-    }
-  }
-
-  // Lock each word span to its resting width so the churning glyphs (a proportional
-  // nav font, every random glyph a different width) can never resize the button and
-  // reflow the header nav around it. The decode is 1:1 on character count, so the
-  // resting box always holds the churn; wider glyphs paint centered inside it without
-  // moving a sibling. Measured after the webfont loads so the lock matches the real
-  // Inter metrics, not the fallback font.
-  const lockWidths = () => {
-    for (const { span } of words) {
-      span.style.display = 'inline-block';
-      span.style.textAlign = 'center';
-      span.style.width = `${span.getBoundingClientRect().width}px`;
-    }
-  };
-  const fonts = (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
-  if (fonts?.ready) {
-    fonts.ready.then(() => requestAnimationFrame(lockWidths));
-  } else {
-    requestAnimationFrame(lockWidths);
-  }
+  // Same ghost + overlay structure as the idle scramble, centered: the in-flow
+  // ghost holds the resting layout box at any font, viewport, or visibility
+  // state -- no measurement, so there is no pixel lock to be captured while the
+  // element is hidden or mid-layout and go stale (the old width lock measured 0
+  // in a hidden nav and let churn glyphs escape rightward past the CTA border).
+  // The decode paints on the centered overlay, so wider churn glyphs spill
+  // symmetrically around the stable box instead of shoving one edge.
+  const words = buildWordBoxes(el, true);
 
   let running = false;
   const run = () => {
     if (running) return;
     running = true;
-    for (const { span, text } of words) decodeWord(span, text);
+    for (const { live, text } of words) decodeWord(live, text);
     window.setTimeout(() => {
       running = false;
     }, HOVER_FRAMES * TICK_MS + 80);

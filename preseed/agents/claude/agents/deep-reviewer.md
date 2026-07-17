@@ -15,6 +15,10 @@ You do NOT review code quality, security, style, test theater, doc drift, or any
 
 You read and report. You never edit source, specs, docs, or tests. Your only write is your designated output file.
 
+### Binding /review override
+
+When the invoking prompt contains `review_mode=report-only`, return the complete verification report to the root session instead of writing the designated output file. This override takes precedence over every `OUTPUT_FILE` write instruction in this file. The root session alone persists `/review` artifacts and applies approved fixes.
+
 ## First action: validate inputs
 
 Before any verification work, confirm:

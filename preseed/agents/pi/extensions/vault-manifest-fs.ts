@@ -1,25 +1,26 @@
 /**
- * Vault-extract change detection — content-hash manifest (filesystem layer).
+ * Vault-extract content-hash manifest filesystem layer.
  *
- * Kept in its own module (no node:child_process, no Pi types) so the oracle test
- * can import and drive it directly in the Workers test pool. memory-vault.ts wraps
- * these with the hardcoded vault/manifest paths.
- *
- * Why content hashes and not mtimes: the R2 restore (rclone sync, entrypoint.sh)
- * rewrites every vault file's mtime to download-time — a May-authored note comes
- * back stamped "today", all files clustered at one instant. Any mtime-vs-marker
- * comparison then flags the whole vault as changed on the boot where the restore
- * lands after the marker, which is the 200k-token full re-extraction. Hashing the
- * bytes is immune: an mtime reset changes nothing, so unchanged content is zero work.
+ * Kept separate from Pi lifecycle code so detection and transactional promotion
+ * can be driven with real temporary files in the Workers test pool.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { buildVaultManifest, isVaultExcludedPath, parseVaultManifest, vaultManifestChanges, type VaultManifest } from "./memory-vault-helpers";
+import {
+  buildVaultManifest,
+  isVaultExcludedPath,
+  parseVaultManifest,
+  vaultManifestChanges,
+  type VaultManifest,
+} from "./memory-vault-helpers";
 
-// Walk the vault and hash every non-excluded file's bytes.
-// Returns {vault-relative path -> sha256 hex}. Unreadable files are skipped
-// (permission/vanished), not failed — the next tick retries.
+export type ManifestPromotion = "promoted" | "already-promoted" | "invalid";
+
+function sha256(bytes: string | Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 export function collectVaultFileHashes(vaultRoot: string): Record<string, string> {
   const out: Record<string, string> = {};
   if (!existsSync(vaultRoot)) return out;
@@ -33,47 +34,65 @@ export function collectVaultFileHashes(vaultRoot: string): Record<string, string
       if (entry.isDirectory()) stack.push(path);
       else if (entry.isFile()) {
         try {
-          out[relative(vaultRoot, path).replaceAll("\\", "/")] = createHash("sha256").update(readFileSync(path)).digest("hex");
-        } catch { /* unreadable (permission/vanished): skip */ }
+          out[relative(vaultRoot, path).replaceAll("\\", "/")] = sha256(readFileSync(path));
+        } catch { /* vanished or unreadable: retry on the next pass */ }
       }
     }
   }
   return out;
 }
 
-// Read + parse the persisted manifest; an absent or corrupt file is an empty
-// manifest (every live file then reads as new).
 export function readVaultManifest(manifestPath: string): VaultManifest {
-  let text: string | null = null;
-  try { text = readFileSync(manifestPath, "utf8"); } catch { /* absent → all new */ }
-  return parseVaultManifest(text);
+  try { return parseVaultManifest(readFileSync(manifestPath, "utf8")); } catch { return parseVaultManifest(undefined); }
 }
 
-// Absolute paths of vault files whose bytes are new/changed vs the persisted
-// manifest. Purely content-based → an mtime reset (R2 restore) yields zero.
-// vaultManifestChanges already returns relpaths sorted, and prefixing vaultRoot
-// uniformly preserves that order, so no re-sort is needed.
 export function changedVaultFilesIn(vaultRoot: string, manifestPath: string): string[] {
   const current = collectVaultFileHashes(vaultRoot);
-  return vaultManifestChanges(current, readVaultManifest(manifestPath)).map((rel) => join(vaultRoot, rel));
+  return vaultManifestChanges(current, readVaultManifest(manifestPath)).map((path) => join(vaultRoot, path));
 }
 
-// Write a precomputed hash map as the manifest (atomic tmp+rename). Exported so a
-// caller that already walked the vault (the extension's single detect-then-commit)
-// does not have to re-hash every file a second time.
-export function writeVaultManifest(manifestPath: string, hashes: Record<string, string>): void {
-  const manifest = buildVaultManifest(hashes);
+export function serializeVaultManifest(hashes: Record<string, string>): string {
+  return JSON.stringify(buildVaultManifest(hashes), null, 2);
+}
+
+export function vaultManifestContentHash(hashes: Record<string, string>): string {
+  return sha256(serializeVaultManifest(hashes));
+}
+
+export function writeVaultManifest(manifestPath: string, hashes: Record<string, string>): string {
+  const content = serializeVaultManifest(hashes);
   mkdirSync(dirname(manifestPath), { recursive: true });
-  const tmp = `${manifestPath}.tmp.${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(manifest, null, 2), "utf8");
-  renameSync(tmp, manifestPath);
+  const temporaryPath = `${manifestPath}.tmp.${process.pid}`;
+  writeFileSync(temporaryPath, content, "utf8");
+  renameSync(temporaryPath, manifestPath);
+  return sha256(content);
 }
 
-// Persist the current content map as the new high-water mark.
+export function promoteVaultManifest(
+  stagedPath: string,
+  committedPath: string,
+  expectedHash: string,
+): ManifestPromotion {
+  if (existsSync(stagedPath)) {
+    try {
+      if (sha256(readFileSync(stagedPath)) !== expectedHash) return "invalid";
+      renameSync(stagedPath, committedPath);
+      return "promoted";
+    } catch {
+      return "invalid";
+    }
+  }
+  try {
+    return sha256(readFileSync(committedPath)) === expectedHash ? "already-promoted" : "invalid";
+  } catch {
+    return "invalid";
+  }
+}
+
 export function commitVaultManifestTo(vaultRoot: string, manifestPath: string): void {
   writeVaultManifest(manifestPath, collectVaultFileHashes(vaultRoot));
 }
 
 export default function () {
-  // Helper module only; loaded by the Pi extension scanner as a no-op extension.
+  // Helper module only; loaded by Pi extension scanner as a no-op extension.
 }

@@ -1,11 +1,16 @@
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   collectVaultFileHashes,
   changedVaultFilesIn,
   commitVaultManifestTo,
+  promoteVaultManifest,
+  vaultManifestContentHash,
+  writeVaultManifest,
 } from '../../../preseed/agents/pi/extensions/vault-manifest-fs';
 
 /**
@@ -104,5 +109,64 @@ describe('vault-manifest content-hash detection', () => {
     for (const page of ['Index.md', 'README.md', 'CONFIG.md', 'STYLES.md']) {
       expect(hashes[page]).toBeUndefined();
     }
+  });
+
+  it('REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content', () => {
+    const claudeManifest = join(vault, 'graphify-out', 'claude-manifest.json');
+    const piManifest = join(vault, 'graphify-out', 'pi-manifest.json');
+    write('Index.md', 'excluded root page');
+    write('Raw/Sessions/generated.md', 'excluded generated note');
+    execFileSync('python3', [
+      resolve('preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py'),
+      'commit',
+      vault,
+      claudeManifest,
+    ]);
+    commitVaultManifestTo(vault, piManifest);
+
+    const piContent = JSON.parse(readFileSync(piManifest, 'utf8'));
+    expect(piContent).toEqual(JSON.parse(readFileSync(claudeManifest, 'utf8')));
+    expect(Object.keys(piContent.files)).not.toContain('Index.md');
+    expect(Object.keys(piContent.files)).not.toContain('Raw/Sessions/generated.md');
+  });
+
+  it('REQ-VAULT-026/027: returns the SHA of the exact atomically written manifest bytes', () => {
+    const hashes = collectVaultFileHashes(vault);
+    const returnedHash = writeVaultManifest(manifest, hashes);
+    const bytes = readFileSync(manifest);
+
+    expect(returnedHash).toBe(createHash('sha256').update(bytes).digest('hex'));
+    expect(returnedHash).toBe(vaultManifestContentHash(hashes));
+  });
+
+  it('REQ-VAULT-027: promotes only a matching staged manifest', () => {
+    const stage = join(vault, 'graphify-out', 'vault-extract-manifest.request.pending.json');
+    const hashes = collectVaultFileHashes(vault);
+    const expectedHash = writeVaultManifest(stage, hashes);
+    const stagedBytes = readFileSync(stage, 'utf8');
+
+    expect(promoteVaultManifest(stage, manifest, expectedHash)).toBe('promoted');
+    expect(existsSync(stage)).toBe(false);
+    expect(readFileSync(manifest, 'utf8')).toBe(stagedBytes);
+  });
+
+  it('REQ-VAULT-027: rejects mismatched staged bytes without changing the committed manifest', () => {
+    commitVaultManifestTo(vault, manifest);
+    const committedBefore = readFileSync(manifest, 'utf8');
+    const stage = join(vault, 'graphify-out', 'vault-extract-manifest.request.pending.json');
+    writeVaultManifest(stage, { ...collectVaultFileHashes(vault), 'Notes/new.md': 'a'.repeat(64) });
+
+    expect(promoteVaultManifest(stage, manifest, 'b'.repeat(64))).toBe('invalid');
+    expect(readFileSync(manifest, 'utf8')).toBe(committedBefore);
+    expect(existsSync(stage)).toBe(true);
+  });
+
+  it('REQ-VAULT-027: recovers rename-before-cleanup only when committed bytes match', () => {
+    const stage = join(vault, 'graphify-out', 'vault-extract-manifest.request.pending.json');
+    const expectedHash = writeVaultManifest(stage, collectVaultFileHashes(vault));
+    expect(promoteVaultManifest(stage, manifest, expectedHash)).toBe('promoted');
+
+    expect(promoteVaultManifest(stage, manifest, expectedHash)).toBe('already-promoted');
+    expect(promoteVaultManifest(stage, manifest, 'c'.repeat(64))).toBe('invalid');
   });
 });

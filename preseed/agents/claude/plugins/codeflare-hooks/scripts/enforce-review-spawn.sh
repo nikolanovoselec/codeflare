@@ -911,17 +911,16 @@ all_required_lanes_completed_for_current_head() {
 # is demanded only if it lacks current-head coverage AND is NOT currently in
 # flight. The old blanket "any required lane in flight -> exit 0" loop was
 # removed -- it masked the ENTIRE gate while a single slow lane (e.g. a
-# long-running code-reviewer) was in flight, so the sequential doc-updater
-# demand never fired even after spec-reviewer had completed. Per-lane guarding
+# long-running code-reviewer) was in flight, so another required lane's
+# demand never fired. Per-lane guarding
 # keeps the re-summon-loop fix (a lane already running is never re-demanded)
 # while still letting an independent/sequential lane be demanded on schedule.
 
 # ---------------------------------------------------------------------------
 # Parallel block: code-reviewer + spec-reviewer + doc-updater are spawned together.
-# All three review lanes are report-only and write to disjoint files (spec-reviewer ->
-# sdd/spec/.review-queue.md, doc-updater -> documentation/.doc-coverage.md), so there is
-# no ordering dependency and no shared-write race; the old spec->doc sequential gate
-# existed only for the superseded auto-fix model. Only the lanes present in
+# All three review lanes are report-only and return structured findings to the root.
+# Reviewers write no project, triage, or review-artifact files, so there is no ordering
+# dependency or shared-write race. Only the lanes present in
 # REQUIRED_LANES are demanded. A lane with fresh current-head coverage or an in-flight
 # run is skipped (not re-summoned) but does not suppress the other lanes.
 # ---------------------------------------------------------------------------
@@ -937,15 +936,14 @@ if requires_lane "doc-updater" && ! lane_has_current_coverage "doc-updater" && !
 fi
 
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn$MISSING in parallel. Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn$MISSING in parallel. Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
   emit_block "$REASON"
 fi
 
 # ---------------------------------------------------------------------------
 # doc-updater is demanded in the parallel block above, alongside code-reviewer and
-# spec-reviewer. The three review lanes are report-only and write to disjoint files, so
-# there is no ordering dependency between them (the old spec->doc sequential gate existed
-# only for the superseded auto-fix model where spec-reviewer edited sdd/ in place).
+# spec-reviewer. The three review lanes return findings without writing files, so there
+# is no ordering dependency between them.
 #
 # Advance the checkpoint only when EVERY required lane has a current-head completion
 # marker. all_required_lanes_completed_for_current_head is stricter than the demand-side

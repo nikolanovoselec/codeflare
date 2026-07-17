@@ -38,7 +38,7 @@ Additional details:
 
 **`deploy-dockerhub.yml`:** Fallback deploy pipeline near-identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. Used when the Cloudflare managed registry drops connections mid-upload. Before the Trivy scan it frees disk on the runner — prunes the local build cache, removes stale `*-container` images (keeping the image being scanned), and prunes dangling layers — so the scan's image export does not exhaust the Docker data root when using a persistent self-hosted runner (the `RUNNER` Actions variable; defaults to `ubuntu-latest`). The build itself caches via `type=gha`, so this does not cause cold builds. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets.
 
-**`bump-shadow-pins.yml`:** Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, the `chrome-devtools-mcp` Dockerfile baked-cache pin, every Pi preseed npm pin, and the vendored Impeccable skill bundle for Claude Code + Pi. Opens one PR per bump and regenerates matching lockfiles/agent seed when duplicated literals change. SHA256 checksums are invalidated on Dockerfile-binary bumps.
+**`bump-shadow-pins.yml`:** Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, the `chrome-devtools-mcp` Dockerfile baked-cache pin, every Pi preseed npm pin, and the vendored Impeccable skill bundle for Claude Code + Pi. Opens one PR per bump and regenerates matching lockfiles/agent seed when duplicated literals change. Pi lockfile-only regeneration goes through `scripts/regenerate-pi-preseed-lock.mjs`, which suppresses lifecycle scripts because the committed payload layout differs deliberately from the flattened runtime npm layout. SHA256 checksums are invalidated on Dockerfile-binary bumps.
 
 The OpenVSCode job validates upstream release tags against a strict version pattern before creating outputs. Its write-enabled shell steps receive the validated version and derived branch through quoted environment variables, so release metadata is never parsed as shell source ([REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation)).
 
@@ -90,6 +90,10 @@ Two parallel jobs:
     - Lint (oxlint), build frontend, run backend tests, host hook tests (`node --test`), frontend tests, landing tests (`npm test` in `working-directory: landing` — Container-API render + unit tests)
     - generate Workers runtime types (`wrangler types`), typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
 - **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
+
+### PR Exact-Head Monitoring
+
+PR-boundary eligibility, exact-head target resolution, and CI-monitor recovery are owned by [Preseed — Resetting Review-Spawn Checkpoints](preseed.md#resetting-review-spawn-checkpoints).
 
 ### E2E Workflow Detail
 

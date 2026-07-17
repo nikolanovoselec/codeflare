@@ -1,3 +1,5 @@
+import { resolveReviewScope, reviewScopeFlagError, scopeContract, type ReviewScopeContract } from "./review-scope";
+
 export type SddSubcommand = "init" | "edit" | "add" | "clean" | "mode";
 
 export type SddRepoState = {
@@ -6,10 +8,29 @@ export type SddRepoState = {
   hasOpenInitTriage: boolean;
 };
 
+export type SddWorkflowExecution = {
+  owner: "root";
+  allowsMutations: true;
+  reviewerAgents: false;
+  enforcementOrder: readonly [] | readonly ["spec-enforce", "doc-enforce"];
+  pushTarget: "none" | "current-branch";
+};
+
 export type SddCommandDecision =
   | { kind: "help"; message: string }
   | { kind: "error"; message: string }
-  | { kind: "workflow"; subcommand: SddSubcommand; skill: string; normalizedCommand: string };
+  | { kind: "workflow"; subcommand: SddSubcommand; skill: string; normalizedCommand: string; execution: SddWorkflowExecution; scope?: ReviewScopeContract };
+
+function rootSddExecution(subcommand: SddSubcommand): SddWorkflowExecution {
+  const enforcesSpecAndDocs = subcommand === "init" || subcommand === "clean";
+  return {
+    owner: "root",
+    allowsMutations: true,
+    reviewerAgents: false,
+    enforcementOrder: enforcesSpecAndDocs ? ["spec-enforce", "doc-enforce"] : [],
+    pushTarget: subcommand === "clean" ? "current-branch" : "none",
+  };
+}
 
 const SDD_SUBCOMMANDS = new Set(["init", "edit", "add", "clean", "mode"]);
 
@@ -70,10 +91,33 @@ export function sddCommandDecision(args: string, state: SddRepoState): SddComman
     };
   }
 
+  const scopeError = subcommand === "clean" ? reviewScopeFlagError(trimmed) : undefined;
+  if (scopeError) return { kind: "error", message: scopeError };
+
+  const scope = subcommand === "clean"
+    ? scopeContract(resolveReviewScope(trimmed) ?? "diff")
+    : undefined;
   return {
     kind: "workflow",
     subcommand,
     skill: sddSkillForSubcommand(subcommand),
     normalizedCommand: `/sdd ${trimmed}`,
+    execution: rootSddExecution(subcommand),
+    ...(scope ? { scope } : {}),
   };
+}
+
+export function sddWorkflowScopeText(decision: Extract<SddCommandDecision, { kind: "workflow" }>): string {
+  return decision.scope ? `Resolved scope: ${JSON.stringify(decision.scope)}` : "";
+}
+
+export function sddWorkflowExecutionText(decision: Extract<SddCommandDecision, { kind: "workflow" }>): string {
+  const mutationAccess = decision.execution.allowsMutations ? "allowed" : "blocked";
+  const reviewerDispatch = decision.execution.reviewerAgents
+    ? "reviewer-agent dispatch allowed"
+    : "do not spawn PR-boundary reviewer agents";
+  const enforcementOrder = decision.execution.enforcementOrder.length > 0
+    ? decision.execution.enforcementOrder.join(" then ")
+    : "none";
+  return `Execution owner: ${decision.execution.owner} session; file and Git mutations ${mutationAccess}; enforcement order: ${enforcementOrder}; push target: ${decision.execution.pushTarget}; ${reviewerDispatch}.`;
 }

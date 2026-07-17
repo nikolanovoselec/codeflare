@@ -21,6 +21,26 @@ function json401() {
   };
 }
 
+function accessRedirect(type: 'basic' | 'opaqueredirect', status: number) {
+  return {
+    type,
+    ok: false,
+    status,
+    statusText: '',
+    text: () => Promise.resolve(''),
+  };
+}
+
+function accessHtml403() {
+  return {
+    type: 'basic',
+    ok: false,
+    status: 403,
+    statusText: 'Forbidden',
+    text: () => Promise.resolve('<!doctype html><html><body>Access login</body></html>'),
+  };
+}
+
 describe('REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)', () => {
   let replaceSpy: ReturnType<typeof vi.fn>;
   let originalLocation: Location;
@@ -71,6 +91,21 @@ describe('REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hang
       new Promise<string>((r) => setTimeout(() => r('hung'), 500)),
     ]);
     expect(outcome).toBe('rejected');
+  });
+
+  it.each([
+    { label: 'basic redirect', response: () => accessRedirect('basic', 302) },
+    { label: 'opaque redirect', response: () => accessRedirect('opaqueredirect', 0) },
+    { label: 'HTML login response', response: () => accessHtml403() },
+  ])('REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)', async ({ response }) => {
+    stubLocation('/app/sessions');
+    mockFetch.mockResolvedValueOnce(response());
+
+    await expect(baseFetch('/api/user', {})).rejects.toMatchObject({
+      status: 401,
+      authRedirect: true,
+    });
+    expect(replaceSpy).toHaveBeenCalledWith('/');
   });
 
   it('does NOT redirect on a public path (login/root) — leaves the 401 to the caller', async () => {

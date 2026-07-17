@@ -299,7 +299,7 @@ Codeflare's threat model places several patterns in scope for static-analysis to
 
 | Pattern | Site | Why it's not a finding |
 |---|---|---|
-| Container runs as root (no `USER` directive) | `Dockerfile` (near `STOPSIGNAL`) | Network isolation via Durable Object proxy is the security boundary; only the DO can reach port 8080, and the per-DO container auth token validates every proxied request. Root is required for FUSE mount and runtime tool installation throughout the lifetime, not just init. |
+| Container runs as root (no `USER` directive) | `Dockerfile` (near `STOPSIGNAL`) | Network isolation via the Durable Object proxy is the security boundary: only the DO reaches port 8080 and the per-DO container auth token validates every proxied request. Root is required for FUSE mount and runtime tool installation throughout the lifetime. |
 | KV-stored CORS origin patterns not re-validated per request | `src/lib/cors-cache.ts` (`isAllowedOrigin`) | Admin already has full worker access (deploy code, modify secrets). Per-request re-validation adds overhead for zero benefit. |
 | Predictable-looking session ID pattern | `src/lib/constants.ts` (`SESSION_ID_PATTERN`) | Session IDs are namespace keys, not auth tokens. JWT is the auth gate. |
 | Hardcoded test email `e2e-service@codeflare.local` | `src/lib/access.ts` (service-token branch) | Test fixture using RFC 6762 reserved `.local` TLD. Auth gate is the worker secret, not the email string. |

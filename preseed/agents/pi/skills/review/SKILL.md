@@ -15,9 +15,13 @@ Parse scope and flags from that line, then run the phases below. This is the use
 
 **Review mode:** static analysis only. Never run builds, tests, or linters - the container is resource-constrained. Read and analyze code only.
 
+## Review ownership (binding)
+
+Every `/review` subagent runs with `review_mode=report-only` and returns its complete report to the root. The root persists every returned report, records triage/ADR/issue decisions, and applies a fix only after the user approves it. No subagent writes source, tests, specifications, documentation, triage, or review artifacts.
+
 ## Pi tool mapping (load-bearing)
 
-- **Subagents:** spawn via Pi's `Agent` tool with `subagent_type` set to the agent name (`security-reviewer`, `architect`, `code-reviewer`, `refactor-cleaner`, `tdd-guide`, `doc-updater`, `deep-reviewer`). There is no "Task tool" on Pi.
+- **Subagents:** spawn via Pi's `subagent` tool with `subagent_type` set to the agent name (`security-reviewer`, `architect`, `code-reviewer`, `refactor-cleaner`, `tdd-guide`, `doc-updater`, `deep-reviewer`). There is no "Task tool" on Pi.
 - **Graph queries:** use Pi-native `graphify_query`, `graphify_path`, `graphify_explain`. Never use `mcp__graphify__*` names. When a native tool resolves the wrong root (e.g. it looks at `/home/user/workspace/graphify-out/graph.json` while the active repo is a child), fall back to the CLI with `--graph <repo>/graphify-out/graph.json`:
   ```bash
   graphify query "<question>" --graph <repo>/graphify-out/graph.json
@@ -25,12 +29,12 @@ Parse scope and flags from that line, then run the phases below. This is the use
   graphify explain "X" --graph <repo>/graphify-out/graph.json
   ```
 - **Plan entry:** Pi has no EnterPlanMode primitive. Invoke the `Plan` agent OR produce an explicit written plan and wait for explicit user approval before any source/test/config edit.
-- **User prompts (Phase 8 only):** ask the user directly in the main session and wait for their answer. Phase 8 is the ONLY phase that runs in the main session; every other phase uses the `Agent` tool.
+- **Root-owned phases:** Phase 7 external verification (when available), Phase 8 user triage, and Phase 9-10 persistence/mutations run in the main session. All reviewer phases use report-only subagents and return their reports to the root.
 - **Shell:** in context-mode sessions route shell through `ctx_execute` / `ctx_batch_execute`; otherwise use Bash directly. Both produce identical output.
 
 ## Context preservation
 
-The main session is primarily an orchestrator. Delegate all source-code analysis and all reading of files `01-12` and `documentation/decisions/README.md` to `Agent` subagents.
+The main session is primarily an orchestrator. Delegate all source-code analysis and all reading of files `01-12` and `documentation/decisions/README.md` to `subagent` subagents.
 
 The main session may read only:
 - After Phase 5: the first ~20 lines of `09-active-findings.md`
@@ -93,10 +97,10 @@ PHASES
   4   Cross-reference + dedup
   5   AD filtering against documentation/decisions/README.md
   6   Reality Filter (Q1-Q6)
-  7   External LLM verification (only when --verify-high AND a surface exists)
-  8   Interactive triage (only phase in the main session)
-  9   Save triage + append to sdd/.review-decisions.md
-  10  Update ADs + create tech-debt GitHub issues
+  7   Root-owned external LLM verification (only when --verify-high AND a surface exists)
+  8   Interactive root-owned triage
+  9   Root-owned save + append to sdd/.review-decisions.md
+  10  Root-owned AD updates + tech-debt GitHub issues
   11  Plan entry for Fix decisions
 
 OUTPUT
@@ -111,6 +115,8 @@ SIBLINGS
 
 ## Phase 1: Parse arguments + create run directory (main session)
 
+Load `review-scope`; its `diff` and `all` meanings are binding for every later phase.
+
 Step 1a - parse the injected command line into four variables. Use word-boundary matching only; never substring-match `--all` against `--all-the-things` or any free-text token.
 
 - `$SCOPE` = `all` if `--all` is present as a standalone token, else `diff` if `--diff` is. If both are present, `--all` wins and you print a one-line warning. If neither is present, the help screen above already short-circuited.
@@ -118,14 +124,13 @@ Step 1a - parse the injected command line into four variables. Use word-boundary
 - `$VERIFY_HIGH` = `true` if `--verify-high` is a standalone token, else `false`.
 - `$SCOPE_HINT` = the free text remaining after stripping the four known flags (`--all`, `--diff`, `--deep`, `--verify-high`). Empty string if nothing is left. This is passed to every Phase 2 subagent.
 
-Step 1b - resolve the project root and create the run directory:
+Step 1b - use the absolute `Repository root:` from the injected workflow contract and create the run directory. Validate that exact path instead of deriving the project from the Pi process cwd:
 
 ```bash
-PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -z "$PROJECT_ROOT" ]; then
-  echo "ERROR: /review must be invoked from inside a git repository." >&2
-  exit 1
-fi
+PROJECT_ROOT='<absolute Repository root from the workflow contract>'
+RESOLVED_PROJECT_ROOT=$(node "$HOME/.pi/agent/skills/review/scripts/resolve-project-root.mjs" "$PROJECT_ROOT") || exit 1
+PROJECT_ROOT=$RESOLVED_PROJECT_ROOT
+cd "$PROJECT_ROOT"
 HAS_SDD=0
 [ -d "$PROJECT_ROOT/sdd" ] && HAS_SDD=1
 HAS_DOCS=0
@@ -147,13 +152,34 @@ Step 1c - record the scope decision so subagents can read it without re-parsing 
   echo "SCOPE_HINT=$SCOPE_HINT"
   if [ "$SCOPE" = "diff" ]; then
     BASE_REF=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo "main")
+    BASE_SHA=$(git merge-base "origin/${BASE_REF}" HEAD)
+    HEAD_SHA=$(git rev-parse HEAD)
+    RANGE="${BASE_SHA}..${HEAD_SHA}"
     echo "BASE_REF=$BASE_REF"
-    echo "DIFF_CMD=git diff origin/${BASE_REF}...HEAD"
+    echo "RANGE=$RANGE"
+    echo "WORK_SET=changed-hunks-and-direct-invalidations"
+  else
+    echo "WORK_SET=whole-requested-tree"
   fi
 } > "$REVIEW_DIR/.scope.txt"
 ```
 
-> **Force-push caveat:** `git diff origin/$BASE_REF...HEAD` resolves against the current branch tip. On force-pushed branches the diff may include files whose history was rewritten rather than only the genuinely new changes. The noise is bounded (still scoped to the merge-base side of `...`). For a strict since-last-review diff on a force-pushed branch, check out the merge-base first, or use `/review --all` to bypass diff resolution.
+Build each reusable lane packet once before launching agents:
+
+```bash
+if [ "$SCOPE" = "diff" ]; then
+  PACKET_RANGE=(--range "$RANGE")
+else
+  PACKET_RANGE=()
+fi
+for LANE in code-reviewer spec-reviewer doc-updater; do
+  node ~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs \
+    --repo "$PROJECT_ROOT" --scope "$SCOPE" "${PACKET_RANGE[@]}" --lane "$LANE" \
+    > "$REVIEW_DIR/.packet-${LANE}.json"
+done
+```
+
+> **Force-push caveat:** diff scope resolves the current protected-base merge base to a full two-dot SHA range. Rewritten branch history may still change that range; use `/review --all` when the whole requested tree is the intended work set.
 
 Step 1d - print the run summary:
 
@@ -167,27 +193,19 @@ Step 1d - print the run summary:
 
 Use `$REVIEW_DIR` for ALL output files and `$REVIEW_DIR/.scope.txt` for scope plumbing in every subsequent phase.
 
-Step 1e - refresh the graphify graph so every downstream phase queries current code. graphify is ambient in every codeflare container. Before Phase 2 spawns any subagent:
+Step 1e - classify graph availability without refreshing it. Review must not spend a scope cycle rebuilding global structure:
 
 ```bash
-if [ -f "$PROJECT_ROOT/graphify-out/graph.json" ]; then
-  # AST-only refresh, free, ~5-15s on medium repos; ensures the graph reflects current HEAD.
-  # If the refresh fails, the on-disk graph may be stale relative to HEAD - Q6 graph-orphan
-  # would then false-positive-DROP real findings. Set the no-graph marker on failure so
-  # downstream phases use the safer grep-style fallback instead of trusting stale state.
-  if ! (cd "$PROJECT_ROOT" && timeout 180 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh . 2>>"$REVIEW_DIR/.graphify-update.log"); then
-    echo "Note: graphify update failed or timed out at $(date -Iseconds). Graph at $PROJECT_ROOT/graphify-out/graph.json may be stale; treating as no-graph to avoid stale-orphan false positives. See .graphify-update.log." > "$REVIEW_DIR/.no-graph.notice"
-  fi
-else
-  echo "Note: no graphify graph at $PROJECT_ROOT/graphify-out/graph.json - structural review checks fall back to grep-style search. Run /graphify once to enable graph-aware review." > "$REVIEW_DIR/.no-graph.notice"
+if [ ! -f "$PROJECT_ROOT/graphify-out/graph.json" ]; then
+  echo "Note: no current project graph is available; use one focused search per direct-impact candidate." > "$REVIEW_DIR/.no-graph.notice"
 fi
 ```
 
-The update runs at most once per `/review` invocation, with a 180s hard timeout. Failures (non-zero exit, timeout, missing CLI) are non-fatal and write `.no-graph.notice`; downstream phases fall back to grep-equivalent search instead of risking stale-graph false positives. When `.no-graph.notice` is present this run: Reality Filter Q3 falls back to category-only grouping, Q5 skips its graph step, and Q6 is inert. The safe wrapper is the Pi-allowlisted path `/home/user/.pi/agent/scripts/safe-graphify-update.sh`; review uses it only to refresh graph structure, not to produce final labeled HTML artifacts.
+Use an existing current graph only for one direct-impact lookup per candidate. If it is absent or known stale, use a focused search. Never explore unrelated communities or treat graph absence as a finding.
 
-## Phase 2: Parallel subagent dispatch (6 `Agent` calls)
+## Phase 2: Parallel subagent dispatch (6 `subagent` calls)
 
-Launch **all 6 subagents in parallel in a SINGLE message of 6 `Agent` calls**, each with the matching `subagent_type`. Each reviews per the parsed `$SCOPE` (`all` = entire codebase; `diff` = the diff against `origin/$BASE_REF`) plus the optional `$SCOPE_HINT`, then writes structured findings to its own file. The subagents write ONLY to `$REVIEW_DIR/0N-*.md` - they touch no shared `sdd/` or `documentation/` state, so there is no filesystem race and parallel dispatch is safe.
+Launch all 6 subagents together through public `subagent` calls with `run_in_background: true` and `inherit_context: false`, each with the matching `subagent_type`. Do not impose an artificial concurrency, turn, token, or tool cap. Each consumes the already-built lane packet for `$SCOPE` plus the optional `$SCOPE_HINT`, then returns one structured report. Every subagent runs with `review_mode=report-only`; the root writes the returned reports to `$REVIEW_DIR/0N-*.md`, so reviewers never mutate shared `sdd/`, `documentation/`, source, test, or triage state.
 
 | # | subagent_type | Output file | Focus |
 |---|---------------|-------------|-------|
@@ -198,33 +216,39 @@ Launch **all 6 subagents in parallel in a SINGLE message of 6 `Agent` calls**, e
 | 5 | `tdd-guide` | `$REVIEW_DIR/05-test-gaps.md` | Test coverage gaps, untested critical paths, test quality |
 | 6 | `doc-updater` | `$REVIEW_DIR/06-documentation.md` | Missing/outdated docs, stale comments, README gaps, API doc coverage |
 
-If the runtime limits parallel `Agent` calls, batch them in 3s. If any subagent fails, retry once; if it still fails, continue with the successful reports and note the missing report in the summary.
+Launch the calls together through the public `subagent` tool. If any subagent fails, retry that failed call once; if it still fails, continue with the successful reports and note the missing report in the summary.
 
 ### Subagent prompt template
 
-Each prompt MUST include: the project root path, the exact `$REVIEW_DIR` output path, scope context, the severity schema, the output format, and the instruction to Write to its designated file. Adjust the focus area per subagent type:
+Each prompt MUST include: the project root path, the exact `$REVIEW_DIR` report path, scope context, the severity schema, the output format, and the instruction to return its report to the root without writing files. Adjust the focus area per subagent type:
 
 ```
 You are conducting a [SCOPE_DESCRIPTION] review of the project at [PROJECT_ROOT].
 
+review_mode=report-only
+Project root: [PROJECT_ROOT]
+repo=[PROJECT_ROOT]
+The root session persists every report and applies approved fixes.
+
 Scope mode: [SCOPE]    ([SCOPE_DESCRIPTION])
-[If SCOPE = diff]: review only what appears in `git diff origin/[BASE_REF]...HEAD`.
-                   Read $REVIEW_DIR/.scope.txt for BASE_REF + DIFF_CMD.
-                   Use the DIFF_CMD output to identify changed files; Read each
-                   fully and Read directly-related files for context. Do NOT
-                   review files outside the diff unless imported by changed files.
-[If SCOPE = all]:  review the entire codebase. Use search + Read to explore.
+Work set and exact range: read [REVIEW_DIR]/.scope.txt.
+Packet: read/process [PACKET_FILE] exactly once. In diff scope, start from its
+lane-owned hunks and follow only concrete direct invalidations. In all scope,
+walk every file listed by the packet. Do not reconstruct or dump the full diff.
+Read a whole file only after a packet hunk identifies a candidate that focused
+context cannot verify. Give each candidate one direct-impact pass, then report
+or dismiss it. Stop when every packet hunk/candidate has one disposition.
 
 [SCOPE_HINT if provided, e.g., "Within that scope, focus on src/routes/."]
 
 For structural lookups - "what calls X", "what depends on Y", "where is Z used",
 "is this dead code", "what does this symbol connect to" - PREFER the Pi-native
 graph tools graphify_query, graphify_path, graphify_explain over grep-style
-search. The graph at [PROJECT_ROOT]/graphify-out/graph.json was refreshed at the
-start of this /review run (Phase 1 Step 1e). If a native tool reports the wrong
-root, use the CLI fallback: graphify query "..." --graph
-[PROJECT_ROOT]/graphify-out/graph.json. If [REVIEW_DIR]/.no-graph.notice exists,
-the graph is unavailable or stale - fall back to grep-style search.
+search. Use at most one focused graph lookup per concrete candidate. If a native
+tool reports the wrong root, use the CLI fallback: graphify query "..." --graph
+[PROJECT_ROOT]/graphify-out/graph.json. If [REVIEW_DIR]/.no-graph.notice exists or
+the graph is known stale, use one focused search instead. Never explore unrelated
+communities.
 
 Rate each finding with one of these severities:
 - CRITICAL: Security vulnerabilities, data loss risks, production-breaking issues
@@ -232,7 +256,7 @@ Rate each finding with one of these severities:
 - MEDIUM: Code smells, minor design issues, moderate improvements needed
 - LOW: Style issues, minor suggestions, nice-to-haves
 
-Write your findings to [OUTPUT_FILE] using the Write tool. Use this format per finding:
+Return your complete findings report to the root session; do not write [OUTPUT_FILE] or any project/triage file. The root writes the returned bytes to [OUTPUT_FILE]. Use this format per finding:
 
 ## [SEVERITY] Short descriptive title
 
@@ -243,7 +267,7 @@ Write your findings to [OUTPUT_FILE] using the Write tool. Use this format per f
 - **Description:** What the issue is and why it matters
 - **Suggestion:** How to fix it
 
-At the top of the file include:
+At the top of the returned report include:
 # [REVIEW_TYPE] Review
 **Scope:** [SCOPE] ([all-codebase | diff vs origin/BASE_REF])
 **Findings:** [total count]
@@ -252,29 +276,31 @@ Focus on: [AGENT-SPECIFIC FOCUS AREA]
 
 Skill invocation override for /review mode (when applicable to your type):
 - doc-updater: invoke the doc-enforce skill with scope=[SCOPE] as your first
-  action. If the repo has no sdd/ or no documentation/ (vibe-coding mode), write
-  a one-line "no-op (vibe-coding mode: no sdd/ or no documentation/)" header to
-  your output file and return - do not leave the file empty.
+  action. If the repo has no sdd/ or no documentation/ (vibe-coding mode), return
+  a one-line "no-op (vibe-coding mode: no sdd/ or no documentation/)" report.
 - tdd-guide: invoke the tdd-enforce skill with scope=[SCOPE] against
   [the test files in the diff | every test file in the codebase] as your first action.
 - code-reviewer: when your scope includes test files, invoke tdd-enforce with scope=[SCOPE].
 
-Do NOT run any builds, tests, or linters locally. Read and analyze the code only.
+Batch deterministic scans once and retain only counts plus failures. Never print
+full successful manifests or source files. Do NOT run builds, tests, or linters
+locally. Read and analyze the code only.
 ```
 
 When dispatching, substitute:
 - `[SCOPE]` -> `all` or `diff` (literal value from `$REVIEW_DIR/.scope.txt`)
 - `[SCOPE_DESCRIPTION]` -> `"comprehensive whole-codebase"` for `all`, or `"diff-scoped"` for `diff`
 - `[BASE_REF]` -> value from `.scope.txt` (only meaningful in diff mode)
+- `[PACKET_FILE]` -> `.packet-doc-updater.json` for `doc-updater`; `.packet-code-reviewer.json` for the other Phase 2 agents
 - `[SCOPE_HINT]` -> the free-text remainder, or omitted if empty
 
 Agent ID prefixes: SEC (security), ARCH (architecture), QUAL (code-quality), DEAD (dead-code), TEST (test-gaps), DOCS (documentation).
 
-Wait for all 6 subagents to complete. Then:
+Wait for all 6 subagents to complete. The root writes each returned report to its designated Phase 2 output file; if a subagent fails after one retry, the root writes a failure note for that lane. Then:
 - If `$DEEP` is `true`: proceed to Phase 3.
 - If `$DEEP` is `false`: skip Phase 3 entirely and proceed to Phase 4.
 
-## Phase 3: REQ behavioral verification (parallel `Agent` calls - only when --deep)
+## Phase 3: REQ behavioral verification (parallel `subagent` calls - only when --deep)
 
 Skip this entire phase when `$DEEP` is `false`. Phase 4 glob-discovers report files and runs correctly with zero Phase 3 outputs.
 
@@ -286,7 +312,7 @@ The main session (this is a cheap shell step, not a subagent) materialises the R
 
 ```bash
 if [ "$SCOPE" = "diff" ]; then
-  CHANGED_FILES=$(git diff origin/${BASE_REF}...HEAD --name-only)
+  CHANGED_FILES=$(node -e 'const p=require(process.argv[1]); process.stdout.write(p.files.join("\n"))' "$REVIEW_DIR/.packet-spec-reviewer.json")
   REQ_IDS=$(grep -lE "REQ-[A-Z]+-[0-9]+" sdd/*.md \
             | xargs awk '
               /^### REQ-[A-Z]+-[0-9]+/ { req=$2 }
@@ -334,32 +360,34 @@ Phase 3 (deep): $REQ_COUNT Implemented REQs in scope, dispatching $BATCH_COUNT b
 
 ### Step 3c - launch deep-reviewer subagents
 
-Launch `$BATCH_COUNT` `Agent` calls with `subagent_type: deep-reviewer`. Run them in waves of 5: parallel within a wave (one message), sequential between waves (the runtime may rate-limit beyond 5 parallel). Each subagent gets its batch identifier and the REQ-list path.
+Launch all `$BATCH_COUNT` public `subagent` calls with `subagent_type: deep-reviewer` and `run_in_background: true`, without inherited context. Do not impose an artificial concurrency, turn, token, or tool cap. Each subagent gets its batch identifier and the REQ-list path.
 
 Each prompt:
 
 ```
 You are deep-reviewer batch [BATCH_ID] of [BATCH_COUNT] for /review run [REVIEW_DIR].
 
+review_mode=report-only
 Project root: [PROJECT_ROOT]
-Output file:  [REVIEW_DIR]/07-req-verify-[BATCH_ID].md
-Scope:        [SCOPE]   (diff -> base ref origin/[BASE_REF])
+repo=[PROJECT_ROOT]
+Report path for the root: [REVIEW_DIR]/07-req-verify-[BATCH_ID].md
+Scope:        [SCOPE]   (diff -> exact RANGE in .scope.txt)
 Scope hint:   [SCOPE_HINT or "(none)"]
+Scope packet: [REVIEW_DIR]/.packet-spec-reviewer.json
 
 REQ list for your batch: [REVIEW_DIR]/.deep/batch-[BATCH_ID]
-Read it and verify every REQ ID it contains.
-
-Follow your standard verification procedure (read REQ, identify impl, read impl,
-read tests, judge per AC, suggest fix type for mismatches). Write findings to your
-OUTPUT_FILE in the format defined in your agent definition.
+Process the packet once, then verify every listed REQ from its hunks and direct
+anchor invalidations. Read a whole implementation/test file only when a concrete
+AC candidate cannot be verified from focused context. Give each AC candidate one
+direct-impact pass, then report or dismiss it. Return the complete report to the root; write no file.
 
 For REQ-to-impl mapping and AC-to-symbol chain verification, PREFER the Pi-native
 graph tools graphify_path / graphify_query over grep-style search.
 graphify_path for (REQ-X-NNN -> cited-symbol) is the structural axis for
 behavioral-match verification: a returned path means the impl chain exists; no
-path means the implementation is missing or named differently. The graph at
-[PROJECT_ROOT]/graphify-out/graph.json was refreshed in Phase 1 Step 1e. If a
-native tool reports the wrong root, use the CLI fallback: graphify path "A" "B"
+path means the implementation is missing or named differently. Use at most one
+focused graph lookup per concrete AC candidate. If a native tool reports the
+wrong root, use the CLI fallback: graphify path "A" "B"
 --graph [PROJECT_ROOT]/graphify-out/graph.json. If [REVIEW_DIR]/.no-graph.notice
 exists, the graph is unavailable or stale - fall back to grep / Read for impl
 identification and record "graph unavailable" as evidence for any unclear verdict.
@@ -370,22 +398,26 @@ reserved for cosmetic drift.
 
 Hard rules: one finding per mismatch/unclear AC (not per REQ); every finding
 carries a file:line evidence anchor; the "Verified Clean" section listing
-fully-matching REQs is MANDATORY; never edit any file other than OUTPUT_FILE.
+fully-matching REQs is MANDATORY; write no file.
 ```
 
-### Step 3d - wait + verify outputs
+### Step 3d - wait + persist outputs
 
-After all subagents return, verify each `$REVIEW_DIR/07-req-verify-[BATCH_ID].md` exists. If any batch produced no file or an empty file, log it to `$REVIEW_DIR/.deep/failures.txt` and continue - the downstream pipeline tolerates partial coverage and notes the gap.
+After all subagents return, the root writes each complete response to `$REVIEW_DIR/07-req-verify-[BATCH_ID].md`. If any batch returned no report, log it to `$REVIEW_DIR/.deep/failures.txt` and continue - the downstream pipeline tolerates partial coverage and notes the gap.
 
 Read NOTHING from the batch files in the main session. Phase 4 does the consolidated read. Proceed to Phase 4.
 
-## Phase 4: Cross-reference (single `code-reviewer` `Agent` call)
+## Phase 4: Cross-reference (single `code-reviewer` `subagent` call)
 
-Launch one `Agent` call with `subagent_type: code-reviewer`. The subagent discovers report files dynamically (some agents may have failed; Phase 3 may have been skipped), deduplicates, identifies cross-domain findings, false positives, and emergent patterns, then writes `$REVIEW_DIR/08-cross-reference.md`.
+Launch one `subagent` call with `subagent_type: code-reviewer` and `review_mode=report-only`. The subagent discovers report files dynamically (some agents may have failed; Phase 3 may have been skipped), deduplicates, identifies cross-domain findings, false positives, and emergent patterns, then returns the complete report. The root writes it to `$REVIEW_DIR/08-cross-reference.md`.
 
 Prompt:
 
 ```
+review_mode=report-only
+Project root: [PROJECT_ROOT]
+repo=[PROJECT_ROOT]
+
 List the existing review files at [REVIEW_DIR]/0*.md (glob). Expected files:
 - 01-security.md through 06-documentation.md (Phase 2 outputs)
 - 07-req-verify-NN.md (one per Phase 3 batch; ABSENT if --deep was not passed)
@@ -418,7 +450,7 @@ Perform cross-referencing analysis:
 4. EMERGENT PATTERNS: Identify systemic issues only visible when combining
    perspectives (e.g., "all 3 API routes lack validation").
 
-Write output to [REVIEW_DIR]/08-cross-reference.md using this format:
+Return the complete report to the root; write no file. The root persists it at [REVIEW_DIR]/08-cross-reference.md using this format:
 
 # Cross-Reference Analysis
 
@@ -445,21 +477,26 @@ raw IDs MUST carry their req_id, ac_index, suggested_fix_type, and verdict.]
 - Emergent patterns identified: X
 ```
 
-## Phase 5: AD filtering (single `code-reviewer` `Agent` call)
+After the subagent returns, the root writes the complete response to `$REVIEW_DIR/08-cross-reference.md`.
 
-Launch one `Agent` call with `subagent_type: code-reviewer` to filter findings against documented architecture decisions.
+## Phase 5: AD filtering (single `code-reviewer` `subagent` call)
+
+Launch one `subagent` call with `subagent_type: code-reviewer` and `review_mode=report-only` to filter findings against documented architecture decisions. It returns the complete report; the root persists it.
 
 Prompt:
 
 ```
+review_mode=report-only
+Project root: [PROJECT_ROOT]
+repo=[PROJECT_ROOT]
+
 You are filtering codebase review findings against documented architecture decisions.
 
 1. Read [REVIEW_DIR]/08-cross-reference.md - canonical findings are the primary
    source of truth.
 2. Search documentation/decisions/README.md in the project root for architecture
-   decisions. If that file does not exist or has no AD entries, write
-   [REVIEW_DIR]/09-active-findings.md with ALL canonical findings marked active
-   (zero AD-guarded) and stop.
+   decisions. If that file does not exist or has no AD entries, return ALL
+   canonical findings marked active (zero AD-guarded) and stop.
 3. You may read CLAUDE.md / AGENTS.md files for implementation context, but ONLY
    documentation/decisions/README.md has authority to justify AD-guarding. Do not
    AD-guard a finding based solely on a CLAUDE.md / AGENTS.md note.
@@ -475,7 +512,7 @@ AD-Guard Rules (strict). A finding may ONLY be marked AD-GUARDED if ALL are true
 
 Each AD-guarded finding must record the exact AD title/heading and the relevant quote.
 
-5. Write the filtered active findings list to [REVIEW_DIR]/09-active-findings.md.
+5. Return the filtered active findings list to the root; write no file. The root persists it at [REVIEW_DIR]/09-active-findings.md.
 
 Format for 09-active-findings.md:
 
@@ -515,17 +552,21 @@ Review mode: static analysis only
 - **Suggestion:** ...
 ```
 
-After the subagent completes, read the first ~20 lines of `$REVIEW_DIR/09-active-findings.md` and print them. Phase 6 still runs even if Active = 0 - the cycle counter and audit log are useful artifacts even on clean cycles.
+After the subagent completes, the root writes its complete response to `$REVIEW_DIR/09-active-findings.md`, then reads the first ~20 lines and prints them. Phase 6 still runs even if Active = 0 - the cycle counter and audit log are useful artifacts even on clean cycles.
 
-## Phase 6: Reality Filter (single `code-reviewer` `Agent` call)
+## Phase 6: Reality Filter (single `code-reviewer` `subagent` call)
 
 The Reality Filter re-evaluates every Phase-5-active finding against six questions, using prior triage history (`sdd/.review-decisions.md`), ADR bodies, the unified global graph (cross-session feedback + user preferences + project conventions), recent git log, `sdd/changes.md`, and the project-local code-knowledge graph at `[PROJECT_ROOT]/graphify-out/graph.json`. It produces a SHORT list of real findings, an audit log of every drop, and a Tech-Debt-Surfaced section. Q3 clustering, Q5 chain validation, and Q6 graph-orphan use the project-local graph; Q2 memory-says-no uses the unified graph.
 
-Launch one `Agent` call with `subagent_type: code-reviewer`. The subagent uses the Pi-native graph tools (`graphify_query`, `graphify_path`, `graphify_explain`) against both the project-local graph and the unified global graph, with the CLI fallback when a native tool resolves the wrong root. If the project-local graph is missing (`$REVIEW_DIR/.no-graph.notice` exists), Q3 falls back to category-only grouping and Q6 is inert this cycle. If the unified graph is unreachable, Q2 produces no drops.
+Launch one `subagent` call with `subagent_type: code-reviewer` and `review_mode=report-only`. The subagent uses the Pi-native graph tools (`graphify_query`, `graphify_path`, `graphify_explain`) against both the project-local graph and the unified global graph, with the CLI fallback when a native tool resolves the wrong root. If the project-local graph is missing (`$REVIEW_DIR/.no-graph.notice` exists), Q3 falls back to category-only grouping and Q6 is inert this cycle. If the unified graph is unreachable, Q2 produces no drops.
 
 Prompt:
 
 ```
+review_mode=report-only
+Project root: [PROJECT_ROOT]
+repo=[PROJECT_ROOT]
+
 You are the REALITY FILTER stage of a multi-cycle codebase review. Take the
 AD-filtered list of N active findings and produce the SHORT list of REAL findings
 worth surfacing, plus an audit log of every drop. Filter ruthlessly against
@@ -663,7 +704,7 @@ deleted-since-but-still-named symbol.
 - Read actual source for any finding you keep with severity HIGH or CRITICAL.
 - Do not retry graphify calls if they fail; skip the affected input and continue.
 
-## Output: ONE file at [REVIEW_DIR]/10-real-findings.md
+## Output: return ONE complete report to the root; write no file. The root persists it at [REVIEW_DIR]/10-real-findings.md
 
 Format:
 
@@ -734,19 +775,19 @@ graphify tools. The Auto-Filtered audit section is mandatory output - if it is
 missing or empty when DROP/DEMOTE counts are non-zero, the phase failed.
 ```
 
-After the subagent completes, read the first ~30 lines of `$REVIEW_DIR/10-real-findings.md` and print them.
+After the subagent completes, the root writes its complete response to `$REVIEW_DIR/10-real-findings.md`, then reads the first ~30 lines and prints them.
 
 **Orchestrator check:** Parse the "Real findings (after Q1-Q6)" count and the "Tech-Debt surfaced" count from the header. If both are 0, output "Clean review - no actionable findings after Reality Filter" and STOP. Do not proceed to Phase 7 or beyond.
 
 If `$VERIFY_HIGH` is `false`, skip Phase 7 and proceed to Phase 8.
 
-## Phase 7: External LLM verification (single `code-reviewer` `Agent` call - only when --verify-high)
+## Phase 7: External LLM verification (root session only when --verify-high)
 
 This phase degrades gracefully. The Claude-only `consult_llm` tool is NOT available on Pi by default.
 
-**Availability gate (check before launching the subagent):** if an external-consult tool surface is available in this Pi session, run the verification below. If no such surface exists, SKIP Phase 7: print a one-line note "Phase 7 skipped - no external-consult tool surface available; carrying all HIGH/CRITICAL findings through unchanged", carry every surviving HIGH/CRITICAL Real Finding (and all MEDIUM + Tech-Debt-Surfaced) forward to Phase 8 unchanged from `10-real-findings.md`, and proceed. Never hard-fail on the tool's absence.
+**Availability gate:** if an external-consult tool surface is available in this Pi session, the root session runs the verification below without launching a subagent. If no such surface exists, SKIP Phase 7: print a one-line note "Phase 7 skipped - no external-consult tool surface available; carrying all HIGH/CRITICAL findings through unchanged", carry every surviving HIGH/CRITICAL Real Finding (and all MEDIUM + Tech-Debt-Surfaced) forward to Phase 8 unchanged from `10-real-findings.md`, and proceed. Never hard-fail on the tool's absence.
 
-When a surface IS available, launch one `Agent` call with `subagent_type: code-reviewer` to verify ALL HIGH and CRITICAL findings in **2 batched calls total** (one per provider family, ALL findings in a single prompt). Never one call per finding - cost scales linearly and burns context with N x 2 responses when one batched response per family carries the same information.
+When a surface IS available, the root session verifies ALL HIGH and CRITICAL findings in **2 batched calls total** (one per provider family, ALL findings in a single prompt). Never one call per finding - cost scales linearly and burns context with N x 2 responses when one batched response per family carries the same information.
 
 Prompt:
 
@@ -839,13 +880,13 @@ Cost contract: this whole phase MUST be exactly 2 external calls regardless of h
 many findings there are. No retries. If you are about to make a 3rd call, stop and re-batch.
 ```
 
-After the subagent completes, read the first ~30 lines of `$REVIEW_DIR/11-llm-verified.md` and print them.
+After the root completes verification, read the first ~30 lines of `$REVIEW_DIR/11-llm-verified.md` and print them.
 
 **Orchestrator check:** If the surviving Real Findings count is 0 AND Tech-Debt-Surfaced is 0, output "Clean review - no actionable findings after external verification" and STOP.
 
-## Phase 8: Interactive triage (main session - the ONLY in-session phase)
+## Phase 8: Interactive triage (interactive root-owned phase)
 
-This is the ONLY phase that runs in the main session, because it needs user interaction. Read the appropriate input file:
+This is the interactive root-owned phase. Phases 7, 9, and 10 are also root-owned for external verification and persisted mutations. Read the appropriate input file:
 - If Phase 7 ran (and was not skipped): `$REVIEW_DIR/11-llm-verified.md`
 - Otherwise: `$REVIEW_DIR/10-real-findings.md`
 
@@ -911,13 +952,13 @@ After all triage questions are answered, collect the decisions into a strict JSO
 {"CF-001": "fix", "CF-002": "ad", "CF-003": "debt", "CF-004": "defer", "CF-005": "ignore"}
 ```
 
-For cluster findings whose decision is NOT Split, the cluster ID maps to a single decision; Phase 9 expands it to one entry per location when writing `sdd/.review-decisions.md`. Pass this EXACT JSON string as the decisions mapping to the Phase 9 subagent.
+For cluster findings whose decision is NOT Split, the cluster ID maps to a single decision; Phase 9 expands it to one entry per location when writing `sdd/.review-decisions.md`. Retain this EXACT JSON string for the root-owned Phase 9.
 
-## Phase 9: Save triage results + append to .review-decisions (single `code-reviewer` `Agent` call)
+## Phase 9: Save triage results + append to .review-decisions (root session)
 
-Launch one `Agent` call with `subagent_type: code-reviewer` to write the consolidated triage results AND append per-finding triage history. Pass the decisions JSON mapping and `$REVIEW_DIR` in the prompt.
+The root session writes the consolidated triage results and appends per-finding triage history. No subagent owns this mutation.
 
-Prompt:
+Root-session procedure:
 
 ```
 You are saving triage results from a codebase review AND updating the persistent
@@ -1035,11 +1076,11 @@ greater than the value the file showed before this run. Append the run date as
 run as M+1, and the cycle counter advances monotonically.
 ```
 
-## Phase 10: Update architecture decisions + create tech-debt issues (single `code-reviewer` `Agent` call)
+## Phase 10: Update architecture decisions + create tech-debt issues (root session)
 
-Launch one `Agent` call with `subagent_type: code-reviewer` to update documentation/decisions/README.md with AD entries and create GitHub issues for tech debt.
+The root session updates `documentation/decisions/README.md` with approved AD entries and creates approved GitHub issues for tech debt. No subagent edits documentation or issue state.
 
-Prompt:
+Root-session procedure:
 
 ```
 You are updating architecture decisions and creating GitHub issues from a codebase review.
@@ -1066,7 +1107,7 @@ tool for AD insertions.
 
 ## Phase 11: Enter plan mode (main session)
 
-After the Phase 10 subagent completes:
+After the root completes Phase 10:
 
 1. Read ONLY the `## Fix` section from `$REVIEW_DIR/12-triage-results.md`.
 2. If there are zero Fix findings, report "No fixes requested - review complete" and stop.
@@ -1081,11 +1122,11 @@ After the Phase 10 subagent completes:
 ## Hard rules (recap)
 
 - NEVER run builds, tests, or linters locally - the container is resource-constrained.
-- All 6 Phase 2 subagents launch via the `Agent` tool in a single message (parallel `Agent` calls); batch in 3s only if the runtime limits parallelism.
-- Phase 3 deep-reviewer subagents (when --deep) launch in waves of 5: parallel within a wave, sequential at wave boundaries.
-- Phases 4, 5, 6, 9, 10 each run as a single `code-reviewer` `Agent` call; the main session waits for completion before proceeding.
-- Phase 7 (when --verify-high) runs as a single `code-reviewer` `Agent` call ONLY when an external-consult surface exists; otherwise it is skipped with a one-line note and all surviving findings carry through unchanged. Never hard-fail on the tool's absence.
-- Phase 8 is the ONLY phase that runs in the main session (it needs user interaction).
+- All 6 Phase 2 subagents launch together through public background `subagent` calls without inherited context or an artificial concurrency cap.
+- Phase 3 deep-reviewer subagents (when --deep) launch together through public background calls without inherited context or artificial limits.
+- Phases 4, 5, and 6 each run as a single report-only `code-reviewer` call; the root writes every returned report.
+- Phase 7 (when --verify-high) runs in the root session ONLY when an external-consult surface exists; otherwise it is skipped with a one-line note and all surviving findings carry through unchanged. Never hard-fail on the tool's absence.
+- Phases 8 through 10 run in the root session because they interact with the user or mutate persisted state.
 - After Phase 6: if Real Findings + Tech-Debt-Surfaced totals are 0, STOP and report a clean review. After Phase 7: re-check the verified totals.
 - Each phase completes fully before the next; only Phase 3 and Phase 7 are optional.
 - The findings directory persists at `$REVIEW_DIR`; `/home/user/Temporary/Review/latest` always points to the most recent run.

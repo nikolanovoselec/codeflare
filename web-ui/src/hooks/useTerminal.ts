@@ -231,8 +231,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   function setupMobileTerminal() {
     if (!term) return;
 
-    // xterm 6.0.0: touch scrolling when keyboard is closed is handled by
-    // touch-gestures.ts via terminal.scrollLines() (direct buffer scroll).
+    // Touch scrolling when keyboard is closed is handled by touch-gestures.ts
+    // via scrollBufferLines() (buffer-authoritative direct buffer scroll).
 
     const mobileCleanup = setupMobileInput(term, props, {
       refreshCursorLine: () => {
@@ -374,7 +374,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
   // xterm 6.0.0 moved scrolling from .xterm-viewport (native overflow) to
   // SmoothScrollableElement (JS-based). Touch scrolling when keyboard is closed
-  // is handled by touch-gestures.ts via terminal.scrollLines() — no need for
+  // is handled by touch-gestures.ts via scrollBufferLines() — no need for
   // pointer-events or overflow-y tricks on viewport/scrollable-element.
 
   // Refit on keyboard height change — leading + trailing edge pattern.

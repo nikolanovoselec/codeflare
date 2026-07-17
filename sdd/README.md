@@ -59,6 +59,12 @@ The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their
 | [config.yml](spec/config.yml) | SDD autonomy mode and enforcement config |
 | `.review-queue.md` | Live PR-boundary review queue (open findings only) |
 
+One support file lives at the `sdd/` root (the path is the `/review` skill's triage-history contract):
+
+| File | Purpose |
+|------|---------|
+| [.review-decisions.md](.review-decisions.md) | Disposition ledger for reviewed-and-kept findings (audit trail) |
+
 ## Out of Scope
 
 - **Server-side rendering** -- The frontend is a SolidJS SPA served as static assets. No SSR, no hydration complexity.

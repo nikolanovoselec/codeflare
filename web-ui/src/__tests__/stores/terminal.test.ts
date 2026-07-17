@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createRoot } from 'solid-js';
 import type { Terminal } from '@xterm/xterm';
+import { useScrollCorrection } from '../../hooks/useScrollCorrection';
 
 // Mock constants before importing terminal store
 vi.mock('../../lib/constants', async (importOriginal) => {
@@ -26,7 +28,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { terminalStore, sendInputToTerminal, cleanupMapByPrefix } from '../../stores/terminal';
+import { terminalStore, sendInputToTerminal, cleanupMapByPrefix, READ_HOLD_MAX_CHARS } from '../../stores/terminal';
 
 // Get mock WebSocket class from global
 const _MockWebSocket = globalThis.WebSocket as unknown as {
@@ -853,48 +855,8 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write', async () => {
-      const activeBuffer = { viewportY: 500, baseY: 1000 };
-      const scrollLines = vi.fn((delta: number) => {
-        activeBuffer.viewportY += delta;
-      });
-      const terminal = {
-        ...createMockTerminal(),
-        buffer: { active: activeBuffer },
-        scrollLines,
-        write: vi.fn((_data: string, callback?: () => void) => {
-          // xterm 6.1 keeps the visible content anchored while ten old lines trim.
-          activeBuffer.viewportY = 490;
-          callback?.();
-        }),
-      } as unknown as Terminal;
-
-      const OriginalWebSocket = globalThis.WebSocket;
-      let wsInstance: any;
-
-      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
-        constructor(url: string) {
-          super(url);
-          wsInstance = this;
-        }
-      } as unknown as typeof WebSocket);
-
-      terminalStore.connect(sessionId, terminalId, terminal);
-      await vi.advanceTimersByTimeAsync(0);
-
-      for (let line = 0; line < 10; line += 1) {
-        wsInstance._simulateMessage(`line-${line}\r\n`);
-      }
-      await vi.advanceTimersByTimeAsync(50);
-
-      expect(terminal.buffer.active.viewportY).toBe(490);
-      expect(scrollLines).not.toHaveBeenCalled();
-
-      vi.stubGlobal('WebSocket', OriginalWebSocket);
-    });
-
-    it('REQ-TERM-014 AC7: restores distance when an unchanged full buffer clamps viewport to the top', async () => {
-      const activeBuffer = { viewportY: 500, baseY: 1000 };
+    it('REQ-TERM-014 AC3: releases deferred output at the held-output cap without injecting correction', async () => {
+      const activeBuffer = { type: 'normal', viewportY: 500, baseY: 1000 };
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;
       });
@@ -905,7 +867,8 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
         scrollLines,
         scrollToBottom,
         write: vi.fn((_data: string, callback?: () => void) => {
-          // A dense full-buffer trim exhausts xterm's native content anchor.
+          // The forced flush trims the full buffer; xterm's native anchor
+          // moves the viewport and the store must not react to it.
           activeBuffer.viewportY = 0;
           callback?.();
         }),
@@ -924,33 +887,140 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       terminalStore.connect(sessionId, terminalId, terminal);
       await vi.advanceTimersByTimeAsync(0);
 
-      wsInstance._simulateMessage('dense output that trims past the visible anchor\r\n');
+      wsInstance._simulateMessage('x'.repeat(READ_HOLD_MAX_CHARS + 1));
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(terminal.buffer.active.viewportY).toBe(500);
-      expect(terminal.buffer.active.baseY - terminal.buffer.active.viewportY).toBe(500);
-      expect(scrollLines).toHaveBeenCalledWith(500);
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(terminal.write).mock.calls[0][0]).toHaveLength(READ_HOLD_MAX_CHARS + 1);
+      expect(scrollLines).not.toHaveBeenCalled();
       expect(scrollToBottom).not.toHaveBeenCalled();
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it.each([
-      { name: 'buffer is not full', beforeBaseY: 900, beforeY: 500, afterBaseY: 900 },
-      { name: 'base changes during write', beforeBaseY: 1000, beforeY: 500, afterBaseY: 999 },
-      { name: 'viewport was already at top', beforeBaseY: 1000, beforeY: 0, afterBaseY: 1000 },
-      { name: 'viewport was following bottom', beforeBaseY: 1000, beforeY: 1000, afterBaseY: 1000 },
-    ])('REQ-TERM-014 AC7: does not recover zero clamp when $name', async ({ beforeBaseY, beforeY, afterBaseY }) => {
-      const activeBuffer = { viewportY: beforeY, baseY: beforeBaseY };
+    it('REQ-TERM-014 AC3: defers streamed output while the user owns the viewport and flushes on bottom return', async () => {
+      const activeBuffer = { type: 'normal', viewportY: 80, baseY: 1000 };
+      let onScrollHandler: ((viewportY: number) => void) | undefined;
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;
+        onScrollHandler?.(activeBuffer.viewportY);
+      });
+      const scrollToBottom = vi.fn(() => {
+        activeBuffer.viewportY = activeBuffer.baseY;
+        onScrollHandler?.(activeBuffer.viewportY);
       });
       const terminal = {
         ...createMockTerminal(),
         buffer: { active: activeBuffer },
         scrollLines,
+        scrollToBottom,
+        onScroll: vi.fn((handler: (viewportY: number) => void) => {
+          onScrollHandler = handler;
+          return { dispose: vi.fn() };
+        }),
+        write: vi.fn(),
+      } as unknown as Terminal;
+      const container = document.createElement('div');
+      const disposeScrollOwner = createRoot((dispose) => {
+        useScrollCorrection(terminal, container, { sessionId, terminalId });
+        return dispose;
+      });
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      try {
+        // Manual ownership must outlive the old 150ms gesture grace period.
+        container.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+        onScrollHandler?.(80);
+        await vi.advanceTimersByTimeAsync(200);
+
+        terminalStore.connect(sessionId, terminalId, terminal);
+        await vi.advanceTimersByTimeAsync(0);
+        wsInstance._simulateMessage('dense output that would trim the viewed lines\r\n');
+        // Many flush ticks elapse; the owned viewport keeps every one deferred.
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(terminal.write).not.toHaveBeenCalled();
+        expect(activeBuffer.viewportY).toBe(80);
+
+        // Returning to the live bottom releases the hold on the next tick.
+        activeBuffer.viewportY = activeBuffer.baseY;
+        onScrollHandler?.(activeBuffer.viewportY);
+        await vi.advanceTimersByTimeAsync(50);
+
+        expect(terminal.write).toHaveBeenCalledTimes(1);
+        expect(terminal.write).toHaveBeenCalledWith('dense output that would trim the viewed lines\r\n');
+        expect(scrollLines).not.toHaveBeenCalled();
+        expect(scrollToBottom).not.toHaveBeenCalled();
+      } finally {
+        disposeScrollOwner();
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
+    it.each([
+      { name: 'a full buffer is being read', baseY: 1000, viewportY: 500 },
+      { name: 'a partially filled buffer is being read', baseY: 900, viewportY: 500 },
+      { name: 'the viewport rests at the oldest available line', baseY: 1000, viewportY: 0 },
+    ])('REQ-TERM-014 AC3: defers batched writes while the user reads scrollback ($name)', async ({ baseY, viewportY }) => {
+      const activeBuffer = { type: 'normal', viewportY, baseY };
+      const scrollLines = vi.fn();
+      const scrollToBottom = vi.fn();
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines,
+        scrollToBottom,
+        write: vi.fn(),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      wsInstance._simulateMessage('output\r\n');
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(terminal.write).not.toHaveBeenCalled();
+      expect(scrollLines).not.toHaveBeenCalled();
+      expect(scrollToBottom).not.toHaveBeenCalled();
+      expect(activeBuffer.viewportY).toBe(viewportY);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it.each([
+      { name: 'the viewport follows the live bottom', bufferType: 'normal', viewportY: 1000, baseY: 1000 },
+      { name: 'an alternate-buffer application owns the screen', bufferType: 'alternate', viewportY: 0, baseY: 80 },
+    ])('REQ-TERM-014 AC3: writes batched output without viewport correction when $name', async ({ bufferType, viewportY, baseY }) => {
+      const activeBuffer = { type: bufferType, viewportY, baseY };
+      const scrollLines = vi.fn((delta: number) => {
+        activeBuffer.viewportY += delta;
+      });
+      const scrollToBottom = vi.fn();
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines,
+        scrollToBottom,
         write: vi.fn((_data: string, callback?: () => void) => {
-          activeBuffer.baseY = afterBaseY;
+          // xterm-side outcome of the write; the store must not react to it.
           activeBuffer.viewportY = 0;
           callback?.();
         }),
@@ -972,8 +1042,9 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       wsInstance._simulateMessage('output\r\n');
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(terminal.buffer.active.viewportY).toBe(0);
+      expect(terminal.write).toHaveBeenCalledWith('output\r\n');
       expect(scrollLines).not.toHaveBeenCalled();
+      expect(scrollToBottom).not.toHaveBeenCalled();
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

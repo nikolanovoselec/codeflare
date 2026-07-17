@@ -6,6 +6,10 @@ version: 1.1.0
 
 # /sdd init — bootstrapping a project
 
+## Execution ownership (binding)
+
+`/sdd init` is a root-session mutation workflow in every mode. The root performs discovery and enforcement inline, writes the scaffold with its own file tools, and owns the scaffold commit. Never spawn PR-boundary `spec-reviewer` or `doc-updater` agents to create or repair the scaffold.
+
 Three scenarios, auto-detected:
 
 1. **Greenfield**: empty project, no existing code. Bootstrap from prose.
@@ -245,6 +249,7 @@ Only `accept` and `correct` promote anything to the official spec. Each decision
 - `transition: true` is cleared from `sdd/spec/config.yml`
 - A closure entry appends to `sdd/spec/changes.md` (e.g., `SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost).`)
 - `enforce_tdd` is NOT changed (user flips manually when ready)
+- `sdd/spec/.init-triage.md` is preserved as the transition audit record
 - Agent enters Plan Mode for the first feature work on top of the now-real spec
 
 ## Tool surface compatibility (binding for every `/sdd` sub-command)

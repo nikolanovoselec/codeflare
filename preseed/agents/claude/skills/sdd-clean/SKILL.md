@@ -8,6 +8,10 @@ version: 1.1.0
 
 The rescue command for projects whose spec has accumulated implementation leakage, fake deprecations, prose Status fields, oversized REQs, and bloated changelogs.
 
+## Execution ownership (binding)
+
+`/sdd clean` is a root-session mutation workflow in every mode. The root invokes `spec-enforce` and then `doc-enforce` inline, applies changes with its own file tools, and owns every commit and push. Never spawn the report-only `spec-reviewer` or `doc-updater` agents to perform cleanup.
+
 **First action (binding):** invoke the `spec-enforce` skill (spine) with `scope=all` or `scope=diff` per the user's flag. The skill runs the 23-row execution manifest and conditionally invokes `spec-enforce-ac` (when ACs touched) and `spec-enforce-truth` (when Implemented or Partial REQs touched — Partial included so CQ-SOURCE can validate `@impl` anchors). This file describes what `/sdd clean` does on top of the skill's findings.
 
 ## What it does (per mode)
@@ -24,7 +28,7 @@ The rescue command for projects whose spec has accumulated implementation leakag
 - **Backup files** before any RISKY operation (e.g. `sdd/spec/changes.md` → `sdd/spec/changes-archive-YYYY-MM.md`; flat: `sdd/changes.md` → `sdd/changes-archive-YYYY-MM.md`).
 - **Per-category commits** for selective revert.
 - **`[sdd-clean]` commit prefix** that bypasses round-detection in spec-reviewer.
-- **Sequential execution** — spec-reviewer first, then doc-updater.
+- **Sequential inline enforcement** — the root runs `spec-enforce` first, then `doc-enforce`; PR-boundary reviewer agents are not involved.
 
 Unleashed-specific:
 - Pushes commits directly to the current branch (no new branch, no PR).

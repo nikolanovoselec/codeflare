@@ -51,6 +51,10 @@ interface StorageState {
   objects: StorageObject[];
   prefixes: string[];
   loading: boolean;
+  loadingMore: boolean;
+  loadMoreError: string | null;
+  paginationStarted: boolean;
+  browseGeneration: number;
   error: string | null;
   uploads: UploadItem[];
   selectedKeys: string[];
@@ -81,6 +85,10 @@ const initialState: StorageState = {
   objects: [],
   prefixes: [],
   loading: false,
+  loadingMore: false,
+  loadMoreError: null,
+  paginationStarted: false,
+  browseGeneration: 0,
   error: null,
   uploads: [],
   selectedKeys: [],
@@ -186,6 +194,10 @@ export const storageStore = {
   get prefixes() { return state.prefixes; },
   get currentPrefix() { return state.currentPrefix; },
   get loading() { return state.loading; },
+  get loadingMore() { return state.loadingMore; },
+  get loadMoreError() { return state.loadMoreError; },
+  get paginationStarted() { return state.paginationStarted; },
+  get browseGeneration() { return state.browseGeneration; },
   get error() { return state.error; },
   get uploads() { return state.uploads; },
   get selectedKeys() { return state.selectedKeys; },
@@ -223,18 +235,24 @@ export const storageStore = {
   async browse(prefix?: string, options?: { silent?: boolean }) {
     const browsePrefix = prefix ?? state.currentPrefix;
     const silent = options?.silent ?? false;
+    const generation = state.browseGeneration + 1;
 
-    setState('currentPrefix', browsePrefix);
-    if (silent) {
-      setState('backgroundRefreshing', true);
-    } else {
-      setState('loading', true);
-    }
-    setState('error', null);
+    setState(produce((s) => {
+      s.browseGeneration = generation;
+      s.currentPrefix = browsePrefix;
+      s.loading = !silent;
+      s.backgroundRefreshing = silent;
+      s.loadingMore = false;
+      s.loadMoreError = null;
+      s.paginationStarted = false;
+      s.error = null;
+    }));
 
+    const isCurrentBrowse = () => state.browseGeneration === generation && state.currentPrefix === browsePrefix;
     const applyResult = (result: Awaited<ReturnType<typeof storageApi.browseStorage>>) => {
+      if (!isCurrentBrowse()) return;
       setState(produce((s) => {
-        s.objects = result.objects.filter((o) => o.key !== browsePrefix);
+        s.objects = result.objects.filter((object) => object.key !== browsePrefix);
         s.prefixes = result.prefixes;
         s.isTruncated = result.isTruncated;
         s.nextContinuationToken = result.nextContinuationToken ?? null;
@@ -246,11 +264,14 @@ export const storageStore = {
     try {
       applyResult(await storageApi.browseStorage(browsePrefix));
     } catch {
+      if (!isCurrentBrowse()) return;
       // Auto-retry once after delay (handles post-setup bucket creation / secret propagation)
       try {
-        await new Promise((r) => setTimeout(r, STORAGE_BROWSE_RETRY_DELAY_MS));
+        await new Promise((resolve) => setTimeout(resolve, STORAGE_BROWSE_RETRY_DELAY_MS));
+        if (!isCurrentBrowse()) return;
         applyResult(await storageApi.browseStorage(browsePrefix));
       } catch (retryErr) {
+        if (!isCurrentBrowse()) return;
         setState(produce((s) => {
           s.error = retryErr instanceof Error ? retryErr.message : String(retryErr);
           s.loading = false;
@@ -258,6 +279,59 @@ export const storageStore = {
         }));
       }
     }
+  },
+
+  async loadMore() {
+    if (
+      state.loading || state.backgroundRefreshing || state.loadingMore ||
+      state.loadMoreError !== null || !state.isTruncated ||
+      !state.nextContinuationToken
+    ) return;
+
+    const generation = state.browseGeneration;
+    const prefix = state.currentPrefix;
+    const token = state.nextContinuationToken;
+    setState(produce((s) => {
+      s.paginationStarted = true;
+      s.loadingMore = true;
+    }));
+
+    try {
+      const result = await storageApi.browseStorage(prefix, token);
+      if (state.browseGeneration !== generation || state.currentPrefix !== prefix || !state.loadingMore) return;
+      setState(produce((s) => {
+        const objectKeys = new Set(s.objects.map((object) => object.key));
+        const prefixKeys = new Set(s.prefixes);
+        const appendedObjects = result.objects.filter((object) => {
+          if (object.key === prefix || objectKeys.has(object.key)) return false;
+          objectKeys.add(object.key);
+          return true;
+        });
+        const appendedPrefixes = result.prefixes.filter((item) => {
+          if (prefixKeys.has(item)) return false;
+          prefixKeys.add(item);
+          return true;
+        });
+        s.objects = [...s.objects, ...appendedObjects];
+        s.prefixes = [...s.prefixes, ...appendedPrefixes];
+        s.isTruncated = result.isTruncated;
+        s.nextContinuationToken = result.nextContinuationToken ?? null;
+        s.loadMoreError = null;
+        s.loadingMore = false;
+      }));
+    } catch (error) {
+      if (state.browseGeneration !== generation || state.currentPrefix !== prefix || !state.loadingMore) return;
+      setState(produce((s) => {
+        s.loadMoreError = error instanceof Error ? error.message : String(error);
+        s.loadingMore = false;
+      }));
+    }
+  },
+
+  async retryLoadMore() {
+    if (state.loadMoreError === null) return;
+    setState('loadMoreError', null);
+    await storageStore.loadMore();
   },
 
   async navigateTo(prefix: string) {

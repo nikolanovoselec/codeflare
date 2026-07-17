@@ -108,8 +108,8 @@ RUN YAZI_VERSION="26.5.6" && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.63.0" && \
-    LAZYGIT_SHA256="cf5cfa3e116d7775f3600a51ec1d9ce7ba554a08b9566c7c2da83cb0023efabf" && \
+RUN LAZYGIT_VERSION="0.63.1" && \
+    LAZYGIT_SHA256="8e033bc78c8e192dee9510e951f6c9e154289b7198d22c924ed1d0a951b0dac1" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
@@ -225,6 +225,7 @@ RUN AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/nul
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
+COPY preseed/agents/pi/npm/ /opt/codeflare/pi-agent/npm/
 # Local Pi extensions, used by the jiti warm-up layer below (they reach user
 # containers via the R2 agent seed, verbatim — same content, so the
 # content-addressed cache entries baked from these files hit at runtime).
@@ -362,7 +363,7 @@ RUN npm install -g consult-llm-mcp@2.13.4 && \
 # and expose a stable bin path. The shadow-pin workflow updates ONLY
 # CHROME_DEVTOOLS_MCP_VERSION; the image rebuild then regenerates the matching
 # cache and smoke-tests the bin, so a future bump cannot ship a stale cache.
-ENV CHROME_DEVTOOLS_MCP_VERSION=1.5.0
+ENV CHROME_DEVTOOLS_MCP_VERSION=1.6.0
 ENV CHROME_DEVTOOLS_MCP_NPX_CACHE=/opt/codeflare/chrome-devtools-mcp-npx-cache
 ENV CHROME_DEVTOOLS_MCP_BIN=/opt/codeflare/bin/chrome-devtools-mcp
 RUN mkdir -p "$CHROME_DEVTOOLS_MCP_NPX_CACHE" "$(dirname "$CHROME_DEVTOOLS_MCP_BIN")" && \

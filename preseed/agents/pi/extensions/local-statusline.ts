@@ -1,8 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { activeRepoSentinelForDisplay, compactDurableReviewStatus, recallActiveRepo, recallReviewRepo, recallReviewRepos } from "./review-job-helpers";
-import { computeReviewState } from "./review-jobs";
+import { recallActiveRepo } from "./active-repo-memory";
 
 const CACHE_TTL_MS = 1_000;
 
@@ -61,33 +60,6 @@ function gitOutput(repo: string, args: string[]): string | undefined {
   }
 }
 
-// Per-lane token totals are best-effort: parsed from a COMPLETED lane's transcript
-// once and cached by path (a completed transcript is final), so the 1s footer
-// re-render never re-parses. Running lanes show no count yet. Pi may or may not
-// attach usage to message_end events; absence degrades to no token figure (never wrong).
-const laneTokenCache = new Map<string, number | undefined>();
-function laneTokensFromTranscript(transcriptPath: string): number | undefined {
-  if (laneTokenCache.has(transcriptPath)) return laneTokenCache.get(transcriptPath);
-  let total: number | undefined;
-  try {
-    for (const line of readFileSync(transcriptPath, "utf8").split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      let event: { type?: string; message?: { role?: string; usage?: Record<string, unknown> }; usage?: Record<string, unknown> };
-      try { event = JSON.parse(trimmed); } catch { continue; }
-      if (event?.type === "message_end" && event.message?.role === "assistant") {
-        const usage = event.message.usage ?? event.usage;
-        const tok = usage?.totalTokens ?? usage?.total_tokens ?? usage?.tokens;
-        if (typeof tok === "number") total = tok; // cumulative — the final assistant turn wins
-      }
-    }
-  } catch {
-    total = undefined;
-  }
-  laneTokenCache.set(transcriptPath, total);
-  return total;
-}
-
 // Shared with codeflare-pi.ts (which owns the writes); read here only as the
 // guarded display-only last resort in repositoryLabel.
 const ACTIVE_REPO_SENTINEL = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
@@ -99,22 +71,21 @@ function sentinelRepoForDisplay(ctx: ExtensionContext): string | undefined {
   } catch {
     return undefined;
   }
-  return activeRepoSentinelForDisplay({
-    sentinelContent: content,
-    sessionRoots: [ctx.sessionManager.getCwd(), ctx.cwd],
-    hasGitDir: (path) => existsSync(join(path, ".git")),
-  });
+  const value = content.trim();
+  if (!value || !existsSync(join(value, ".git"))) return undefined;
+  const insideSessionRoot = [ctx.sessionManager.getCwd(), ctx.cwd].some((root) =>
+    Boolean(root) && (value === root || value.startsWith(root.endsWith("/") ? root : `${root}/`)),
+  );
+  return insideSessionRoot ? value : undefined;
 }
 
 function repositoryLabel(ctx: ExtensionContext): string | undefined {
   // The cwd git roots miss whenever the session cwd is a non-repo parent
-  // workspace and the work happens in a nested repo via `git -C` / `cd repo &&`.
-  // Then: the repo codeflare-pi last resolved from a command (in-session memory),
-  // the remembered review repo (nested review clones), and finally the on-disk
-  // active-cwd sentinel under its inside-session-root guards. All display-only —
-  // review routing never reads these.
+  // workspace and work happens in a nested repo via `git -C` / `cd repo &&`.
+  // Fall back to the repo codeflare-pi last resolved in this process, then the
+  // guarded display-only sentinel.
   const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd)
-    ?? recallActiveRepo() ?? recallReviewRepo() ?? sentinelRepoForDisplay(ctx);
+    ?? recallActiveRepo() ?? sentinelRepoForDisplay(ctx);
   if (!repo) return undefined;
 
   const branch = gitOutput(repo, ["branch", "--show-current"])
@@ -156,83 +127,6 @@ function truncateToWidth(text: string, width: number): string {
   return `${output}\x1b[0m…`;
 }
 
-function latestReviewJobHead(repo: string): string | undefined {
-  try {
-    const jobsDir = join(repo, ".git", "codeflare-review-jobs");
-    return readdirSync(jobsDir)
-      .flatMap((head): Array<{ head: string; startedAt: number }> => {
-        try {
-          const job = JSON.parse(readFileSync(join(jobsDir, head, "job.json"), "utf8")) as { startedAt?: unknown; updatedAt?: unknown };
-          return [{ head, startedAt: typeof job.updatedAt === "number" ? job.updatedAt : typeof job.startedAt === "number" ? job.startedAt : 0 }];
-        } catch {
-          return [];
-        }
-      })
-      .sort((a, b) => b.startedAt - a.startedAt)[0]?.head;
-  } catch {
-    return undefined;
-  }
-}
-
-function reviewHeadForRepo(repo: string): string | undefined {
-  try {
-    const pending = JSON.parse(readFileSync(join(repo, ".git", "sdd-review-pending.json"), "utf8")) as { head?: string };
-    if (pending.head) return pending.head;
-  } catch {
-    // No pending file: completed lanes can still be waiting for monitor/ack finalization.
-  }
-  const head = gitOutput(repo, ["rev-parse", "HEAD"]);
-  if (head && existsSync(join(repo, ".git", "codeflare-review-jobs", head, "job.json"))) return head;
-  return latestReviewJobHead(repo);
-}
-
-// Compute the PR-boundary review row FRESH FROM DISK each render. The review-enforcement
-// extension can only push its status via ctx.ui.setStatus on a user turn, so a lane advanced
-// by the autonomous reaper timer (no ctx) never repaints the footer. Reading canonical durable
-// job/result/ack state here makes the row reflect disk truth regardless of who advanced it.
-// Hide only after the exact head is acked; completed lanes can still be awaiting monitor/ack.
-function liveReviewRow(repo: string, theme: { fg(style: string, text: string): string }): string | undefined {
-  try {
-    const head = reviewHeadForRepo(repo);
-    if (!head) return undefined;
-    const state = computeReviewState(repo, head);
-    const lanes = state.lanes;
-    if (state.acked || lanes.length === 0) return undefined;
-    const job = JSON.parse(readFileSync(join(repo, ".git", "codeflare-review-jobs", head, "job.json"), "utf8")) as { laneState?: Record<string, { startedAt?: number; transcriptPath?: string }> };
-    const laneState = job.laneState || {};
-    const completed = lanes.filter((lane) => state.laneStatus[lane] === "completed");
-    const running = lanes.filter((lane) => state.laneStatus[lane] === "running");
-
-    // Leading timer badge: wall-clock since the earliest lane started (ticks each render).
-    const startTimes = lanes.map((lane) => laneState[lane]?.startedAt).filter((t): t is number => typeof t === "number");
-    const elapsedMs = startTimes.length ? Date.now() - Math.min(...startTimes) : undefined;
-
-    // Best-effort per-lane token totals — completed lanes only (their transcript is final + cached).
-    const laneTokens: Record<string, number> = {};
-    for (const lane of completed) {
-      const path = laneState[lane]?.transcriptPath;
-      if (!path) continue;
-      const tokens = laneTokensFromTranscript(path);
-      if (typeof tokens === "number") laneTokens[lane] = tokens;
-    }
-
-    return compactDurableReviewStatus({
-      head,
-      lanes,
-      completed,
-      running,
-      elapsedMs,
-      laneTokens,
-      style: {
-        done: (label: string) => theme.fg("success", label),
-        running: (label: string) => theme.fg("warning", label),
-      },
-    });
-  } catch {
-    return undefined;
-  }
-}
-
 function renderLine(ctx: ExtensionContext, effort: string): string {
   const model = ctx.model?.id ?? "model";
   return [
@@ -268,30 +162,9 @@ export default function (pi: ExtensionAPI) {
           if (!cached || now - cached.checkedAt > CACHE_TTL_MS) {
             cached = { value: renderLine(ctx, pi.getThinkingLevel()), checkedAt: now };
           }
-          // Take every extension status EXCEPT codeflare-review (that one only refreshes on a
-          // user turn); compute the review row fresh from disk so timer-driven lane changes show.
-          const extensionStatuses = footerData.getExtensionStatuses();
-          const reviewFallback = extensionStatuses.get("codeflare-review");
-          const statuses = Array.from(extensionStatuses.entries())
-            .filter(([key]) => key !== "codeflare-review")
-            .map(([, value]) => value)
-            .filter(Boolean);
-          const candidateRepos = [
-            findGitRoot(ctx.sessionManager.getCwd()),
-            findGitRoot(ctx.cwd),
-            ...recallReviewRepos(),
-            recallReviewRepo(),
-            recallActiveRepo(),
-            sentinelRepoForDisplay(ctx),
-          ].filter((repo, index, repos): repo is string => Boolean(repo) && repos.indexOf(repo) === index);
-          const reviewRow = candidateRepos.map((repo) => liveReviewRow(repo, theme)).find(Boolean);
-          // When we can resolve a repo, durable disk state is authoritative. A stale
-          // extension status may outlive monitor completion/ack by a render tick; do not
-          // resurrect it after liveReviewRow intentionally hides an acked review.
-          const reviewStatus = reviewRow ?? (candidateRepos.length === 0 ? reviewFallback : undefined);
+          const statuses = Array.from(footerData.getExtensionStatuses().values()).filter(Boolean);
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];
           if (statuses.length > 0) lines.push(truncateToWidth(statuses.join(" | "), width));
-          if (reviewStatus) lines.push(truncateToWidth(reviewStatus, width));
           return lines;
         },
       };

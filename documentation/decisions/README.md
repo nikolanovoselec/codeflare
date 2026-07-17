@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -86,11 +86,11 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | workers.dev enabled on every deployment for setup-wizard bootstrap | Security |
 | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Enterprise LLM transport on the AI Gateway REST API (amends [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing)) | Architecture, Security |
 | [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Pi graphify tools replaced by a first-party native extension (`graphify-native.ts`); `@gaodes/pi-graphify` removed | Architecture |
-| [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | Durable review lanes run as detached headless Pi processes | Agents |
+| [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | _superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)_ | (superseded) |
 | [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Enterprise vault service-worker reached via a higher-precedence Access bypass app | Architecture, Security |
-| [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers) | Agents |
+| [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers), amended by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) for Pi execution | Agents |
 | [AD79](#ad79-image-baked-pi-extension-transpile-cache) | Image-baked Pi extension transpile cache | Performance |
-| [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) | Pi PR-boundary merge gate is report-only and defended in depth | Agents |
+| [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) | _superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)_ | (superseded) |
 | [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | Reuse the container egress-injection layer for per-user GitHub tokens | Architecture, Security |
 | [AD82](#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) | Visible terminal panes own WebSockets, and MultiView is virtual | Architecture, UI/Frontend |
 | [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket) | _superseded by [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) — vault IndexedDB IS now persisted across sessions, via a bucket-stable URL + HKDF key (not a key-only change)_ | Architecture |
@@ -108,6 +108,14 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Browser IDE is session-isolated (the deliberate opposite of the bucket-stable Vault) | Architecture, Security |
 | [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Deactivate codex/copilot V8 warm-up and OpenCode DB pre-init (image size) | Build / Container |
 | [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) | Keep OpenVSCode upstream-clean and accept known vulnerability risk | Security, Build / Container |
+| [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Pi PR review uses visible session-scoped agents | Agents |
+| [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Pi CI monitoring uses one attached native background subagent | Agents |
+| [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Pin the upstream rpiv-todo session-isolation fix | Agents |
+| [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned in Pi; in-process subagents use native transports | Agents, Architecture |
+| [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Pi extraction delivery is root-owned, visible, and transactional | Agents, Architecture |
+| [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Pi extraction agents use bounded medium reasoning and one-pass inputs | Agents, Memory, Performance |
+| [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) | Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming | Architecture, Mobile |
+| [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Streamed output defers while the user reads scrollback; keyboard-open swipes are always terminal input | Architecture, Mobile |
 
 ---
 
@@ -606,7 +614,9 @@ Rejected as the v1 approach: bigger blast radius (modifies 6 agent prompts), har
 Rejected: AD filter's job is categorical ("this pattern is intentional"), not per-finding instance triage. Conflating the two muddies both filters and makes future debugging harder.
 3. **Tighten the 6 reviewer agents' severity rubrics so they produce fewer findings.**
 
-Rejected: agents have an implicit incentive to produce findings (zero findings reads as "didn't try"). Tightening the rubric is a reasonable follow-up but doesn't solve the stateful-memory problem - cycle N still has no memory of cycle N-1's decisions. Phase 5 solves both.
+Rejected: agents have an implicit incentive to produce findings (zero findings reads as "didn't try").
+
+Tightening the rubric is a reasonable follow-up but doesn't solve the stateful-memory problem - cycle N still has no memory of cycle N-1's decisions. Phase 5 solves both.
 4. **Write triage decisions into the existing `sdd/.review-needed.md`.** Rejected: `.review-needed.md` is for findings escalated for human review (cleared on resolution) - mixing it with permanent triage history blurs the file's purpose and breaks the "cleared on resolution" semantics.
 5. **Promote durable `.review-decisions` patterns to ADRs automatically after N cycles.** Rejected: turns ADRs into "anything I deferred 3 times" instead of intentional design choices. User manually promotes when a pattern proves durable; the manual step preserves the architectural-decision concept.
 
@@ -1236,24 +1246,33 @@ Alternative 3 — Server-side encryption only (rclone bisync to R2 SSE-C, leave 
 
 **Context:** [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) raised Claude-side memory-capture quality with three coupled changes (jq prefilter, chunked scratchpad, sonnet-tier model) because the background capture agent was reading raw transcript JSONL, burning its working memory on tool I/O, and confabulating citations. Making Pi a first-class codeflare resident meant Pi had to capture memory at the same fidelity. The Pi extension previously carried a thin inline capture contract embedded in `memory-vault.ts` and sliced the raw last-40 transcript entries, which reproduced exactly the two failure modes [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) fixed: recency bias from raw tool records and weak citation discipline.
 
-**Decision:** Pi memory capture reuses the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) capture contract rather than maintaining a divergent Pi-specific one. Two full contracts are deployed as Pi-native preseed assets: `preseed/agents/pi/prompts/memory-agent-prompt.md` (the capture-agent contract) and `preseed/agents/pi/prompts/vault-extract-prompt.md` (the Vault-graph extraction contract). The generator maps `prompts/` to `.pi/agent/prompts/`, so both land at `~/.pi/agent/prompts/*.md`. `memory-vault.ts` no longer embeds an inline contract; it reads these files at spawn time. The raw last-40 transcript slice is replaced by a prefilter that keeps only user and assistant text and drops tool-call and thinking blocks before the capture subagent is spawned, mirroring [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)'s jq prefilter intent on the Pi tool surface.
+**Decision:** Pi memory capture reuses the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) semantic fidelity and transcript-prefilter contract rather than maintaining a thin Pi-specific one. [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) later replaced Pi's multi-pass scratchpad mechanics with a bounded one-pass execution contract while preserving note shape and citation discipline.
+
+Two full contracts are deployed as Pi-native preseed assets: `preseed/agents/pi/prompts/memory-agent-prompt.md` for capture and `preseed/agents/pi/prompts/vault-extract-prompt.md` for Vault-graph extraction. The generator maps `prompts/` to `.pi/agent/prompts/`, so both land at `~/.pi/agent/prompts/*.md`.
+
+`memory-vault.ts` reads the deployed contracts instead of embedding one inline. Its prefilter retains only user and assistant text, dropping tool-call and thinking blocks before capture and preserving [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)'s prefilter intent on Pi.
 
 **Consequences:**
-- Pi captures inherit the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)-grade contract verbatim, so cross-session memory written from Pi sessions carries the same citation discipline and arc-coverage as Claude sessions; both populate the same unified graph.
+- Pi captures retain [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)-grade citation discipline and prefiltered arc coverage, but [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) deliberately gives Pi a one-pass medium-reasoning implementation instead of Claude's scratchpad round trips; both populate the same unified graph.
 - The capture contract has a single owner in source. A future change to the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) contract updates the Claude agent files and the Pi prompts from the same intent; the Pi copies are deployed prompts, not a fork.
 - The prefilter shifts work to spawn time. The transcript is reduced to user/assistant text before the subagent reads it, so the subagent never sees raw tool I/O and recency bias is structurally prevented as on the Claude path.
 - Stale captures written by the old thin-contract Pi path are not migrated; they remain as historical record.
-- Later refinement ([REQ-MEM-015](../../sdd/spec/memory.md#req-mem-015-pi-memory-capture-transcript-source-and-child-session-guard), 2026-05-30): the prefilter input is the durable on-disk session transcript Pi persists for `/resume`, read via `ctx.sessionManager.getSessionFile()` and parsed by `parseSessionMessages` - not the volatile in-memory message buffer the original Pi path used.
+- Later refinement ([REQ-MEM-015](../../sdd/spec/memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), 2026-05-30): the prefilter input is the durable on-disk session transcript Pi persists for `/resume`, read via `ctx.sessionManager.getSessionFile()` and parsed by `parseSessionMessages` - not the volatile in-memory message buffer the original Pi path used.
 
 That buffer was empty immediately after a Pi reload/resume, so the first capture-boundary prompt produced a hollow "no substantive content" note even though the full session JSONL was on disk; reading the persisted file fixed it, and a skip-empty guard now suppresses the capture rather than writing a placeholder note.
 - Later refinement ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), 2026-06-19): Pi treats the `.vars` carrier as the pending-capture lock and advances the prompt counter only after the capture note is written.
 - Capture retry impact ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5-AC6): a stopped capture keeps the prior counter and retries after the stale pending marker clears.
 
-  Sources: `memory-vault.ts::memoryVarsPending`, `memory-vault.ts::captureVars`, and `memory-agent-prompt.md::Advance the counter and clear the pending marker`.
+<!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::Pi Memory Capture Contract -->
+<!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::Pi Vault Extraction Contract -->
+<!-- @impl: scripts/generate-agent-seed.mjs::piNativeKey -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::createMemoryRequest -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess -->
 
 **Alternative considered:** Keep the thin inline Pi contract and ratchet its prompt. Rejected for the same reason [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rejected prompt-only tightening: recency bias is a function of feeding raw tool records to the model, not a prompt-comprehension gap, and a divergent contract drifts from the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) source of truth over time.
 
-**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) (bounded Pi extraction).
 
 ---
 
@@ -1261,16 +1280,18 @@ That buffer was empty immediately after a Pi reload/resume, so the first capture
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-05-29)
+**Status:** Accepted (2026-05-29); amended for root-owned report persistence (2026-07-14)
 
 **Context:** The Claude `/review` UX is a slash command (`preseed/agents/claude/commands/review.md`) carrying a multi-phase review workflow. Slash commands are a Claude Code primitive; the generator does not deploy commands to other agents (see the "Excluded from non-CC transformed assets" list in [preseed.md](../lanes/preseed.md#multi-agent-preseed)). On Pi this left the user-invoked `/review` workflow with no home: PR-boundary enforcement was covered by `review-enforcement.ts`, and the transformed `git-review-pipeline` skill carries the enforcement spine, but neither reproduces the full user-driven review flow (scope flags, phased perspectives, reality-filter triage) that the Claude command provides.
 
-**Decision:** Ship the Pi `/review` workflow as a dedicated Pi-native skill at `preseed/agents/pi/skills/review/SKILL.md` (full 11-phase workflow), deployed to `~/.pi/agent/skills/review/SKILL.md`. The native skill is distinct from `review-enforcement.ts` (PR-boundary HEAD watching) and from the transformed `git-review-pipeline` enforcement skill: the skill owns the user-requested review UX, while the enforcement extension owns the automatic PR-boundary gate. The Pi `review/SKILL.md` joins the Pi manifest as a native skill override so the generator does not also emit a transformed copy of any same-named Claude skill into the Pi skill set.
+**Decision:** Ship the Pi `/review` workflow as a dedicated Pi-native skill at `preseed/agents/pi/skills/review/SKILL.md` (full 11-phase workflow), deployed to `~/.pi/agent/skills/review/SKILL.md`. The native skill is distinct from `review-enforcement.ts` (PR-boundary HEAD watching) and from the transformed `git-review-pipeline` enforcement skill: the skill owns the user-requested review UX, while the enforcement extension owns the automatic PR-boundary gate.
+
+The Pi `review/SKILL.md` joins the Pi manifest as a native skill override so the generator does not also emit a transformed copy of any same-named Claude skill into the Pi skill set. Every `/review` subagent runs in binding report-only mode and returns its report; the root owns report persistence, external verification, triage/ADR/issue mutations, and approved fixes. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::REVIEW_EXECUTION --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/agents/refactor-cleaner.md::Binding /review override --> <!-- @impl: preseed/agents/claude/agents/tdd-guide.md::Binding /review override --> <!-- @impl: preseed/agents/claude/agents/deep-reviewer.md::Binding /review override -->
 
 **Consequences:**
 - Pi users get the full `/review` flow at parity with the Claude command, expressed in Pi-native tool and subagent vocabulary.
-- The Pi-native skill count rises to two (graphify + review); both are native overrides the generator excludes from the transformed-skill emit for Pi.
-- The review surface is split by responsibility on Pi: the native skill is the user-invoked path, `review-enforcement.ts` is the automatic PR-boundary path, and they do not duplicate each other's logic.
+- No duplicate review-only agent types are introduced: existing specialist definitions honor `review_mode=report-only` for this workflow and retain their normal behavior outside it.
+- The review surface is split by responsibility on Pi: the native skill is the user-invoked path, `review-enforcement.ts` is the automatic PR-boundary path, and the root is the sole mutation owner.
 
 **Alternatives considered:**
 
@@ -1280,7 +1301,7 @@ Alternative 2 — Rely solely on `git-review-pipeline` for both enforcement and 
 
 
 
-**Related REQ:** [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) (`/review` command for multi-perspective codebase review), [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) (review-agent discipline enforcement).
+**Related REQ:** [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) (`/review` command for multi-perspective codebase review), [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) (review-agent discipline enforcement), [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) (Pi-native workflow).
 
 ---
 
@@ -1292,7 +1313,7 @@ Alternative 2 — Rely solely on `git-review-pipeline` for both enforcement and 
 
 **Context:** Codeflare is forkable and runs six AI tools; hardcoding a specific model name (for example a `sonnet` or `haiku` literal) into Pi-bound prose or extension code couples the deployment to one vendor's model lineup and goes stale as model names change. [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) pins the capture model for Claude via agent-definition frontmatter, but Pi subagents are spawned programmatically from `memory-vault.ts`, and the generator strips the `model` frontmatter field for runtimes that do not support it. Pi therefore needed a model-selection mechanism that names no model in the shipped artifact.
 
-**Decision:** Two coupled changes. (1) Genericize model references in Pi-bound prose: Pi-facing documentation and extension code describe model selection by role ("higher-fidelity model", "session model") rather than by literal model name. The generator removes `model` frontmatter for runtimes that do not support it while preserving Pi subagent model pins where the runtime does. (2) Introduce the optional `CODEFLARE_MEMORY_MODEL` container env var (documented in [configuration.md](../lanes/configuration.md#container-environment)). When set, `memory-vault.ts` passes it as the `model` option to `service.spawn(...)` for the `memory-capture` and `vault-extract` subagents; when unset, no override is passed and the subagents inherit the session model. The lever pins capture/extract fidelity per [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) without a hardcoded model name anywhere in the preseed.
+**Decision:** Two coupled changes. (1) Genericize model references in Pi-bound prose: Pi-facing documentation and extension code describe model selection by role ("higher-fidelity model", "session model") rather than by literal model name. The generator removes `model` frontmatter for runtimes that do not support it while preserving Pi subagent model pins where the runtime does. (2) Introduce the optional `CODEFLARE_MEMORY_MODEL` container env var (documented in [configuration.md](../lanes/configuration.md#container-environment)). When set, `memory-vault.ts` includes it as the `model` option in the visible public `memory-capture` and `vault-extract` requests; when unset, no override is emitted and the subagents inherit the session model. [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) fixes reasoning effort separately at medium. The lever pins capture/extract fidelity per [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) without a hardcoded model name anywhere in the preseed.
 
 **Consequences:**
 - The Pi preseed artifact names no specific model. An operator who wants [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)-grade capture fidelity on Pi sets one env var; the default behavior (inherit session model) is sensible with no configuration.
@@ -1368,7 +1389,7 @@ Alternative 2 — Self-guard `review-enforcement` to no-op when loaded in a lane
 
 
 
-**Related REQ:** [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface) (durable review lane tool surface), [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) (PR-boundary lane classification and dispatch), [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling) (durable lane failure handling).
+**Related REQ:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) (PR-boundary lane classification), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) (visible reviewer dispatch), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (the replacement Pi execution model).
 
 ---
 
@@ -1693,7 +1714,7 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-06-08)
+**Status:** Accepted (2026-06-08); amended for Pi reviewer execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
 **Context:** Pi has no MCP client, so the graphify query tools (`graphify_query`/`graphify_path`/`graphify_explain`) were exposed on Pi through the third-party `@gaodes/pi-graphify` npm wrapper plus a never-consumed `mcp.json`. The wrapper re-implemented graphify query logic independently of the Claude MCP-server path, so Pi and Claude could diverge in ranking/output from the same graph, and it added an npm dependency (plus the transitive `@gaodes/pi-utils-ui`) that `bump-shadow-pins.yml` had to track and that re-baked the image on every upstream bump. <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::resolveGraph -->
 
@@ -1706,13 +1727,13 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 - Graph resolution prefers the current repository graph, then the same-repository active sentinel graph, then the merged global graph.
 
   A graphless session fails softly with a "build a graph first" message.
-- Durable review lanes load `graphify-native.ts` via explicit `-e`, plus `review-lane-guards.ts` and settings-enabled context-mode, so reviewers keep graphify tools without loading `codeflare-pi.ts` or recursive review enforcement.
+- Pi reviewers run as visible session-scoped public subagents using the native Graphify tool surface.
 - The `save-result` feedback loop is restored in both agents' graphify skills, which move to the `references/` progressive-disclosure layout.
 - Clone-time triage (detect graph, prompt build/update/skip) is unchanged in both agents — only the query-tool provider changed.
 
 **Implements:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline).
 
-**Related:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) (durable review lanes run detached).
+**Related:** [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (Pi reviewers run as visible session-scoped public subagents).
 
 ---
 
@@ -1720,26 +1741,26 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 
 **Category:** Agents
 
-**Status:** Accepted (2026-06-08)
+**Status:** Superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
 **Supersedes:** [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)
 
-**Context:** In-process `createAgentSession` lanes could die when the spawning Pi session exited, leaving `.git/codeflare-review-jobs/<head>/` stuck `running`. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::recoverDurableReviewLaneState -->
+**Context:** In-process `createAgentSession` lanes could die when the spawning Pi session exited, leaving `.git/codeflare-review-jobs/<head>/` stuck `running`.
 
-**Decision:** Launch each durable lane as a detached `pi --mode json -p --no-session --no-extensions --no-context-files` child with stdin from `/dev/null`. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
+**Decision:** Launch each durable lane as a detached `pi --mode json -p --no-session --no-extensions --no-context-files` child with stdin from `/dev/null`.
 
-Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts`, and settings-enabled context-mode. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources -->
+Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts`, and settings-enabled context-mode.
 
 **Consequences:**
 
-- Lanes survive the spawning session and are reaped from disk. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reapDurableReviewLanes -->
+- Lanes survive the spawning session and are reaped from disk.
 - The idle reaper advances durable jobs without a user turn.
 
-  Completed windows start a background review monitor that reports `REVIEW_RESULT` to the main session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
+  Completed windows start a background review monitor that reports `REVIEW_RESULT` to the main session.
 - Reviewers get a bounded inspection tool allowlist: bash for git/gh inspection, graphify tools, local-build blockers, and optional `ctx_search`.
 - Lanes do not load `codeflare-pi.ts`, `review-enforcement`, or `@gotgenes/pi-subagents`.
 
-**Related:** [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling), [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface), [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper).
+**Related:** [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), which supersedes this detached-lane architecture.
 
 ---
 
@@ -1779,17 +1800,17 @@ REQ-VAULT-017 already serves the SW credential-less inside the Worker, but Acces
 
 **Category:** Agents
 
-**Status:** Accepted (2026-06-09)
+**Status:** Accepted (2026-06-09); amended for Pi execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12); amended for Claude direct evidence and root-only persistence (2026-07-13); Claude direct-evidence transport reverted after measured cost regression, root-only persistence retained (2026-07-16)
 
-**Context:** At a PR-boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them **sequentially**: `spec-reviewer` first, then `doc-updater`, on the rationale that the reviewers *edited* their lanes in place and `doc-updater` had to validate REQ cross-references against the spec `spec-reviewer` had just moved (the race-condition concern recorded in [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution)). Both engines encoded that ordering: Pi's `durableReviewInitialLanes` withheld `doc-updater` from the initial wave and `review-enforcement.ts` spawned it on `spec-reviewer` completion; Claude's `enforce-review-spawn.sh` demanded `doc-updater` only after `spec-reviewer` acked, sequenced via a `PIPELINE_COMPLETE` marker.
+**Context:** At a PR boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them sequentially because reviewers edited their lanes in place and documentation validation depended on completed spec edits (the race concern recorded in [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution)).
 
-That auto-fix model has since been superseded: the review agents are now **report-only** — each writes findings to its own durable result file under `.git/sdd-review-results/<head>/<lane>.md` and the **main session** applies every fix. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reviewResultPath --> With the reviewers no longer mutating the spec/docs, the ordering rationale no longer holds, yet the sequential gate remained — adding a full `spec-reviewer` round of latency to every PR-boundary before `doc-updater` even started.
+PR-boundary reviewers are now report-only and the root main session applies findings. Claude reviewers publish independent lane results through Claude's existing review pipeline. Pi reviewers return native terminal notifications to the root transcript under [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); Pi has no durable review result files or lane jobs. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
-**Decision:** Dispatch all three review lanes **in parallel** at a PR-boundary. The reviewers' write targets are disjoint durable result files and read-only with respect to each other's domain, so there is no shared-write race and no ordering dependency.
+**Decision:** Dispatch every required review lane in parallel at a PR boundary. Reviewers are read-only with respect to source, specs, and documentation, so they have no shared-write ordering dependency. Claude code/spec/doc reviewers return structured findings to the root and gather evidence through native reads, indexed context-mode retrieval, and Graphify discovery — the 2026-07-13 direct-evidence-only transport multiplied review token cost roughly tenfold (~270-310k tokens per full-diff lane, ~85-260k per small incremental lane; raw scan output entered reviewer context uncapped) and was reverted. Pi reviewers are unaffected: their native agents, packet CLI, and enforcement skills are dedicated Pi manifest overrides. Pi launches visible public background reviewer calls and correlates their native notifications.
 
-Pi: `durableReviewInitialLanes` returns every lane and `durableReviewEligibleLanes` drops the doc-waits-for-spec gate; the `spec-reviewer`-completion → `doc-updater`-spawn trigger in `review-enforcement.ts` is removed (it would double-spawn). <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewInitialLanes --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes --> Claude: `enforce-review-spawn.sh` demands all three in the parallel MISSING block and acks the head on `all_required_lanes_completed_for_current_head` (the per-lane `PIPELINE_COMPLETE` sequencing is gone); `git-push-review-reminder.sh` emits a single parallel directive. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head --> **`/sdd clean` is explicitly excluded** — it *applies* fixes inline (not report-only), so it keeps the AD44 sequential order (spec-enforce before doc-enforce), since doc cross-references depend on the just-fixed spec.
+`/sdd clean` is explicitly excluded because it applies fixes inline. It keeps the AD44 sequential order: spec enforcement before documentation enforcement, so documentation cross-references see the corrected spec.
 
-**Rationale:** Parallelism is correct precisely because the reviewers are report-only: the only thing that made sequencing necessary (in-place edits to a shared source of truth) was removed when fix-application moved to the main session. Running the lanes concurrently cuts PR-boundary review latency from "slowest lane + spec-reviewer" to "slowest single lane" with identical coverage and zero added race surface.
+**Rationale:** Parallelism is correct because PR-boundary reviewers do not edit the shared source of truth. Running the lanes concurrently reduces review latency without creating a write race; the engine-specific result transport does not change that property.
 
 **Alternatives considered:**
 
@@ -1798,13 +1819,11 @@ Pi: `durableReviewInitialLanes` returns every lane and `durableReviewEligibleLan
 
 **Consequences:**
 
-- PR-boundary review completes faster; the three lane result files are produced concurrently and the main session applies fixes from all of them.
-- Pi's `pending.json` retains the now-vestigial `docPromptSent` field for backward-compat with in-flight review jobs serialized under the old sequential-dispatch model (jobs where `spec-reviewer` had completed but `doc-updater` had not yet been spawned); it is no longer read for sequencing.
-
-<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::PendingReview -->
+- PR-boundary review completes faster, and the main session applies findings only after every required lane reports.
+- Claude returns complete reports to the root, which alone persists triage and review artifacts; Pi uses session-scoped native notifications defined by AD98.
 - `/sdd clean` behavior is unchanged.
 
-**Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC4/AC5, [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) (the `/sdd clean` sequential order this decision deliberately preserves), [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes).
+**Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1, [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff), [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution), [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
 ---
 
@@ -1853,7 +1872,7 @@ coding agents auto-update at deploy is the product stance; the accepted tradeoff
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-06-11)
+**Status:** Superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
 **Context:** A Fable-5 deep review of the Pi PR-boundary review subsystem found the merge gate was the weakest-covered layer. The gate is the `onAgentStart`/`tool_call` interceptor that blocks `gh pr merge` until the reviewed head is acked.
 
@@ -1863,7 +1882,7 @@ Second: how strong should interception be? The Pi gate is a hard pre-block: it r
 
 **Decision:** (1) **Report-only semantics.** The gate blocks until the required reviewers have *run* (their head is acked), NOT until their findings are *addressed*. The lanes are advisory (AD78): they surface findings; acting on them is the user's call. "Merge blocked until review" means "until review *ran*", and `/review-skip` is the explicit user override. (2) **Defense in depth.** Pi keeps its hard pre-block — strengthened so it evaluates the PR the merge command actually targets (`mergeCommandTarget` → a specific number/URL/branch/`--repo`, not just the cwd branch), fails *closed* on a readable-but-malformed PR or a transient `gh` failure while any unacked review (pending, latched-breaker, or outstanding-offer head) exists, and recognises `--auto` and wrapper-prefixed (`timeout`/`env`/`command`/`nice`) forms.
 
-On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backstop: after any `gh pr merge`-shaped command runs, if the PR is observed MERGED while its head was never acked, it emits a loud, durable `merge_completed_unreviewed` audit + toast. The pre-block stops the common cases; the retroactive layer catches what no anchor can (`bash -c '…'`, `xargs`, server-side `--auto`). The whole gate decision is the pure, unit-tested `mergeGateDecision`. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergeGateDecision --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::mergeCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onAgentStart -->
+On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backstop: after any `gh pr merge`-shaped command runs, if the PR is observed MERGED while its head was never acked, it emits a loud, durable `merge_completed_unreviewed` audit + toast. The pre-block stops the common cases; the retroactive layer catches what no anchor can (`bash -c '…'`, `xargs`, server-side `--auto`). The whole gate decision is the pure, unit-tested `mergeGateDecision`.
 
 **Rationale:** Verdict-gating (blocking the merge until CRITICAL/HIGH findings clear) would make the gate authoritative over a process that is deliberately advisory, would need an override path and a severity contract, and would diverge from Claude's engine — keeping both engines "reviewers ran, not findings fixed" keeps them coherent. Defense in depth is the right answer to "the regex is the gate" for merges: detection has the reconcile backstop, but a single missed merge is unreviewed, so the gate needs both a stronger pre-block AND a retroactive truth layer rather than an ever-more-baroque pre-block regex.
 
@@ -1877,10 +1896,10 @@ On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backst
 
 - The merge gate's correctness is pinned by `mergeGateDecision` unit tests; the inline handler is thin wiring.
 - An unreviewed merge that bypasses the pre-block is no longer silent — it leaves a durable audit and a visible toast.
-- A subagent/Agent push is treated as an in-session PR-boundary event when the enforced PR head changes during the Agent tool call, because child Bash events are invisible to the parent session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileAgentHeadAdvance -->
+- A subagent/Agent push is treated as an in-session PR-boundary event when the enforced PR head changes during the Agent tool call, because child Bash events are invisible to the parent session.
 - A reviewed head with unaddressed CRITICAL findings can still be merged; the findings are surfaced, not enforced. If that proves too weak, AD80 is the place to revisit.
 
-**Related:** [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery), [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers).
+**Related:** [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
 ---
 
@@ -2350,7 +2369,9 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Context:** The Vault editor (SilverBullet) is deliberately **bucket-stable** ([REQ-VAULT-021](../../sdd/spec/vault.md)): it is served under `/api/vault/<bucketToken>/` (a per-R2-bucket token; the session id rides in the `cf_vault_sid` cookie, never the URL) so `location.href`, the service-worker scope, and IndexedDB store names stay identical across all of a user's sessions — one persistent notes store, no re-index every session. The new browser IDE (OpenVSCode Server, [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy)) reuses the same Worker → Container → host proxy chain, so the obvious move is to copy the vault pattern wholesale. That would be wrong: each session has a *different* `~/workspace` (different repos, branches, working state), so a bucket-stable IDE URL is ambiguous ("which session's workspace?") and would bleed one session's editor state into another.
 
-**Decision:** The IDE is **session-isolated** — the exact opposite of the vault. The sessionId is the sole container selector and appears at every layer: the route parser (`validateVscodeRoute`, session-keyed only, no bucket-token branch), the container routing (`getContainerId(bucket, sessionId)`), OpenVSCode's `--server-base-path=/api/vscode/<sessionId>` (so it builds its own asset + service-worker URLs under the per-session path), an ephemeral per-container `--server-data-dir` under `/tmp` (never R2-synced), and the header open-URL. Because `--server-base-path` makes OpenVSCode base-path native, the Worker and host forward the path **unchanged** — no `/vault`-style strip, no HTML base-href / service-worker graft (the entire `vault-html.ts` machinery is unnecessary). The auth boundary is identical to the vault: Cloudflare Access + effective-tier + session-ownership at the Worker, the container-auth Bearer injected by the container DO fetch wrapper, and a localhost-only bind with `--without-connection-token`.
+**Decision:** The IDE is **session-isolated** — the exact opposite of the vault. The sessionId is the sole container selector and appears at every layer: the route parser (`validateVscodeRoute`, session-keyed only, no bucket-token branch), the container routing (`getContainerId(bucket, sessionId)`), OpenVSCode's `--server-base-path=/api/vscode/<sessionId>` (so it builds its own asset + service-worker URLs under the per-session path), an ephemeral per-container `--server-data-dir` under `/tmp` (never R2-synced), and the header open-URL.
+
+Because `--server-base-path` makes OpenVSCode base-path native, the Worker and host forward the path **unchanged** — no `/vault`-style strip, no HTML base-href / service-worker graft (the entire `vault-html.ts` machinery is unnecessary). The auth boundary is identical to the vault: Cloudflare Access + effective-tier + session-ownership at the Worker, the container-auth Bearer injected by the container DO fetch wrapper, and a localhost-only bind with `--without-connection-token`.
 
 **Rejected — reuse the vault's bucket-stable serving ([REQ-VAULT-021](../../sdd/spec/vault.md)) for the IDE:** that layer exists to *share* one store across sessions; applied to the IDE it collapses every session's editor onto one bucket-scoped service worker + storage, so switching sessions would show the wrong workspace and leak state. Session isolation is a hard requirement, not a preference.
 
@@ -2393,6 +2414,196 @@ The manifest is baselined from current content **only when absent** (the first s
 **Consequences:** Operators accept the documented editor risk while retaining reproducible, upstream-clean upgrades. Enterprise mitigations are per-session Codeflare container isolation plus enterprise inspection and guardrails; they constrain and observe the workload but cannot guarantee containment of an editor exploit. Every OpenVSCode upstream bump must re-review this decision, the scanner exceptions, and available fixed releases. Review is also required immediately when credible evidence shows critical exploitation in the wild or a materially more severe reachable exploit path. Acceptance expires at either trigger until the review records whether to upgrade, disable, or renew the decision.
 
 **Related:** [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [Browser IDE security](../lanes/security.md#openvscode-upstream-vulnerability-acceptance).
+
+---
+
+### AD98: Pi PR review uses visible session-scoped agents
+
+**Category:** Agents
+
+**Status:** Accepted (2026-07-12)
+
+**Supersedes:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)
+
+**Amends:** [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers)
+
+**Context:** Pi's durable review design accumulated detached lane processes, job directories, PID recovery, monitor claims, result summaries, status rendering, and a hard merge gate. The recovery machinery became larger and less reliable than the review behavior it protected. Pi now exposes visible public subagent calls, persisted completion notifications correlated by tool-use ID, root/child session lineage, and an `agent_settled` event. Those primitives can express the same reminder and completion proof used by Claude without a second execution system. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+**Decision:** Pi PR-boundary review is session-scoped ([REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch)). With a valid prior acknowledgement, the reminder and every counted reviewer prompt carry the exact acknowledged-to-current range; otherwise the full protected-base PR is reviewed. Unmatched calls remain in flight until native terminal notification, and only the reminder SHA can be acknowledged after every required correlated notification. Review agents remain parallel and report-only. The root main session alone fixes, commits, and pushes. Pi keeps no pre-command merge gate, durable lane, `review-monitor`, result file, summary, or recovery state. Reload may repeat work but cannot fabricate completion.
+
+Pi owns native reviewer agents, engineering rules, and spec/document enforcement skills. Their shared `review-scope` contract treats PR-boundary review as diff scope, limits diff work to changed hunks and direct invalidations, and reserves exhaustive scans for explicit all scope. Seed generation gives these Pi manifest paths precedence over transformed Claude paths, so Claude review behavior is unchanged.
+
+**Alternatives considered:** Retain detached lanes and repair their recovery paths; keep only a durable checkpoint; call `SubagentsService` directly; parse reviewer findings into another state machine; or preserve the hard Pi merge interceptor. Each adds a second source of execution or completion truth. The public tool call plus root transcript already provides the required proof with fewer failure modes.
+
+**Consequences:** Review execution is visible and simple, but active reviews end with the Pi session. A later supported boundary safely reruns an unacknowledged head. AD78's parallel report-only policy remains; only Pi's durable result-file mechanics are replaced. AD76's detached lane architecture and AD80's hard merge gate no longer govern Pi.
+
+**Related REQ:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff).
+
+---
+
+### AD99: Pi CI monitoring uses one attached native background subagent
+
+**Category:** Agents
+
+**Status:** Accepted (2026-07-12)
+
+**Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload. The replacement therefore needs one executable request resolver that validates the event, repository, open PR, protected base, and authoritative head before returning one native monitor request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
+
+**Decision:** CI monitoring is independent of review completion and acknowledgement ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). After an eligible head-changing boundary, the PR-boundary extension emits one ordered launch plan: required reviewer calls first and an independent CI request second. The root invokes the resolver exactly once with the affected repository cwd and explicit review launch state immediately after reviewer calls. The resolver returns no action or one public background `ci-monitor` request for the authoritative PR number and `headRefOid`.
+
+The dedicated agent runs one attached Node process and returns `CI_RESULT` through native task notification. Script timeouts bound runtime; no agent turn cap may replace the verbatim result with a wrapper summary. Malformed and superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the remote-qualified 41-character transcription correction. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi -->
+
+**Alternatives considered:** Repair the shared review/CI handoff; add a durable CI claim; keep the detached shell and watch its log; monitor hard-coded workflows or `gh run list --commit`; or auto-restart after reload. These retain the failures caused by conflicting ownership or disconnected lifecycles. One attached process and one native result path are sufficient.
+
+**Consequences:** CI launch and monitoring truth become behaviorally testable through one boundary plan, one resolver script, and one tiny agent. The separate root-rule trigger is removed, so a Git command cannot create a duplicate launch. Non-SDD repositories and default-mode sessions receive CI-only plans. Reload may abort a monitor without a result; a later eligible boundary plan or explicit user request can start a fresh one. Review and CI never track, wait for, or restart each other, and CI never becomes a review lane. Claude CI behavior is unchanged.
+
+**Related REQ:** [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy), [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed).
+
+---
+
+### AD100: Pin the upstream rpiv-todo session-isolation fix
+
+**Category:** Agents
+
+**Status:** Accepted (2026-07-13)
+
+**Context:** `@juicesharp/rpiv-todo` 1.20.0 stores every Pi session's tasks in one module-level cell. Foreground snapshots remained in transcript ancestry, but child/subagent `session_start`, `session_compact`, and `session_tree` replayed into that shared cell and replaced the foreground list with the child's state. Live history showed valid lists of one, five, and four tasks followed by `No tasks`; a background CI-log agent reproduced the reset during this fix. Upstream main already partitions state by session ID and gates the render pointer to the foreground session, but no npm release contains that correction. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/install.mjs::installRpivTodoSessionIsolation -->
+
+**Decision:** Keep rpiv-todo's session-scoped transcript semantics rather than replace it with a global disk-backed task product. While npm remains at 1.20.0, Codeflare applies a minimal source override after install: task state is keyed by Pi session ID, lifecycle replay mutates only that session's slot, child shutdown evicts only its slot, and context-free rendering reads the foreground slot. The installer fails closed on any package version other than 1.20.0 so a future upstream release must be reviewed instead of silently overwritten.
+
+**Alternatives considered:** `pi-tasklists` has the same session-replay shape and does not solve child isolation. `armory-todo` persists one global cross-session list, changing the desired session-local semantics. A Codeflare-global task database would add ownership, migration, and recovery machinery for a defect upstream has already fixed.
+
+**Consequences:** Reload and branch replay keep their existing task semantics, while subagent lifecycle events cannot erase foreground tasks. The image prewarm and generated Pi npm seed carry the same patch payload. The temporary override adds four pinned source files and must be removed when a reviewed upstream release ships the fix.
+
+**Related REQ:** [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation), [Pi preseed](../lanes/preseed.md#agent-preseed-system).
+
+---
+
+### AD101: context-mode is foreground-owned in Pi; in-process subagents use native transports
+
+**Category:** Agents, Architecture
+
+**Status:** Accepted (2026-07-14)
+
+**Context:** `@gotgenes/pi-subagents` creates child `AgentSession`s inside the foreground Pi process and deliberately loads the parent's extension set. context-mode 1.0.169 assumes one Pi extension owner per process: each registration has a local start latch, but its bridge handle/readiness and session identity are module-global. Concurrent child registrations overwrite the foreground bridge handle. Child bridges eventually idle-reap, but the displaced foreground bridge has `CONTEXT_MODE_BRIDGE_IDLE_MS=0`; later root reload cleanup cannot reach it. A live long-running session accumulated 17 idle-disabled `server.bundle.mjs` children (~0.78 GiB PSS). The current npm release is already 1.0.169, and modifying either installed upstream package would create an unowned fork.
+
+**Decision:** Keep context-mode installed and keep its skills visible, but filter its Pi extension out of the shared package resource set (`extensions: []`). The managed `context-mode-runtime.ts` extension owns a process-global claim: the first/root Pi resource load imports and initializes the installed context-mode adapter; subsequent in-process subagent loads observe the claim and return without initializing it. The root releases the claim on `session_shutdown` after context-mode registers its own cleanup, so `/reload` and `/ctx off|on` can detach and reattach cleanly. `/ctx off` is represented by filtering both extensions and skills; `/ctx on` restores skills while extension loading remains owner-guarded. Pi reviewers declare only `bash` and consume the same exact review packet through Bash/Node.
+
+**Alternatives considered:** Patch context-mode's module globals or pi-subagents' disposal lifecycle — rejected because Codeflare must not carry source fixes for upstream packages. Globally disable context-mode — rejected because the foreground session benefits from its tools. Let every child spawn a bridge and rely on the idle timeout — rejected because it leaves transient process growth and does not recover displaced idle-disabled foreground handles. Run reviewers in separate Pi processes — rejected because visible session-scoped `@gotgenes/pi-subagents` are the accepted review execution model.
+
+**Consequences:** One Pi process owns at most one active context-mode bridge. In-process reviewers, memory capture, CI monitors, and other children use their documented native/Bash fallbacks; exact review scope and evidence are unchanged. The wrapper imports the registry-installed adapter rather than copying or modifying it, so npm upgrades remain upstream-owned. A full Pi process restart is required once to reap helpers leaked by sessions created before this decision.
+
+**Related REQ:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport), [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [Pi preseed](../lanes/preseed.md#agent-preseed-system).
+
+---
+
+### AD102: Pi extraction delivery is root-owned, visible, and transactional
+
+**Category:** Agents, Architecture
+
+**Status:** Accepted (2026-07-14)
+
+**Context:** Pi memory and Vault extraction privately invoked the subagents service, hid launches from the root transcript, and treated mtimes/sentinels as delivery truth. Memory agents advanced counters before required graph publication, while Vault detection advanced the committed manifest before extraction; shared chunk paths and separate merge/publication locks allowed late or interleaved work to consume the wrong state. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault -->
+
+**Decision:** The root Pi session emits public background requests and reconstructs launch, running, failure, success, reminder, and GIVEUP state from durable session JSONL. Every launch serializes identical bounded items into model-facing content and durable metadata. One tiny active request-ID pointer enables reload discovery, while one request-specific immutable snapshot prevents a late call from reading replacement work.
+
+Memory snapshots use the shared home-backed cache so child Bash sees them; active legacy temp snapshots migrate before retry, as detailed in [Pi Memory and Vault Extraction Data Flow](../lanes/architecture.md#pi-memory-and-vault-extraction-data-flow). Memory counters and the committed Vault manifest advance only after exact native success plus request-specific post-commit artifacts.
+
+Vault promotion validates staged bytes, prelaunch edits coalesce, and during-run edits become one follow-up request. Request-specific chunks and one lock spanning cumulative merge plus global publication prevent cross-request graph corruption. [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) bounds the workers without changing this delivery ownership.
+
+**Alternatives considered:** Keep private service spawning and add logs; let agents delete vars and advance high-water state; add receipts, leases, a durable queue, scheduler, recovery service, or new endpoint; or serialize all extraction through one mega-agent. These either preserve invisible ownership/races or add machinery beyond the two independent extraction domains.
+
+**Consequences:** Extraction launches and bounded retries are visible in the root transcript and survive reload without a separate service. Failed, timed-out, corrupt, late, or superseded work cannot consume newer prompts/Vault edits. Orphan request snapshots are harmless and excluded from extraction; root cleanup is idempotent after a rename-before-cleanup crash. Memory and Vault remain separate agents and share only the existing graph commit boundary.
+
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-015](../../sdd/spec/memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [REQ-VAULT-028](../../sdd/spec/vault.md#req-vault-028-vault-edits-remain-isolated-after-extraction-starts).
+
+---
+
+### AD103: Pi extraction agents use bounded medium reasoning and one-pass inputs
+
+**Category:** Agents, Memory, Performance
+
+**Status:** Accepted (2026-07-14)
+
+**Context:** The first post-reload transactional Vault smoke contained one frozen 51 KB markdown file. The Pi `vault-extract` worker inherited the foreground reasoning level and broad read/search/context tools. It reread policy and input repeatedly, reaching 84.2k tokens, 12 tool calls, and 336 seconds without committing a chunk. The prior legacy Vault task took 762.9 seconds and 130.6k tokens.
+
+Pi session capture also replayed up to 200 historical turns at 8000 characters and imposed Claude's multi-pass scratchpad after root prefiltering. The first bounded live capture produced a strong note in two tool calls, but model-authored graph JSON used noncanonical concept IDs, duplicated edges, and labeled the document from its filename rather than H1.
+
+**Decision:** Pi's `memory-capture` and `vault-extract` workers are finite extraction jobs, not open-ended research agents. Generated frontmatter and every public request use provider-neutral medium reasoning; requests stop after four agent turns; generated workers expose only Bash.
+<!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest -->
+
+Their embedded contract forbids discovery and defines a two-call normal path. Memory capture reads one self-contained snapshot whose `transcript` is the sole conversation input; Vault extraction reads only its snapshot and frozen files. Each then performs one write and required graph commit. Memory capture retains at most 40 uncaptured text turns of 4000 characters and writes the note directly. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_CAPTURE_MAX_TURNS --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_CAPTURE_MAX_TURN_CHARS -->
+
+A deterministic helper derives the memory graph from the note H1, stable Vault-relative document ID, canonical concept IDs, and unique edges. The shared cumulative merge preserves distinct serialized edge evidence while collapsing exact duplicates.
+<!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph -->
+<!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence -->
+
+Vault extraction builds a compact semantic graph rather than an exhaustive inline-token inventory. Noncritical visualization receives 15 seconds and cannot hold task success open. <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::at most 15 seconds --> <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::at most 15 seconds -->
+
+Required graph publication remains unchanged. Each worker writes its graph to `<CHUNK>.work`; only after merge plus `graphify global add` succeeds does it atomically expose the canonical request chunk. Memory likewise publishes the capture note only after graph success. The root requires those post-commit artifacts before advancing the memory counter or Vault manifest and then removes the chunk. This reuses the already-required request chunk rather than adding a receipt, lease, queue, or service.
+
+**Consequences:** Typical one-file/15-prompt work has a bounded number of model/tool turns and cannot inherit foreground `high`/`xhigh` reasoning. Identifier fidelity remains model-selectable through `CODEFLARE_MEMORY_MODEL`; reasoning effort and model identity remain separate controls. Claude keeps AD58's sonnet/chunked-scratchpad implementation unchanged. A failed merge, cooperative stop, or native completion without the post-commit artifact leaves root high-water state unchanged and enters the existing reminder path. Pi may report a successfully completed final bounded turn as `Wrapped up (turn limit)`; that terminal status qualifies only when the job's post-commit artifacts exist.
+
+**Alternatives considered:** Keep broad tools and rely on stronger prose; retain 200-turn replay and merely lower reasoning; move extraction into a new service/queue; or add a separate success receipt. Prompt-only restraint did not stop the live worker, lowering reasoning alone would leave repeated input cost, a service/queue is disproportionate, and the canonical request chunk already provides a post-commit qualification artifact.
+
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile), [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter), [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
+
+---
+
+### AD104: Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming
+
+**Category:** Architecture, Mobile
+
+**Status:** Superseded by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) (2026-07-16). The per-mode ownership model survives, but its two operative clauses failed in the field: letting xterm trim a full buffer under a reader pinned the reader to the top within seconds of agent output, and the keyboard-open fullscreen wheel exception broke the typing-mode scroll-lock.
+
+**Context:** Under sustained output with a full scrollback buffer, xterm legitimately moves a manually selected viewport toward zero as old lines are discarded. Codeflare's write callback restored a saved distance at the zero boundary while a separate scroll-event path interpreted the same transition as a browser reset. Each programmatic correction emitted more scroll events, so competing paths repeatedly snapped between the oldest content and the live prompt. The bug intensified after the prior programmatic-scroll suppression handoff was removed. The next xterm beta changes only WebGL atlas invalidation and does not alter this event ordering.
+
+**Decision:** Terminal scrolling has one owner per mode. A synchronous scroll-event guard owns `FOLLOW_OUTPUT` and yields to correlated user intent. Registered intent enters `READ_SCROLLBACK`; ownership persists until the viewport returns to the live bottom. Xterm owns every output-driven trim, including a legitimate zero offset after viewed lines age out.
+
+`MOBILE_INPUT_LOCKED` is the explicit exception: the keyboard lifecycle performs fit plus bottom anchoring, generic correction stays inactive, and vertical swipes remain terminal input or fullscreen application wheel gestures. The write buffer performs no scroll correction.
+<!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures -->
+
+**Consequences:** Sustained output cannot create a write/onScroll/programmatic-scroll feedback loop. A user reading history is never pulled toward the prompt, although content that has actually aged out cannot be preserved and correctly leaves the viewport at the oldest available line. Returning to bottom deterministically restores following. Mobile keyboard-open behavior remains intentionally bottom-locked instead of inheriting desktop manual-scroll ownership.
+
+**Alternatives considered:** Upgrade xterm alone; retain write-side zero-clamp recovery; keep a distance-based browser-reset heuristic; or use a short grace timer as ownership. The available xterm update has no relevant scroll change, both correction heuristics misclassify valid full-buffer transitions, and a timer cannot represent the persistent user state.
+
+**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
+
+---
+
+### AD105: Streamed output defers while the user reads scrollback; keyboard-open swipes are always terminal input
+
+**Category:** Architecture, Mobile
+
+**Status:** Accepted (2026-07-16)
+
+**Context:** [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) accepted that a full 1000-line scrollback trims under a reader, "correctly" leaving them at the oldest available line. In practice agent bursts fill the buffer within seconds, so any scrolled-up reader slid to `viewportY = 0` and watched their content get destroyed — one form of the reported "terminal snaps to the top while the agent is outputting".
+
+No viewport correction can fix content deletion.
+
+Field testing with slow output exposed a second, instant form of the symptom: xterm 6.1 routes every public `scrollLines()` through the viewport's DOM scroll state, applying deltas relative to its current `scrollTop` (`CoreBrowserTerminal`: "All scrollLines methods need to go via the viewport"). That DOM state can silently diverge from the buffer — `Viewport._sync()` clamps `scrollTop` during `setScrollDimensions()` with its scroll handler suppressed (a refit passing through zero height), and no repair runs while `ydisp` matches the viewport's cached `_latestYDisp` — after which xterm resolves the divergence on the next relative tick as one giant `scrollLines()` straight to the top of scrollback. Every prior heuristic missed it because the yank rides on the user's own gesture event, which intent-based guards exempt.
+
+Separately, AD104 kept the keyboard-open fullscreen wheel exception, so with the keyboard open a vertical swipe over Claude Code scrolled the application instead of sending arrow keys, breaking the typing-mode gesture contract; and touch drags only marked scroll intent at `pointerdown`, so a drag's first scroll event after the 150ms grace was misread as a displacement and snapped to the bottom mid-gesture.
+
+**Decision:** Keep AD104's per-mode ownership (`FOLLOW_OUTPUT` / `READ_SCROLLBACK` / `MOBILE_INPUT_LOCKED`) and change four behaviors. (1) While manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output instead of writing it — the buffer freezes under the reader, and returning to the live bottom (or exceeding a 2,000,000-character held-output cap) releases everything in one write; alternate-buffer output never defers. (2) User-driven scrollback navigation is buffer-authoritative: touch scrolling and floating page controls call the internal `BufferService.scrollLines()` with buffer-derived deltas instead of the public viewport-relative API, each resulting buffer scroll event makes `Viewport._sync()` re-command the DOM scroll state absolutely — divergence is repaired every tick instead of amplified into an edge jump.
+
+(3) Vertical swipes with the touch keyboard open are always terminal input (arrow keys); fullscreen wheel routing applies only while the keyboard is closed. (4) `touchmove` refreshes the scroll-intent window so an in-progress drag is always correlated with its own scroll events.
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferLines -->
+<!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures -->
+<!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
+
+**Consequences:** A reader's viewport is perfectly stable during agent output — no trims occur beneath them — and scrolling back down shows the held output at once, at the cost of the display lagging live output during a read (bounded by the cap; a cap-exceeding flush may still trim beneath a very long read). A desynced DOM scroll state can move the viewport by at most one gesture delta before the next buffer scroll event resnaps it to buffer truth, eliminating the instant yank-to-top.
+
+Keyboard-open gestures are deterministic again: arrows while typing, wheel/scrollback only with the keyboard closed. Mid-drag bottom snaps are gone. Held output is dropped with the write buffer on disconnect, where the server-side restore replay already owns repainting. Buffer-authoritative scrolling depends on the pinned xterm build exposing `_core._bufferService` (already relied on by the mobile debug overlay); the helper falls back to the public API if internals disappear. Direct buffer scrolls bypass xterm's `onRequestScrollLines`-to-`refresh(0, rows-1)` repaint pairing, so the helper issues that repaint itself — omitting it leaves the scrollbar moving over a frozen canvas.
+
+**Alternatives considered:** Enlarge scrollback (delays, does not remove, the top-pin and costs mobile memory); restore distance-from-bottom after trims (AD104 already showed it yanks the reader through moving content); pause the PTY via flow control (server-side complexity, risks blocking the agent); keep keyboard-open wheel routing behind a setting (two gesture contracts to document and test for one mode); patch the DOM desync via a distance-jump heuristic in the scroll hook (the old Strategy 2 — structurally blind to yanks that ride on user-intent windows, which is exactly how this one fires).
+
+**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
 
 ---
 

@@ -41,7 +41,9 @@ const StorageBrowser: Component = () => {
                            storageStore.selectedPrefixes.length > 0;
 
       if (!hasActiveUploads && !hasSelections && !storageStore.loading) {
-        void storageStore.refresh({ silent: true });
+        if (!storageStore.paginationStarted && !storageStore.loadingMore) {
+          void storageStore.refresh({ silent: true });
+        }
         void storageStore.fetchStats();
       }
     }, 30_000);
