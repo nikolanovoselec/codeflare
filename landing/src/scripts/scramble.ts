@@ -177,7 +177,9 @@ function setupHoverElement(el: HTMLElement): void {
   // element is hidden or mid-layout and go stale (the old width lock measured 0
   // in a hidden nav and let churn glyphs escape rightward past the CTA border).
   // The decode paints on the centered overlay, so wider churn glyphs spill
-  // symmetrically around the stable box instead of shoving one edge.
+  // symmetrically around the stable box instead of shoving one edge; the CTA
+  // rule (.nav-signin--matrix, overflow: hidden) clips that spill at the
+  // button's padding box so no frame crosses the visible border.
   const words = buildWordBoxes(el, true);
 
   let running = false;

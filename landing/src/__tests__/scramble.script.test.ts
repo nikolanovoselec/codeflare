@@ -19,6 +19,7 @@
  * document.fonts BEFORE importing the module.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 // From the script: one interval tick is TICK_MS=50ms.
 // hold: frame>60 (60 ticks * 50ms = 3000ms min)
@@ -267,6 +268,17 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     // After the full decode pass the overlay settles back to the exact label.
     vi.advanceTimersByTime(30 * 50);
     expect(live.textContent).toBe('Enter');
+  });
+
+  it('REQ-LANDING-006 AC4: the CTA clips over-wide churn frames at its own box (overflow hidden on the matrix variant)', () => {
+    // The centered overlay paints churn frames wider than the resting ghost by
+    // design (left:0; right:0; centered text). Centering only balances the spill;
+    // without a clip boundary on the button itself, wide frames still cross the
+    // visible border. This pins the clip contract on the CTA variant rule.
+    const css = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
+    const rule = css.match(/\.nav-signin--matrix\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/overflow:\s*hidden/);
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {
