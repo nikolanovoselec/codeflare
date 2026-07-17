@@ -116,7 +116,7 @@ When the browser is backgrounded and returned to, keyboard state signals (`keybo
 
 **Solution (Chrome):** Two complementary fixes:
 1. `terminal-mobile-input.ts` `restoreFocusIfNeeded()` calls `forceResetKeyboardState()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input. This ensures signals are zeroed and `overlaysContent` is `true` when the keyboard opens.
-2. `Layout.tsx` visibility handler calls `forceResetKeyboardState()` as fallback for when focus restore doesn't fire (input was not focused when backgrounded, or readOnly guard is active). Then delays `enableVirtualKeyboardOverlay()` by 300ms so Samsung's stale events settle before the toggle.
+2. `Layout.tsx` visibility handler calls `forceResetKeyboardState()` as fallback when focus restore doesn't fire (unfocused input or active readOnly guard), then delays `enableVirtualKeyboardOverlay()` by 300ms so Samsung's stale events settle before the toggle.
 
 **Solution (Samsung -- Dashboard Bounce):** Samsung's VirtualKeyboard compositor state is fundamentally unreliable on browser resume. No combination of signal resets, delayed toggles, or stale-event windows reliably fixes it. The only path that consistently works is deactivating and reactivating the session -- this triggers the full Terminal keyboard lifecycle cleanup (onCleanup effects, `disableVirtualKeyboardOverlay`) and re-initialization (onMount effects, `enableVirtualKeyboardOverlay`).
 
