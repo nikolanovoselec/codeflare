@@ -563,12 +563,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver --> <!-- @manual -->
 2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
-3. Dedicated jobs bump bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable bundles, and the Graphify plugin version and description; each Pi extension pin bumps as its own matrix leg and PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
+3. Each remaining non-Dependabot pin (bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable, the Graphify plugin, and each Pi extension) bumps in its own PR via a dedicated job or matrix leg. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
 4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
 5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch --> <!-- @manual -->
-6. The context-mode and generic Pi-extensions jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts, then regenerate the embedded seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
+6. The context-mode and pi-extensions jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
+7. The same jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
 
-**Notes:** Workflow execution (AC1-AC5) is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); AC6's lockfile regeneration additionally carries automated lifecycle-suppression coverage.
+**Notes:** Workflow execution (AC1-AC5, AC7) is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); AC6's lockfile regeneration additionally carries automated lifecycle-suppression coverage.
 
 **Constraints:** None.
 
