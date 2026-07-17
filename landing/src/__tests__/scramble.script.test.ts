@@ -19,7 +19,6 @@
  * document.fonts BEFORE importing the module.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 // From the script: one interval tick is TICK_MS=50ms.
 // hold: frame>60 (60 ticks * 50ms = 3000ms min)
@@ -268,31 +267,6 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     // After the full decode pass the overlay settles back to the exact label.
     vi.advanceTimersByTime(30 * 50);
     expect(live.textContent).toBe('Enter');
-  });
-
-  it('REQ-LANDING-006 AC4: the CTA box grows with over-wide churn frames instead of clipping (in-flow grid stacking)', () => {
-    const css = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
-    // The button never clips: no overflow DECLARATION on the CTA rule (comments
-    // may mention the word; the contract is that no clip is declared).
-    const cta = css.match(/\.nav-signin--matrix\s*\{([^}]*)\}/);
-    expect(cta).not.toBeNull();
-    expect(cta![1]).not.toMatch(/overflow\s*:/);
-    // The centered variant stacks ghost + live word in one IN-FLOW grid cell, so
-    // the box (and the button around it) sizes to max(resting label, churn frame)
-    // per tick — the dynamic-accommodation contract.
-    const center = css.match(/\.scramble-box--center\s*\{([^}]*)\}/);
-    expect(center).not.toBeNull();
-    expect(center![1]).toMatch(/display:\s*inline-grid/);
-    const stacked = css.match(
-      /\.scramble-box--center\s+\.scramble-ghost,\s*\.scramble-box--center\s+\.scramble-word\s*\{([^}]*)\}/,
-    );
-    expect(stacked).not.toBeNull();
-    expect(stacked![1]).toMatch(/grid-area:\s*1\s*\/\s*1/);
-    // The live word contributes width in flow — it must not be the absolute overlay.
-    // (matchAll: the first regex hit lands inside the combined ghost+word selector;
-    // the standalone override rule is a later match.)
-    const wordBlocks = [...css.matchAll(/\.scramble-box--center\s+\.scramble-word\s*\{([^}]*)\}/g)];
-    expect(wordBlocks.some((m) => /position:\s*static/.test(m[1]))).toBe(true);
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {

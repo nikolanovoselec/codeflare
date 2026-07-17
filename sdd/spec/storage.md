@@ -455,7 +455,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Clicking a file in the browser opens it inline in a new browser tab (view) rather than downloading it. <!-- @impl: web-ui/src/components/storage/FileList.tsx::FileList --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — clicking a file opens it in a new tab (not download)) -->
 5. Every folder row surfaces its in-container path in `~/<prefix>` form so the user can see where it maps, at any depth and including dotfolders. <!-- @impl: web-ui/src/components/storage/FileList.tsx::folderShortPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — every folder surfaces its ~/ container path (REQ-STOR-016)) -->
 6. A special folder surfaces its canonical container-path mapping instead of the derived form, since its prefix casing can differ (`workspace/` maps to `~/Workspace`). <!-- @impl: web-ui/src/components/storage/FileList.tsx::shortContainerPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — special folder surfaces its container path on the row) -->
-**Notes:** Pagination behavior is owned by [REQ-STOR-018](#req-stor-018-file-browser-pagination-is-append-only-and-recoverable).
 
 **Constraints:**
 
@@ -463,7 +462,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
+**Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser), [REQ-STOR-018](#req-stor-018-file-browser-pagination-is-append-only-and-recoverable)
 
 **Verification:** [File-list behavior tests](../../web-ui/src/__tests__/components/FileList.test.tsx), [Storage Browser component tests](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx)
 
