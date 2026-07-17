@@ -270,15 +270,29 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(live.textContent).toBe('Enter');
   });
 
-  it('REQ-LANDING-006 AC4: the CTA clips over-wide churn frames at its own box (overflow hidden on the matrix variant)', () => {
-    // The centered overlay paints churn frames wider than the resting ghost by
-    // design (left:0; right:0; centered text). Centering only balances the spill;
-    // without a clip boundary on the button itself, wide frames still cross the
-    // visible border. This pins the clip contract on the CTA variant rule.
+  it('REQ-LANDING-006 AC4: the CTA box grows with over-wide churn frames instead of clipping (in-flow grid stacking)', () => {
     const css = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
-    const rule = css.match(/\.nav-signin--matrix\s*\{([^}]*)\}/);
-    expect(rule).not.toBeNull();
-    expect(rule![1]).toMatch(/overflow:\s*hidden/);
+    // The button never clips: no overflow DECLARATION on the CTA rule (comments
+    // may mention the word; the contract is that no clip is declared).
+    const cta = css.match(/\.nav-signin--matrix\s*\{([^}]*)\}/);
+    expect(cta).not.toBeNull();
+    expect(cta![1]).not.toMatch(/overflow\s*:/);
+    // The centered variant stacks ghost + live word in one IN-FLOW grid cell, so
+    // the box (and the button around it) sizes to max(resting label, churn frame)
+    // per tick — the dynamic-accommodation contract.
+    const center = css.match(/\.scramble-box--center\s*\{([^}]*)\}/);
+    expect(center).not.toBeNull();
+    expect(center![1]).toMatch(/display:\s*inline-grid/);
+    const stacked = css.match(
+      /\.scramble-box--center\s+\.scramble-ghost,\s*\.scramble-box--center\s+\.scramble-word\s*\{([^}]*)\}/,
+    );
+    expect(stacked).not.toBeNull();
+    expect(stacked![1]).toMatch(/grid-area:\s*1\s*\/\s*1/);
+    // The live word contributes width in flow — it must not be the absolute overlay.
+    // (matchAll: the first regex hit lands inside the combined ghost+word selector;
+    // the standalone override rule is a later match.)
+    const wordBlocks = [...css.matchAll(/\.scramble-box--center\s+\.scramble-word\s*\{([^}]*)\}/g)];
+    expect(wordBlocks.some((m) => /position:\s*static/.test(m[1]))).toBe(true);
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {
