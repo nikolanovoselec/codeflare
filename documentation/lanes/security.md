@@ -19,7 +19,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [View-Only Storage (Enterprise Anti-Exfil)](#view-only-storage-enterprise-anti-exfil)
 - [GitHub Token Handling](#github-token-handling)
-- [Container Auth Token (REQ-SEC-012, REQ-SEC-022)](#container-auth-token-req-sec-012-req-sec-022)
+- [Container Auth Token](#container-auth-token-req-sec-012-req-sec-022)
 - [Dual R2 Credential Architecture](#dual-r2-credential-architecture)
 - [Graceful Shutdown](#graceful-shutdown)
 - [Security Hardening (Pre-Launch Review)](#security-hardening-pre-launch-review)
@@ -29,6 +29,9 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Body Limit](#body-limit)
 - [Credential Encryption at Rest](#credential-encryption-at-rest)
 - [Rate Limiting](#rate-limiting)
+- [Specification Coverage](#specification-coverage)
+- [Governed Mode — R2 SSE-C governance trade-off](#governed-mode--r2-sse-c-governance-trade-off)
+- [Related Documentation](#related-documentation)
 
 ## Authentication Gate
 

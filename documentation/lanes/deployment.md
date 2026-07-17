@@ -12,6 +12,9 @@ Development setup, project file structure, and cost analysis.
 - [Development](#development)
 - [File Structure](#file-structure)
 - [Cost Analysis](#cost-analysis)
+- [Specification Coverage](#specification-coverage)
+- [Governed Mode migration (batch-status driven)](#governed-mode-migration-batch-status-driven)
+- [Related Documentation](#related-documentation)
 
 ---
 

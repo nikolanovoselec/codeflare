@@ -11,9 +11,11 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 - [Container Image](#container-image)
 - [Container Startup](#container-startup)
 - [Claude Code Integration](#claude-code-integration)
-- [Graphify (Knowledge-Graph Context) (REQ-AGENT-023)](#graphify-knowledge-graph-context-req-agent-023)
+- [Graphify (Knowledge-Graph Context)](#graphify-knowledge-graph-context-req-agent-023)
 - [LLM Consultation](#llm-consultation)
 - [Push & Deploy](#push--deploy)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ## Container Image
 

@@ -16,6 +16,8 @@ See [Authentication](authentication.md) for auth flows. See [User Provisioning](
 - [Paygate Enforcement](#paygate-enforcement)
 - [Admin Subscription Management](#admin-subscription-management)
 - [Email Notifications](#email-notifications)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ## Subscription Tiers
 

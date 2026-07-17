@@ -16,6 +16,8 @@ Technical reference for the mobile terminal implementation covering keyboard han
 - [Scroll Stability](#scroll-stability)
 - [WebSocket Recovery](#websocket-recovery)
 - [Scroll-Stability Integration Test Plan](#scroll-stability-integration-test-plan)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ## MultiView Availability
 

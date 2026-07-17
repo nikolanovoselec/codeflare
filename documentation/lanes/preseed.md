@@ -21,6 +21,7 @@ it gets there" content. Memory-system specifics live in
 - [/sdd init Modes](#sdd-init-modes)
 - [Troubleshooting](#troubleshooting)
 - [Specification Coverage](#specification-coverage)
+- [Image-baked seed (Governed Mode delta sync)](#image-baked-seed-governed-mode-delta-sync)
 - [Related Documentation](#related-documentation)
 
 ## Session Modes

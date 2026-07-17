@@ -8,15 +8,20 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 
 ## Contents
 
-- [Storage Quota (REQ-STOR-006, REQ-STOR-014)](#storage-quota-req-stor-006-req-stor-014)
+- [Storage Quota](#storage-quota-req-stor-006-req-stor-014)
 - [Why rclone bisync (Not s3fs)](#why-rclone-bisync-not-s3fs)
 - [Initial Sync on Startup](#initial-sync-on-startup)
-- [What's Synced vs Excluded (REQ-STOR-011)](#whats-synced-vs-excluded-req-stor-011)
-- [rclone Sync Modes (REQ-STOR-003)](#rclone-sync-modes-req-stor-003)
-- [Manual Sync Triggers (REQ-STOR-015)](#manual-sync-triggers-req-stor-015)
+- [What's Synced vs Excluded](#whats-synced-vs-excluded-req-stor-011)
+- [rclone Sync Modes](#rclone-sync-modes-req-stor-003)
+- [Manual Sync Triggers](#manual-sync-triggers-req-stor-015)
 - [Session Transcript Cleanup](#session-transcript-cleanup)
 - [Conflict Resolution](#conflict-resolution)
-- [File Browser (REQ-STOR-016)](#file-browser-req-stor-016)
+- [Troubleshooting](#troubleshooting)
+- [File Browser](#file-browser-req-stor-016)
+- [Specification Coverage](#specification-coverage)
+- [Startup & steady-state sync performance](#startup--steady-state-sync-performance)
+- [Governed Mode (R2 SSE-C disabled)](#governed-mode-r2-sse-c-disabled)
+- [Related Documentation](#related-documentation)
 
 ## Storage Quota (REQ-STOR-006, REQ-STOR-014)
 

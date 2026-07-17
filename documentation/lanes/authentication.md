@@ -15,6 +15,9 @@ For security hardening, rate limiting, and encryption at rest, see [Security](se
 - [SaaS Mode](#saas-mode)
 - [Environment Variables for SaaS Mode](#environment-variables-for-saas-mode)
 - [Common Pitfalls](#common-pitfalls)
+- [Header User Dropdown](#header-user-dropdown)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ## Authentication Modes
 

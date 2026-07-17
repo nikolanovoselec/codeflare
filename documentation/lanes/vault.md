@@ -28,6 +28,8 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 - [PDF-Ingestion E2E Plan](#pdf-ingestion-e2e-plan-req-vault-011)
 - [Memory Capture System](#memory-capture-system)
 - [Troubleshooting](#troubleshooting)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ---
 
