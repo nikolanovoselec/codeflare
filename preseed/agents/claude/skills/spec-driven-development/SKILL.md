@@ -167,7 +167,7 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 
 **Gating:** when `enforce_tdd: false`, all three are informational only — written to the `## Coverage gaps` section of the layout-resolved triage file, never Status-mutating, never blocking — mirroring the REQ-level CQ-TEST false-branch. `@impl` / CQ-SOURCE is NEVER gated this way: tests are opt-out-able, source truth is not.
 
-## Manual-verification convention (`@manual`, per-AC)
+## Manual-verification convention (@manual, per-AC)
 
 **Form:**
 
