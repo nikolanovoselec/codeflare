@@ -8,7 +8,7 @@
 
 One-paragraph domain summary — what this slice of behaviour covers and why it exists. No edit history, no dates, no "this file was extracted from..." lines (those go in `sdd/spec/changes.md`).
 
-## REQ-EXAMPLE-001: One-line title in sentence case
+### REQ-EXAMPLE-001: One-line title in sentence case
 
 **Intent:** One paragraph, 1-4 sentences, plain prose. No bullets, no headings, no code blocks. Describes WHAT the system does and WHY a user cares. Stays focused on observable behaviour; mechanism detail moves to `documentation/`.
 
@@ -16,9 +16,9 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
 
 **Acceptance Criteria:**
 
-1. First observable behaviour, single sentence, <=150 words. Describes what is true after the system runs. <!-- @impl: lib/services/example_service.dart::doThing -->
-2. Second behaviour asserting a concrete value. Use the `= <value-pattern>` form on the anchor so the value-drift check can resolve. <!-- @impl: lib/services/example_service.dart::doThing = 3 -->
-3. Up to 7 ACs maximum, numbered (`1.`, `2.`, ...), never bulleted (`-`). <!-- @impl: lib/services/example_service.dart::doThing -->
+1. First observable behaviour, single sentence, <=150 words. Describes what is true after the system runs. <!-- @impl: lib/services/example_service.dart::doThing --> <!-- @test: test/services/example_service_test.dart (doThing returns the processed result) -->
+2. Second behaviour asserting a concrete value. Use the `= <value-pattern>` form on the anchor so the value-drift check can resolve. <!-- @impl: lib/services/example_service.dart::doThing = 3 --> <!-- @test: test/services/example_service_test.dart (doThing retries three times) -->
+3. Up to 7 ACs maximum, numbered (`1.`, `2.`, ...), never bulleted (`-`). At most ONE `@test` anchor per AC. <!-- @impl: lib/services/example_service.dart::doThing --> <!-- @test: test/services/example_service_test.dart (doThing caps the list) -->
 
 **Constraints:** [CON-EXAMPLE-001](constraints.md#con-example-001-title-slug), [CON-SEC-001](constraints.md#con-sec-001-title-slug)
 
@@ -32,15 +32,16 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
 
 ---
 
-## REQ-EXAMPLE-002: Second REQ shows the empty-field rendering
+### REQ-EXAMPLE-002: Second REQ shows empty-field rendering and manual-verification markers
 
-**Intent:** A REQ with no constraints and no dependencies still has both fields present. The literal token `None.` renders for each empty field. Omitting either field entirely is a MEDIUM `req-missing-required-field` finding.
+**Intent:** A REQ with no constraints and no dependencies still has both fields present. The literal token `None.` renders for each empty field. Omitting either field entirely is a MEDIUM `req-missing-required-field` finding. This example also shows per-AC manual-verification markers: `Verification:` is `Manual check` because EVERY AC carries `@manual`.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The single AC describes one behaviour. <!-- @impl: lib/services/example_service.dart::otherThing -->
+1. A behaviour only a human can verify (e.g. visual layout on a physical device) carries the bare marker instead of anchors. <!-- @manual -->
+2. A manual behaviour with a dedicated procedure carries the procedure as the marker payload. <!-- @manual: Rotate a physical device mid-animation; the layout must settle within one frame with no clipped controls. -->
 
 **Constraints:** None.
 
@@ -73,7 +74,9 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
      markdown anchor links, never plain text.
   7. Every AC describing observable behaviour ends with
      `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value
-     use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`.
+     use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. When
+     enforce_tdd is true the AC also carries at most ONE
+     `<!-- @test: <path> (<block title>) -->` anchor alongside it.
   8. Applies To, Priority, and Verification are REQUIRED on every REQ.
   9. Each REQ ends with `---` on its own line, blank lines either side.
  10. Notes is OPTIONAL and uses one of two shapes only:
@@ -92,4 +95,10 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
      strikethrough, block quotes, and "Current behaviour:" /
      "Previously:" branches. These belong in documentation/, not in
      the spec. Their presence is MEDIUM `req-body-forbidden-content`.
+ 13. Manual verification is per-AC, never REQ-level: an AC that cannot
+     be verified by an automated test ends with `<!-- @manual -->`
+     (bare) or `<!-- @manual: <procedure> -->` (with dedicated
+     guidance) instead of anchors. Verification: renders `Manual check`
+     only when EVERY AC carries @manual; otherwise `Automated test`.
+     No Notes doc-pointer, no external checklist.
 -->

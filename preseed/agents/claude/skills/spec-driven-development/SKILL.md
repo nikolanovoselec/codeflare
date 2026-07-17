@@ -93,8 +93,9 @@ The enforcement check (one walk, one rule) lives in `doc-enforce-lanes` § Layou
 - One blank line between every `**Field:**` line. Stacking two label lines on consecutive lines collapses them on GitHub render — MEDIUM `trailing-fields-collapsed`.
 - ACs are **numbered** (`1. 2. 3.`), never bulleted (`-`) — MEDIUM `ac-bullets-not-numbered`. Maximum 7 ACs per REQ.
 - CON-* and REQ-* IDs inside Constraints/Dependencies render as markdown anchor links, not plain text — MEDIUM `cross-reference-not-linked`.
-- Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Validators in `spec-enforce-truth` (CQ-SOURCE) read these comments and verify symbol + value against source. AC bullets without an anchor are valid but generate `ac-missing-source-anchor` findings (MEDIUM); `Verification: Manual check` REQs are exempt. Same convention applies to ADR `Context:` blocks.
-- **Test-anchor parity (gated by `enforce_tdd`).** When `enforce_tdd: true`, every AC describing observable behaviour ALSO ends with a test anchor `<!-- @test: <path> (<describe/it title>) -->` naming the test block that proves it (it sits alongside the `@impl` anchor on the same AC line). Validators in `spec-enforce-truth` (CQ-TEST) verify the block resolves: an AC without a test anchor is `ac-missing-test-anchor` (MEDIUM), the test parallel of `ac-missing-source-anchor`; a test anchor whose block cannot be found is `spec-test-anchor-orphaned` (HIGH), the parallel of `spec-anchor-orphaned`. `Verification: Manual check` REQs are exempt. When `enforce_tdd: false` the project has opted out of test verification, so these are informational only (never Status-mutating, never blocking).
+- Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Validators in `spec-enforce-truth` (CQ-SOURCE) read these comments and verify symbol + value against source. AC bullets without an anchor are valid but generate `ac-missing-source-anchor` findings (MEDIUM); ACs carrying `<!-- @manual -->` are exempt. Same convention applies to ADR `Context:` blocks.
+- **Test-anchor parity (gated by `enforce_tdd`).** When `enforce_tdd: true`, every AC describing observable behaviour ALSO ends with a test anchor `<!-- @test: <path> (<describe/it title>) -->` naming the test block that proves it (it sits alongside the `@impl` anchor on the same AC line; at most ONE `@test` anchor per AC). Validators in `spec-enforce-truth` (CQ-TEST) verify the block resolves: an AC without a test anchor is `ac-missing-test-anchor` (MEDIUM), the test parallel of `ac-missing-source-anchor`; a test anchor whose block cannot be found is `spec-test-anchor-orphaned` (HIGH), the parallel of `spec-anchor-orphaned`. ACs carrying `<!-- @manual -->` are exempt. When `enforce_tdd: false` the project has opted out of test verification, so these are informational only (never Status-mutating, never blocking).
+- **Manual-verification markers (per-AC, never REQ-level).** An AC whose behaviour genuinely cannot be verified by an automated test ends with `<!-- @manual -->` (bare) or `<!-- @manual: <procedure> -->` (when a dedicated manual procedure exists) instead of the anchors. The marker exempts that one AC from both anchor requirements; anchors present on a `@manual` AC are still validated as supplemental evidence. The REQ's `Verification:` field derives from the markers: `Manual check` when every AC carries `@manual`, else `Automated test` — disagreement is MEDIUM `verification-field-marker-drift`.
 - **Notes** is OPTIONAL — only two shapes (see `spec-enforce` § Rule B): Partial-explanation (`Status: Partial` only, ≤3 sentences) or Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-references go in `Dependencies:`.
 - Each REQ ends with `---` on its own line, blank lines either side.
 - **Deprecated REQs are deleted, not tombstoned.** No `Replaced By:`, no `Removed In:`. Out-of-scope ideas go to `## Out of Scope` in the domain README.
@@ -147,7 +148,7 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 ```
 
 - `<path>` is a repo-relative test-file path (forward slashes) matched by `test_globs`.
-- `<describe/it title>` is the title of the `describe`/`test`/`it` block that exercises the AC, copied verbatim (it may itself contain parentheses). It sits ALONGSIDE the AC's `@impl` anchor on the same AC line; an AC may carry more than one `@test` anchor when several blocks cover it.
+- `<describe/it title>` is the title of the `describe`/`test`/`it` block that exercises the AC, copied verbatim (it may itself contain parentheses). It sits ALONGSIDE the AC's `@impl` anchor on the same AC line. An AC carries **at most one** `@test` anchor — the title capture is greedy, so a second anchor on the same line is unparseable; multiple = HIGH `spec-test-anchor-multiple`. When several blocks cover one AC, point to the one encompassing named block or split the AC.
 
 **Examples:**
 
@@ -162,9 +163,24 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 
 1. `<path>` must be a `test_globs` file that exists. Missing → HIGH `spec-test-anchor-orphaned`.
 2. `<block-title>` must appear in `<path>` as a `describe`/`test`/`it` block title (substring of a block-name line; not a comment or fixture path). Not found → HIGH `spec-test-anchor-orphaned` (the test parallel of `spec-anchor-orphaned`).
-3. An AC describing observable behaviour with NO `@test` anchor → MEDIUM `ac-missing-test-anchor` (the parallel of `ac-missing-source-anchor`). `Verification: Manual check` REQs are exempt.
+3. An AC describing observable behaviour with NO `@test` anchor → MEDIUM `ac-missing-test-anchor` (the parallel of `ac-missing-source-anchor`). ACs carrying `<!-- @manual -->` are exempt.
 
 **Gating:** when `enforce_tdd: false`, all three are informational only — written to the `## Coverage gaps` section of the layout-resolved triage file, never Status-mutating, never blocking — mirroring the REQ-level CQ-TEST false-branch. `@impl` / CQ-SOURCE is NEVER gated this way: tests are opt-out-able, source truth is not.
+
+## Manual-verification convention (`@manual`, per-AC)
+
+**Form:**
+
+```
+<!-- @manual -->
+<!-- @manual: <procedure> -->
+```
+
+- The marker sits at the end of the AC bullet, in place of the anchors. Bare form for ACs with no bespoke guidance — never pad it with filler prose ("verify every acceptance criterion" is not a procedure). The `<procedure>` payload carries dedicated manual-verification steps when they exist.
+- **Detection regex:** `<!--\s*@manual(?::\s*(.+?))?\s*-->`
+- Granularity is strictly per-AC. There is NO REQ-level manual exemption, no Notes doc-pointer requirement, and no external checklist: `grep -rn '@manual' sdd/` IS the project's manual-verification inventory.
+- Anchors present on a `@manual` AC are still validated as supplemental evidence; the marker lifts the anchor *requirement*, never the truth of what is written. Retrofitting an anchor and deleting the marker is the standard coverage-improvement path; adding `@manual` to dodge a failing anchor check is `finding-downgraded-to-skip` (HIGH).
+- The `Verification:` field derives from the markers: `Manual check` ⇔ every AC carries `@manual`; otherwise `Automated test` (linked to the covering test file when unambiguous). Enforced as MEDIUM `verification-field-marker-drift` by `spec-enforce-truth`.
 
 ## Status semantics
 
