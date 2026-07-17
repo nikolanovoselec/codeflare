@@ -462,7 +462,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser), [REQ-STOR-018](#req-stor-018-file-browser-pagination-is-append-only-and-recoverable)
+**Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
 **Verification:** [File-list behavior tests](../../web-ui/src/__tests__/components/FileList.test.tsx), [Storage Browser component tests](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx)
 
