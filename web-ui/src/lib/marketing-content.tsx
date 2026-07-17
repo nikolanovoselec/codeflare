@@ -10,6 +10,8 @@ import {
   mdiConsole,
 } from '@mdi/js';
 
+export const AGENTIC_ENGINE_LABEL = 'agentic engineering engine';
+
 /** Home/login feature highlights shared between LoginPage and SubscribePage */
 export const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiRobotOutline, content: () => <>Claude Code, Codex, Antigravity & more</> },

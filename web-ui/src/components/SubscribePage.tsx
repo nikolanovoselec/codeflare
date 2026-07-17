@@ -44,7 +44,7 @@ import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
 import { useScrambleText } from '../lib/use-scramble-text';
-import { FEATURES } from '../lib/marketing-content';
+import { AGENTIC_ENGINE_LABEL, FEATURES } from '../lib/marketing-content';
 import '../styles/subscribe-page.css';
 import '../styles/login-page.css';
 
@@ -551,7 +551,7 @@ const SubscribePage: Component = () => {
         </h1>
 
         <p class="login-subtitle">
-          The enterprise agentic engine. Autonomous agents build,
+          The {AGENTIC_ENGINE_LABEL}. Autonomous agents build,
           review, test, and ship inside your own cloud boundary.
         </p>
 

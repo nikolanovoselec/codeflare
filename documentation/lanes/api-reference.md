@@ -222,9 +222,11 @@ Served at the deployment root by the Worker (in `src/index.ts`, before the setup
 
 | Method | Endpoint | Public mode (SaaS / onboarding) | Private mode (default / enterprise) | Implements |
 |--------|----------|----------|----------|------------|
-| GET | `/robots.txt` | `200` — allows the marketing surface, excludes `/app /api /auth /login /setup`, points at `/sitemap.xml` | `200` — disallow-all | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
+| GET | `/robots.txt` | `200` — allows the marketing surface, excludes `/app /api /auth /setup`, points at `/sitemap.xml`; `/login` remains crawlable so its `noindex` response directive is observed | `200` — disallow-all | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
 | GET | `/sitemap.xml` | `200` — canonical marketing routes (login excluded, it is noindex) | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
 | GET | `/llms.txt` | `200` — llmstxt.org-convention product summary | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
+
+Every `/login` asset response also carries `X-Robots-Tag: noindex, nofollow`; the sitemap omits that route.
 
 ### Setup
 

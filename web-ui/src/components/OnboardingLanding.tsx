@@ -13,6 +13,7 @@ import { getOnboardingConfig, getUser } from '../api/client';
 import SplashCursor from './SplashCursor';
 import KittScanner from './KittScanner';
 import Icon from './Icon';
+import { AGENTIC_ENGINE_LABEL } from '../lib/marketing-content';
 import { logger } from '../lib/logger';
 import '../styles/onboarding-landing.css';
 
@@ -153,7 +154,7 @@ const OnboardingLanding: Component = () => {
 
           <div class="onboarding-card-content">
             <p class="onboarding-lead">
-              Join the waitlist for access to the enterprise agentic engine.
+              Join the waitlist for access to the {AGENTIC_ENGINE_LABEL}.
             </p>
 
             <form onSubmit={handleSubmit} autocomplete="off">
