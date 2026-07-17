@@ -58,6 +58,7 @@ The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their
 | [changes.md](spec/changes.md) | Product changelog (user-facing spec changes) |
 | [config.yml](spec/config.yml) | SDD autonomy mode and enforcement config |
 | `.review-queue.md` | Live PR-boundary review queue (open findings only) |
+| [`../.review-decisions.md`](.review-decisions.md) | Disposition ledger for reviewed-and-kept findings (audit trail) |
 
 ## Out of Scope
 
