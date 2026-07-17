@@ -7,7 +7,7 @@ let configLoaded = false;
 
 const TOTAL_STEPS = 3;
 
-export type ReasoningLevel = 'off' | 'low' | 'medium' | 'high';
+export type ReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** Per-group routing entry (REQ-ENTERPRISE-013). */
 export interface GroupRouting {

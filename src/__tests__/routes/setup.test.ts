@@ -2320,6 +2320,40 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:default_route', JSON.stringify({ route: 'development', reasoning: 'medium' }));
       });
 
+      it('persists a defaultRoute with a new Pi thinking level (xhigh)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            dynamicRoutes: ['development'],
+            defaultRoute: { route: 'development', reasoning: 'xhigh' },
+          })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:default_route', JSON.stringify({ route: 'development', reasoning: 'xhigh' }));
+      });
+
+      it('returns 400 for a reasoning level outside the Pi enum', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            dynamicRoutes: ['development'],
+            defaultRoute: { route: 'development', reasoning: 'turbo' },
+          })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:default_route', expect.anything());
+      });
+
       it('clears the default-route key when defaultRoute is null', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();

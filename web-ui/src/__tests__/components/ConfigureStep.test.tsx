@@ -14,7 +14,7 @@ const storeState = vi.hoisted(() => ({
   dynamicRoutes: [] as string[],
   routeContextWindows: {} as Record<string, number>,
   defaultRouteName: '',
-  defaultRouteReasoning: 'off' as 'off' | 'low' | 'medium' | 'high',
+  defaultRouteReasoning: 'off' as 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max',
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
@@ -34,7 +34,7 @@ const storeState = vi.hoisted(() => ({
   cloudflareOauthClientId: '',
   cloudflareOauthClientSecret: '',
   cloudflareOauthClientSecretSet: false,
-  groupRouting: {} as Record<string, { routes: string[]; defaultRoute: string; reasoning: 'off' | 'low' | 'medium' | 'high' }>,
+  groupRouting: {} as Record<string, { routes: string[]; defaultRoute: string; reasoning: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' }>,
 }));
 
 const storeMethods = vi.hoisted(() => ({
@@ -52,7 +52,7 @@ const storeMethods = vi.hoisted(() => ({
   setRouteContextWindow: vi.fn((name: string, tokens: number) => { storeState.routeContextWindows[name] = tokens; }),
   resetRouteContextWindow: vi.fn((name: string) => { storeState.routeContextWindows[name] = 256000; }),
   setDefaultRouteName: vi.fn((name: string) => { storeState.defaultRouteName = name; }),
-  setDefaultRouteReasoning: vi.fn((level: 'off' | 'low' | 'medium' | 'high') => { storeState.defaultRouteReasoning = level; }),
+  setDefaultRouteReasoning: vi.fn((level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max') => { storeState.defaultRouteReasoning = level; }),
   setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
   setCloudflareBrowserAccountId: vi.fn((val: string) => { storeState.cloudflareBrowserAccountId = val; }),
   setAigGatewayUrl: vi.fn((val: string) => { storeState.aigGatewayUrl = val; }),
