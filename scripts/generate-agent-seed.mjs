@@ -419,9 +419,11 @@ function expandPiSkillIncludes(content, withinPi, piSkillContents) {
       throw new Error(`Pi agent ${withinPi} includes unseeded skill "${skillName}"`);
     }
 
+    // Replacer function: a string replacement would interpret $$, $&, $` and
+    // $' in the skill body as special patterns and silently corrupt the seed.
     expanded = expanded.replace(
       directive[0],
-      `<embedded-skill name="${skillName}">\n${skillContent}</embedded-skill>`,
+      () => `<embedded-skill name="${skillName}">\n${skillContent}</embedded-skill>`,
     );
     included.add(skillName);
   }
