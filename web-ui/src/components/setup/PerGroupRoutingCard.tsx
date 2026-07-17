@@ -22,9 +22,12 @@ interface PerGroupRoutingCardProps {
 
 const REASONING_OPTIONS = [
   { value: 'off', label: 'reasoning: off' },
+  { value: 'minimal', label: 'reasoning: minimal' },
   { value: 'low', label: 'reasoning: low' },
   { value: 'medium', label: 'reasoning: medium' },
   { value: 'high', label: 'reasoning: high' },
+  { value: 'xhigh', label: 'reasoning: xhigh' },
+  { value: 'max', label: 'reasoning: max' },
 ];
 
 /**

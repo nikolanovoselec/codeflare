@@ -14,7 +14,7 @@ name: Bump Shadow Pins
 # - browser-run-mcp: @modelcontextprotocol/sdk pin in
 #   preseed/agents/claude/browser-run-mcp/package.json (baked into the image; no
 #   Dockerfile literal — the job reads/bumps the package.json pin via jq)
-# - pi-preseed: every dependency in preseed/agents/pi/package.json except context-mode
+# - pi-extensions: every dependency in preseed/agents/pi/package.json except context-mode
 #   (the @juicesharp rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents)
 #   — each is also a literal install spec in entrypoint.sh + baked into the seed;
 #   context-mode is owned atomically by its dedicated job above
@@ -126,7 +126,7 @@ jobs:
           // context-mode-runtime.ts (CONTEXT_MODE_PACKAGE) and the Pi settings test. This job
           // owns the WHOLE context-mode bump so the global plugin pin and the Pi pin
           // move together in ONE PR and can never drift (the Dockerfile FATALs if they
-          // do; the pi-preseed job excludes context-mode for this reason). Name-anchored
+          // do; the pi-extensions job excludes context-mode for this reason). Name-anchored
           // replacements only, so no unrelated version string is ever rewritten.
           const piFiles = [
             'preseed/agents/pi/package.json',
@@ -143,7 +143,7 @@ jobs:
           NODE
 
           # Regenerate the Pi preseed lockfile so its context-mode pin matches the
-          # bumped manifest (same mechanism the pi-preseed job uses for its deps).
+          # bumped manifest (same mechanism the pi-extensions job uses for its deps).
           node scripts/regenerate-pi-preseed-lock.mjs
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
@@ -170,7 +170,7 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`context-mode\` from \`$CUR\` to \`$LAT\`.
 
-          The version is shadow-pinned (no package.json entry the global install reads) so Dependabot can't open this PR - \`bump-shadow-pins.yml\` does it weekly. This job bumps BOTH context-mode installs (the Claude global plugin pin AND the Pi prewarm copy) in one PR so they can never drift; the \`pi-preseed\` job intentionally excludes context-mode.
+          The version is shadow-pinned (no package.json entry the global install reads) so Dependabot can't open this PR - \`bump-shadow-pins.yml\` does it weekly. This job bumps BOTH context-mode installs (the Claude global plugin pin AND the Pi prewarm copy) in one PR so they can never drift; the \`pi-extensions\` job intentionally excludes context-mode.
 
           Files updated by string replace + lockfile + agent-seed regenerate:
           - \`preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json\` (global install)
@@ -883,21 +883,40 @@ jobs:
             --title "chore(deps): bump bun $CUR -> $LAT" \
             --body "$BODY"
 
-  pi-preseed:
-    # EVERY dependency in preseed/agents/pi/package.json is pinned in more than the
-    # manifest: each version is mirrored as a literal `npm:<name>@<ver>` install spec
-    # in entrypoint.sh's Pi settings `required` array (and CONTEXT_MODE_PACKAGE in
-    # codeflare-pi.ts), and baked into src/lib/agent-seed.generated.ts. Dependabot
-    # only sees the manifest, so it would drift the entrypoint literals / generated
-    # seed out of sync. This job owns the Pi preseed pins EXCEPT context-mode (the
-    # @juicesharp rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents):
-    # it diffs each dep against npm latest, applies name-anchored replacements across
-    # every copy, regenerates the lockfile + seed, and opens one PR per changed set.
-    # context-mode is excluded here because it is pinned in TWO installs (this Pi copy
-    # AND the Claude global plugin via plugin.json); the dedicated `context-mode:` job
-    # bumps both pins together in one PR so they can never drift.
-    # (Graphify is no longer an npm pin — it ships as the first-party
-    # graphify-native.ts extension.)
+  # Every Pi extension in preseed/agents/pi/package.json (the @juicesharp rpiv
+  # family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) is pinned in more
+  # than the manifest: each version is mirrored as a literal `npm:<name>@<ver>`
+  # install spec in entrypoint.sh's Pi settings `required` array and baked into
+  # src/lib/agent-seed.generated.ts, so Dependabot (manifest-only) would drift them.
+  # `pi-extensions-discover` lists every dep EXCEPT context-mode (pinned in TWO
+  # installs and owned atomically by the dedicated `context-mode:` job); the
+  # `pi-extensions` matrix then fans out one leg per extension, so each appears
+  # separately in the run and bumps in its own PR, and one extension's failure (e.g.
+  # the rpiv-todo session-isolation version guard) never blocks the others.
+  # (Graphify is no longer an npm pin, it ships as the first-party
+  # graphify-native.ts extension.)
+  pi-extensions-discover:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: develop
+      - name: List Pi extension pins (every dep except context-mode)
+        id: list
+        run: |
+          set -euo pipefail
+          PACKAGES=$(node -e 'const p=require("./preseed/agents/pi/package.json");process.stdout.write(JSON.stringify(Object.keys(p.dependencies||{}).filter(n=>n!=="context-mode")))')
+          printf 'packages=%s\n' "$PACKAGES" >> "$GITHUB_OUTPUT"
+          echo "Pi extensions: $PACKAGES"
+
+  pi-extensions:
+    needs: pi-extensions-discover
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.pi-extensions-discover.outputs.packages) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -910,45 +929,35 @@ jobs:
         with:
           node-version: 22
 
-      - name: Diff every Pi preseed pin against npm latest
+      - name: Diff ${{ matrix.package }} against npm latest
         id: ver
+        env:
+          PKG: ${{ matrix.package }}
         run: |
           set -euo pipefail
-          # Build a JSON array of {name,cur,lat} for every dependency whose pin is
-          # behind npm latest. Empty array => nothing to do.
-          CHANGED=$(node <<'NODE'
-          const { execFileSync } = require('node:child_process');
-          const pkg = require('./preseed/agents/pi/package.json');
-          const changed = [];
-          for (const [name, cur] of Object.entries(pkg.dependencies || {})) {
-            // context-mode is bumped atomically (global plugin pin + this Pi pin
-            // together, one PR) by the dedicated `context-mode:` job above, so skip
-            // it here — otherwise this job would open a second, competing PR that
-            // moves only the Pi pin and drifts it from plugin.json.
-            if (name === 'context-mode') continue;
-            const lat = execFileSync('npm', ['view', name, 'version'], { encoding: 'utf8' }).trim();
-            if (cur !== lat) changed.push({ name, cur, lat });
-          }
-          process.stdout.write(JSON.stringify(changed));
-          NODE
-          )
-          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
-          if [ "$CHANGED" = "[]" ]; then
+          CUR=$(node -e 'const p=require("./preseed/agents/pi/package.json");process.stdout.write(p.dependencies[process.env.PKG]||"")')
+          LAT=$(npm view "$PKG" version | tr -d '\r\n ')
+          echo "current=$CUR" >> "$GITHUB_OUTPUT"
+          echo "latest=$LAT" >> "$GITHUB_OUTPUT"
+          if [ "$CUR" = "$LAT" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "All Pi preseed pins already latest, nothing to do."
+            echo "$PKG already at latest ($CUR), nothing to do."
           else
-            echo "Changed set: $CHANGED"
+            echo "$PKG: $CUR -> $LAT"
           fi
 
-      - name: Skip if a branch for this change set already exists
+      - name: Skip if a branch for this bump already exists
         if: steps.ver.outputs.skip != 'true'
         id: branch
+        env:
+          PKG: ${{ matrix.package }}
+          LAT: ${{ steps.ver.outputs.latest }}
         run: |
           set -euo pipefail
-          # Branch keyed on a hash of the exact changed set so a re-run with the same
-          # pending bumps dedupes to the open PR, but a new bump opens a fresh branch.
-          HASH=$(printf '%s' '${{ steps.ver.outputs.changed }}' | sha256sum | cut -c1-12)
-          BRANCH="bump/pi-preseed-$HASH"
+          # Branch keyed on package + target version so a re-run dedupes to the open
+          # PR, but a new version opens a fresh branch.
+          SLUG=$(printf '%s' "$PKG" | sed 's|@||g; s|/|-|g')
+          BRANCH="bump/pi-ext-$SLUG-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -958,31 +967,32 @@ jobs:
 
       - name: Apply bump
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          PKG: ${{ matrix.package }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
-          CHANGED='${{ steps.ver.outputs.changed }}' node <<'NODE'
+          node <<'NODE'
           const fs = require('node:fs');
-          const changed = JSON.parse(process.env.CHANGED);
+          const { PKG, CUR, LAT } = process.env;
           // Name-anchored replacements only (never a bare version replaceAll) so an
           // unrelated version string elsewhere can never be rewritten.
           function bump(s) {
-            for (const { name, cur, lat } of changed) {
-              s = s
-                .replaceAll(`"${name}": "${cur}"`, `"${name}": "${lat}"`)
-                .replaceAll(`npm:${name}@${cur}`, `npm:${name}@${lat}`);
-            }
-            return s;
+            return s
+              .replaceAll(`"${PKG}": "${CUR}"`, `"${PKG}": "${LAT}"`)
+              .replaceAll(`npm:${PKG}@${CUR}`, `npm:${PKG}@${LAT}`);
           }
-          const files = [
+          for (const f of [
             'preseed/agents/pi/package.json',
             'entrypoint.sh',
             'host/__tests__/pi-settings-packages.test.js',
-          ];
-          for (const f of files) {
+          ]) {
             const before = fs.readFileSync(f, 'utf-8');
             const after = bump(before);
             if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
@@ -997,43 +1007,44 @@ jobs:
 
           git add -A
           if git diff --cached --quiet; then
-            echo "Nothing changed (replacements found nothing) - aborting."
+            echo "Nothing changed (replacement found nothing) - aborting."
             exit 1
           fi
-          MSG=$(CHANGED='${{ steps.ver.outputs.changed }}' node -e 'const c=JSON.parse(process.env.CHANGED);process.stdout.write(c.map(x=>`${x.name} ${x.cur}->${x.lat}`).join(", "))')
-          git commit -m "chore(deps): bump pi preseed ($MSG)"
-          git push -u origin "${{ steps.branch.outputs.branch }}"
+          git commit -m "chore(deps): bump $PKG $CUR -> $LAT"
+          git push -u origin "$BRANCH"
 
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG: ${{ matrix.package }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
           set -euo pipefail
-          LIST=$(CHANGED='${{ steps.ver.outputs.changed }}' node -e 'const c=JSON.parse(process.env.CHANGED);process.stdout.write(c.map(x=>"- "+x.name+" "+x.cur+" -> "+x.lat).join("\n"))')
-          TITLE=$(CHANGED='${{ steps.ver.outputs.changed }}' node -e 'const c=JSON.parse(process.env.CHANGED);const f=c.map(x=>x.name+"@"+x.lat).join(", ");process.stdout.write(f.length<=80?f:c.length+" packages")')
           BODY=$(cat <<EOF
-          Auto-generated bump of the Pi preseed npm pins:
-          $LIST
+          Auto-generated bump of the Pi extension \`$PKG\` from \`$CUR\` to \`$LAT\`.
 
-          Every dependency in \`preseed/agents/pi/package.json\` is mirrored in entrypoint.sh's Pi \`required\` install specs and the generated agent seed, so Dependabot can't keep them in sync - \`bump-shadow-pins.yml\` owns them. The dedicated context-mode job additionally updates the foreground-owner loader.
+          Every Pi extension pin in \`preseed/agents/pi/package.json\` is mirrored in entrypoint.sh's Pi \`required\` install specs and the generated agent seed, so Dependabot can't keep them in sync - \`bump-shadow-pins.yml\` owns them, one PR per extension.
 
           Files updated by name-anchored string replace + lockfile + seed regenerate:
           - \`preseed/agents/pi/package.json\` + \`package-lock.json\`
-          - \`entrypoint.sh\` (Pi settings \`required\` install specs)
-          - \`host/__tests__/pi-settings-packages.test.js\` (pinned-version assertions)
+          - \`entrypoint.sh\` (Pi settings \`required\` install spec)
+          - \`host/__tests__/pi-settings-packages.test.js\` (pinned-version assertion)
           - \`src/lib/agent-seed.generated.ts\` (regenerated)
 
           ## Test plan
           - [ ] CI green
-          - [ ] Review CHANGELOGs for the bumped packages - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
+          - [ ] Review the \`$PKG\` CHANGELOG - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
+          - [ ] \`@juicesharp/rpiv-todo\` only: a version change trips the session-isolation \`EXPECTED_VERSION\` guard at image build; re-sync or remove \`preseed/agents/pi/npm/rpiv-todo-session-isolation\` before merge
           - [ ] Smoke test on integration: Pi loads all preseed extensions without error
           EOF
           )
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
-            --title "chore(deps): bump pi preseed ($TITLE)" \
+            --head "$BRANCH" \
+            --title "chore(deps): bump $PKG $CUR -> $LAT" \
             --body "$BODY"
 
   impeccable:
@@ -1331,7 +1342,7 @@ jobs:
   browser-run-mcp:
     # The Claude-side browser-run MCP server pins @modelcontextprotocol/sdk exact
     # in preseed/agents/claude/browser-run-mcp/package.json. That dir has no
-    # lockfile and is not covered by Dependabot or the pi-preseed job (which only
+    # lockfile and is not covered by Dependabot or the pi-extensions job (which only
     # reads the Pi package.json), so this job bumps it weekly.
     runs-on: ubuntu-latest
     steps:
@@ -1413,7 +1424,7 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`@modelcontextprotocol/sdk\` (the Claude-side \`browser-run\` MCP server) from \`$CUR\` to \`$LAT\`.
 
-          The version is pinned exact in \`preseed/agents/claude/browser-run-mcp/package.json\`; that dir has no lockfile and is not covered by Dependabot or the \`pi-preseed\` job, so \`bump-shadow-pins.yml\` opens this PR weekly.
+          The version is pinned exact in \`preseed/agents/claude/browser-run-mcp/package.json\`; that dir has no lockfile and is not covered by Dependabot or the \`pi-extensions\` job, so \`bump-shadow-pins.yml\` opens this PR weekly.
 
           Files updated:
           - \`preseed/agents/claude/browser-run-mcp/package.json\` (\`@modelcontextprotocol/sdk\` \`$CUR\` -> \`$LAT\`)

@@ -15,7 +15,6 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 - [SaaS mode](#saas-mode)
 - [Enterprise mode](#enterprise-mode)
 - [Reference](#reference)
-- [Manual verification checklist](#manual-verification-checklist)
 - [Related Documentation](#related-documentation)
 
 ---
@@ -159,7 +158,9 @@ In non-enterprise modes a user connects their own Cloudflare account via OAuth (
 | `setup:cloudflare_oauth_client_id` | Cloudflare OAuth client id (plain). |
 | `setup:cloudflare_oauth_client_secret` | Cloudflare OAuth client secret (encrypted at rest; fail-closed without `ENCRYPTION_KEY`). |
 
-**Client authentication method (`invalid_client` gotcha).** Codeflare exchanges the authorization code using **`client_secret_post`** (client id + secret in the form body) — Cloudflare's token endpoint supports it. The operator's OAuth Application must therefore be registered with `token_endpoint_auth_method = client_secret_post`. If the client is registered as a **public client (`none`)** or as `client_secret_basic`, Cloudflare's token endpoint rejects the exchange with `401 invalid_client` ("the client supports authentication method 'none', but 'client_secret_post' was requested; configure the client's token_endpoint_auth_method to accept 'client_secret_post'") and the connect flow stays unconnected. The exact `error_description` is now surfaced in the connect logs (previously an opaque "returned 401"). Reconfigure the client's auth method on the Cloudflare side; codeflare does not need a code change for `client_secret_post`.
+**Client authentication method (`invalid_client` gotcha).** Codeflare exchanges the authorization code using **`client_secret_post`** (client id + secret in the form body) — Cloudflare's token endpoint supports it. The operator's OAuth Application must therefore be registered with `token_endpoint_auth_method = client_secret_post`.
+
+If the client is registered as a **public client (`none`)** or as `client_secret_basic`, Cloudflare's token endpoint rejects the exchange with `401 invalid_client` ("the client supports authentication method 'none', but 'client_secret_post' was requested; configure the client's token_endpoint_auth_method to accept 'client_secret_post'") and the connect flow stays unconnected. The exact `error_description` is now surfaced in the connect logs (previously an opaque "returned 401"). Reconfigure the client's auth method on the Cloudflare side; codeflare does not need a code change for `client_secret_post`.
 
 **Scopes.** The connect URL carries a tier (minimal/recommended/advanced); the server maps it to the OAuth `scope` using **dot-notation scope IDs** from Cloudflare's OAuth catalog (`GET /client/v4/oauth/scopes` — `<resource>.<read|write>` form, e.g. `workers-scripts.write`, `account-settings.read`, `ai.write`; **not** the colon-style API-token permission-group keys), always including `offline_access` for a refresh token, from the server-side catalog in `src/lib/oauth-scopes.ts`. The operator's OAuth client must be registered with at least the **Advanced superset**, since per-connect requests can only narrow within the registered scopes.
 
@@ -500,16 +501,6 @@ Additional details:
 - [REQ-SETUP-009](../../sdd/spec/setup.md#req-setup-009-subscribe-page-with-tier-selection) - Subscribe page with tier selection
 - [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) - Social-share preview metadata on the public landing page
 - [REQ-SETUP-011](../../sdd/spec/setup.md#req-setup-011-setup-stream-completion-payload-contract) - Setup stream completion payload contract
-
-## Manual verification checklist
-
-Run the setup flow in staging from a clean configuration and again as an update; compare bindings, stored settings, public status, and idempotent outcomes with every AC.
-
-- [ ] [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) — verify every acceptance criterion.
-- [ ] [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) — verify every acceptance criterion.
-- [ ] [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence) — verify every acceptance criterion.
-
----
 
 ## Related Documentation
 - [Container](container.md#auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration

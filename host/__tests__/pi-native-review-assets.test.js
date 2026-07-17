@@ -59,7 +59,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
   });
 
   it('REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker', () => {
-    const script = join(repoRoot, 'preseed/agents/pi/skills/spec-enforce/scripts/round-limit.mjs');
+    const script = join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs');
     const decide = (count, marker) => {
       const result = spawnSync(process.execPath, [script, String(count), ...(marker ? [marker] : [])], {
         encoding: 'utf8',

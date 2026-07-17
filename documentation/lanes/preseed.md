@@ -733,7 +733,9 @@ Hooks registered in settings.json, scripts delivered via plugin.
 
 [context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi loads context-mode by default in the settings `required` set. `/ctx off` disables the package for the current running Pi session and reloads resources; `/ctx on` re-enables it. The next Codeflare container start resets Pi back to enabled.
 
-The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Custom-tier (`unlimited` subscription) users receive the MCP registration. Claude's three PR reviewer definitions carry the full research toolset — native reads, indexed context-mode retrieval (`ctx_search`/`ctx_batch_execute`), direct `ctx_execute`, Graphify discovery, and Bash fallback; indexed retrieval keeps raw scan output out of reviewer context. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools --> Reasoning effort is pinned per lane (`high` for code, `medium` for spec and docs), and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
+The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Custom-tier (`unlimited` subscription) users receive the MCP registration. Claude's three PR reviewer definitions carry the full research toolset — native reads, indexed context-mode retrieval (`ctx_search`/`ctx_batch_execute`), direct `ctx_execute`, Graphify discovery, and Bash fallback; indexed retrieval keeps raw scan output out of reviewer context. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools -->
+
+Reasoning effort is pinned per lane (`high` for code, `medium` for spec and docs), and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is
@@ -1015,7 +1017,9 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
 Pi uses the narrower supported command grammar in
-[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, `gh pr update-branch`, protected-base `gh pr edit`, and `gh pr merge` only in their documented roles. A same-repository `gh pr update-branch <target>` queries that PR, verifies its changed remote head through `origin`, and carries the resolved PR number to CI. URL targets, `--repo` selectors, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert.
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, `gh pr update-branch`, protected-base `gh pr edit`, and `gh pr merge` only in their documented roles.
+
+A same-repository `gh pr update-branch <target>` queries that PR, verifies its changed remote head through `origin`, and carries the resolved PR number to CI. URL targets, `--repo` selectors, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert.
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fetchPrHead -->
@@ -1027,8 +1031,8 @@ For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. Settle
 The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 
 A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract)).
-<!-- @impl: preseed/agents/pi/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
-<!-- @impl: preseed/agents/pi/skills/spec-enforce/scripts/round-limit.mjs::action -->
+<!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
+<!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action -->
 
 After every required reviewer result arrives, the launch handoff requires an automatic triage summary before mutation. The root separately judges finding validity and proposed-fix proportionality, prefers existing machinery, rejects unsupported or overengineered proposals, and applies legitimate minimal fixes unless the user requested approval.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->

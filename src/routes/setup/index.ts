@@ -35,7 +35,9 @@ const accessNameSchema = z
       .refine((s) => !/[,\n]/.test(s), 'Name must not contain a comma or newline'),
   );
 
-const reasoningSchema = z.enum(['off', 'low', 'medium', 'high']);
+// Pi's thinking-level enum (settings.json defaultThinkingLevel) — passed through
+// verbatim to the container, so this list mirrors Pi's own selector exactly.
+const reasoningSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 const ConfigureBodySchema = z.object({
   customDomain: z

@@ -331,7 +331,9 @@ function adaptPiSkillContent(content, withinClaude) {
   let next = adaptPiRuntimeNames(adaptPaths(content, 'pi'));
 
   const skillName = withinClaude.match(/^skills\/([^/]+)\//)?.[1];
-  if (PI_SDD_SKILLS.has(skillName)) {
+  // Note goes on the skill prose only: appending markdown to a skill's
+  // executable aux files (.py/.mjs) makes them unparseable at runtime.
+  if (PI_SDD_SKILLS.has(skillName) && withinClaude.endsWith('SKILL.md')) {
     const parts = next.split('\n---\n');
     if (parts.length >= 3) {
       return `${parts[0]}\n---\n${parts.slice(1).join('\n---\n')}${PI_SDD_COMPATIBILITY_NOTE}`;

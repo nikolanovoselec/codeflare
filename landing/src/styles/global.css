@@ -397,6 +397,9 @@ svg {
 .nav-signin--matrix {
   color: var(--text-primary);
   white-space: nowrap;
+  /* No overflow clipping here: the centered scramble boxes are in-flow
+     (.scramble-box--center, inline-grid), so the button border grows to
+     accommodate over-wide churn frames instead of cutting them off. */
 }
 
 .nav-signin--matrix:hover,
@@ -466,8 +469,10 @@ svg {
    .scramble-ghost copy of the word, and the churning .scramble-word paints on an absolute
    overlay on top (see .scramble-box rules below) -- content-sized, so a churn glyph wider
    than the resting letters paints past the box without clipping and without growing it, so
-   the phrase never reflows. The hover CTA uses the same boxes with the --center modifier,
-   which centers the overlay so churn spill is symmetric instead of escaping one edge.
+   the phrase never reflows (the headline contract). The hover CTA uses the --center
+   modifier, which is IN-FLOW instead: ghost + live word stack in one inline-grid cell,
+   so the button border grows to fit over-wide churn frames rather than being escaped
+   or clipping them (the CTA contract).
    Each .scramble-word carries its own gradient clip because a parent's clip does not
    paint through child boxes; nowrap keeps a word intact. */
 .scramble-word {
@@ -498,13 +503,23 @@ svg {
   left: 0;
 }
 
-/* Hover-CTA variant: pin the overlay to the ghost's full box and center its text.
-   The resting label is width-identical to the ghost, so it sits exactly where the
-   ghost sits (no transform, no subpixel blur); an over-wide churn frame overflows a
-   centered line symmetrically, keeping the spill balanced around the button border. */
+/* Hover-CTA variant: IN-FLOW grid stacking instead of the absolute overlay.
+   Ghost and live word share one grid cell, so the cell — and the button around
+   it — sizes to max(resting label, current churn frame) on every tick: the
+   border dynamically accommodates over-wide frames (never clips, never lets a
+   glyph paint outside the border), and the invisible ghost keeps the resting
+   label width as the floor so the button never shrinks below its label. */
+.scramble-box--center {
+  display: inline-grid;
+}
+
+.scramble-box--center .scramble-ghost,
 .scramble-box--center .scramble-word {
-  left: 0;
-  right: 0;
+  grid-area: 1 / 1;
+}
+
+.scramble-box--center .scramble-word {
+  position: static;
   text-align: center;
 }
 

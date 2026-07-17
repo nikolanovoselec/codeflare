@@ -40,10 +40,8 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 1. `chrome-devtools-mcp` is registered for Claude Code (in `~/.claude.json`) only in Pro (advanced) session mode AND only when a Cloudflare API token + account id are present; Standard mode and token-less deploys omit it (byte-identical to today). <!-- @impl: entrypoint.sh::GRAPHIFY_MANIFEST --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
 2. The registration points the MCP server at the Cloudflare Browser Run CDP `/devtools` endpoint, passes the API token as an `Authorization: Bearer` header via `--wsHeaders`, and invokes the Dockerfile-baked `chrome-devtools-mcp` stable bin whose version is pinned in the image (not `@latest`). <!-- @impl: entrypoint.sh::GRAPHIFY_MCP_CONFIG --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
-3. A `browser-run` skill is seeded (advanced mode) that positions the browser as a retry path for WebFetch failures caused by bot protection, login walls, redirect chains, or JS-only pages. <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (advanced + token: keeps the browser-run/browser-e2e skills for both agents) -->
-4. The fallback loads public targets only; it does not perform end-to-end testing or execute code in the browser.
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+3. A `browser-run` skill is seeded (advanced mode) that positions the browser as a retry path for WebFetch failures caused by bot protection, login walls, redirect chains, or JS-only pages. <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (advanced + token: keeps the browser-run/browser-e2e skills for both agents) --> <!-- @manual -->
+4. The fallback loads public targets only; it does not perform end-to-end testing or execute code in the browser. <!-- @manual -->
 
 **Constraints:**
 
@@ -54,7 +52,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/entrypoint-browser-run-mcp.test.js)
 
 **Status:** Implemented
 
@@ -96,11 +94,9 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 **Acceptance Criteria:**
 
 1. A Pi extension registers native `browser_markdown`, `browser_content`, and `browser_scrape` tools (via `pi.registerTool`) that call the Cloudflare Browser Run REST Quick Actions (`/markdown`, `/content`, `/scrape`). <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
-2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts::AgentToolResult -->
+2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts::AgentToolResult --> <!-- @manual -->
 3. The tools load public targets only, cap their output to protect the context window, and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::truncate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 4. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -111,7 +107,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -125,12 +121,10 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A `browser-e2e` skill is seeded (advanced mode) for Claude Code, positioning the interactive `chrome-devtools` surface as a semantic verifier of the user's own deployed app, distinct from the `browser-run` fetch fallback, and requiring a pass/fail verdict per acceptance criterion backed by observed evidence. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. Advanced Pi seeds `browser-e2e` for full-flow navigate, click, screenshot, and mobile-resize verification through the MCP proxy; native markdown and scrape tools remain the cheap read-only path, matching Claude capability. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. Both skills scope targets to public / deployed URLs (Browser Run is remote and cannot reach localhost or private hosts) and to the user's own app under test, and both state that deterministic invariants remain in the CI suite. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. A `browser-e2e` skill is seeded (advanced mode) for Claude Code, positioning the interactive `chrome-devtools` surface as a semantic verifier of the user's own deployed app, distinct from the `browser-run` fetch fallback, and requiring a pass/fail verdict per acceptance criterion backed by observed evidence. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+2. Advanced Pi seeds `browser-e2e` for full-flow navigate, click, screenshot, and mobile-resize verification through the MCP proxy; native markdown and scrape tools remain the cheap read-only path, matching Claude capability. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+3. Both skills scope targets to public / deployed URLs (Browser Run is remote and cannot reach localhost or private hosts) and to the user's own app under test, and both state that deterministic invariants remain in the CI suite. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
 4. The skills are seeded through the preseed manifest pipeline ([REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)) and rest on the symmetric Browser Run surfaces — both agents reach the interactive `chrome-devtools` surface (Claude [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), Pi [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) and the cheap read surface (Pi [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), Claude [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity)). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -141,7 +135,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity), [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -158,9 +152,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
 2. Built into the image and registered in `~/.claude.json` only in Pro (advanced) mode AND when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are present; Standard / token-less sessions are byte-identical to today, and the token + account are passed in the server's scoped env. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
 3. The tools load public targets only and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
-4. The Claude `browser-run` skill positions this read surface (cheap, one-shot) ahead of the interactive `chrome-devtools` surface in its decision order. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-BROWSER-005/006: the browser-run skill carries BOTH surfaces for each agent (cheap markdown + interactive chrome-devtools)) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+4. The Claude `browser-run` skill positions this read surface (cheap, one-shot) ahead of the interactive `chrome-devtools` surface in its decision order. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-BROWSER-005/006: the browser-run skill carries BOTH surfaces for each agent (cheap markdown + interactive chrome-devtools)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -171,7 +163,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -186,11 +178,9 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 **Acceptance Criteria:**
 
 1. Advanced Pi registers the image-baked Chrome DevTools server against Claude's Browser Run CDP endpoint only with token and account ID, passing WS headers and lazy lifecycle so idle sessions hold no browser. <!-- @impl: entrypoint.sh::PLUGIN_DIR --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
-2. Pi reaches the `chrome-devtools` tools through the `pi-mcp-adapter` `mcp` proxy; the `pi-mcp-adapter` skill is seeded so Pi knows how to drive a bridged server. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. The Pi `browser-run` and `browser-e2e` skills name the interactive `chrome-devtools` surface (navigate / click / screenshot / `resize_page`) alongside the native read tools, establishing parity with Claude. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. Pi reaches the `chrome-devtools` tools through the `pi-mcp-adapter` `mcp` proxy; the `pi-mcp-adapter` skill is seeded so Pi knows how to drive a bridged server. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+3. The Pi `browser-run` and `browser-e2e` skills name the interactive `chrome-devtools` surface (navigate / click / screenshot / `resize_page`) alongside the native read tools, establishing parity with Claude. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
 4. Standard mode and token-less deploys register nothing (byte-identical to today); Pi's native read tools ([REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)) are unchanged and remain the cheap path. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -201,7 +191,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/entrypoint-browser-run-mcp.test.js)
 
 **Status:** Implemented
 

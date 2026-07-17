@@ -1,7 +1,7 @@
 ---
 name: spec-enforce-ac
-description: SDD spec AC quality and splitting enforcement. Runs AC granularity triggers 1-10, run-on safety net, per-AC verbosity cap, Constraints conciseness, actor coherence, sub-bullets ban, splitting by actor/sub-feature/concern, accretion guard, chain enforcement, mechanism leakage. Invoked conditionally by spec-enforce when diff touches any AC bullet OR any Constraints bullet OR scope=all.
-version: 1.0.0
+description: SDD spec AC quality and splitting enforcement — the canonical cross-agent contract. Runs AC granularity triggers 1-10, run-on safety net, per-AC verbosity cap, Constraints conciseness, actor coherence, sub-bullets ban, splitting by actor/sub-feature/concern, accretion guard, chain enforcement, mechanism leakage. Invoked conditionally by spec-enforce when diff touches any AC bullet OR any Constraints bullet OR scope=all.
+version: 4.0.0
 ---
 
 # Spec Enforcement — AC quality and splitting
@@ -10,10 +10,13 @@ This skill enforces the rules that operate on Acceptance Criteria bullets and RE
 
 ## Inputs
 
+- `purpose`: `review` | `clean` (inherited from parent — `review` reports only; `clean` applies mechanical edits allowed by mode)
 - `diff`: git diff against base
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
 - `layout`: `nested` | `flat` (auto-detected by parent `spec-enforce`)
+
+**Scope contract.** Consume the parent's already-resolved in-scope REQ set; do not reconstruct the diff. Under `scope=diff`, inspect only changed AC/Constraint hunks plus the complete parent REQ needed to judge coherence, cap, and numbering; follow references only when a proposed split/renumber would invalidate them. Under `scope=all`, inspect every AC and Constraint.
 
 **Layout-awareness.** Cross-cutting REQ extraction and new-domain scaffolding paths resolve per the detected layout:
 - Nested: new domain files land in `sdd/spec/{domain}.md`
@@ -23,7 +26,7 @@ The AC granularity rules, splitting mechanics, and accretion guard are layout-in
 
 ## Output
 
-Returns findings array + auto-fix actions (per mode). Writes evidence-count rows back to the spine's manifest:
+Returns findings array + auto-fix actions (per mode) — each finding names the REQ, AC, firing trigger, severity, cross-reference blast radius, and proposed smallest action. Inspect each parent REQ once and stop after every changed AC has a disposition. Writes evidence-count rows back to the spine's manifest:
 - `Acceptance criteria + AC granularity + REQ accretion guard`: `ran (N REQs, K diff hunks, M findings)`
 - `Per-AC verbosity + Constraints conciseness`: `ran (N REQs, M findings)`
 - `Actor coherence`: `ran (N REQs, M findings)`

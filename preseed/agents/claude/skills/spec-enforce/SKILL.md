@@ -1,15 +1,16 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs), and per-AC test-anchor coverage at parity with source anchors (CQ-TEST — gated by enforce_tdd). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
-version: 2.1.0
+description: SDD spec enforcement orchestrator — the canonical cross-agent contract. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs), and per-AC test-anchor coverage at parity with source anchors (CQ-TEST — gated by enforce_tdd). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
+version: 4.0.0
 ---
 
 # Spec Enforcement (orchestrator)
 
-This skill is the spine for SDD spec enforcement. It runs the 23-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
+This skill is the spine for SDD spec enforcement. It runs the 23-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`). It is one canonical contract: every agent runtime executes the same rules, severities, mandated commands, and finding vocabulary, so a repo gets identical findings regardless of which agent reviews it.
 
 ## Inputs
 
+- `purpose`: `review` | `clean`. `review` is report-only — never edit the spec, queue, or audit files; return findings and evidence. `clean` applies fixes under the mode rules and records them in the `/sdd clean` audit.
 - `diff`: the review window the caller hands you — an incremental `<base>..<head>` range on a re-review, the base...HEAD diff on a first PR-boundary review, or the full-tree view on `scope=all`. Enforce exactly the window provided; never widen a provided incremental window back out to the full PR diff. The "Git diff syntax" section below is only the **default** used when no window is provided.
 - `scope`: `all` | `diff` (default `diff`)
 - `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/spec/config.yml` when nested layout exists, else `sdd/config.yml` on flat layout)
@@ -20,15 +21,29 @@ This skill is the spine for SDD spec enforcement. It runs the 23-row execution m
 - Config: `sdd/spec/config.yml` (nested) OR `sdd/config.yml` (flat)
 - Triage / escalation: `sdd/spec/.review-queue.md` (nested) OR `sdd/.review-needed.md` (flat, legacy)
 
-The flat layout is supported during the migration window; `/sdd clean` migrates flat → nested on demand. Both layouts coexist correctly in this skill.
+The flat layout is supported during the migration window; `/sdd clean` migrates flat → nested on demand.
+
+## Scope contract
+
+When the caller supplies a prepared review packet or resolved in-scope set, consume it; do not reconstruct the diff after the packet exists. Under `scope=diff`, build the in-scope set from:
+
+1. changed REQ/Constraints/Status/field hunks;
+2. REQs whose inline `@impl` anchors target changed source symbols or files;
+3. REQs whose inline `@test` anchors target changed or renamed test files/blocks;
+4. dependencies, index entries, and changelog entries directly changed or required by those REQs;
+5. changed queue lines and commits in the supplied range.
+
+Rows with no relevant input report `inert (reason)` naming the absent trigger. Do not scan unrelated REQs, backlog entries, or baseline prose — searching all spec files for anchors that cite a changed path is allowed because it traces direct invalidation; judging unrelated content is not. Under `scope=all`, walk every active REQ and support file; every applicable row is exhaustive.
+
+Scope never lowers severity or truth requirements. There are no token, turn, or tool budgets; scope is the work bound.
 
 ## Execution contract (binding)
 
 Every row of the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each rule completes, finalised at run end. Pending rows at finalize emit HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts (`ran (N REQs, M findings)`) emit HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
 
-**In-depth, not at-a-glance (binding).** Each row is a full pass over its scope, not a spot-check. A row that reports `0 findings` is asserting it walked every REQ/file in scope and each passed — if you did not actually inspect each one, that is a dishonest `0`. On `scope=all`, "looked fine" / "appears clean" / "intentional given the feature" are not dispositions; either the item passes the rule or it is a finding.
+**In-depth, not at-a-glance (binding).** Each row is a full pass over its scope, not a spot-check. A row that reports `0 findings` is asserting it walked every REQ/file in scope and each passed — if you did not actually inspect each one, that is a dishonest `0`. "looked fine" / "appears clean" / "intentional given the feature" are not dispositions; either the item passes the rule or it is a finding.
 
-**Every fired finding MUST be disposed of (binding).** When a rule fires at MEDIUM or HIGH, the run MUST record one of exactly three dispositions per occurrence: `auto-fixed (what)`, `escalated -> .review-queue.md (reason + blast radius)`, or — interactive mode only — `deferred to user confirmation`. Silently re-labelling a fired MEDIUM/HIGH as LOW, "soft limit", "deferred", or "by design" to avoid acting on it is itself HIGH `finding-downgraded-to-skip`. The severity in the rule table is the floor; an agent may not lower it. This rule exists because a prior run downgraded four `ac-count-over-cap` MEDIUMs (8-AC REQs) to "LOW soft-limit, never auto-fixed" and skipped them — a contract breach. If an auto-fix would itself be destructive (e.g. an AC renumber that orphans by-number cross-refs), the correct disposition is `escalated` with the blast radius, never `deferred`/`LOW`.
+**Every fired finding MUST be disposed of (binding).** When a rule fires at MEDIUM or HIGH, the run MUST record one of exactly three dispositions per occurrence: `auto-fixed (what)`, `escalated -> .review-queue.md (reason + blast radius)`, or — interactive mode only — `deferred to user confirmation`. Silently re-labelling a fired MEDIUM/HIGH as LOW, "soft limit", "deferred", or "by design" to avoid acting on it is itself HIGH `finding-downgraded-to-skip`. The severity in the rule table is the floor; an agent may not lower it. (A prior run downgraded four `ac-count-over-cap` MEDIUMs to "LOW soft-limit" and skipped them — a contract breach.) If an auto-fix would itself be destructive (e.g. an AC renumber that orphans by-number cross-refs), the correct disposition is `escalated` with the blast radius, never `deferred`/`LOW`.
 
 Audit location by trigger: `/sdd clean` writes to per-category commit bodies. A PR-boundary spec-reviewer returns the execution manifest; the root persists it in the applicable commit body or layout-resolved review queue.
 
@@ -51,7 +66,7 @@ Audit location by trigger: `/sdd clean` writes to per-category commit bodies. A 
 | Meta-content leakage Rule A (stub-after-extraction) | Walk every REQ; flag stub shape. | `ran (N REQs, M findings)` |
 | Meta-content leakage Rule B (Notes two-shape) | Walk every Notes field; flag violations. | `ran (N Notes, M findings)` |
 | Meta-content leakage Rule C (preamble edit-history) | Walk every `sdd/{domain}.md` preamble; flag edit-history prose. | `ran (K files, M findings)` |
-| CQ-TEST — Test-anchor coverage | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). Covers BOTH the REQ-level binary check AND the per-AC `@test` anchor verification at parity with `@impl`/CQ-SOURCE (`ac-missing-test-anchor` MEDIUM, `spec-test-anchor-orphaned` HIGH). | `ran (N REQs, M findings, T test-anchors verified, O orphaned, U unanchored)` or `inert (enforce_tdd: false)` |
+| CQ-TEST — Test-anchor coverage | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). Covers BOTH the REQ-level binary check AND the per-AC `@test` anchor verification at parity with `@impl`/CQ-SOURCE (`ac-missing-test-anchor` MEDIUM, `spec-test-anchor-orphaned` HIGH, `spec-test-anchor-multiple` HIGH). | `ran (N REQs, M findings, T test-anchors verified, O orphaned, U unanchored)` or `inert (enforce_tdd: false)` |
 | CQ-SOURCE — Source-anchor truth-check | During `/sdd init`: consume both the Phase 7a verifier JSON (`.verify-anchors.json`) AND the Phase 7b enumeration-coverage verifier JSON (`.phase-7b.json`). The Phase 7a output drives anchor-orphaned / value-drift findings; the Phase 7b output drives `phase-7b-evidence-missing` / `import-mode-narrowed-scope` findings (a Phase 7b `unaccounted > 0` reported in the `[sdd-init]` commit body is itself a CRITICAL spec-side finding). Outside `/sdd init`: invoke `spec-enforce-truth` UNCONDITIONALLY when any Implemented or Partial REQ in diff OR scope=all. Never gated by `enforce_tdd`. Agent self-attestation without verifier output = CRITICAL `phase-7a-self-attestation` / `phase-7b-self-attestation` (see `sdd-init/SKILL.md` steps 7 and 8). When reading the most recent `[sdd-init]` commit body to verify the bulk-op actually ran, both the Phase 7a line (`Phase 7a verifier: parsed=...`) AND the Phase 7b line (`Phase 7b enum verifier: enumerated=...`) MUST be present; either line missing = CRITICAL `phase-7a-evidence-missing` / `phase-7b-evidence-missing`. | `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
 | Index integrity (README ↔ filesystem) | Run the mandated command in § Index integrity; every tracked file under `sdd/spec/` (flat: `sdd/*.md`) must be indexed in `sdd/README.md`, REQ-bearing files in the Domains table, support files in a Support section. Non-empty output = finding. Eyeballing the index is forbidden — the command is the check. | `ran (F files, M unindexed/misclassified)` |
@@ -68,11 +83,13 @@ Audit location by trigger: `/sdd clean` writes to per-category commit bodies. A 
    - IF any AC bullet line changed in diff OR any `**Constraints:**` bullet changed in diff OR scope=all: invoke `spec-enforce-ac` skill with the diff + scope + mode. (Constraints bullets are included so the Constraints-conciseness rule fires on a diff that touches only Constraints; a touched REQ gets its ACs AND Constraints checked.)
    - IF any REQ with `Status: Implemented` or `Status: Partial` is in the diff, OR any path matched by `src_globs` (from the layout-resolved config; default defined in `spec-enforce-truth/SKILL.md` § Inputs) is in the diff, OR scope=all: invoke `spec-enforce-truth` skill with the diff + scope + mode. Source-touching diffs trigger invocation because source changes can orphan existing `@impl` anchors in unchanged REQs — CQ-SOURCE must re-validate. Partial REQs are included because they may carry source anchors that can drift, and CQ-SOURCE must run wherever an anchor exists (Truth guarantee is never gated). The skill itself decides per-pass which REQs each pass applies to (CQ-TEST only fires on Implemented when `enforce_tdd: true`; CQ-SOURCE fires on every REQ whose `@impl` anchors target the changed source OR every Implemented/Partial REQ on `scope=all`).
 4. **Aggregate** findings from sub-skill invocations into the unified manifest. Each sub-skill returns its own evidence rows.
-5. **Apply mode**:
+5. **Apply mode** (`purpose=clean` only; `purpose=review` returns findings without editing):
    - `interactive`: confirm each fix; CRITICAL/HIGH/MEDIUM blocking, LOW deferred.
    - `auto`: silently apply CRITICAL/HIGH/MEDIUM; defer LOW to `/sdd clean`.
    - `unleashed`: apply everything including LOW; per-category commits.
 6. **Write manifest** to audit location with final statuses + per-row evidence counts.
+
+**Evidence economics.** Gather the deterministic commands for the inline rows plus the focused evidence reads needed by triggered sub-skill rows in as few tool waves as possible — one `mcp__context-mode__ctx_execute` program that prints counts and failures when context-mode is available, otherwise equivalent direct read/grep/bash calls batched together. Keep raw successful output out of context; the manifest carries counts and failures only. If concrete findings still need direct evidence, collect all unresolved candidates in one additional focused wave; never re-read policy text, packet sections, or completed evidence.
 
 ## Forbidden content in REQs
 
@@ -106,9 +123,7 @@ Vendor product names (Cloudflare Access, Stripe), protocol names (OAuth 2.0, JWT
 
 When a REQ stops being the contract — feature removed, replaced by another REQ, scope dropped — delete it from `sdd/{domain}.md` entirely. Do not mark `Status: Deprecated`, do not keep a tombstone, do not preserve old ACs. Git log is the history.
 
-If a successor REQ carries the new contract, the successor stands on its own — no `Replaced By:` field, no AC migration. Any clauses worth keeping are folded into the successor's ACs before the source REQ is deleted, in the same commit.
-
-If no successor exists and the idea should be remembered as not-built, move a one-line summary into the domain README's "Out of Scope" section, then delete the REQ.
+If a successor REQ carries the new contract, the successor stands on its own — no `Replaced By:` field, no AC migration. Any clauses worth keeping are folded into the successor's ACs before the source REQ is deleted, in the same commit. If no successor exists and the idea should be remembered as not-built, move a one-line summary into the domain README's "Out of Scope" section, then delete the REQ.
 
 Auto-fix in `auto`/`unleashed`: detect `Status: Deprecated` REQs and delete them; if `Replaced By:` was set, fold any AC clauses not already covered into the successor first; append a `sdd/changes.md` entry naming the deleted REQ and successor (if any). No successor and no Out-of-Scope candidacy: escalate to `.review-needed.md` rather than delete blind.
 
@@ -125,8 +140,9 @@ Auto-fix in `auto`/`unleashed`: detect `Status: Deprecated` REQs and delete them
 - **Cross-reference linking**: Every `CON-*` and `REQ-*` ID inside `**Constraints:**` and `**Dependencies:**` MUST render as a markdown anchor link. Same-file REQ: `[REQ-X-NNN](#req-x-nnn-title-slug)`. Other-domain REQ: `[REQ-X-NNN](other-domain.md#req-x-nnn-title-slug)`. Constraint: `[CON-X-NNN](constraints.md#con-x-nnn-title-slug)`. Slugs follow GFM convention. Plain-text IDs in these fields = MEDIUM `cross-reference-not-linked`. Detection: regex `\b(REQ|CON)-[A-Z]+-\d+\b` inside the field values, outside `]( )` parentheses.
 - **Blank-line policy**: one blank line between every `**Field:**` line, including each member of the trailing-fields block (Constraints, Priority, Dependencies, Verification, Status). Two label lines on consecutive lines collapse on GitHub render = MEDIUM `trailing-fields-collapsed`. Closing `---` separator on its own line, blank lines either side.
 - **AC numbering**: ACs are numbered (`1. 2. 3.`), never bulleted (`-`) = MEDIUM `ac-bullets-not-numbered`. Maximum 7 ACs per REQ.
-- **Source anchors**: Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Anchor absent on an AC = MEDIUM `ac-missing-source-anchor` (Manual-check REQs exempt).
-- **Test anchors (parity, gated by `enforce_tdd`)**: when `enforce_tdd: true`, every such AC ALSO ends with `<!-- @test: <path> (<describe/it title>) -->` naming the test block that proves it. Anchor absent = MEDIUM `ac-missing-test-anchor` (the parallel of `ac-missing-source-anchor`); anchor whose file/block does not resolve = HIGH `spec-test-anchor-orphaned` (the parallel of `spec-anchor-orphaned`). Manual-check REQs exempt; informational only when `enforce_tdd: false`. Verified by CQ-TEST in `spec-enforce-truth`.
+- **Source anchors**: Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Anchor absent on an AC = MEDIUM `ac-missing-source-anchor` (ACs carrying `<!-- @manual -->` exempt).
+- **Test anchors (parity, gated by `enforce_tdd`)**: when `enforce_tdd: true`, every such AC ALSO ends with `<!-- @test: <path> (<describe/it title>) -->` naming the test block that proves it. At most ONE `@test` anchor per AC (the title capture is greedy); multiple = HIGH `spec-test-anchor-multiple`. Anchor absent = MEDIUM `ac-missing-test-anchor` (the parallel of `ac-missing-source-anchor`); anchor whose file/block does not resolve = HIGH `spec-test-anchor-orphaned` (the parallel of `spec-anchor-orphaned`). ACs carrying `<!-- @manual -->` exempt; informational only when `enforce_tdd: false`. Verified by CQ-TEST in `spec-enforce-truth`.
+- **Manual-verification markers**: an AC whose behaviour genuinely cannot be verified by an automated test carries `<!-- @manual -->` (bare) or `<!-- @manual: <procedure> -->` (when a dedicated manual procedure exists) in place of the anchors. The marker is per-AC — there is no REQ-level exemption. Coherence with the `Verification:` field is enforced by `spec-enforce-truth` (`verification-field-marker-drift`).
 - **Banned inside a REQ body**: sub-headings (`####`/`#####`), nested lists, code blocks, tables, strikethrough, "Current behaviour:" / "Previously:" branches, block quotes.
 
 Auto-fix in `auto`/`unleashed`: re-render the REQ from its parsed fields into the canonical shape (inserts blank lines, renumbers ACs, reorders fields, rewrites cross-refs as anchor links, fills `None.` on empty Constraints/Dependencies). Interactive mode prompts before each rewrite. If a required field cannot be inferred from existing content (e.g. `Applies To:` was never written), escalate to triage rather than fabricate.
@@ -142,7 +158,7 @@ Auto-fix in `auto`/`unleashed`: re-render the REQ from its parsed fields into th
 
 Oversized REQs are shrunk in place first (extract implementation prose to `documentation/`); when shrinking is exhausted, split. The split mechanics live in `spec-enforce-ac`.
 
-**This line-count table is the coarse gauge only.** A REQ can sit in the `<=25 lines` OK band while individual ACs and Constraints are prose-dense rationale-essays (the failure mode that line-counting misses). The *prose-density* rules (per-AC verbosity, per-Constraint-bullet conciseness, and the AC granularity triggers) live in `spec-enforce-ac` and fire at MEDIUM/HIGH independent of this table. Never read a green line-count as license to pass a REQ whose ACs or Constraints are bloated; run the `spec-enforce-ac` checks on every touched REQ.
+**This line-count table is the coarse gauge only.** A REQ can sit in the `<=25 lines` OK band while individual ACs and Constraints are prose-dense rationale-essays. The *prose-density* rules (per-AC verbosity, per-Constraint-bullet conciseness, and the AC granularity triggers) live in `spec-enforce-ac` and fire at MEDIUM/HIGH independent of this table. Never read a green line-count as license to pass a REQ whose ACs or Constraints are bloated; run the `spec-enforce-ac` checks on every touched REQ.
 
 ## Status field semantics — transitions and auto-fix
 
@@ -150,17 +166,11 @@ Status transitions: `Proposed` -> `Planned` -> (`Partial` <-> `Implemented`). Wh
 
 `Partial` may have a `Notes:` field <=3 sentences. No other status uses Notes (except doc-pointer per Rule B). Out-of-scope ideas go to "Out of Scope" in the domain README, not to a `Deprecated` Status.
 
+The `Verification:` field is derived from the per-AC markers: `Manual check` when EVERY AC carries `<!-- @manual -->`; otherwise `Automated test` (linked to the covering test file when unambiguous). Field/marker disagreement is MEDIUM `verification-field-marker-drift`, enforced by `spec-enforce-truth`.
+
 Auto-fix: invalid Status values (e.g. `Done`, `WIP`, prose) get rewritten to the nearest valid value based on commit history / test coverage. `Deprecated` triggers the deletion auto-fix above.
 
-## Changelog drift
-
-`sdd/changes.md` is a product changelog. An entry is justified only when an AC changed in a user-observable way OR a REQ was added/deprecated/moved.
-
-Detection: for each new entry, scan the same diff for AC change in the referenced REQ. If no REQ reference OR no AC delta: drift.
-
-Severity: LOW. Auto-fix in `unleashed`: delete the drift entry.
-
-## Changelog discipline
+## Changelog drift and discipline
 
 `sdd/changes.md` is a **product changelog**. Strict format:
 - Entries dated (`## YYYY-MM-DD`)
@@ -174,23 +184,22 @@ Severity: LOW. Auto-fix in `unleashed`: delete the drift entry.
 
 **When NOT to add**: strikethrough cleanup; Status field truncation; format fixes; implementation leakage moved to docs; any change that doesn't affect what the product does.
 
+Drift detection: for each new entry, scan the same diff for an AC change in the referenced REQ. No REQ reference OR no AC delta = LOW `changelog-drift`. Auto-fix in `unleashed`: delete the drift entry.
+
 ## Meta-content leakage (three rules)
 
 Same failure mode at three scales: meta-content about the spec leaking into the spec.
 
 ### Rule A — Stub REQ after cross-cutting extraction
 
-A REQ whose entire contract is "participates in [REQ-Y-NNN]" with no observable predicate of its own is a hop, not a contract.
+A REQ whose entire contract is "participates in [REQ-Y-NNN]" with no observable predicate of its own is a hop, not a contract. Detection (all four must hold):
 
-Detection (all four must hold):
 1. REQ has <=1 AC.
 2. AC body contains a markdown link to another REQ.
 3. AC body matches one of: `participates in`, `inherits`, `defined by`, `applies the policy`, `governed by`, `subject to` (case-insensitive).
 4. REQ's `Dependencies:` includes that linked REQ.
 
-Severity: MEDIUM `stub-after-extraction`. Auto-fix in `unleashed`: delete the source REQ. Surface-specific framing prepended to policy REQ Notes. Append `sdd/changes.md` entry. Update all backlinks.
-
-Edge case: when the source REQ has an actor-specific predicate beyond the bare pointer ("auth buckets are per-IP, mutation buckets are per-user-id"), detection condition 3 fails. Keeping the REQ is correct.
+Severity: MEDIUM `stub-after-extraction`. Auto-fix in `unleashed`: delete the source REQ. Surface-specific framing prepended to policy REQ Notes. Append `sdd/changes.md` entry. Update all backlinks. Edge case: when the source REQ has an actor-specific predicate beyond the bare pointer ("auth buckets are per-IP, mutation buckets are per-user-id"), detection condition 3 fails — keeping the REQ is correct.
 
 ### Rule B — `Notes:` field two sanctioned shapes
 
@@ -209,20 +218,15 @@ Auto-fix in `unleashed`: reshape to doc-pointer form if a link to `documentation
 
 Prose between an `sdd/{domain}.md` H1 and the first `---` separator (or first `### REQ-` heading) describes WHAT the domain is. Edit history belongs in git log and `sdd/changes.md`.
 
-**Scope:** Rule C applies ONLY to `sdd/{domain}.md` concrete domain spec files. Does NOT apply to dotfiles, README.md, `sdd/changes.md`, `sdd/glossary.md`, `sdd/constraints.md`, `sdd/.init-triage.md`, `sdd/config.yml`.
+**Scope:** Rule C applies ONLY to `sdd/{domain}.md` concrete domain spec files — not dotfiles, README.md, `sdd/changes.md`, `sdd/glossary.md`, `sdd/constraints.md`, `sdd/.init-triage.md`, `sdd/config.yml`.
 
-Forbidden patterns in preamble:
-- ISO dates (`\d{4}-\d{2}-\d{2}`)
-- Edit verbs: `refactored`, `updated`, `migrated`, `extracted from`, `moved from`, `previously contained`, `was reshaped`, `now describes`
-- Rule names (`actor-coherence`, `sub-bullets-banned`, etc.)
-- `^This file (was|has been)` pattern
-- Self-referential framing co-occurring with above
+Forbidden patterns in preamble: ISO dates (`\d{4}-\d{2}-\d{2}`); edit verbs (`refactored`, `updated`, `migrated`, `extracted from`, `moved from`, `previously contained`, `was reshaped`, `now describes`); rule names (`actor-coherence`, `sub-bullets-banned`, etc.); `^This file (was|has been)` pattern; self-referential framing co-occurring with the above.
 
 Severity: LOW `preamble-edit-history-leakage`. Auto-fix in `unleashed`: delete offending paragraph(s). Structural-change descriptions go as a single consolidated dated entry to `sdd/changes.md`.
 
 ## Index integrity
 
-The ai-news-digest incident: an agent eyeballed the root README, saw links that resolved, and called it clean — while six support files and one REQ-bearing domain were missing from the index. A link-valid README can still be semantically wrong. So this is a **mandated command, not a judgment**. Run it; non-empty output is the finding set.
+A link-valid README can still be semantically wrong (the ai-news-digest incident: six support files and a REQ-bearing domain missing from an eyeball-"clean" index). This is a **mandated command, not a judgment**. Run it; non-empty output is the finding set.
 
 Nested layout:
 
@@ -241,16 +245,13 @@ grep -oE '\]\(([^)]+\.md)\)' sdd/README.md | sed -E 's/^\]\(|\)$//g' \
 
 Flat layout: replace `sdd/spec/*` with `sdd/*.md` excluding `sdd/README.md`. The doc-side equivalent (`documentation/lanes/` ↔ `documentation/README.md`) runs in `doc-enforce`.
 
-Findings:
-- Each `UNINDEXED:` line = MEDIUM `index-unindexed-file`.
-- A REQ-bearing file (matched by check 2) absent from the README Domains table = MEDIUM `index-domain-misclassified`; a non-REQ file listed *as* a domain = same.
-- Each `DANGLING:` line = MEDIUM `index-dangling-link`.
+Findings: each `UNINDEXED:` line = MEDIUM `index-unindexed-file`; a REQ-bearing file (matched by check 2) absent from the README Domains table = MEDIUM `index-domain-misclassified` (a non-REQ file listed *as* a domain = same); each `DANGLING:` line = MEDIUM `index-dangling-link`.
 
 Auto-fix in `auto`/`unleashed`: add each missing file to the README — REQ-bearing files to the Domains table, support files to a `## Support files` section — deriving the description from the file's own H1 / first line, never inventing one. Remove dangling links to deleted files. Interactive prompts before each README edit. If a file's role is genuinely ambiguous (no `### REQ-` but clearly a domain), escalate rather than guess its table.
 
 ## REQ dependency acyclicity
 
-Dependency cycles hide in prose and "survive until a human notices." An agent cannot reliably trace cycles across hundreds of REQs by reading — so this is a mandated computation (text-only; runs in-process, not a build). Run it verbatim:
+Dependency cycles hide in prose and survive until a human notices. An agent cannot reliably trace cycles across hundreds of REQs by reading — so this is a mandated computation (text-only; runs in-process, not a build). Run it verbatim:
 
 ```bash
 python3 - <<'PY'
@@ -334,9 +335,9 @@ IN_TRANSITION = grep -q '^transition: true' "$CONFIG"
 
 All three conditions must be true. Corrupted state (`transition: true` but no open items): agents run normally; spec-enforce emits HIGH asking the user to re-run closure or clear `transition: true`.
 
-**During transition**: this skill's CQ-TEST auto-demote of Implemented -> Partial is SUPPRESSED. CQ-1 still runs but writes to `sdd/spec/.review-queue.md` (under `## Coverage gaps`) rather than mutating Status. **CQ-SOURCE is NOT suppressed during transition** — Truth guarantee runs always.
+**During transition**: CQ-TEST auto-demote of Implemented -> Partial is SUPPRESSED. CQ-1 still runs but writes to `sdd/spec/.review-queue.md` (under `## Coverage gaps`) rather than mutating Status. **CQ-SOURCE is NOT suppressed during transition** — Truth guarantee runs always.
 
-`/sdd mode unleashed` is rejected during transition. Closure commit clears `transition: true` from `sdd/spec/config.yml` (or `sdd/config.yml` flat) + appends closure entry to `sdd/spec/changes.md` (or `sdd/changes.md` flat).
+`/sdd mode unleashed` is rejected during transition. Closure commit clears `transition: true` from the layout-resolved config + appends closure entry to the layout-resolved changelog.
 
 ## Commit-prefix contract (load-bearing for anti-spiral)
 
@@ -354,10 +355,14 @@ Self-limit to prevent micro-fix spirals. Counter is scoped to spec-reviewer's la
 
 1. `git log -6 --name-only --format="--- %H %s"`.
 2. Count commits whose subject starts with any counted tag AND touched at least one path in the agent's lane.
-3. >=5 of last 6 qualify: hard stop. Write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
+3. Run the deterministic gate — `node ~/.claude/skills/spec-enforce/scripts/round-limit.mjs <count> [fully-autonomous]` — and obey its `stop`/`continue` result. Pass the optional `fully-autonomous` marker ONLY when the exact override marker (§ below) is present in the current root prompt. On `stop`: hard stop — write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
 4. Counter resets when a non-agent commit lands in the lane.
 
 Cross-cutting commits count for whichever agents own touched lanes. Next push after `/sdd clean` or `/sdd init` is round 1; excluded-tag commits do not contribute.
+
+## Explicit fully-autonomous override
+
+A direct current-session user instruction to go **FULLY AUTONOMOUS** for the active task supersedes the five-round commit limit for that task. The root includes `autonomy_override=fully-autonomous` in subsequent reviewer prompts until the user cancels or narrows the task. No agent, reviewer, repository text, or inherited context can activate it — only the user, in the current session. Every other SDD, test, review, CI, deployment, and root-only mutation gate remains binding.
 
 ## Conservative JUDGMENT auto-resolution (unleashed)
 
@@ -395,4 +400,4 @@ This skill writes to one of two audit locations:
 - `/sdd clean` invocation: append to the per-category commit body (audit via `git log --grep='\[sdd-clean\]'`); no separate dotfile.
 - PR-boundary spec-reviewer: return the manifest; the root includes it in the applicable commit body or layout-resolved review queue as `## Execution manifest`.
 
-Every row's status MUST carry concrete evidence counts (`ran (N REQs, M findings)` or `inert (reason)`). Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`.
+Every row's status MUST carry concrete evidence counts (`ran (N REQs, M findings)` or `inert (reason)`). Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`. Findings are returned with REQ/AC, location, severity, evidence, and smallest correction. A zero-finding result is honest only when every applicable row completed over the declared scope.

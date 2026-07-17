@@ -14,7 +14,7 @@
 // configured catalog shape. Revert the fix (def back) and this test fails.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -31,6 +31,35 @@ function extractModelsBlock() {
   const end = entrypoint.indexOf('# settings.json: overwrite ONLY defaultProvider', start);
   if (end === -1) throw new Error('models.json block end marker not found in entrypoint.sh');
   return entrypoint.slice(start, end);
+}
+
+// Extract the settings.json merge block (defaultProvider/defaultModel/
+// defaultThinkingLevel overwrite) by its stable comment markers.
+function extractSettingsBlock() {
+  const start = entrypoint.indexOf('# settings.json: overwrite ONLY defaultProvider');
+  if (start === -1) throw new Error('settings.json block start marker not found in entrypoint.sh');
+  const end = entrypoint.indexOf('echo "[entrypoint] Enterprise Mode: Pi pinned', start);
+  if (end === -1) throw new Error('settings.json block end marker not found in entrypoint.sh');
+  return entrypoint.slice(start, end);
+}
+
+// Run the settings merge with an existing settings.json and return the merged file.
+function runSettingsBlock(defaultRoute, reasoning, existingSettings) {
+  const block = extractSettingsBlock();
+  const dir = mkdtempSync(join(tmpdir(), 'ent-pi-settings-'));
+  const settingsPath = join(dir, 'settings.json');
+  if (existingSettings !== undefined) writeFileSync(settingsPath, existingSettings);
+  const script = [
+    'set -euo pipefail',
+    `ENTERPRISE_DEFAULT_ROUTE='${defaultRoute}'`,
+    `ENTERPRISE_DEFAULT_REASONING='${reasoning}'`,
+    `PI_SETTINGS_JSON='${settingsPath}'`,
+    block,
+  ].join('\n');
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  let settings = null;
+  if (res.status === 0) settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  return { code: res.status, stderr: res.stderr, settings };
 }
 
 // Run the extracted block with the given catalog and return { code, modelsJson }.
@@ -53,6 +82,26 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson) {
   if (res.status === 0) modelsJson = JSON.parse(readFileSync(modelsPath, 'utf8'));
   return { code: res.status, stderr: res.stderr, modelsJson };
 }
+
+describe('entrypoint enterprise Pi settings.json thinking-level passthrough (REQ-ENTERPRISE-005)', () => {
+  it('writes the wizard reasoning grade verbatim as defaultThinkingLevel, preserving other keys', () => {
+    const existing = JSON.stringify({ packages: ['some-extension'], defaultThinkingLevel: 'off' });
+    const { code, stderr, settings } = runSettingsBlock('development', 'xhigh', existing);
+    assert.equal(code, 0, `settings merge exited non-zero: ${stderr}`);
+    // Verbatim passthrough: Pi's new enum tokens (minimal/xhigh/max) must reach
+    // settings.json untouched — the Worker/wizard never reinterpret the grade.
+    assert.equal(settings.defaultThinkingLevel, 'xhigh');
+    assert.equal(settings.defaultModel, 'development');
+    assert.equal(settings.defaultProvider, 'codeflare-gateway');
+    assert.deepEqual(settings.packages, ['some-extension']);
+  });
+
+  it('creates settings.json with the grade when none exists', () => {
+    const { code, stderr, settings } = runSettingsBlock('prod', 'max', undefined);
+    assert.equal(code, 0, `settings merge exited non-zero: ${stderr}`);
+    assert.equal(settings.defaultThinkingLevel, 'max');
+  });
+});
 
 describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005)', () => {
   it('builds models.json with one model per catalog route under set -euo pipefail', () => {

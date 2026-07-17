@@ -12,7 +12,6 @@ Development setup, project file structure, and cost analysis.
 - [Development](#development)
 - [File Structure](#file-structure)
 - [Cost Analysis](#cost-analysis)
-- [Manual verification checklist](#manual-verification-checklist)
 
 ---
 
@@ -115,31 +114,6 @@ Notes:
 - Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
 
 Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (default 30m, configurable 15m - 4h) of no user input. Hibernated containers = zero cost.
-
----
-
-## Manual verification checklist
-
-Inspect repository settings and a staging workflow run, including job graph, logs, artifacts, and billing metrics when present; compare each observable result with every AC.
-
-- [ ] [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline) — verify every acceptance criterion.
-- [ ] [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) — verify every acceptance criterion.
-- [ ] [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) — verify every acceptance criterion.
-- [ ] [REQ-OPS-004](../../sdd/spec/operations.md#req-ops-004-e2e-test-workflow-setup-and-job-graph) — verify every acceptance criterion.
-- [ ] [REQ-OPS-005](../../sdd/spec/operations.md#req-ops-005-weekly-pentest) — verify every acceptance criterion.
-- [ ] [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) — verify every acceptance criterion.
-- [ ] [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) — verify every acceptance criterion.
-- [ ] [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing-validates-rate-limits-and-concurrency) — verify every acceptance criterion.
-- [ ] [REQ-OPS-009](../../sdd/spec/operations.md#req-ops-009-supply-chain-security-monitoring) — verify every acceptance criterion.
-- [ ] [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) — verify every acceptance criterion.
-- [ ] [REQ-OPS-011](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim) — verify every acceptance criterion.
-- [ ] [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) — verify every acceptance criterion.
-- [ ] [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) — verify every acceptance criterion.
-- [ ] [REQ-OPS-014](../../sdd/spec/operations.md#req-ops-014-container-binding-and-scaling-from-image) — verify every acceptance criterion.
-- [ ] [REQ-OPS-015](../../sdd/spec/operations.md#req-ops-015-e2e-per-suite-execution-and-artifact-handling) — verify every acceptance criterion.
-- [ ] [REQ-OPS-016](../../sdd/spec/operations.md#req-ops-016-sleepafter-preference-persistence-and-lifecycle) — verify every acceptance criterion.
-- [ ] [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) — verify every acceptance criterion.
-- [ ] [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) — verify every acceptance criterion.
 
 ---
 

@@ -1,15 +1,16 @@
 ---
 name: spec-enforce-truth
-description: SDD spec content-quality / source-of-truth checks. Runs CQ-1 (REQ-test truth-check), CQ-2 (vendor / external-interface drift), CQ-3 (content-preservation on shrink), CQ-TEST (test-anchor coverage — REQ-level coverage AND per-AC @test anchor verification at parity with @impl, gated by enforce_tdd), and CQ-SOURCE (source-anchor @impl truth-check, ALWAYS runs). Invoked conditionally by spec-enforce when Implemented REQs are touched OR scope=all.
-version: 2.1.0
+description: SDD spec content-quality / source-of-truth checks — the canonical cross-agent contract. Runs CQ-1 (REQ-test truth-check), CQ-2 (vendor / external-interface drift), CQ-3 (content-preservation on shrink), CQ-TEST (test-anchor coverage — REQ-level coverage AND per-AC @test anchor verification at parity with @impl, gated by enforce_tdd), and CQ-SOURCE (source-anchor @impl truth-check, ALWAYS runs). Per-AC manual verification uses inline <!-- @manual --> markers. Invoked conditionally by spec-enforce when Implemented or Partial REQs are touched OR scope=all.
+version: 4.0.0
 ---
 
 # Spec Enforcement — content quality and source-of-truth
 
-This skill checks that the spec says what it claims by cross-referencing tests and source. Invoked by `spec-enforce` (the spine) when an Implemented REQ is in the diff or when scope=all.
+This skill checks that the spec says what it claims by cross-referencing tests and source. Invoked by `spec-enforce` (the spine) when an Implemented or Partial REQ is in the diff or when scope=all. Truth checks never rely on self-attestation.
 
 ## Inputs
 
+- `purpose`: `review` | `clean` (inherited from parent). `review` reports only. `clean` may retrofit an unambiguous anchor but never silently rewrites a truth mismatch.
 - `diff`: git diff against base
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
@@ -17,9 +18,11 @@ This skill checks that the spec says what it claims by cross-referencing tests a
 - `test_globs`: from `sdd/config.yml` (defaults cover vitest/jest, pytest, go test, rspec, cypress, playwright)
 - `src_globs`: from `sdd/config.yml` (defaults `src/** lib/** app/** pkg/** cmd/** internal/**` minus test/build dirs)
 
+**Scope contract.** Consume the parent packet and in-scope anchor list; do not rescan or print whole source/test files. Under `scope=diff`, verify changed Implemented/Partial REQs plus any unchanged REQ whose `@impl` or `@test` anchor directly targets a changed/renamed source symbol, source file, test file, or named block — do not judge unrelated REQs. Under `scope=all`, verify every eligible REQ and anchor.
+
 ## Output
 
-Returns findings array + auto-fix actions. Writes evidence-count rows back to the spine's manifest:
+Returns findings array + auto-fix actions. Every finding names REQ, AC, anchor, searched evidence, severity, and smallest correction. Give each anchor one direct verification pass; truth mismatches are escalated, never guessed away. Writes evidence-count rows back to the spine's manifest:
 - `CQ-TEST — Test-anchor coverage`: `ran (N REQs, M findings)` or `inert (enforce_tdd: false)`
 - `CQ-SOURCE — Source-anchor truth-check`: `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` — ALWAYS runs, never inert
 - `CQ-1 — REQ-test truth-check`: `ran (N REQs, K files, A auto-fixed, B escalated)`
@@ -28,24 +31,39 @@ Returns findings array + auto-fix actions. Writes evidence-count rows back to th
 
 **Layout-awareness.** Spec file discovery uses `sdd/spec/**/*.md` when the nested layout exists (`test -d sdd/spec`); falls back to `sdd/*.md` (excluding `README.md`) on flat layout.
 
+## Per-AC manual-verification markers (`@manual`)
+
+An AC whose behaviour genuinely cannot be verified by an automated test carries an inline marker at the end of the bullet, in the same comment-grammar family as the anchors:
+
+```
+<!--\s*@manual(?::\s*(.+?))?\s*-->
+```
+
+Capture group: optional `<procedure>` — dedicated manual-verification guidance for that AC. A bare `<!-- @manual -->` marks the AC as manually verified with no bespoke procedure; do not pad it with filler prose. The complete set of manual REQ+AC combinations in a project is exactly `grep -rn '@manual' sdd/`.
+
+Marker semantics (per-AC — there is NO REQ-level exemption):
+
+- An AC carrying `@manual` is exempt from the `@impl` and `@test` anchor **requirements** (`ac-missing-source-anchor`, `ac-missing-test-anchor` do not fire on it).
+- Anchors PRESENT on a `@manual` AC are still validated as supplemental evidence — a broken anchor is still `spec-anchor-orphaned`/`spec-test-anchor-orphaned`. `@manual` lifts the requirement, never the truth of what is written.
+- **Verification-field coherence** (categorical, not literal): the REQ's `Verification:` field must be `Manual check` when EVERY AC carries `@manual`, and an automated-verification value otherwise (`Automated test`, or any linked/labelled test-file value — those all count as the automated category). Category disagreement = MEDIUM `verification-field-marker-drift`. Auto-fix in `auto`/`unleashed`: rewrite the field from the markers (the markers are the source of truth).
+- Retrofitting an anchor onto a `@manual` AC (and deleting the marker) is the standard coverage-improvement path for `/sdd clean`; the reverse (adding `@manual` to dodge a failing anchor check) is a truth violation — `finding-downgraded-to-skip` HIGH.
+
 ## CQ-1 — REQ-test truth-check
 
-**Skip clause:** Does not fire on REQs whose `Verification:` field is `Manual check`. The REQ should carry a `Notes:` doc-pointer to where the manual checklist or runbook lives.
+Walks every `Implemented` REQ that has at least one AC without `@manual`. REQs where every AC carries `@manual` are exempt (there is no automated behaviour to cross-check). CQ-1 is satisfied by EITHER:
 
-For every other `Implemented` REQ, walk every test file (per `test_globs`) containing the REQ ID literally. REQ-ID mention must satisfy both:
-
-1. It appears in the name of a `describe`/`test`/`it` block; not just a code comment, not just a fixture filename.
-2. At least one assertion references content that the REQ's ACs describe; by symbol, user-observable string, or named behaviour.
+- **(a) ID-in-block-name**: a test file (per `test_globs`) contains the REQ ID literally, the ID appears in the name of a `describe`/`test`/`it` block (not just a code comment, not just a fixture filename), AND at least one assertion references content that the REQ's ACs describe — by symbol, user-observable string, or named behaviour; OR
+- **(b) anchor parity**: every non-`@manual` AC carries a RESOLVING `@test` anchor (per CQ-TEST's per-anchor validation). Anchor-level proof is finer-grained than the ID grep and satisfies the same truth claim.
 
 When neither holds, the finding splits:
 
 **Subclass A — name-only-match (MEDIUM `req-test-name-only-match-fixable`).** Test file contains the REQ ID literally and has real assertions on AC content but no block name carries the REQ ID. Auto-fix in `auto`/`unleashed`: rename the most-relevant existing describe by appending ` / REQ-X-NNN (one-line concern)` to its title. Pick the describe whose nested `it()` blocks have strongest AC-content overlap; first-in-document-order wins on ties. No test logic changes.
 
-**Subclass B — no-coverage (MEDIUM `req-test-name-only-match`).** No test file mentions the REQ ID at all, OR mentions are only in comments / fixture paths, OR every named block asserts unrelated behaviour. Real coverage absence. No auto-fix; escalate to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat-legacy).
+**Subclass B — no-coverage (MEDIUM `req-test-name-only-match`).** No test file mentions the REQ ID at all, OR mentions are only in comments / fixture paths, OR every named block asserts unrelated behaviour — and anchor parity (b) does not hold either. Real coverage absence. No auto-fix; escalate to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat-legacy).
 
 Classification mechanics:
-1. For each Implemented REQ (excluding Manual check): grep `test_globs` for the REQ ID.
-2. Zero matches: Subclass B.
+1. For each eligible Implemented REQ: if every non-`@manual` AC has a resolving `@test` anchor, CQ-1 passes (parity path).
+2. Else grep `test_globs` for the REQ ID. Zero matches: Subclass B.
 3. Matches exist; walk matched files: any block name contains the REQ ID? Yes: CQ-1 passes. No: block has assertions on AC-content tokens? Yes: Subclass A. No: Subclass B.
 
 ## CQ-2 — Vendor / external-interface drift
@@ -73,7 +91,7 @@ Every `Implemented` REQ must have at least one test file referencing its REQ ID.
 
 When `enforce_tdd: true`:
 
-1. **Auto-demote**: `Implemented` REQ with no test reference: `Partial` with Notes. Changelog entry. Skip clause: `Verification: Manual check` REQs are exempt; verify Notes carries a doc-pointer to manual checklist; if missing: LOW `manual-check-missing-pointer`.
+1. **Auto-demote**: `Implemented` REQ with no test reference: `Partial` with Notes. Changelog entry. Exemptions: REQs where every AC carries `@manual` (nothing automated to verify), and REQs satisfying CQ-1's anchor-parity path (resolving per-AC `@test` anchors are stronger evidence than the ID grep).
 2. **Source-vs-test coverage**: `Planned`/`Partial` REQ with source but no test: HIGH; auto-promote `Planned` to `Partial` with explanatory Notes.
 3. **Test quality heuristics**: AC count vs test count, tautology / empty-body / skip patterns. Quality findings produce no changelog entry.
 
@@ -85,24 +103,25 @@ When `enforce_tdd: false`:
 
 ### Per-AC test-anchor coverage (anchor-level — the test parallel of CQ-SOURCE)
 
-Beyond the binary REQ-level check above, when `enforce_tdd: true` CQ-TEST verifies each AC's inline `@test` anchor, giving AC-by-AC coverage parity with `@impl`. When `enforce_tdd: false` every finding here is informational only — written to the `## Coverage gaps` section of the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat-legacy), never a Status mutation, never blocking.
+Beyond the binary REQ-level check above, when `enforce_tdd: true` CQ-TEST verifies each AC's inline `@test` anchor, giving AC-by-AC coverage parity with `@impl`. When `enforce_tdd: false` every finding here is informational only — written to the `## Coverage gaps` section of the layout-resolved triage file, never a Status mutation, never blocking.
 
-**Anchor parsing.** For every `Implemented` or `Partial` REQ (skip `Verification: Manual check`), scan each AC bullet for the inline test-anchor comment:
+**Anchor parsing.** For every `Implemented` or `Partial` REQ, scan each AC bullet for the inline test-anchor comment:
 
 ```
 <!--\s*@test:\s*(\S+?)\s*\((.+)\)\s*-->
 ```
 
-Capture groups: `<path>`, `<block-title>` (`(.+)` is greedy so parentheses nested in the title are captured).
+Capture groups: `<path>`, `<block-title>`. The title capture `(.+)` is GREEDY (parentheses nested in the title are captured) — therefore an AC carries **at most one** `@test` anchor. Multiple `@test` anchors on one AC = HIGH `spec-test-anchor-multiple`: split the behaviours into separate ACs or point to one encompassing named test block.
 
-**Per-anchor validation.** For each captured `@test` anchor:
+**Per-anchor validation.** For each captured `@test` anchor (including anchors on `@manual` ACs — supplemental evidence is still validated):
 
 1. **Resolve the file.** `<path>` must match a `test_globs` entry AND exist on disk. Not found → HIGH `spec-test-anchor-orphaned` listing REQ-ID, AC-N, the searched `<path>`. No auto-fix; escalate to the triage file.
 2. **Resolve the block.** Grep `<path>` for `<block-title>` as a substring of a `describe`/`test`/`it`/`context` block-name line (not a code comment, not a fixture path). Not found → HIGH `spec-test-anchor-orphaned` listing REQ-ID, AC-N, `<path> (<block-title>)`. No auto-fix; escalate. (Mirrors CQ-1's "REQ-ID must be in a block name, not a comment" rule.)
+3. **Quality gate.** The block must exercise the AC behaviour and would fail if the implementation were removed; a skipped, tautological, copy/prose-matching, call-count-only, empty, or mock-only block does not count (route to the test-quality heuristics above).
 
 **Unanchored AC detection.** For every AC bullet describing observable behaviour without a `@test` anchor:
 
-- Skip clause: `Verification: Manual check` REQs are exempt.
+- Skip clause: ACs carrying `<!-- @manual -->` are exempt.
 - MEDIUM `ac-missing-test-anchor` (the test parallel of `ac-missing-source-anchor`) listing REQ-ID, AC-N. Auto-fix in `auto`/`unleashed`: best-effort retrofit — for the AC's resolved `@impl` symbol, find a `test_globs` block whose body exercises that symbol (import + call) or whose name overlaps the AC ≥3 tokens; if exactly one plausible block resolves, write the `@test` anchor inline via Edit. Otherwise escalate. (Same retrofit shape as CQ-SOURCE's unanchored-AC auto-fix, and the same engine `/sdd clean` pass 5 uses.)
 
 **This pass is the only place `@test` parity is enforced**: the always-on `@impl` truth-check is CQ-SOURCE; the per-AC `@test` check lives here under `enforce_tdd` because tests are opt-out-able while source truth is not.
@@ -129,13 +148,13 @@ Same regex applies to ADR `Context:` blocks in `documentation/decisions/README.m
 
 During `/sdd init`, anchor validation is performed by the Phase 7a verifier (`~/.claude/skills/sdd-init/references/verify-source-anchors.py`), and this skill's row 17 (CQ-SOURCE) consumes the resulting JSON (`.verify-anchors.json`) rather than re-deriving — see `sdd-init/SKILL.md` step 7. The agent never claims "I checked the anchors" without the verifier output line in the commit body; that self-attestation is **CRITICAL `phase-7a-self-attestation`**.
 
-Outside `/sdd init` (steady-state PR-boundary review on an existing project), this skill performs the same checks inline using the same algorithm:
+Outside `/sdd init` (steady-state PR-boundary review on an existing project), this skill performs the same checks inline using the same algorithm. Anchors on `@manual` ACs are included — supplemental evidence is still validated.
 
 For each captured anchor:
 
-1. **Resolve symbol.** Call `mcp__graphify__get_node(<symbol>)` against the unified graph. If graphify cannot resolve (graph absent, stale, or symbol not indexed), fall back to `Grep` against `<path>`. Symbol not resolved by either path → HIGH `spec-anchor-orphaned` listing REQ-ID, AC-N, the searched `<path>::<symbol>`. No auto-fix; escalate to `sdd/spec/.review-queue.md`.
+1. **Resolve symbol.** Call `mcp__graphify__get_node(<symbol>)` against the unified graph when a current graph is available. If graphify cannot resolve (graph absent, stale, or symbol not indexed), fall back to one focused `Grep` against `<path>`. Symbol not resolved by either path → HIGH `spec-anchor-orphaned` listing REQ-ID, AC-N, the searched `<path>::<symbol>`. No auto-fix; escalate to `sdd/spec/.review-queue.md`.
 2. **Verify value (when `<value-pattern>` present).** Read the symbol's source body (graphify `source_location` or direct file read on the path slice). Grep for the literal `<value-pattern>`. Not found → HIGH `spec-value-drift` listing REQ-ID, AC-N, expected vs anything-found-in-symbol. No auto-fix; escalate.
-3. **Verify behaviour overlap (when `<value-pattern>` absent).** Compute token overlap between the AC text (content words ≥4 chars, stopwords excluded) and the symbol body. Overlap <3 tokens → MEDIUM `spec-behavior-orphaned`. Auto-fix in `auto`/`unleashed`: attempt to find a sibling symbol with stronger overlap via `get_neighbors`; on success, rewrite the anchor; otherwise escalate.
+3. **Verify behaviour overlap (when `<value-pattern>` absent).** Compute token overlap between the AC text (content words ≥4 chars, stopwords excluded) and the symbol body. Overlap <3 tokens → MEDIUM `spec-behavior-orphaned`. Auto-fix in `auto`/`unleashed`: attempt to find a sibling symbol with stronger overlap via `mcp__graphify__get_neighbors`; on success, rewrite the anchor; otherwise escalate.
 
 The Phase 7a verifier is the deterministic checker. Steady-state review uses graphify+grep because (a) the graph is the right hammer for symbol-vs-source questions on a mature codebase, (b) the diff scope keeps it cheap. Both paths produce findings of the same shape and follow the same escalation rule (NEVER silently rewrite; route to `.review-queue.md` with concrete Context + Recommendation).
 
@@ -143,12 +162,16 @@ The Phase 7a verifier is the deterministic checker. Steady-state review uses gra
 
 For every AC bullet without `<!-- @impl: ... -->`:
 
-- Skip clause: `Verification: Manual check` REQs are exempt. Their behaviour cannot be source-anchored by construction.
-- For other REQs: MEDIUM `ac-missing-source-anchor` listing REQ-ID, AC-N. Auto-fix in `auto`/`unleashed`: best-effort retrofit — extract symbol candidate by AC verb-phrase + Phase 5a community map; if a plausible symbol resolves AND overlap ≥3 tokens, write the anchor inline via Edit. Otherwise escalate to `sdd/spec/.review-queue.md` with the missing-anchor recommendation.
+- Skip clause: ACs carrying `<!-- @manual -->` are exempt — their behaviour cannot be source-anchored by construction, and the marker (not a REQ-level field) is the sanctioned record of that.
+- For other ACs: MEDIUM `ac-missing-source-anchor` listing REQ-ID, AC-N. Auto-fix in `auto`/`unleashed`: best-effort retrofit — extract symbol candidate by AC verb-phrase + Phase 5a community map; if a plausible symbol resolves AND overlap ≥3 tokens, write the anchor inline via Edit. Otherwise escalate to `sdd/spec/.review-queue.md` with the missing-anchor recommendation.
 
 ### ADR Context anchors
 
 ADR `Context:` blocks (in `documentation/decisions/README.md`) use the same convention. Validation identical: symbol must resolve, optional value-pattern must match. Anchor missing on an ADR with status `Accepted` → MEDIUM `adr-context-missing-source-anchor` (auto-fix similar to AC retrofit).
+
+### `/sdd init` evidence (Phase 7a / 7b)
+
+`/sdd init` evidence uses the deterministic Phase 7a anchor and Phase 7b enumeration verifier outputs. Missing evidence is CRITICAL (`phase-7a-evidence-missing` / `phase-7b-evidence-missing`); self-attestation without verifier output is CRITICAL (`phase-7a-self-attestation` / `phase-7b-self-attestation`).
 
 ### CQ-SOURCE during SDD transition
 
@@ -166,10 +189,12 @@ In that path: **CQ-TEST auto-demote is SUPPRESSED**, identical to `enforce_tdd: 
 
 ## Severity application
 
-CRITICAL: never emitted by this skill.
+CRITICAL: `phase-7a-self-attestation`, `phase-7b-self-attestation`, `phase-7a-evidence-missing`, `phase-7b-evidence-missing` (fabricated or missing `/sdd init` verification evidence).
 
 HIGH:
 - CQ-TEST `source-vs-test coverage gap` on Implemented REQ when not in transition (only when `enforce_tdd: true`).
+- CQ-TEST `spec-test-anchor-orphaned` (file or block not resolved).
+- CQ-TEST `spec-test-anchor-multiple` (more than one `@test` anchor on one AC).
 - CQ-SOURCE `spec-anchor-orphaned` (symbol not resolved).
 - CQ-SOURCE `spec-value-drift` (value-pattern not found in symbol body).
 
@@ -178,12 +203,13 @@ MEDIUM:
 - CQ-2 vendor drift.
 - CQ-3 content-loss revert.
 - CQ-SOURCE `spec-behavior-orphaned` (token overlap <3).
-- CQ-SOURCE `ac-missing-source-anchor` (AC has no `@impl` comment).
-- CQ-SOURCE `adr-context-missing-source-anchor`.
+- `ac-missing-source-anchor` / `ac-missing-test-anchor` (AC without anchor and without `@manual`).
+- `adr-context-missing-source-anchor`.
+- `verification-field-marker-drift` (Verification field disagrees with the per-AC `@manual` markers).
 
-LOW: `manual-check-missing-pointer`.
+LOW: none emitted by this skill.
 
 Mode-dependent action:
 - `interactive`: confirm before applying any fix
-- `auto`: auto-fix CRITICAL + HIGH + MEDIUM where mechanical (CQ-SOURCE HIGH is NOT auto-fixable — symbol orphaned or value drift requires JUDGMENT; escalate)
-- `unleashed`: auto-fix everything including LOW; CQ-SOURCE HIGH still escalates to triage (Truth findings never silently rewrite)
+- `auto`: auto-fix CRITICAL + HIGH + MEDIUM where mechanical (CQ-SOURCE/CQ-TEST HIGH is NOT auto-fixable — an orphaned anchor or value drift requires JUDGMENT; escalate)
+- `unleashed`: auto-fix everything including LOW; Truth HIGHs still escalate to triage (Truth findings never silently rewrite)

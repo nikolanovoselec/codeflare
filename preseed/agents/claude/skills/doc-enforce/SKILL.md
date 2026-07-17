@@ -1,7 +1,7 @@
 ---
 name: doc-enforce
-description: SDD documentation enforcement orchestrator. Runs the 16-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
-version: 2.0.0
+description: SDD documentation enforcement orchestrator — the canonical cross-agent contract. Runs the 16-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
+version: 4.0.0
 ---
 
 # Documentation Enforcement (orchestrator)
@@ -10,6 +10,7 @@ This skill is the spine for SDD documentation enforcement. It runs the 16-row ex
 
 ## Inputs
 
+- `purpose`: `review` | `clean`. `review` is report-only — never edit documentation, audit files, or `.doc-coverage.md`; return findings and evidence. `clean` applies mode-approved fixes AFTER spec enforcement completes (doc cross-references depend on the just-fixed spec) and records them in the `/sdd clean` audit.
 - `diff`: the review window the caller hands you — an incremental `<base>..<head>` range on a re-review, the base...HEAD diff on a first PR-boundary review, or the full-tree view on `scope=all`. Enforce exactly the window provided; never widen a provided incremental window back out to the full PR diff. (The diff-scoped passes operate on this window; the always-on whole-tree consistency passes still walk `documentation/` in full, as their Status note says.)
 - `scope`: `all` | `diff` (default `diff`)
 - `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/spec/config.yml` when nested layout exists, else `sdd/config.yml` on flat layout)
@@ -19,6 +20,18 @@ This skill is the spine for SDD documentation enforcement. It runs the 16-row ex
 - Lane files: `documentation/lanes/**/*.md` (nested) OR `documentation/*.md` excluding `README.md` (flat)
 - ADR ledger: `documentation/decisions/README.md` (both layouts; unchanged)
 - Triage / escalation: `documentation/.doc-coverage.md` (audit accumulator, still used to record Pass 12 cold-read gaps and Pass 15 retrofit-failure entries)
+
+## Scope contract
+
+When the caller supplies a prepared review packet or resolved in-scope file set, consume it; do not reconstruct the diff after the packet exists. Under `scope=diff`, build the in-scope set from:
+
+1. changed documentation and root-README hunks;
+2. docs whose `@impl` anchors directly target changed source symbols/files;
+3. the owner lane for a changed public route, environment variable, deployment/rollback command, security boundary, or troubleshooting behaviour;
+4. README index entries for in-scope added/removed/renamed doc files;
+5. REQ backlinks directly affected by changed REQs.
+
+Read surrounding sections for consistency, but do not scan unrelated files or report unchanged baseline debt — searching docs for anchors/backlinks to changed symbols/REQs is direct impact, not whole-tree review. Under `scope=all`, walk every documentation file and root README exhaustively. Scope never lowers severity; there are no token, turn, or tool budgets — scope is the work bound.
 
 ## Execution contract (binding)
 
@@ -60,10 +73,12 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
    - IF `documentation/lanes/api-reference*.md` (or flat `documentation/api-reference*.md`) OR any canonical lane file touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7).
    - **Always invoke `doc-enforce-truth` Pass 15** for every lane file or `decisions/README.md` in the diff, OR any path matched by `src_globs` (from the layout-resolved config; default defined in `spec-enforce-truth/SKILL.md` § Inputs) in the diff, OR scope=all. Source-touching diffs trigger invocation because source changes can orphan existing `@impl` anchors in unchanged lane files — Pass 15 must re-validate. Source-anchor truth-check is never gated. The other passes in `doc-enforce-truth` (Pass 8, Pass 9, Pass 10, Pass 11, Pass 12) fire only when Implemented REQ docs touched OR scope=all, as before.
 4. **Aggregate** findings from sub-skill invocations into the unified manifest.
-5. **Apply mode**:
+5. **Apply mode** (`purpose=clean` only; `purpose=review` returns findings without editing):
    - `interactive`: confirm each fix; CRITICAL/HIGH/MEDIUM blocking, LOW deferred.
    - `auto`: silently apply CRITICAL/HIGH/MEDIUM; defer LOW to `/sdd clean`.
    - `unleashed`: apply everything including LOW; per-category commits.
+
+**Evidence economics.** Gather the deterministic commands for the inline passes plus the focused evidence reads needed by triggered lane/shape/truth passes in as few tool waves as possible — one `mcp__context-mode__ctx_execute` program that prints counts and failures when context-mode is available, otherwise equivalent direct read/grep/bash calls batched together. Keep raw successful output out of context; the manifest carries counts and failures only. If concrete findings still need direct evidence, collect all unresolved candidates in one additional focused wave; never re-read policy text, packet sections, or completed evidence.
 
 ## Doc index integrity
 

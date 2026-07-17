@@ -27,7 +27,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-001: Up to 6 terminal tabs per session
 
-
 **Intent:** Each session supports multiple concurrent terminal instances (up to 6) so users can run an agent in one tab and auxiliary commands in others.
 
 **Applies To:** User
@@ -57,7 +56,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 ---
 
 ### REQ-TERM-002: WebSocket connection to container PTY
-
 
 **Intent:** Each terminal tab connects to its PTY process inside the container via a WebSocket, carrying raw terminal data bidirectionally.
 
@@ -115,7 +113,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-003: Automatic WebSocket reconnection on transient failures
 
-
 **Intent:** Transient network failures (connection drops, server restarts) trigger automatic reconnection so the user does not need to manually refresh.
 
 **Applies To:** User
@@ -152,7 +149,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Acceptance Criteria:**
 
-1. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so the rapid disconnect-reconnect cycles of dashboard enter/exit produce no "closed before the connection is established. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
+1. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so rapid disconnect-reconnect cycles produce no "closed before the connection is established. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
 2. A socket that stays in CONNECTING past `WS_CONNECT_TIMEOUT_MS` (no close or error event fires after a mobile app-switch) is force-closed and a backoff reconnect is scheduled, so it is no longer stranded mid-handshake. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (Terminal Store / REQ-TERM-020 AC2: connect-timeout force-close & AC3 pause-while-hidden) -->
 3. Reconnection delay is an equal-jitter exponential backoff; the backoff resets to attempt 1 on a successful open and on visibility return, and is paused while `document.hidden`. <!-- @impl: web-ui/src/stores/terminal.ts::reconnectBackoffMs --> <!-- @test: web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts (reconnectBackoffMs (REQ-TERM-020 AC3): equal-jitter exponential backoff) -->
 
@@ -172,7 +169,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 ---
 
 ### REQ-TERM-004: Close code 4503 is authoritative (no retry)
-
 
 **Intent:** The custom WebSocket close code 4503 is a server-authoritative signal that the container is not running. The client must stop retrying and display a "Session stopped" message.
 
@@ -202,7 +198,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 ---
 
 ### REQ-TERM-005: Tab 1 auto-starts the configured agent
-
 
 **Intent:** The first terminal tab in a session automatically launches the user's selected AI agent so they can start coding immediately without manual setup.
 
@@ -235,7 +230,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-006: User-created tabs start with plain bash
 
-
 **Intent:** Tabs created by the user (clicking "+") start a plain bash shell without auto-launching an agent, giving the user a general-purpose terminal.
 
 **Applies To:** User
@@ -246,9 +240,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 2. The manual flag is propagated to the container via a query parameter on the WebSocket upgrade URL. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-006 AC2: connect() propagates the manual flag onto the WebSocket URL) -->
 3. The terminal server exposes the manual flag to the PTY environment so the shell init can read it. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-process-name.test.js (a manual session exposes MANUAL_TAB=1 in the PTY env) -->
 4. The shell init skips its agent-autostart block when the manual flag is set. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/session-process-name.test.js (Session PTY env / REQ-TERM-006 AC3 (MANUAL_TAB exposure)) -->
-5. The resulting PTY is a plain login shell with no agent running. <!-- @impl: entrypoint.sh::configure_tab_autostart -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+5. The resulting PTY is a plain login shell with no agent running. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @manual -->
 
 **Constraints:**
 
@@ -259,14 +251,13 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
 ### REQ-TERM-007: Tiling layouts (2-split, 3-split, 4-grid)
-
 
 **Intent:** Users can arrange terminal tabs in tiled layouts for simultaneous visibility of multiple terminals, in addition to the default tabbed view.
 
@@ -299,7 +290,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-008: Write batching at 30fps
 
-
 **Intent:** Rapid WebSocket messages are coalesced into batched `terminal.write()` calls at 30fps to reduce rendering overhead without perceptible latency increase.
 
 **Applies To:** User
@@ -310,10 +300,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 2. A flush is scheduled on a fixed cadence corresponding to roughly 30 frames per second so render passes are bounded even under burst output. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 3. On flush, all buffered output for a terminal is concatenated and written to the rendering library in a single call. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 4. The 30 fps flush rate halves the render-pass count compared to 60 fps without producing perceptible latency for typed input or interactive output. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
-5. The added flush latency stays below the human input-feedback perception threshold. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
-6. Pending flushes are tracked per terminal and cancelled on terminal disposal. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+5. The added flush latency stays below the human input-feedback perception threshold. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @manual -->
+6. Pending flushes are tracked per terminal and cancelled on terminal disposal. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @manual -->
 
 **Constraints:**
 
@@ -324,14 +312,13 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 
 ---
 
 ### REQ-TERM-009: Process name detection via control messages
-
 
 **Intent:** The terminal server detects the foreground process running in each PTY and sends the process name to the frontend for display in tab labels and session cards.
 
@@ -342,12 +329,10 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 1. The terminal server emits process-name control messages over the WebSocket whenever the foreground process for a PTY changes. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-process-name.test.js (Session process-name emit / REQ-TERM-009 AC1 (emit only on change)) -->
 2. The frontend distinguishes control messages from raw terminal data using the message's leading type-discriminator field. <!-- @impl: web-ui/src/stores/terminal.ts::parseControlMessage --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (Terminal control-message handling) -->
 3. The frontend maps known foreground process names (supported agents plus common TUI tools and shells) to display icons via a static lookup. <!-- @impl: web-ui/src/lib/terminal-config.ts::getTabIcon --> <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-TERM-009 (PROCESS_ICON_MAP renders icons per tab process kind)) -->
-4. An optional binary-name-to-display-name override table exists for cases where the executable name differs from the user-facing name; the override table is empty when no remap is needed. <!-- @impl: web-ui/src/lib/terminal-config.ts::getTabDisplayName -->
+4. An optional binary-name-to-display-name override table exists for cases where the executable name differs from the user-facing name; the override table is empty when no remap is needed. <!-- @impl: web-ui/src/lib/terminal-config.ts::getTabDisplayName --> <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (returns claude display name) -->
 5. The session card icon set covers each supported agent type so users can identify a session at a glance. <!-- @impl: web-ui/src/lib/terminal-config.ts::AGENT_ICON_MAP --> <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-TERM-009 (PROCESS_ICON_MAP renders icons per tab process kind)) -->
 6. The session store registers a process-name callback against the terminal store so process updates propagate without creating a circular import between the two stores. <!-- @impl: web-ui/src/stores/terminal.ts::registerProcessNameCallback --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-009 AC6: registerProcessNameCallback routes process-name frames to the callback) -->
 7. Process name updates are reflected in tab headers and session status cards in real time. <!-- @impl: web-ui/src/stores/session-tabs.ts::updateTerminalLabel --> <!-- @test: web-ui/src/__tests__/stores/update-terminal-label.test.ts (REQ-TERM-009 AC7: updateTerminalLabel writes processName to the targeted tab) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -358,7 +343,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -435,9 +420,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 3. The control exits selection mode without launching when fewer than two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: rejects selection beyond desktop capacity without changing selected sessions) -->
 4. The control launches MultiView when at least two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionSwitcher.test.tsx (REQ-TERM-013: creates MultiView from selected session ids and delegates opening to Layout) -->
 5. Selecting beyond the viewport capacity is rejected without changing the existing selected set. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: rejects selection beyond desktop capacity without changing selected sessions) -->
-6. Selected session rows expose a selected state using the success visual variant. <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+6. Selected session rows expose a selected state using the success visual variant. <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard --> <!-- @manual -->
 
 **Constraints:**
 
@@ -448,7 +431,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-012](#req-term-012-multiview-virtual-session-workspace)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -463,7 +446,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Acceptance Criteria:**
 
 1. A terminal following the bottom remains at the bottom while output exceeds the scrollback cap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
-2. Any registered user-scroll intent establishes manual viewport ownership until the viewport returns to the live bottom, regardless of continuing output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2: manual scroll ownership persists when output trimming reaches zero) --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2: a touch drag that outlives the intent grace still transfers ownership (no bottom snap)) -->
+2. Any registered user-scroll intent establishes manual viewport ownership until the viewport returns to the live bottom, regardless of continuing output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (useScrollCorrection / REQ-TERM-014 terminal scroll anchoring) -->
 3. While manual ownership is active in the normal buffer, streamed output is deferred in the write buffer so the selected viewport does not move; deferred output flushes when the viewport returns to the live bottom or the held-output cap is exceeded. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: defers streamed output while the user owns the viewport and flushes on bottom return) -->
 4. Returning a manually owned viewport to the live bottom releases that ownership and restores bottom following for later output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC1/AC2: returning to bottom releases manual ownership and restores bottom following) -->
 5. A resize frame is emitted only for a visible, connected terminal, carrying its current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (REQ-TERM-014: accepts resize frames only from the foreground WebSocket owner) -->
@@ -473,7 +456,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 - The write buffer either defers or writes; it never scrolls the viewport.
 - Output-driven trimming stays delegated to xterm.
-- User-driven scrollback navigation (touch gestures, floating page controls) scrolls the buffer service directly with buffer-derived deltas and issues the paired viewport repaint that xterm's DOM scroll path performs ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)).
+- User-driven scrollback navigation (touch gestures, floating page controls) scrolls the buffer service directly with buffer-derived deltas and issues the paired viewport repaint ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)).
 - Held output is capped at 2,000,000 characters; a cap-exceeding flush proceeds and may trim beneath the reader.
 - Alternate-buffer output is never deferred — fullscreen applications own their history and have no scrollback to read.
 - A zero display offset during full-buffer trimming is valid xterm behavior and is not, by itself, evidence of a browser reset.
@@ -492,7 +475,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 ---
 
 ### REQ-TERM-015: Focused Pane Owns URL Detection
-
 
 **Intent:** Browser URL detection must belong to the focused connected terminal pane so stale panes cannot clear the active pane's detected URL.
 

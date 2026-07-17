@@ -35,9 +35,7 @@ None. Authentication is foundational; other domains depend on it.
 1. When GitHub OAuth is not configured, authentication is handled by Cloudflare Access; the Worker verifies CF Access JWTs against the deployment's CF Access JWKS endpoint. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 2. When the deployment is configured as SaaS with GitHub OAuth, the Worker manages the entire OAuth flow and issues its own session cookies signed against an operator-provided JWT secret. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001: SaaS mode mutual exclusivity) -->
 3. The two modes are mutually exclusive at runtime: when the Direct GitHub OAuth branch is entered, CF Access is never checked. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001: SaaS mode mutual exclusivity) -->
-4. The frontend always calls a single logout endpoint; the backend dispatches to the correct logout flow based on mode. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (GET /logout / REQ-AUTH-009 (logout dispatches by mode)) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
+4. The frontend always calls a single logout endpoint; the backend dispatches to the correct logout flow based on mode. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (GET /logout / REQ-AUTH-009 (logout dispatches by mode)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -48,7 +46,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -68,9 +66,7 @@ None. Authentication is foundational; other domains depend on it.
 4. Valid callbacks create a session and redirect active users to workspaces or pending/blocked users to subscriptions; the exchanged GitHub access token exists only during callback and is never persisted. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 5. State-validation failure redirects to the login page with an error indicator. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes. <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
-7. Only verified primary GitHub emails are accepted. <!-- @test: src/__tests__/routes/github-auth.test.ts (redirects to /?error=no-verified-email when no verified email) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
+7. Only verified primary GitHub emails are accepted. <!-- @test: src/__tests__/routes/github-auth.test.ts (redirects to /?error=no-verified-email when no verified email) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -82,7 +78,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/github-auth.test.ts)
 
 **Status:** Implemented
 
@@ -96,13 +92,11 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Accessing protected application pages or API endpoints triggers a CF Access redirect to the configured identity provider. <!-- @impl: src/middleware/auth.ts::requireIdentity -->
+1. Accessing protected application pages or API endpoints triggers a CF Access redirect to the configured identity provider. <!-- @impl: src/middleware/auth.ts::requireIdentity --> <!-- @manual -->
 2. After IdP authentication, CF Access issues a session credential that the Worker validates on every request. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 3. The Worker verifies the credential signature against the CF Access JWKS endpoint. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 4. User email is extracted from the credential claims, normalized, and resolved from persistent storage. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 5. The setup wizard provisions a CF Access Application covering all protected paths and creates Access Groups scoped to admin and regular user roles. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (Setup Access) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -114,7 +108,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -212,11 +206,9 @@ None. Authentication is foundational; other domains depend on it.
 
 1. A new user record is created with a pending subscription tier on first SaaS login. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 2. Pending users can access identity-only endpoints but are blocked from the IDE. <!-- @impl: src/middleware/auth.ts::requireIdentity --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, 403 PENDING/BLOCKED, no-op outside SaaS) / REQ-AUTH-005 AC4 (also exported as authMiddleware for backcompat)) -->
-3. The frontend detects the pending state and redirects the user to the subscription page. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC3: pending user redirected to subscribe) -->
+3. The frontend detects the pending state and redirects the user to the subscription page. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC3: pending user redirected to subscribe) --> <!-- @manual -->
 4. After subscription (self-service or admin approval), the user record is updated with an active tier. <!-- @impl: src/lib/user-record.ts::updateUserRecord --> <!-- @test: src/__tests__/lib/user-record.test.ts (REQ-AUTH-007 AC4: transitions a pending user record to an active tier after subscription) -->
-5. First-time active users are redirected to onboarding for guided setup. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
+5. First-time active users are redirected to onboarding for guided setup. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -227,7 +219,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -241,12 +233,10 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Global middleware checks the SaaS session credential's remaining lifetime on every response. <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) -->
+1. Global middleware checks the SaaS session credential's remaining lifetime on every response. <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) --> <!-- @manual -->
 2. When less than 15 minutes remain on the 1-hour TTL, a fresh credential is issued with a new 1-hour expiry and returned on the response. <!-- @impl: src/lib/session-jwt.ts::shouldRefreshJWT --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) -->
-3. The refresh is transparent to the user (no redirect, no re-authentication). <!-- @test: src/__tests__/session-refresh-transparent.test.ts (REQ-AUTH-008 AC3: SaaS session refresh is transparent (no redirect / no re-auth)) -->
-4. The refresh occurs on any response, not just specific routes. <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
+3. The refresh is transparent to the user (no redirect, no re-authentication). <!-- @test: src/__tests__/session-refresh-transparent.test.ts (REQ-AUTH-008 AC3: SaaS session refresh is transparent (no redirect / no re-auth)) --> <!-- @manual -->
+4. The refresh occurs on any response, not just specific routes. <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -257,7 +247,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/lib/auth-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -271,12 +261,10 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. The frontend triggers logout via a single endpoint, irrespective of deployment mode. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
+1. The frontend triggers logout via a single endpoint, irrespective of deployment mode. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) --> <!-- @manual -->
 2. In any mode that issues the app's own GitHub-OIDC session (SaaS or onboarding), the backend redirects to the GitHub logout route, which clears the session credential and returns the user to the login page. It must not redirect to the CF Access logout endpoint. <!-- @impl: src/routes/auth-redirects.ts::app --> <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
 3. In CF Access mode, the backend redirects through CF Access's system logout endpoint so CF Access clears its own credential. <!-- @impl: src/routes/auth-redirects.ts::app --> <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
-4. The dispatch decision is made by the backend based on the current deployment configuration, not by the frontend. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
+4. The dispatch decision is made by the backend based on the current deployment configuration, not by the frontend. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -288,7 +276,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/auth-redirects.test.ts)
 
 **Status:** Implemented
 
@@ -414,9 +402,7 @@ None.
 
 1. When API calls return 401, an amber re-auth banner appears in the UI. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
 2. Clicking the banner refreshes auth. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-3. Session polling stops on expiry to prevent noise. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
+3. Session polling stops on expiry to prevent noise. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -426,7 +412,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-008](#req-auth-008-session-cookie-auto-refresh)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -442,10 +428,8 @@ None.
 
 1. The onboarding page shows four steps: idle timeout selector, **Connect GitHub** (OAuth), **Connect Cloudflare** (OAuth), and agent subscription. The GitHub and Cloudflare steps reuse the shared OAuth connect card ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)) — no manual token paste. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)) -->
 2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 15m-4h. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (REQ-AUTH-015 AC2: the idle-timeout selector offers the paying 15m-4h options) -->
-3. First-time users are auto-redirected to onboarding. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) -->
-4. Once onboarding has been completed, the user is not redirected there again. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
+3. First-time users are auto-redirected to onboarding. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
+4. Once onboarding has been completed, the user is not redirected there again. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -455,7 +439,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx)
 
 **Status:** Implemented
 
@@ -550,13 +534,11 @@ None.
 **Acceptance Criteria:**
 
 1. `GET /api/user` returns the authenticated user's identity and account status (email, role, access and subscription tier, bucket name, worker name, onboarding-active and SaaS-mode flags, onboarding-complete flag, has-subscribed flag, and subscribed session mode) read from the user's stored record, and creates no resources. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
-2. `POST /api/user/onboarding-complete` marks the user's stored record onboarding-complete so later logins skip the onboarding redirect, and is a no-op when the user has no stored record yet. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
-3. `GET /api/user/r2-status` reports whether a scoped R2 token already exists for the user. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
-4. `POST /api/user/ensure-r2-token` creates the user's scoped R2 token when absent, returning ready on success, 503 when account setup is incomplete, and 500 on a provisioning failure. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
-5. Every endpoint requires authentication; unauthenticated requests are rejected with 401. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
-6. `POST /api/user/ensure-r2-token` is rate-limited per user to bound token-provisioning abuse. <!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /user/ensure-r2-token - ensure-r2-token (5/min)) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
+2. `POST /api/user/onboarding-complete` marks the user's stored record onboarding-complete so later logins skip the onboarding redirect, and is a no-op when the user has no stored record yet. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+3. `GET /api/user/r2-status` reports whether a scoped R2 token already exists for the user. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+4. `POST /api/user/ensure-r2-token` creates the user's scoped R2 token when absent, returning ready on success, 503 when account setup is incomplete, and 500 on a provisioning failure. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+5. Every endpoint requires authentication; unauthenticated requests are rejected with 401. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+6. `POST /api/user/ensure-r2-token` is rate-limited per user to bound token-provisioning abuse. <!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /user/ensure-r2-token - ensure-r2-token (5/min)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -566,7 +548,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware), [REQ-AUTH-015](#req-auth-015-guided-onboarding-flow)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/user-profile.test.ts)
 
 **Status:** Implemented
 
@@ -644,8 +626,6 @@ None.
 5. An Access 3xx, opaque manual redirect, or HTML login response on an authenticated API request performs the same top-level `location.replace('/')` and tagged rejection as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::expiredSessionError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
 6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
 7. Fingerprinted Vite CSS and JavaScript requests execute the Worker asset path and receive immutable browser caching only for successful non-HTML assets, preventing an expired Access session from replacing a restored document's styles while keeping SPA fallback HTML revalidating. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) -->
-
-**Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
 
 **Constraints:**
 

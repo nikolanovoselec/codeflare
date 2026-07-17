@@ -14,7 +14,6 @@ System architecture, components, data flow, and design rationale for Codeflare.
 - [Module-Level Caches](#module-level-caches)
 - [Design Rationale](#design-rationale)
 - [Landing composition implementation](#landing-composition-implementation)
-- [Manual verification checklist](#manual-verification-checklist)
 - [Specification Coverage](#specification-coverage)
 - [Related Documentation](#related-documentation)
 
@@ -67,7 +66,9 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `index.ts` is the thin DO class shell; it delegates config (`setBucketName`; and `ensureVaultKey`, now superseded for vault encryption by the HKDF `getVaultEncryptionKey` per [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) to `container-config.ts`, lifecycle hooks (onStart/onStop/alarm) to `container-lifecycle.ts`, internal `/_internal/*` dispatch to `container-router.ts`, and idle enforcement/metrics to `container-metrics.ts`. Together these own the full lifecycle of a single session's container: startup, idle enforcement via `collectMetrics()`, request proxying with auth token injection, and graceful shutdown with a 135-second budget for final bisync. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` for per-user usage tracking.
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `index.ts` is the thin DO class shell; it delegates config (`setBucketName`; and `ensureVaultKey`, now superseded for vault encryption by the HKDF `getVaultEncryptionKey` per [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) to `container-config.ts`, lifecycle hooks (onStart/onStop/alarm) to `container-lifecycle.ts`, internal `/_internal/*` dispatch to `container-router.ts`, and idle enforcement/metrics to `container-metrics.ts`.
+
+Together these own the full lifecycle of a single session's container: startup, idle enforcement via `collectMetrics()`, request proxying with auth token injection, and graceful shutdown with a 135-second budget for final bisync. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` for per-user usage tracking.
 
 For Container DO internals including the `collectMetrics()` loop, `destroy()` override, auth token lifecycle, `setBucketName` idempotency, and SDK timer semantics, see [Container](container.md).
 
@@ -105,7 +106,9 @@ Own-account R2 is **re-signed** with the worker-held R2 key (`createR2Client`/aw
 
 the CF-API/Browser-Rendering passthrough here is a dormant fallback that can only ever carry the placeholder.) `strict` + `accountId` are resolved once by the DO (constructor) and passed via `ctx.props` — no per-request KV read — and a per-op diagnostic debug log (`{h, sc, tx, rs, fMs}`, off by default — `LOG_LEVEL=debug` to enable) makes the routing + worker-side latency observable (temporary, for the R2-speed measurement). See [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) and [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props).
 
-The toggle is a global admin flag persisted in KV (`SETUP_KEYS.STRICT_EGRESS`, `'active'`/`'inactive'`, default OFF) and resolved by `hasStrictGatewayEgress(env)` = enterprise mode AND KV `=== 'active'` — read from KV **once** at container-start (the `ENTERPRISE_MODE` precedent), not threaded per-session and not re-read per request: the DO resolves it in its constructor into `_strictEgress` and passes `strict` to the `EgressController` via `ctx.props` (the controller fails closed with `503 EGRESS_NOT_CONFIGURED` if the prop is absent/false), and `buildEnvVars` reads the same `_strictEgress` to choose the placeholder vs real R2 key so the wiring and container creds always agree. A transient KV error returns `false` (OFF) so the container still boots rather than failing the start.
+The toggle is a global admin flag persisted in KV (`SETUP_KEYS.STRICT_EGRESS`, `'active'`/`'inactive'`, default OFF) and resolved by `hasStrictGatewayEgress(env)` = enterprise mode AND KV `=== 'active'` — read from KV **once** at container-start (the `ENTERPRISE_MODE` precedent), not threaded per-session and not re-read per request: the DO resolves it in its constructor into `_strictEgress` and passes `strict` to the `EgressController` via `ctx.props` (the controller fails closed with `503 EGRESS_NOT_CONFIGURED` if the prop is absent/false), and `buildEnvVars` reads the same `_strictEgress` to choose the placeholder vs real R2 key so the wiring and container creds always agree.
+
+A transient KV error returns `false` (OFF) so the container still boots rather than failing the start.
 
 The per-host LLM/GitHub registrations co-exist with and take precedence over the `'*'` catch-all (SDK precedence: deniedHosts > per-host > catch-all > allowedHosts > enableInternet), and when strict is ON the `GitHubInterceptor` swaps its single upstream `fetch` to `env.EGRESS.fetch` (GitHub is external; the `LlmInterceptor`'s AI Gateway upstream is platform-native and **always** egresses direct, so it never swaps — see [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)).
 
@@ -154,7 +157,9 @@ On desktop/tablet the panel expands to 80vh (centered, via `.dashboard-panel:not
 
 - **Enterprise (egress injection):**
 
-    The container holds only a non-secret placeholder `GH_TOKEN` (`codeflare-enterprise`). `interceptedGithubHosts(env)` registers `github.com` + `api.github.com` + Copilot's remote GitHub MCP host `api.githubcopilot.com` (overridable via `GITHUB_HOST` / `GITHUB_API_HOST` / `GITHUB_COPILOT_MCP_HOST`) for outbound-HTTPS interception, **reusing the same AI-Gateway `interceptOutboundHttps` layer** as the LLM path. On each request the `GitHubInterceptor` looks up and decrypts the user's token (scoped solely by the wiring-time `props.bucket` binding), strips client auth, and stamps git Basic (`x-access-token:token`) for the web host, `Bearer` + `X-GitHub-Api-Version` for the API host, or `Bearer` (no API-version header) for Copilot's `api.githubcopilot.com/mcp` — without which Copilot CLI's built-in `github-mcp-server` rides the strict-egress catch-all to the Gateway unauthenticated and its handshake fails; it **fails closed** when no token is present.
+    The container holds only a non-secret placeholder `GH_TOKEN` (`codeflare-enterprise`). `interceptedGithubHosts(env)` registers `github.com` + `api.github.com` + Copilot's remote GitHub MCP host `api.githubcopilot.com` (overridable via `GITHUB_HOST` / `GITHUB_API_HOST` / `GITHUB_COPILOT_MCP_HOST`) for outbound-HTTPS interception, **reusing the same AI-Gateway `interceptOutboundHttps` layer** as the LLM path.
+
+    On each request the `GitHubInterceptor` looks up and decrypts the user's token (scoped solely by the wiring-time `props.bucket` binding), strips client auth, and stamps git Basic (`x-access-token:token`) for the web host, `Bearer` + `X-GitHub-Api-Version` for the API host, or `Bearer` (no API-version header) for Copilot's `api.githubcopilot.com/mcp` — without which Copilot CLI's built-in `github-mcp-server` rides the strict-egress catch-all to the Gateway unauthenticated and its handshake fails; it **fails closed** when no token is present.
 
     AI hosts continue to route to the LLM interceptor - one host→interceptor map, two WorkerEntrypoints, one responsibility each ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)). Wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing).
 - **Non-enterprise (container transport):** The real token flows to the container as `GH_TOKEN` via the existing deploy-keys→env path, unchanged ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)).
@@ -197,11 +202,15 @@ The `containerStartedAt` fallback is critical: if a user opens a terminal but ne
 
 **WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, focus ownership, process-name, restore) as JSON. No application-level ping/pong -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
-**Resize Authority:** A PTY can have multiple browser WebSocket clients, but only the foreground owner is allowed to apply resize frames. The first client owns resize by default; a focused terminal sends a `focus` control frame before its resize frame; a pane that loses focus before its WebSocket opens clears the queued focus claim. When the owner detaches, authority falls back to the remaining client. This prevents stale hidden clients from shrinking a shared PTY back to old dimensions. <!-- @impl: host/src/session.ts::claimResizeAuthority --> <!-- @impl: host/src/session.ts::resize --> <!-- @impl: host/src/session.ts::detach --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
+**Resize Authority:** A PTY can have multiple browser WebSocket clients, but only the foreground owner is allowed to apply resize frames. The first client owns resize by default; a focused terminal sends a `focus` control frame before its resize frame; a pane that loses focus before its WebSocket opens clears the queued focus claim.
+
+When the owner detaches, authority falls back to the remaining client. This prevents stale hidden clients from shrinking a shared PTY back to old dimensions. <!-- @impl: host/src/session.ts::claimResizeAuthority --> <!-- @impl: host/src/session.ts::resize --> <!-- @impl: host/src/session.ts::detach --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
 
 **PTY:** Spawns `bash -l` (login shell for .bashrc) with `xterm-256color`, truecolor support.
 
-**Terminal emulator response stripping:** `stripTerminalResponses()` in `host/src/session.ts` strips terminal emulator responses (CPR, OSC 10/11/12, DA1) from WebSocket input before writing to the PTY. These responses are generated by xterm.js in reply to terminal queries issued by CLI tools (e.g., `gh secret set` reads an OSC 11 response as the secret value). `containsUserInput()` then classifies the original data using a whitelist approach: printable characters, control keys (Enter, Backspace, Tab, Ctrl+key), arrow keys, function keys, Alt+key, and mouse clicks count as user input for idle detection. Terminal protocol chatter (CSI/OSC/DCS/APC sequences, focus reports, mouse movement/release) does not count. The `Session.write()` method calls both: PTY receives the filtered data, and `activityTracker.recordInput()` is called only when `containsUserInput()` returns true.
+**Terminal emulator response stripping:** `stripTerminalResponses()` in `host/src/session.ts` strips terminal emulator responses (CPR, OSC 10/11/12, DA1) from WebSocket input before writing to the PTY. These responses are generated by xterm.js in reply to terminal queries issued by CLI tools (e.g., `gh secret set` reads an OSC 11 response as the secret value).
+
+`containsUserInput()` then classifies the original data using a whitelist approach: printable characters, control keys (Enter, Backspace, Tab, Ctrl+key), arrow keys, function keys, Alt+key, and mouse clicks count as user input for idle detection. Terminal protocol chatter (CSI/OSC/DCS/APC sequences, focus reports, mouse movement/release) does not count. The `Session.write()` method calls both: PTY receives the filtered data, and `activityTracker.recordInput()` is called only when `containsUserInput()` returns true.
 
 ### Landing (Astro, prerendered)
 
@@ -289,7 +298,7 @@ sequenceDiagram
     L->>TS: scheduleDisconnect() (60s grace)
     TS->>TS: Grace timer expires
     TS->>DO: disconnectAll()<br/>(dashboard-disconnect)
-    DO->>DO: No WS clients; sleepAfter may expire
+    DO->>DO: No WS clients, sleepAfter may expire
     U->>L: Return to session
     L->>TS: cancelScheduledDisconnect()
     TS->>DO: reconnectDisconnectedTerminals()<br/>(visible keys only)
@@ -468,8 +477,8 @@ This onboarding branch is skipped in SaaS mode (which keeps the `/app/subscribe`
 
 Two entry points clone a repo into a session, distinguished by whether the session already exists.
 
-- **New session (clone-on-start):** `POST /api/sessions` carries a `clone:{repo,ref}` field, which threads through `container-env.ts` into `GIT_CLONE_REPO` / `GIT_CLONE_REF`. `entrypoint.sh` clones into `$USER_WORKSPACE/<repo-verbatim>` before the agent starts, skipping if the directory already exists.
-- **Running session:** `POST /api/github/clone` forwards to the container DO's `/internal/git-clone` host endpoint (authed by the existing `CONTAINER_AUTH_TOKEN` Worker→DO bearer injection). The host `resolveGitClone` validates `owner/name` + ref and refuses a pre-existing folder (`409`).
+- **New session (clone-on-start):** `POST /api/sessions` accepts `clone:{repo,ref}`, mapped via `container-env.ts` to `GIT_CLONE_REPO` / `GIT_CLONE_REF`. `entrypoint.sh` clones into `$USER_WORKSPACE/<repo-verbatim>` before agent start, skipping an existing directory.
+- **Running session:** `POST /api/github/clone` forwards to the container DO's `/internal/git-clone` host endpoint (authed by the `CONTAINER_AUTH_TOKEN` Worker→DO bearer injection). The host `resolveGitClone` validates `owner/name` + ref and refuses a pre-existing folder (`409`).
 
 Auth on the clone itself uses the per-mode credential path: egress injection in enterprise mode (the `GitHubInterceptor` stamps the user's token onto the outbound clone), or the container-local `GH_TOKEN` otherwise.
 
@@ -485,7 +494,7 @@ sequenceDiagram
     participant P as Backend (OpenAI / Bedrock / Workers AI / dynamic route)
 
     Note over C: entrypoint.sh:<br/>- Trusts CF containers CA (system store)<br/>- Persists CA env (NODE_EXTRA_CA_CERTS,<br/>  REQUESTS_CA_BUNDLE) to .bashrc<br/>- Persists Copilot BYOK vars to .bashrc<br/>- Sets placeholder credential<br/>- Points agent at api.openai.com
-    C->>I: HTTPS to api.openai.com<br/>(TLS intercepted by platform;<br/>placeholder Bearer stripped)
+    C->>I: HTTPS to api.openai.com<br/>(TLS intercepted by platform<br/>placeholder Bearer stripped)
     I->>G: POST api.cloudflare.com/.../ai/v1/<path><br/>Authorization: Bearer AIG_TOKEN<br/>cf-aig-gateway-id: <gateway>
     G->>P: Routed by model id (gateway-side)
     P-->>G: Response
@@ -497,13 +506,17 @@ sequenceDiagram
 
 **Pre-start interception ordering ([REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering)):** The Container DO calls `setupEnterpriseInterception()` (which invokes `ctx.container.interceptOutboundHttps`) inside `startAndWaitForPorts()` **before** the SDK's `container.start()` call. This ordering is load-bearing: the Cloudflare containers CA at `/etc/cloudflare/certs/cloudflare-containers-ca.crt` is only mounted after `interceptOutboundHttps` is registered. If wired after boot (e.g. in `onStart`), `entrypoint.sh` finds no cert to install, and every intercepted TLS handshake to `api.openai.com` fails. When `ENTERPRISE_MODE` is unset the override performs no interception work and the container start path is byte-identical to the non-enterprise path.
 
-**Credential flow:** `AIG_GATEWAY_URL` and `AIG_TOKEN` are Worker secrets. They reach `LlmInterceptor` through the Worker environment only, never through the container env. The account id and gateway id are parsed from `AIG_GATEWAY_URL`. The interceptor uses two auth headers depending on transport: `Authorization: Bearer <AIG_TOKEN>` on the REST API (`api.cloudflare.com/.../ai/v1/*`, Workers AI scope) and `cf-aig-authorization: Bearer <AIG_TOKEN>` on the compat fallback (`gateway.ai.cloudflare.com/.../compat/*`, AI Gateway Run scope); `AIG_TOKEN` must carry both permissions or the missing transport is rejected with `error 10000`. The placeholder credential (`codeflare-enterprise`) written by `entrypoint.sh` is what puts each agent CLI into API mode; the interceptor strips it before forwarding.
+**Credential flow:** `AIG_GATEWAY_URL` and `AIG_TOKEN` are Worker secrets. They reach `LlmInterceptor` through the Worker environment only, never through the container env. The account id and gateway id are parsed from `AIG_GATEWAY_URL`. The interceptor uses two auth headers depending on transport: `Authorization: Bearer <AIG_TOKEN>` on the REST API (`api.cloudflare.com/.../ai/v1/*`, Workers AI scope) and `cf-aig-authorization: Bearer <AIG_TOKEN>` on the compat fallback (`gateway.ai.cloudflare.com/.../compat/*`, AI Gateway Run scope); `AIG_TOKEN` must carry both permissions or the missing transport is rejected with `error 10000`.
+
+The placeholder credential (`codeflare-enterprise`) written by `entrypoint.sh` is what puts each agent CLI into API mode; the interceptor strips it before forwarding.
 
 **Backend selection** (native provider, Amazon Bedrock, Workers AI, or a dynamic route) is entirely gateway-side via each agent's configured model id; codeflare holds no provider keys (BYOK lives in the gateway). See [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) for the interception mechanism and [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for the REST API transport.
 
 **Streaming normalization ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC3):** On streaming `/chat/completions` responses the interceptor pipes the SSE body through a transform that guarantees a terminal `finish_reason` chunk before `[DONE]`.
 
-AI Gateway dynamic routes can end a stream with `finish_reason: null` followed by `[DONE]`, omitting the terminal chunk; OpenAI-wire **Chat Completions** clients (Copilot) reject this as "Stream ended without finish_reason" and retry, multiplying token cost. (Both Copilot and Pi run on `chat/completions`, so this shim guards both; the `/responses` path is not used in the current configuration.) The shim synthesizes the missing terminator (`tool_calls` when a tool-call delta was seen on the stream, otherwise `stop`), is idempotent (it never adds a second terminator when the upstream already sent a non-null `finish_reason`), reassembles SSE `data:` lines split across network chunk boundaries (a single `data:` line arriving across multiple TCP chunks), and is bypassed for non-streaming and `/responses` traffic.
+AI Gateway dynamic routes can end a stream with `finish_reason: null` followed by `[DONE]`, omitting the terminal chunk; OpenAI-wire **Chat Completions** clients (Copilot) reject this as "Stream ended without finish_reason" and retry, multiplying token cost. (Both Copilot and Pi run on `chat/completions`, so this shim guards both; the `/responses` path is not used in the current configuration.)
+
+The shim synthesizes the missing terminator (`tool_calls` when a tool-call delta was seen on the stream, otherwise `stop`), is idempotent (it never adds a second terminator when the upstream already sent a non-null `finish_reason`), reassembles SSE `data:` lines split across network chunk boundaries (a single `data:` line arriving across multiple TCP chunks), and is bypassed for non-streaming and `/responses` traffic.
 
 The gateway's stored response log is normalized and shows `finish_reason: stop` even when the live wire omits it, so the repair is only observable on the wire. When `ENTERPRISE_MODE` is unset the interceptor is never wired and no normalization runs.
 
@@ -525,8 +538,8 @@ sequenceDiagram
     participant G as Cloudflare Gateway
     participant U as Upstream host
     C->>X: HTTPS to any host
-    Note over X: strict on; literal-IP guard; fail closed if env.EGRESS is unbound
-    Note over X: own-account R2 + CF API egress direct; direct-internet rides Gateway
+    Note over X: strict on, literal-IP guard, fail closed if env.EGRESS is unbound
+    Note over X: own-account R2 + CF API egress direct, direct-internet rides Gateway
     X->>E: env.EGRESS.fetch(request)
     E->>G: cf1:network
     G->>U: allowed by existing policy
@@ -570,7 +583,7 @@ sequenceDiagram
     participant G as Vault/global graph
     R->>T: persist visible launch request
     R->>A: public background subagent call
-    A->>G: work chunk; locked merge + publication
+    A->>G: work chunk, locked merge + publication
     A->>G: expose post-commit chunk
     A-->>T: native terminal notification
     R->>T: correlate exact tool-use ID
@@ -581,7 +594,9 @@ sequenceDiagram
 
 Pi review is session-scoped and independent of CI ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff)). The shared scope resolver produces one lane packet containing the normalized work set, exact ancestry-validated range, lane-owned files/hunks, and cross-lane changed inputs. Each changed input carries old/new hunk ranges; consumers call the shared intersection predicate before following an anchored symbol or named test, so path equality alone cannot fan out review scope. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::changedInputIntersects -->
 
-Diff-scoped reviewers retain their complete enforcement families but use gather-then-reason evidence waves. Policy and packet inputs load once, deterministic checks and focused reads run in one batch, and concrete unresolved candidates share one additional evidence batch. The root may use context-mode when enabled, but in-process reviewers deliberately do not load that extension: they invoke the same packet CLI through the native Bash/Node transport, preserving the identical work set and evidence without per-child MCP bridges. Every scoped hunk and manifest row receives a disposition; whole-file reads require a hunk-backed candidate, and unchanged baseline debt is reserved for full-tree scope. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground -->
+Diff-scoped reviewers retain their complete enforcement families but use gather-then-reason evidence waves. Policy and packet inputs load once, deterministic checks and focused reads run in one batch, and concrete unresolved candidates share one additional evidence batch. The root may use context-mode when enabled, but in-process reviewers deliberately do not load that extension: they invoke the same packet CLI through the native Bash/Node transport, preserving the identical work set and evidence without per-child MCP bridges.
+
+Every scoped hunk and manifest row receives a disposition; whole-file reads require a hunk-backed candidate, and unchanged baseline debt is reserved for full-tree scope. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground -->
 
 After a successful persisted root boundary, `active-repo-memory.ts` resolves `cd` and tool-level cwd context. `review-enforcement.ts` compares that repository's local `HEAD` with fresh protected-base PR state on a bounded retry schedule and emits one launch plan only for an exact match. A valid acknowledgement yields the acknowledged-to-current range; otherwise the full PR is reviewed. Unmatched calls remain in flight until native terminal notification, so queued or slow reviewers are not duplicated. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
@@ -700,165 +715,6 @@ Architectural principles and design rationale.
 | Navigation and trust | Renders the typed pillar links, sign-in route, social proof, FAQ, and footer controls. | Typed links and content | Accessible navigation and disclosures | `landing/src/components/Header.astro`, `landing/src/pages/index.astro` |
 
 The server output is the complete resting state. Client scripts only enhance it, and reduced-motion users retain the same content and controls without animated transitions.
-
-## Manual verification checklist
-
-Exercise each listed UI, agent, session, storage, or container workflow in staging; compare observable state and output with every AC, using retained source/test anchors as supporting evidence.
-
-- [ ] [REQ-TERM-006](../../sdd/spec/terminal.md#req-term-006-user-created-tabs-start-with-plain-bash) — verify every acceptance criterion.
-- [ ] [REQ-TERM-008](../../sdd/spec/terminal.md#req-term-008-write-batching-at-30fps) — verify every acceptance criterion.
-- [ ] [REQ-TERM-009](../../sdd/spec/terminal.md#req-term-009-process-name-detection-via-control-messages) — verify every acceptance criterion.
-- [ ] [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) — verify every acceptance criterion.
-- [ ] [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-001](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-002](../../sdd/spec/agents.md#req-agent-002-agent-selection-at-session-creation) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-003](../../sdd/spec/agents.md#req-agent-003-agent-cli-auto-started-in-tab-1) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-009](../../sdd/spec/agents.md#req-agent-009-llm-api-key-storage-encrypted-in-kv) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011-agent-skills--rules-manually-recreatable-from-settings) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-012](../../sdd/spec/agents.md#req-agent-012-fast-cli-start-configurable) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-013](../../sdd/spec/agents.md#req-agent-013-browser-shim-for-oauth-flows) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) — see verification procedure below.
-
-Run `/review --diff --deep` on a clean fixture branch; observe one parallel wave of the six existing specialist types followed by Reality Filter, confirm every subagent returns a report without changing `git status`, and confirm only the root writes review artifacts or applies an explicitly approved fix.
-
-- [ ] [REQ-AGENT-017](../../sdd/spec/agents.md#req-agent-017-bubblewrap-sandbox-for-codex) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-019](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-020](../../sdd/spec/agents.md#req-agent-020-llm-api-key-management-ui) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) — invoke `/sdd init` in a clean fixture without `sdd/`, then `/sdd clean --auto` after introducing spec drift; confirm both remain in the root session, launch no PR reviewer, and execute specification enforcement before documentation enforcement.
-- [ ] [REQ-AGENT-022](../../sdd/spec/agents.md#req-agent-022-legacy-codebase-import-mode-discovery) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-027](../../sdd/spec/agents.md#req-agent-027-context-mode-interoperability) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-029](../../sdd/spec/agents.md#req-agent-029-deploy-credential-propagation-to-container) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-030](../../sdd/spec/agents.md#req-agent-030-multi-agent-format-transforms) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-032](../../sdd/spec/agents.md#req-agent-032-starter-documentation-manually-recreatable-from-settings) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-033](../../sdd/spec/agents.md#req-agent-033-sdd-init-scaffolding-and-canonical-render) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-034](../../sdd/spec/agents.md#req-agent-034-sdd-init-enrichment-pass-with-graphify) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-035](../../sdd/spec/agents.md#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes) — on disposable current branches, exercise `--auto` and `--unleashed`; confirm the root applies repairs in specification-then-documentation order and pushes the checked-out branch without creating a branch or PR.
-- [ ] [REQ-AGENT-038](../../sdd/spec/agents.md#req-agent-038-resume-mode-drain-workflow) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-039](../../sdd/spec/agents.md#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-045](../../sdd/spec/agents.md#req-agent-045-import-mode-triage-queue-and-transition-state) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) — see verification procedure below.
-
-Start Pi from a workspace parent, run `/review --diff`, confirm the dedicated review workflow receives the absolute project root and report-only execution contract, then repeat in a fixture lacking `sdd/` or `documentation/` and confirm the documentation lane produces the stable no-op report.
-
-- [ ] [REQ-AGENT-051](../../sdd/spec/agents.md#req-agent-051-pi-debug-deploy-and-brainstorm-commands) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) — start Pi outside Git, select a remembered repository whose path contains spaces, and confirm `/review --diff` targets that absolute root without changing the process cwd.
-- [ ] [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) — change one named block in a cross-lane file and confirm only anchors whose old/new ranges intersect that hunk enter the reviewer work set under both direct context execution and Bash fallback.
-- [ ] [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) — trigger a Claude SDD PR-boundary review; confirm each reviewer returns structured findings without writing files, confirm the root alone persists triage, then confirm the root evaluates and applies each legitimate finding.
-- [ ] [REQ-AGENT-087](../../sdd/spec/agents.md#req-agent-087-pi-reviewer-execution-profile) — inspect one launch of each Pi PR reviewer and confirm its effective thinking level is `medium` while the selected provider remains unpinned.
-- [ ] [REQ-AGENT-088](../../sdd/spec/agents.md#req-agent-088-user-invoked-review-ownership-and-triage) — see verification procedure below.
-
-Run `/review --diff --deep` with at least two surfaced findings; confirm each subagent returns without writes, the root persists every report, triage records exactly one decision per finding, defer/ignore/debt decisions reach `sdd/.review-decisions.md`, and no fix is applied before explicit approval.
-
-- [ ] [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) — see verification procedure below.
-
-Start a fresh container and call one root `ctx_*` tool; run `/ctx off`, confirm the disabled marker persists in Pi settings and the active process reload removes `ctx_*`; run `/ctx on`, confirm the enabled marker persists and the reloaded process restores working tools.
-
-- [ ] [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership) — launch code/spec/doc reviewers, confirm their tool manifests contain `bash` but no `ctx_*`, and after they finish verify the Pi process owns exactly one `context-mode/server.bundle.mjs` child.
-- [ ] [REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) — verify every acceptance criterion.
-- [ ] [REQ-MOB-016](../../sdd/spec/mobile.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls) — verify every acceptance criterion.
-- [ ] [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) — verify every acceptance criterion.
-- [ ] [REQ-MOB-008](../../sdd/spec/mobile.md#req-mob-008-cursor-visible-for-all-supported-agents) — verify every acceptance criterion.
-- [ ] [REQ-MOB-009](../../sdd/spec/mobile.md#req-mob-009-visibility-return-recovers-keyboard-state) — verify every acceptance criterion.
-- [ ] [REQ-MOB-013](../../sdd/spec/mobile.md#req-mob-013-mobile-input-system-platform-compatibility) — verify every acceptance criterion.
-- [ ] [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) — verify every acceptance criterion.
-- [ ] [REQ-STOR-004](../../sdd/spec/storage.md#req-stor-004-initial-sync-restores-files-on-container-start) — verify every acceptance criterion.
-- [ ] [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) — verify every acceptance criterion.
-- [ ] [REQ-STOR-006](../../sdd/spec/storage.md#req-stor-006-storage-quota-enforced-per-tier-at-session-start) — verify every acceptance criterion.
-- [ ] [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) — verify every acceptance criterion.
-- [ ] [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) — verify every acceptance criterion.
-- [ ] [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session) — verify every acceptance criterion.
-- [ ] [REQ-STOR-014](../../sdd/spec/storage.md#req-stor-014-r2-storage-stats-caching) — verify every acceptance criterion.
-- [ ] [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) — verify every acceptance criterion.
-- [ ] [REQ-STOR-016](../../sdd/spec/storage.md#req-stor-016-file-browser-presentation-and-traversal-safety) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-002](../../sdd/spec/vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-006](../../sdd/spec/vault.md#req-vault-006-shutdown-bisync-completes-vault-writes-before-sigkill) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-011](../../sdd/spec/vault.md#req-vault-011-vault-extract-ingests-pdf-files) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-012](../../sdd/spec/vault.md#req-vault-012-vault-button-render-and-dashboard-landing) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) — verify every acceptance criterion.
-- [ ] [REQ-VAULT-016](../../sdd/spec/vault.md#req-vault-016-vault-graph-extraction-emits-the-canonical-shared-schema) — verify every acceptance criterion.
-- [ ] [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) — verify every acceptance criterion.
-- [ ] [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004-paid-tiers-integrate-with-stripe-checkout) — verify every acceptance criterion.
-- [ ] [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) — verify every acceptance criterion.
-- [ ] [REQ-SUB-011](../../sdd/spec/subscription.md#req-sub-011-graceful-degradation-without-stripe) — verify every acceptance criterion.
-- [ ] [REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits) — verify every acceptance criterion.
-- [ ] [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching) — verify every acceptance criterion.
-- [ ] [REQ-SUB-017](../../sdd/spec/subscription.md#req-sub-017-enterprise-tier-contact-flow) — verify every acceptance criterion.
-- [ ] [REQ-SUB-019](../../sdd/spec/subscription.md#req-sub-019-session-limit-popup-in-frontend) — verify every acceptance criterion.
-- [ ] [REQ-SUB-021](../../sdd/spec/subscription.md#req-sub-021-billing-cycle-alignment) — verify every acceptance criterion.
-- [ ] [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving) — verify every acceptance criterion.
-- [ ] [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) — verify every acceptance criterion.
-- [ ] [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) — verify every acceptance criterion.
-- [ ] [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) — verify every acceptance criterion.
-- [ ] [REQ-LANDING-006](../../sdd/spec/landing.md#req-landing-006-enter-the-matrix-sign-in-cta) — verify every acceptance criterion.
-- [ ] [REQ-LANDING-007](../../sdd/spec/landing.md#req-landing-007-browser-ide-continuity-band) — verify every acceptance criterion.
-- [ ] [REQ-BROWSER-001](../../sdd/spec/browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp) — verify every acceptance criterion.
-- [ ] [REQ-BROWSER-003](../../sdd/spec/browser-run.md#req-browser-003-pi-native-browser-run-wrapper) — verify every acceptance criterion.
-- [ ] [REQ-BROWSER-004](../../sdd/spec/browser-run.md#req-browser-004-agent-semantic-e2e-via-browser-run) — verify every acceptance criterion.
-- [ ] [REQ-BROWSER-005](../../sdd/spec/browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity) — verify every acceptance criterion.
-- [ ] [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter) — verify every acceptance criterion.
-- [ ] [REQ-SESSION-003](../../sdd/spec/session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start) — verify every acceptance criterion.
-- [ ] [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) — verify every acceptance criterion.
-- [ ] [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection) — verify every acceptance criterion.
-- [ ] [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) — verify every acceptance criterion.
-- [ ] [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) — verify every acceptance criterion.
-- [ ] [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) — verify every acceptance criterion.
-- [ ] [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) — verify every acceptance criterion.
-- [ ] [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) — verify every acceptance criterion.
-- [ ] [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) — verify every acceptance criterion.
-- [ ] [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) — verify every acceptance criterion.
-- [ ] [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode) — verify every acceptance criterion.
-- [ ] [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline) — verify every acceptance criterion.
-- [ ] [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) — verify every acceptance criterion.
-- [ ] [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) — verify every acceptance criterion.
-- [ ] [REQ-MEM-012](../../sdd/spec/memory.md#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred) — verify every acceptance criterion.
-- [ ] [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) — verify every acceptance criterion.
-- [ ] [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever) — verify every acceptance criterion.
-- [ ] [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) — verify every acceptance criterion.
-- [ ] [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) — verify every acceptance criterion.
-- [ ] [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) — verify every acceptance criterion.
-
----
 
 ## Specification Coverage
 

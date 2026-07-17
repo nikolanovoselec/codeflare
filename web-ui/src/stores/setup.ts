@@ -7,7 +7,7 @@ let configLoaded = false;
 
 const TOTAL_STEPS = 3;
 
-export type ReasoningLevel = 'off' | 'low' | 'medium' | 'high';
+export type ReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** Per-group routing entry (REQ-ENTERPRISE-013). */
 export interface GroupRouting {
@@ -49,7 +49,7 @@ interface SetupState {
   // Feature C: enterprise gateway dynamic-route catalog + optional default.
   dynamicRoutes: string[];
   defaultRouteName: string;            // '' = no default
-  defaultRouteReasoning: 'off' | 'low' | 'medium' | 'high';
+  defaultRouteReasoning: ReasoningLevel;
   // REQ-ENTERPRISE-012: per-route context window (route name -> tokens). Each route
   // defaults to DEFAULT_ROUTE_CONTEXT_WINDOW; the admin can raise or reset it.
   routeContextWindows: Record<string, number>;
@@ -356,7 +356,7 @@ function removeDynamicRoute(name: string): void {
 function setDefaultRouteName(name: string): void {
   setState('defaultRouteName', name);
 }
-function setDefaultRouteReasoning(level: 'off' | 'low' | 'medium' | 'high'): void {
+function setDefaultRouteReasoning(level: ReasoningLevel): void {
   setState('defaultRouteReasoning', level);
 }
 // REQ-ENTERPRISE-012: set / reset a route's context window.

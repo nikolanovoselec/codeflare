@@ -1,5 +1,5 @@
 import { Component, For, Show, onMount } from 'solid-js';
-import { setupStore, DEFAULT_ROUTE_CONTEXT_WINDOW } from '../../stores/setup';
+import { setupStore, DEFAULT_ROUTE_CONTEXT_WINDOW, type ReasoningLevel } from '../../stores/setup';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import ChipListField from '../ui/ChipListField';
@@ -13,9 +13,12 @@ import '../../styles/configure-step.css';
 
 const REASONING_OPTIONS = [
   { value: 'off', label: 'reasoning: off' },
+  { value: 'minimal', label: 'reasoning: minimal' },
   { value: 'low', label: 'reasoning: low' },
   { value: 'medium', label: 'reasoning: medium' },
   { value: 'high', label: 'reasoning: high' },
+  { value: 'xhigh', label: 'reasoning: xhigh' },
+  { value: 'max', label: 'reasoning: max' },
 ];
 
 const ConfigureStep: Component = () => {
@@ -259,7 +262,7 @@ const ConfigureStep: Component = () => {
                   value={setupStore.defaultRouteReasoning}
                   options={REASONING_OPTIONS}
                   disabled={!setupStore.defaultRouteName}
-                  onChange={(v) => setupStore.setDefaultRouteReasoning(v as 'off' | 'low' | 'medium' | 'high')}
+                  onChange={(v) => setupStore.setDefaultRouteReasoning(v as ReasoningLevel)}
                 />
               </div>
             </div>

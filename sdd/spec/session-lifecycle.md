@@ -92,11 +92,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. The user's persistent storage bucket is provisioned if it does not exist. <!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (createBucketIfNotExists) -->
 2. A scoped, bucket-specific credential pair is obtained or created for the user and injected into the container environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC2: scoped R2 token obtained and injected) -->
-3. An initial sync from persistent storage to the workspace completes before the container accepts terminal traffic, with a configurable safety timeout. <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+3. An initial sync from persistent storage to the workspace completes before the container accepts terminal traffic, with a configurable safety timeout. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @manual -->
 4. After initial sync, changes are bidirectionally synced on a regular schedule for the container's lifetime, with support for on-demand triggers and a final sync on shutdown (see [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)). <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 5. New buckets are seeded with getting-started docs and agent configs matching the user's session mode. <!-- @impl: src/lib/r2-seed.ts::CONTEXT_MODE_KEY_PREFIX --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC5: new buckets seeded with getting-started docs) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -107,7 +105,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -122,13 +120,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. The idle timeout is user-configurable with allowed values: 15m, 30m, 1h, 2h, 4h. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
-2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference. <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter -->
-3. The idle timer resets for classified terminal input and for each client-to-server Browser IDE frame; reconnections and server-to-client output do not reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
+2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference. <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (flag-off: free tier is locked to 15m regardless of stored preference) -->
+3. The idle timer resets for classified terminal input and for each client-to-server Browser IDE frame; reconnections and server-to-client output do not reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
-5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
 6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/container-metrics.test.ts (Container final-sync drain / REQ-SESSION-011 (drain R2 sync before stop)) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -141,7 +137,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/container-metrics.test.ts)
 
 **Status:** Implemented
 
@@ -159,9 +155,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: src/__tests__/fuzz/input-validation.fuzz.test.ts (escapeXml output never contains raw XML special characters) -->
 3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
 4. Terminal-emulator response sequences are stripped before being written to the PTY so the agent never sees them. <!-- @impl: host/src/session.ts::Session --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
-5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
 
 **Constraints:**
 
@@ -172,7 +166,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -220,10 +214,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. Before starting a container, running sessions are counted from storage metadata with a single list operation (no per-session reads). <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
 2. If the running count (excluding the session being started) meets or exceeds the tier's concurrent-session cap, the start is rejected with a quota-exceeded error. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
 3. Default tier limits: free=1, trial=2, standard=1, advanced=2, max=3, unlimited=5, blocked=0, pending=0. <!-- @impl: src/lib/subscription.ts::getUserTier --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
-4. Outside SaaS mode, role-based defaults apply (regular users default 3, admins default 10), configurable per deployment. <!-- @impl: src/lib/constants.ts::getMaxSessions -->
+4. Outside SaaS mode, role-based defaults apply (regular users default 3, admins default 10), configurable per deployment. <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @manual -->
 5. Stress-test deployment mode bypasses session and quota limits. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -234,7 +226,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/container-lifecycle-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -306,13 +298,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. The batch-status endpoint returns status for all user sessions in a single storage-metadata list call (no container wake, no per-session reads). <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC1: batch-status uses KV list metadata, no DO contact) -->
 2. Persistent storage holds two statuses (running and stopped); the frontend adds ephemeral states (initializing, stopping, error) that are never persisted. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC2: only running/stopped persisted to KV) -->
-3. The frontend polls batch-status on a fixed cadence (about every 5 seconds). <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling -->
+3. The frontend polls batch-status on a fixed cadence (about every 5 seconds). <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
 4. Dashboard session cards display a three-color status dot: green (running + WebSocket connected), yellow (running + WebSocket disconnected), gray (stopped). <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
 5. Container metrics (CPU, memory, disk, sync status) are surfaced on the session cards with up to ~60s staleness. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC5: metrics included in list metadata) -->
 6. Last-active and last-started timestamps are available for sleep-timer countdown display. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC6: lastActiveAt and lastStartedAt in batch-status response) -->
 7. When polling transitions a session to stopped, its terminal connections are disposed; the currently active session is exempt from the poll-driven dispose only within the active-session guard window, not unconditionally. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (calls disposeSession when session transitions from running to stopped) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -323,7 +313,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -458,12 +448,10 @@ None.
 **Acceptance Criteria:**
 
 1. The serving port binds within Cloudflare's container port-wait window even while initialization (R2 sync, MCP config merges) is still in progress. <!-- @impl: entrypoint.sh::TERMINAL_PID --> <!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readiness gate)) -->
-2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail) -->
+2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail) --> <!-- @manual -->
 3. Tab-1 PTY pre-warm is gated on the init-complete signal, so it never starts before initial state restore is in place. <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig --> <!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readiness gate)) -->
 4. The host terminal server rejects terminal WebSocket upgrades with a retriable ("try again later") close code and a human-readable container-warming reason until both the init-complete signal is observed and the pre-warm session is registered. <!-- @impl: host/src/server.ts::initFlagObserved --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (handleWebSocketUpgrade) -->
-5. The image bakes a pre-transpiled (jiti) cache for the full Pi extension set at build time warmed via a throwaway `pi` run with the package list derived from the preseed `package.json`, the build failing if the cache comes out empty. <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (Pi startup warm-up: baked jiti cache) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+5. The image bakes a pre-transpiled (jiti) cache for the full Pi extension set at build time warmed via a throwaway `pi` run with the package list derived from the preseed `package.json`, the build failing if the cache comes out empty. <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (Pi startup warm-up: baked jiti cache) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -474,7 +462,7 @@ None.
 
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -489,12 +477,10 @@ None.
 **Acceptance Criteria:**
 
 1. The preferences endpoint accepts an optional user-timezone field (valid IANA timezone string, max 64 characters); invalid zones are rejected with a validation error. <!-- @impl: src/routes/preferences.ts::isValidIanaTz --> <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) -->
-2. The session persistently stores the user's timezone preference. <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) -->
+2. The session persistently stores the user's timezone preference. <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) --> <!-- @manual -->
 3. Subsequent container starts inject the user's timezone preference into the container environment; if unset, the entrypoint falls back to the container default and finally to UTC. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 4. A timezone change takes effect on the next session start (no live re-injection into a running container). <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 5. On Dashboard mount, the frontend reads the browser's IANA timezone and updates the stored preference (best-effort) when the resolved zone differs; a failed update never blocks the mount. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/lib/timezone-sync.test.ts (syncBrowserTimezone (REQ-SESSION-016 AC5)) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -505,7 +491,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -523,9 +509,7 @@ None.
 2. `GET /api/container/startup-status` returns the current initialization stage without blocking, carrying a stage label, a 0-to-100 progress value, and a human-readable message. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
 3. The reported stage reflects real container state: `stopped` when state is indeterminate, `starting` before services respond, `syncing` during the initial R2 sync, `verifying` after sync while terminals are not yet up, `mounting` during terminal pre-warm, and `ready` when all services are up. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
 4. A failed initial R2 sync surfaces as an error stage carrying the sync error, while a skipped sync (no R2 credentials) still reaches the ready stage with the skip reason reported. <!-- @impl: src/routes/container/status.ts::buildSyncFailedResponse --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
-5. An unexpected failure while computing startup status is caught and returned as an error stage rather than propagating an unhandled 500. <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+5. An unexpected failure while computing startup status is caught and returned as an error stage rather than propagating an unhandled 500. <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -535,7 +519,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/container-status.test.ts)
 
 **Status:** Implemented
 

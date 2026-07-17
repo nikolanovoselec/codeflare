@@ -50,6 +50,14 @@ describe('PerGroupRoutingCard', () => {
     expect(Array.from(sel.options).map((o) => o.value)).toEqual(['prod']);
   });
 
+  it('offers exactly the seven Pi thinking levels, in Pi order (REQ-ENTERPRISE-012)', () => {
+    render(() => <PerGroupRoutingCard {...base} selectedRoutes={['prod']} defaultRoute="prod" />);
+    const reasoningSel = document.querySelectorAll('.route-select')[1] as HTMLSelectElement;
+    expect(Array.from(reasoningSel.options).map((o) => o.value)).toEqual([
+      'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+    ]);
+  });
+
   it('disables the reasoning selector when there is no default route', () => {
     render(() => <PerGroupRoutingCard {...base} selectedRoutes={['prod']} defaultRoute="" />);
     const reasoningSel = document.querySelectorAll('.route-select')[1] as HTMLSelectElement;
