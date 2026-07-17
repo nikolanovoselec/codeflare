@@ -53,7 +53,8 @@ Every session comes pre-loaded with your choice of agent:
 
 **Native integrations, wired in, not bolted on.**
 
-- **Native GitHub integration** — connect once via OAuth (no token paste). Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no per-session auth. Browse your repositories in the dashboard and clone one into a fresh session — or straight into a session that's already running.
+- **Native GitHub integration** — connect once via OAuth (no token paste). Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no per-session auth.
+- **Clone straight from GitHub** — browse your repositories in the dashboard and clone one into a fresh session, or straight into a session that's already running.
 - **Native Cloudflare integration** — connect your own Cloudflare account once via OAuth. Deploy Workers and manage D1, R2, KV, and DNS from the terminal, already authenticated.
 - **Build, push, and deploy skills** — pre-loaded agent skills scaffold Workers projects, configure `wrangler.toml`, push to GitHub, set up CI, and deploy. Describe what you want; the agent builds, pushes, and deploys it to a live URL.
 - **Guided onboarding** — new users are walked through connecting GitHub and Cloudflare and choosing an agent. No prior Cloudflare knowledge required.
@@ -61,7 +62,8 @@ Every session comes pre-loaded with your choice of agent:
 **The IDE.**
 
 - Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side within one session).
-- **VS Code in the browser** *(Pro sessions)* — one click in the header opens a full OpenVSCode editor on that session's workspace, in a new tab, behind the same authentication as everything else. It lazy-starts on first open (a warming page retries until the editor is ready), survives interruptions, and stops with the session — zero cost until you use it.
+- **VS Code in the browser** *(Pro sessions)* — one click in the header opens a full OpenVSCode editor on that session's workspace, in a new tab, behind the same authentication as everything else.
+- The editor lazy-starts on first open (a warming page retries until it's ready), restarts automatically after an interruption, and stops with the session — zero cost until you use it.
 - **MultiView** — view several running sessions side by side in one workspace. It's a virtual view over sessions you already have: no new session is created, and no existing session's lifecycle is affected.
 - One isolated container per session — agents can't escape their sandbox.
 - Persistent R2 storage with bisync every 15 minutes, a manual Sync-now button, and a final sync on stop. Sync conflicts are reconciled automatically on the next cycle.
