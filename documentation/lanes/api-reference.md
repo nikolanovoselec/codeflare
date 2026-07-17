@@ -208,10 +208,11 @@ The Connect-Cloudflare callback re-derives identity from the live session, verif
 | GET | `/public/contact-config` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) | Turnstile site key for the landing contact form (SaaS or onboarding mode) |
 | POST | `/public/contact` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Demo-request submission: Turnstile-verified, relayed to admins as email, never persisted (rate-limited 5/min) |
 
-Auth-provider discovery can be checked without a session:
+The login surface calls auth-provider discovery before rendering its choices ([REQ-AUTH-013](../../sdd/spec/authentication.md#req-auth-013-custom-branded-login-page) AC3), making it the primary public discovery call. Check the canonical production deployment without a session:
 
 ```sh
-curl -sS https://<worker-host>/public/auth/providers
+curl -fsS https://codeflare.ch/public/auth/providers \
+  | jq '{providers: [.providers[] | {id, type, name, loginUrl}]}'
 ```
 
 The response is `{ "providers": [...] }`. Each provider contains `id`, `type`, and `name`; direct GitHub mode also includes `loginUrl`.
