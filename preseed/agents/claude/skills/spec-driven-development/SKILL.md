@@ -180,7 +180,7 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 - **Detection regex:** `<!--\s*@manual(?::\s*(.+?))?\s*-->`
 - Granularity is strictly per-AC. There is NO REQ-level manual exemption, no Notes doc-pointer requirement, and no external checklist: `grep -rn '@manual' sdd/` IS the project's manual-verification inventory.
 - Anchors present on a `@manual` AC are still validated as supplemental evidence; the marker lifts the anchor *requirement*, never the truth of what is written. Retrofitting an anchor and deleting the marker is the standard coverage-improvement path; adding `@manual` to dodge a failing anchor check is `finding-downgraded-to-skip` (HIGH).
-- The `Verification:` field derives from the markers: `Manual check` ⇔ every AC carries `@manual`; otherwise `Automated test` (linked to the covering test file when unambiguous). Enforced as MEDIUM `verification-field-marker-drift` by `spec-enforce-truth`.
+- The `Verification:` field derives from the markers, categorically: `Manual check` ⇔ every AC carries `@manual`; otherwise any automated-verification value (`Automated test`, or a linked/labelled test-file value). Enforced as MEDIUM `verification-field-marker-drift` by `spec-enforce-truth`.
 
 ## Status semantics
 

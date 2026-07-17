@@ -29,7 +29,6 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Body Limit](#body-limit)
 - [Credential Encryption at Rest](#credential-encryption-at-rest)
 - [Rate Limiting](#rate-limiting)
-- [Manual verification checklist](#manual-verification-checklist)
 
 ## Authentication Gate
 
@@ -525,31 +524,6 @@ Every entry carries an inline comment recording the affected package, the impact
 ### Protected R2 Paths
 
 **`PROTECTED_PATHS` is now empty** (`[]` in `src/lib/constants.ts`). Previously, paths like `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json` were blocked from the web storage API. The protection was removed - all R2 paths are now accessible via browse, upload, and delete. The `validateKey()` function in `src/routes/storage/validation.ts` still checks the array but it's a no-op with an empty list.
-
----
-
-## Manual verification checklist
-
-Exercise each listed authentication, authorization, billing, or security flow in staging with allowed and denied inputs; compare response, persisted state, and audit output with every AC.
-
-- [ ] [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) — verify every acceptance criterion.
-- [ ] [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing) — verify every acceptance criterion.
-- [ ] [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) — verify every acceptance criterion.
-- [ ] [REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard) — verify every acceptance criterion.
-- [ ] [REQ-ENTERPRISE-021](../../sdd/spec/enterprise-mode.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-007](../../sdd/spec/authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-009](../../sdd/spec/authentication.md#req-auth-009-logout-dispatches-by-mode) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-014](../../sdd/spec/authentication.md#req-auth-014-auth-expiry-detection-mid-session) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-015](../../sdd/spec/authentication.md#req-auth-015-guided-onboarding-flow) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) — verify every acceptance criterion.
-- [ ] [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page) — verify every acceptance criterion.
-- [ ] [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) — verify every acceptance criterion.
-- [ ] [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy) — verify every acceptance criterion.
-- [ ] [REQ-SEC-018](../../sdd/spec/security.md#req-sec-018-credential-encryption-operational-policy) — verify every acceptance criterion.
 
 ---
 

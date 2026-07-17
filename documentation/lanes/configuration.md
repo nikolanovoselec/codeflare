@@ -15,7 +15,6 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 - [SaaS mode](#saas-mode)
 - [Enterprise mode](#enterprise-mode)
 - [Reference](#reference)
-- [Manual verification checklist](#manual-verification-checklist)
 - [Related Documentation](#related-documentation)
 
 ---
@@ -500,16 +499,6 @@ Additional details:
 - [REQ-SETUP-009](../../sdd/spec/setup.md#req-setup-009-subscribe-page-with-tier-selection) - Subscribe page with tier selection
 - [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) - Social-share preview metadata on the public landing page
 - [REQ-SETUP-011](../../sdd/spec/setup.md#req-setup-011-setup-stream-completion-payload-contract) - Setup stream completion payload contract
-
-## Manual verification checklist
-
-Run the setup flow in staging from a clean configuration and again as an update; compare bindings, stored settings, public status, and idempotent outcomes with every AC.
-
-- [ ] [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) — verify every acceptance criterion.
-- [ ] [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) — verify every acceptance criterion.
-- [ ] [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence) — verify every acceptance criterion.
-
----
 
 ## Related Documentation
 - [Container](container.md#auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration

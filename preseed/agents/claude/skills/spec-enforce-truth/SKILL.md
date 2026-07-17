@@ -45,7 +45,7 @@ Marker semantics (per-AC — there is NO REQ-level exemption):
 
 - An AC carrying `@manual` is exempt from the `@impl` and `@test` anchor **requirements** (`ac-missing-source-anchor`, `ac-missing-test-anchor` do not fire on it).
 - Anchors PRESENT on a `@manual` AC are still validated as supplemental evidence — a broken anchor is still `spec-anchor-orphaned`/`spec-test-anchor-orphaned`. `@manual` lifts the requirement, never the truth of what is written.
-- **Verification-field coherence**: the REQ's `Verification:` field must be `Manual check` when EVERY AC carries `@manual`, and `Automated test` otherwise. Disagreement = MEDIUM `verification-field-marker-drift`. Auto-fix in `auto`/`unleashed`: rewrite the field from the markers (the markers are the source of truth).
+- **Verification-field coherence** (categorical, not literal): the REQ's `Verification:` field must be `Manual check` when EVERY AC carries `@manual`, and an automated-verification value otherwise (`Automated test`, or any linked/labelled test-file value — those all count as the automated category). Category disagreement = MEDIUM `verification-field-marker-drift`. Auto-fix in `auto`/`unleashed`: rewrite the field from the markers (the markers are the source of truth).
 - Retrofitting an anchor onto a `@manual` AC (and deleting the marker) is the standard coverage-improvement path for `/sdd clean`; the reverse (adding `@manual` to dodge a failing anchor check) is a truth violation — `finding-downgraded-to-skip` HIGH.
 
 ## CQ-1 — REQ-test truth-check
