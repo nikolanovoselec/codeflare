@@ -365,6 +365,18 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       expect(storeMethods.setDefaultRouteName).toHaveBeenCalledWith('development');
     });
 
+    it('offers exactly the seven Pi thinking levels for the default route, in Pi order', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      storeState.defaultRouteName = 'development';
+      render(() => <ConfigureStep />);
+
+      const reasoningSelect = document.querySelectorAll('.route-select')[1] as HTMLSelectElement;
+      expect(Array.from(reasoningSelect.options).map(o => o.value)).toEqual([
+        'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+      ]);
+    });
+
     it('disables the reasoning selector until a default route is chosen', () => {
       storeState.enterpriseMode = true;
       storeState.dynamicRoutes = ['development'];

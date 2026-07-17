@@ -179,7 +179,10 @@ export const DetectTokenResponseSchema = z.object({
 });
 
 // Feature C reasoning levels, shared by the prefill default-route + UI selector.
-export const RouteReasoningSchema = z.enum(['off', 'low', 'medium', 'high']);
+// Mirrors Pi's thinking-level enum exactly (see ReasoningLevel in stores/setup.ts
+// and reasoningSchema in src/routes/setup/index.ts) — the backend persists all
+// seven grades, so read-back must accept them all or saved config breaks prefill.
+export const RouteReasoningSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 export const SetupPrefillResponseSchema = z.object({
   customDomain: z.string().optional(),
