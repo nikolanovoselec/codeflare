@@ -298,7 +298,7 @@ sequenceDiagram
     L->>TS: scheduleDisconnect() (60s grace)
     TS->>TS: Grace timer expires
     TS->>DO: disconnectAll()<br/>(dashboard-disconnect)
-    DO->>DO: No WS clients; sleepAfter may expire
+    DO->>DO: No WS clients, sleepAfter may expire
     U->>L: Return to session
     L->>TS: cancelScheduledDisconnect()
     TS->>DO: reconnectDisconnectedTerminals()<br/>(visible keys only)
@@ -494,7 +494,7 @@ sequenceDiagram
     participant P as Backend (OpenAI / Bedrock / Workers AI / dynamic route)
 
     Note over C: entrypoint.sh:<br/>- Trusts CF containers CA (system store)<br/>- Persists CA env (NODE_EXTRA_CA_CERTS,<br/>  REQUESTS_CA_BUNDLE) to .bashrc<br/>- Persists Copilot BYOK vars to .bashrc<br/>- Sets placeholder credential<br/>- Points agent at api.openai.com
-    C->>I: HTTPS to api.openai.com<br/>(TLS intercepted by platform;<br/>placeholder Bearer stripped)
+    C->>I: HTTPS to api.openai.com<br/>(TLS intercepted by platform<br/>placeholder Bearer stripped)
     I->>G: POST api.cloudflare.com/.../ai/v1/<path><br/>Authorization: Bearer AIG_TOKEN<br/>cf-aig-gateway-id: <gateway>
     G->>P: Routed by model id (gateway-side)
     P-->>G: Response
@@ -538,8 +538,8 @@ sequenceDiagram
     participant G as Cloudflare Gateway
     participant U as Upstream host
     C->>X: HTTPS to any host
-    Note over X: strict on; literal-IP guard; fail closed if env.EGRESS is unbound
-    Note over X: own-account R2 + CF API egress direct; direct-internet rides Gateway
+    Note over X: strict on, literal-IP guard, fail closed if env.EGRESS is unbound
+    Note over X: own-account R2 + CF API egress direct, direct-internet rides Gateway
     X->>E: env.EGRESS.fetch(request)
     E->>G: cf1:network
     G->>U: allowed by existing policy
@@ -583,7 +583,7 @@ sequenceDiagram
     participant G as Vault/global graph
     R->>T: persist visible launch request
     R->>A: public background subagent call
-    A->>G: work chunk; locked merge + publication
+    A->>G: work chunk, locked merge + publication
     A->>G: expose post-commit chunk
     A-->>T: native terminal notification
     R->>T: correlate exact tool-use ID
