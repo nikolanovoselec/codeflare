@@ -227,8 +227,10 @@ The ai-news-digest incident: an agent eyeballed the root README, saw links that 
 Nested layout:
 
 ```bash
-# (1) every tracked file under sdd/spec/ must be named somewhere in sdd/README.md
-for f in sdd/spec/*; do b=$(basename "$f"); grep -wqF -- "$b" sdd/README.md || echo "UNINDEXED: $b"; done
+# (1) every tracked file under sdd/spec/, plus root-level SDD support dotfiles
+#     (e.g. sdd/.review-decisions.md, the /review triage-history contract),
+#     must be named somewhere in sdd/README.md
+for f in sdd/spec/* sdd/.*.md; do [ -f "$f" ] || continue; b=$(basename "$f"); grep -wqF -- "$b" sdd/README.md || echo "UNINDEXED: $b"; done
 # (2) classification: a file carrying '### REQ-' is a domain (belongs in the Domains table);
 #     a file without it is a support file (belongs in a Support section). List the domains:
 grep -l '^### REQ-' sdd/spec/*.md
