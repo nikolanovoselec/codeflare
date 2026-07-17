@@ -50,6 +50,12 @@ All three review agents run **in parallel** — `code-reviewer` (source lane), `
 
 **Why parallel:** review agents are **report-only**. Each returns one complete structured report to the root session and writes no project, triage, or review-artifact files. The root waits for every required lane, persists any deferred findings, applies legitimate fixes, and alone owns Git. With immutable reviewer inputs there is no shared-write race or ordering dependency.
 
+## Finding triage (root-owned, after ALL lanes return)
+
+Do not act on a subset of required reviewer outputs. Wait until every required lane has returned, then assess all findings together in one visible triage summary BEFORE any mutation: one line per finding — lane, severity, category, decision (`fix` / `reject (evidence)` / `defer` / `debt`), so the user sees every decision without reading the raw reports.
+
+Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction. Prefer an existing implementation path before adding machinery; reject unsupported or oversized proposals with evidence while still fixing the underlying finding minimally. Fix every legitimate finding by default; record exactly one decision per finding; defer, ignore, and technical-debt decisions persist to `sdd/.review-decisions.md` (the `/review` triage-history contract). Ask before acting only when the user explicitly requested approval or the change is destructive or irreversible. (This mirrors the Pi pipeline's Finding-discipline contract, so both agents hand review results to the root under identical rules.)
+
 ## The three agents (SDD mode only)
 
 1. **code-reviewer**: reviews code quality, security, correctness. Invokes `tdd-enforce` for test files.
