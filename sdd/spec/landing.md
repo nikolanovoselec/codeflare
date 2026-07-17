@@ -132,7 +132,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The landing layout declares the dark color scheme — a `<meta name="color-scheme" content="dark">` and an inline `html { color-scheme: dark; background-color: … }` rule emitted before any external stylesheet — so a cross-document navigation holds a dark canvas instead of flashing the browser's white default. <!-- @impl: landing/src/layouts/BaseLayout.astro::viewport --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
+1. The landing layout declares the dark color scheme — a `<meta name="color-scheme" content="dark">` and an inline `html { color-scheme: dark; background-color: … }` rule emitted before any external stylesheet — so a cross-document navigation holds a dark canvas. <!-- @impl: landing/src/layouts/BaseLayout.astro::viewport --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
 2. The Worker serves content-hashed `/_astro/` build assets with `Cache-Control: public, max-age=31536000, immutable`, while non-hashed asset responses keep their revalidating default so HTML stays fresh. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004: immutable /_astro/ asset caching) -->
 3. Every same-origin full-page navigation between the landing and `/login` opts into a cross-document view transition. <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @manual -->
 
@@ -141,7 +141,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 - The SPA shell (`web-ui/index.html`) carries the same dark `color-scheme` meta and inline root paint, so navigating landing → `/login` (SPA) and back never flashes.
 - The installable manifest's `theme_color` and `background_color` match the dark first-paint background so the PWA splash/install surface is consistent with the app's dark canvas.
 - Immutability is keyed on the `/_astro/` path segment (Astro's content-hashed output directory): only those filenames change when content changes, so a stale cache entry is impossible; HTML and other non-hashed responses must keep revalidating so content stays fresh.
-- Immutability is applied only to a real `200` asset whose response is not `text/html`, never the SPA fallback that `not_found_handling = "single-page-application"` returns for a non-existent `/_astro/` URL — caching that HTML shell forever-immutable under an asset URL would be a stale-shell trap.
+- Immutability is applied only to a real `200` asset whose response is not `text/html`, never the SPA fallback served for a non-existent `/_astro/` URL.
 
 **Priority:** P2
 

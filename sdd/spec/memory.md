@@ -47,7 +47,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
+- The hook runs in approximately 150ms.
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
 - Claude: the capture agent is sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), with reasoning effort pinned at medium (parity with Pi's [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) profile).
 - Pi: the optional provider-neutral model lever remains, with reasoning effort fixed at medium.

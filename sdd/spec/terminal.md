@@ -149,7 +149,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Acceptance Criteria:**
 
-1. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so the rapid disconnect-reconnect cycles of dashboard enter/exit produce no "closed before the connection is established. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
+1. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so rapid disconnect-reconnect cycles produce no "closed before the connection is established. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
 2. A socket that stays in CONNECTING past `WS_CONNECT_TIMEOUT_MS` (no close or error event fires after a mobile app-switch) is force-closed and a backoff reconnect is scheduled, so it is no longer stranded mid-handshake. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (Terminal Store / REQ-TERM-020 AC2: connect-timeout force-close & AC3 pause-while-hidden) -->
 3. Reconnection delay is an equal-jitter exponential backoff; the backoff resets to attempt 1 on a successful open and on visibility return, and is paused while `document.hidden`. <!-- @impl: web-ui/src/stores/terminal.ts::reconnectBackoffMs --> <!-- @test: web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts (reconnectBackoffMs (REQ-TERM-020 AC3): equal-jitter exponential backoff) -->
 
@@ -456,7 +456,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 - The write buffer either defers or writes; it never scrolls the viewport.
 - Output-driven trimming stays delegated to xterm.
-- User-driven scrollback navigation (touch gestures, floating page controls) scrolls the buffer service directly with buffer-derived deltas and issues the paired viewport repaint that xterm's DOM scroll path performs ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)).
+- User-driven scrollback navigation (touch gestures, floating page controls) scrolls the buffer service directly with buffer-derived deltas and issues the paired viewport repaint ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)).
 - Held output is capped at 2,000,000 characters; a cap-exceeding flush proceeds and may trim beneath the reader.
 - Alternate-buffer output is never deferred — fullscreen applications own their history and have no scrollback to read.
 - A zero display offset during full-buffer trimming is valid xterm behavior and is not, by itself, evidence of a browser reset.
