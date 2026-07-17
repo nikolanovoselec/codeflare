@@ -760,7 +760,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic', () => {
+  it('REQ-AGENT-024 AC4-AC5 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic', () => {
     const skill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/graphify/SKILL.md');
     expect(skill?.content).toContain('build-graphify-ast.sh');
     expect(skill?.content).toContain('build-graphify-architecture.sh');
@@ -1148,7 +1148,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
   });
 
-  it('REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter', () => {
+  it('REQ-MEM-018: transformed Pi extraction agents expose bounded frontmatter', () => {
     for (const key of ['.pi/agent/agents/memory-capture.md', '.pi/agent/agents/vault-extract.md']) {
       const agent = AGENTS_SEEDED_CONFIGS.find((document) => document.key === key);
       expect(agent?.modes).toEqual(['advanced']);

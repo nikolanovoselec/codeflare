@@ -632,7 +632,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(body).toHaveProperty('bucketName');
     });
 
-    it('REQ-SEC-012 AC2: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch', async () => {
+    it('REQ-SEC-022 AC1: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch', async () => {
       mockContainerRuntime.running = true;
       const PRIOR_TOKEN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
       mockStorage.get.mockImplementation(async (key: string) => {
@@ -740,7 +740,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(deleteSchedulesSpy).toHaveBeenCalledWith('collectMetrics');
     });
 
-    it('REQ-SEC-012 AC6: destroy() clears persisted containerAuthToken so next session under same DO ID starts fresh', async () => {
+    it('REQ-SEC-012 AC3: destroy() clears persisted containerAuthToken so next session under same DO ID starts fresh', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === 'containerAuthToken') return 'old-token-uuid';

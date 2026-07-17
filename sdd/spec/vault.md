@@ -833,7 +833,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
 **Verification:** [Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [manifest promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts)
 

@@ -1273,7 +1273,7 @@ That buffer was empty immediately after a Pi reload/resume, so the first capture
 
 **Alternative considered:** Keep the thin inline Pi contract and ratchet its prompt. Rejected for the same reason [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rejected prompt-only tightening: recency bias is a function of feeding raw tool records to the model, not a prompt-comprehension gap, and a divergent contract drifts from the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) source of truth over time.
 
-**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) (bounded Pi extraction).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile) (bounded Pi extraction requests), [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile) (bounded Pi extraction agent definitions).
 
 ---
 
@@ -1732,7 +1732,7 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 - The `save-result` feedback loop is restored in both agents' graphify skills, which move to the `references/` progressive-disclosure layout.
 - Clone-time triage (detect graph, prompt build/update/skip) is unchanged in both agents — only the query-tool provider changed.
 
-**Implements:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline).
+**Implements:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders).
 
 **Related:** [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (Pi reviewers run as visible session-scoped public subagents).
 
@@ -2548,7 +2548,7 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 
 **Alternatives considered:** Keep broad tools and rely on stronger prose; retain 200-turn replay and merely lower reasoning; move extraction into a new service/queue; or add a separate success receipt. Prompt-only restraint did not stop the live worker, lowering reasoning alone would leave repeated input cost, a service/queue is disproportionate, and the canonical request chunk already provides a post-commit qualification artifact.
 
-**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile), [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter), [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile), [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter), [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
 
 ---
 

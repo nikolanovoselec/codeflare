@@ -173,7 +173,7 @@ describe('Edge-level setup redirect', () => {
     expect(mockAssets.fetch).toHaveBeenCalled();
   });
 
-  it('REQ-LANDING-003: marks the public login response noindex without blocking the asset', async () => {
+  it('REQ-LANDING-008: marks the public login response noindex without blocking the asset', async () => {
     const { env, mockKV, mockAssets } = createMockEnv();
     env.SAAS_MODE = 'active';
     mockKV.get.mockResolvedValue('true');

@@ -388,7 +388,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 6. Each Pi capture/extract request includes the optional model from `CODEFLARE_MEMORY_MODEL` only when non-empty; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) -->
 7. Each Pi memory launch makes its immutable execution snapshot readable to the background child before exposing the public `subagent` request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryExecutionVarsPath --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
 
-**Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). The execution profile is owned by [REQ-MEM-016](#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
+**Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). The execution profile is owned by [REQ-MEM-016](#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile) and [REQ-MEM-018](#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile), and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
 **Constraints:**
 
@@ -409,19 +409,17 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
-### REQ-MEM-016: Pi extraction jobs have a bounded execution profile
+### REQ-MEM-016: Pi extraction requests have a bounded execution profile
 
-**Intent:** Pi memory and Vault extraction must finish as bounded background jobs without inheriting an open-ended foreground execution profile.
+**Intent:** Pi memory and Vault extraction requests must finish as bounded background jobs without inheriting an open-ended foreground execution profile.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Generated Pi memory-capture and vault-extract agent definitions expose only Bash. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter) -->
-2. Generated Pi memory-capture and vault-extract agent definitions use provider-neutral medium reasoning. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter) -->
-3. Every emitted Pi capture/extract request disables inherited context. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
-4. Every emitted Pi capture/extract request uses provider-neutral medium reasoning. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
-5. Every emitted Pi capture/extract request stops after four agent turns. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+1. Every emitted Pi capture/extract request disables inherited context. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+2. Every emitted Pi capture/extract request uses provider-neutral medium reasoning. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+3. Every emitted Pi capture/extract request stops after four agent turns. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
 
 **Constraints:**
 
@@ -432,6 +430,33 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)
+
+**Verification:** [Generated agent contract tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-018: Pi extraction agent definitions have a bounded profile
+
+**Intent:** Generated Pi memory and Vault extraction agent definitions expose only the tools and reasoning profile required by their bounded background work.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Generated Pi memory-capture and vault-extract agent definitions expose only Bash. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-018: transformed Pi extraction agents expose bounded frontmatter) -->
+2. Generated Pi memory-capture and vault-extract agent definitions use provider-neutral medium reasoning. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-018: transformed Pi extraction agents expose bounded frontmatter) -->
+
+**Constraints:**
+
+- Memory capture treats the immutable snapshot's `transcript` field as its sole conversation input and does not discover an `INPUT_FILE` or separate transcript path.
+- Vault extraction reads only its request snapshot and frozen input files.
+- Model identity remains independently configurable through `CODEFLARE_MEMORY_MODEL`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-016](#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
 **Verification:** [Generated agent contract tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 

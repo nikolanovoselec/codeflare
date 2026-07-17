@@ -1,5 +1,5 @@
 /**
- * REQ-SEC-012: Container auth-token check.
+ * REQ-SEC-022: Container proxy bearer validation.
  *
  * Extracted from server.ts so it can be unit-tested without spawning the full
  * HTTP server (which pulls in node-pty, a native module that only loads inside
@@ -25,7 +25,7 @@ function safeTokenCompare(provided: string, expected: string): boolean {
 
 /**
  * Decide whether an incoming request is permitted under the
- * REQ-SEC-012 container-auth policy.
+ * REQ-SEC-022 container-auth policy.
  *
  *  - Exempt path -> always allowed.
  *  - No CONTAINER_AUTH_TOKEN configured -> 503 (server not ready).

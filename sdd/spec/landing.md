@@ -106,8 +106,6 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 5. The landing emits a JSON-LD `@graph` of schema.org structured data: a site-wide `Organization` (named, logo, `sameAs` the public repo) and `WebSite`, with the home page grafting on a `SoftwareApplication` entity, so search engines and LLMs resolve Codeflare to a named entity. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003: external metadata (SEO, social, structured data)) -->
 6. The Worker serves discoverability documents at the deployment root, gated on the public landing being active (SaaS or onboarding): `robots.txt`, `sitemap.xml`, and `llms.txt`. In a private (default/enterprise) deployment `robots.txt` disallows all crawling and `sitemap.xml` / `llms.txt` return 404. <!-- @impl: src/lib/seo.ts::CANONICAL_ORIGIN --> <!-- @test: src/__tests__/lib/seo.test.ts (SEO discoverability documents (REQ-LANDING-003)) -->
 7. The landing declares a `theme-color` and an `apple-touch-icon` for mobile share/install surfaces. <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC7: emits theme-color meta and an apple-touch-icon link) --> <!-- @manual -->
-8. Every served `/login` asset response is omitted from the sitemap and carries `X-Robots-Tag: noindex, nofollow`; public `robots.txt` leaves `/login` crawlable so search crawlers can observe that exclusion directive. <!-- @impl: src/index.ts::fetch --> <!-- @impl: src/lib/seo.ts::buildRobotsTxt --> <!-- @impl: src/lib/seo.ts::SITEMAP_PATHS --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-003: marks the public login response noindex without blocking the asset) --> <!-- @test: src/__tests__/lib/seo.test.ts (SEO discoverability documents (REQ-LANDING-003)) -->
-
 **Constraints:**
 
 - The OG/Twitter preview image is the brand asset at `web-ui/public/og.png` (1200x630), served from the SPA asset root at `/og.png`.
@@ -118,6 +116,30 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Priority:** P2
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-008: Login crawler exclusion controls
+
+**Intent:** Public login pages stay out of search results while remaining crawlable long enough for search engines to observe their exclusion directive.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. The sitemap omits the public login route. <!-- @impl: src/lib/seo.ts::SITEMAP_PATHS --> <!-- @test: src/__tests__/lib/seo.test.ts (buildSitemapXml) -->
+2. Every served login asset response carries `X-Robots-Tag: noindex, nofollow`. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-008: marks the public login response noindex without blocking the asset) -->
+3. Public `robots.txt` leaves the login route crawlable so search crawlers can observe the exclusion directive. <!-- @impl: src/lib/seo.ts::buildRobotsTxt --> <!-- @test: src/__tests__/lib/seo.test.ts (advertises the marketing surface + sitemap while excluding private routes) -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-LANDING-003](#req-landing-003-landing-social-share-and-search-metadata)
 
 **Verification:** Automated test
 

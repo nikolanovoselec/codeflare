@@ -40,8 +40,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 3. In SaaS mode, requests without a valid SaaS session credential are rejected. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 4. Injecting the pre-setup header-trust signal does not bypass authentication after setup is complete. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 5. Transient storage failures during auth-config fetch do not permanently degrade authentication to the pre-setup trust model. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-6. All protected API endpoints reject unauthenticated requests. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-7. The setup-status endpoint is always public and returns only configuration status, no secrets. <!-- @impl: src/routes/setup/handlers.ts::detectTokenRateLimiter --> <!-- @manual -->
+6. The setup-status endpoint is always public and returns only configuration status, no secrets. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @manual -->
 
 **Constraints:**
 
@@ -68,8 +67,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. The master Cloudflare API token is never exposed inside container environments. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC4/AC5 (createBucketIfNotExists is idempotent and races safe)) -->
 2. Containers receive only per-user scoped R2 credentials (access key pair), never the master API token. <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC4/AC5 (createBucketIfNotExists is idempotent and races safe)) -->
-3. The container environment never carries the master API token. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @manual -->
-4. R2 credentials passed to containers are scoped to the user's bucket (Object Read + Write only). <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC4/AC5 (createBucketIfNotExists is idempotent and races safe)) -->
+3. R2 credentials passed to containers are scoped to the user's bucket (Object Read + Write only). <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC4/AC5 (createBucketIfNotExists is idempotent and races safe)) -->
 
 **Constraints:**
 
@@ -358,18 +356,15 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-012: Container auth token per DO lifecycle
 
-**Intent:** Each Durable Object lifecycle generates a unique auth token for container communication, preventing unauthorized access to container endpoints.
+**Intent:** Each Durable Object lifecycle generates and retains a unique auth token for container communication, then clears it before the next lifecycle.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. A unique auth token is generated per Durable Object lifecycle and injected into the container environment. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-2. All proxied requests from the Worker to the container include the token as a bearer credential. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-012 AC2: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch) -->
-3. The container's terminal server validates the bearer credential on all non-exempt paths. <!-- @impl: host/src/auth-check.ts::checkContainerAuth --> <!-- @test: host/__tests__/server-auth-check.test.js (checkContainerAuth / REQ-SEC-012 (container auth token per DO lifecycle)) -->
-4. A small set of health-check paths (health and activity) are auth-exempt because they are reached over an internal probe path that bypasses the proxy; both paths expose no user data and no mutable state. <!-- @impl: host/src/auth-check.ts::AUTH_EXEMPT_PATHS --> <!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-012 AC4: only /health and /activity are auth-exempt) -->
-5. The token survives container hibernate/wake cycles within a single Durable Object lifecycle, so a rehydrated session still authenticates successfully without recreating the container. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-6. On Durable Object destruction the persisted token is cleared so the next lifecycle starts with a fresh token. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-012 AC6: destroy() clears persisted containerAuthToken so next session under same DO ID starts fresh) -->
+2. The token survives container hibernate/wake cycles within a single Durable Object lifecycle, so a rehydrated session still authenticates successfully without recreating the container. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+3. On Durable Object destruction the persisted token is cleared so the next lifecycle starts with a fresh token. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-012 AC3: destroy() clears persisted containerAuthToken so next session under same DO ID starts fresh) -->
 
 **Constraints:**
 
@@ -379,6 +374,33 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Priority:** P0
 
 **Dependencies:** None.
+
+**Verification:** [Integration test](../../src/__tests__/container/index.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SEC-022: Container proxy bearer validation
+
+**Intent:** Worker-to-container requests carry a lifecycle token that the terminal server validates before serving non-exempt paths.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. All proxied requests from the Worker to the container include the token as a bearer credential. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-022 AC1: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch) -->
+2. The container's terminal server validates the bearer credential on all non-exempt paths. <!-- @impl: host/src/auth-check.ts::checkContainerAuth --> <!-- @test: host/__tests__/server-auth-check.test.js (checkContainerAuth / REQ-SEC-022 (container proxy bearer validation)) -->
+3. Only the health and activity paths are auth-exempt; both expose no user data and no mutable state. <!-- @impl: host/src/auth-check.ts::AUTH_EXEMPT_PATHS --> <!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-022 AC3: only /health and /activity are auth-exempt) -->
+
+**Constraints:**
+
+- The token is unique per DO lifecycle, persisted across hibernate/wake cycles within that lifecycle.
+- Token is never exposed to the client.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SEC-012](#req-sec-012-container-auth-token-per-do-lifecycle)
 
 **Verification:** [Integration test](../../src/__tests__/container/index.test.ts)
 

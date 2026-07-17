@@ -1,4 +1,4 @@
-// Real behavioral tests for REQ-SEC-012 (Container auth token per DO lifecycle).
+// Real behavioral tests for REQ-SEC-022 (Container proxy bearer validation).
 //
 // This file replaces the text-matching theater in server-security.test.js,
 // which read server.ts source with readFileSync and asserted on string
@@ -12,10 +12,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkContainerAuth, AUTH_EXEMPT_PATHS } from '../dist/auth-check.js';
 
-describe('checkContainerAuth / REQ-SEC-012 (container auth token per DO lifecycle)', () => {
-  // REQ-SEC-012 AC3 (terminal server validates token on all non-exempt paths)
-  // + AC4 (whitelist /health and /activity only)
-  describe('REQ-SEC-012 AC4: only /health and /activity are auth-exempt', () => {
+describe('checkContainerAuth / REQ-SEC-022 (container proxy bearer validation)', () => {
+  // REQ-SEC-022 AC2 (terminal server validates token on all non-exempt paths)
+  // + AC3 (whitelist /health and /activity only)
+  describe('REQ-SEC-022 AC3: only /health and /activity are auth-exempt', () => {
     it('AUTH_EXEMPT_PATHS contains exactly /health and /activity (no others)', () => {
       assert.deepEqual([...AUTH_EXEMPT_PATHS].sort(), ['/activity', '/health']);
     });
@@ -32,7 +32,7 @@ describe('checkContainerAuth / REQ-SEC-012 (container auth token per DO lifecycl
     });
   });
 
-  describe('REQ-SEC-012 AC3: protected paths require a matching Bearer token', () => {
+  describe('REQ-SEC-022 AC2: protected paths require a matching Bearer token', () => {
     it('returns 503 when CONTAINER_AUTH_TOKEN is unset (server-not-ready, NOT silently skipping auth)', () => {
       const out = checkContainerAuth('/sessions', 'Bearer anything', undefined);
       assert.equal(out.allowed, false);
@@ -81,7 +81,7 @@ describe('checkContainerAuth / REQ-SEC-012 (container auth token per DO lifecycl
       assert.deepEqual(out, { allowed: true });
     });
 
-    // REQ-SEC-012 token-comparison invariant: the comparison must be constant-time.
+    // REQ-SEC-022 token-comparison invariant: the comparison must be constant-time.
     // We can't directly observe timing in a unit test, but we can verify that
     // tokens of different lengths still compare correctly (a naive == would
     // short-circuit and leak length).

@@ -3,6 +3,7 @@ import { buildRobotsTxt, buildSitemapXml, buildLlmsTxt, CANONICAL_ORIGIN } from 
 
 describe('SEO discoverability documents (REQ-LANDING-003)', () => {
   describe('buildRobotsTxt', () => {
+    // REQ-LANDING-008 AC3
     it('advertises the marketing surface + sitemap while excluding private routes', () => {
       const robots = buildRobotsTxt(true);
       expect(robots).toContain('User-agent: *');
@@ -24,6 +25,7 @@ describe('SEO discoverability documents (REQ-LANDING-003)', () => {
     });
   });
 
+  // REQ-LANDING-008 AC1
   describe('buildSitemapXml', () => {
     it('is a valid urlset listing the indexable routes at the canonical origin', () => {
       const xml = buildSitemapXml();

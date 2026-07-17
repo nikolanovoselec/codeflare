@@ -199,7 +199,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   const { pathname } = parseUrl(req.url ?? '');
   const method = req.method;
 
-  // REQ-SEC-012: container auth-token check. Logic extracted to
+  // REQ-SEC-022: container auth-token check. Logic extracted to
   // ./auth-check.ts so it can be unit-tested without spawning node-pty.
   const authOutcome = checkContainerAuth(
     pathname ?? '',
@@ -358,7 +358,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
 
   // REQ-GITHUB-004: live clone into a running container's workspace. Mirrors the
   // new-session entrypoint clone, but for an already-running session reached via
-  // POST /api/github/clone -> DO -> here. Already behind the REQ-SEC-012 auth
+  // POST /api/github/clone -> DO -> here. Already behind the REQ-SEC-022 auth
   // gate above. The repo/ref validation + dir computation are the pure
   // resolveGitClone() helper (git-clone.ts) so this handler owns only fs/spawn
   // I/O. git runs as an argv (never a shell string) and auth flows through the

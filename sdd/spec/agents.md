@@ -17,7 +17,7 @@ Multi-agent support, preseed system, and session modes.
 - **Agent marketplace** -- No mechanism for browsing, installing, or sharing community-contributed agent configurations or plugins.
 - **Runtime agent switching** -- Agent type is immutable after session creation. Switching requires creating a new session.
 - **Explicit consult-llm preference toggle** -- There is no separate Settings switch for the multi-model consultation feature. It is active implicitly whenever the user has at least one LLM provider key configured; removing the key is the off-switch.
-- **Graphify hard-block enforcement** -- The count-based PreToolUse hard-block for structural-search tools was removed; graph-first discipline is advisory only (the preseeded rule plus a per-call soft nudge, [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). The hard-block misfired on legitimate single-file searches the graph-first rule itself excludes.
+- **Graphify hard-block enforcement** -- The count-based PreToolUse hard-block for structural-search tools was removed; graph-first discipline is advisory only (the preseeded rule in [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline) plus the per-call soft nudge in [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders)). The hard-block misfired on legitimate single-file searches the graph-first rule itself excludes.
 
 ### Domain Dependencies
 
@@ -623,7 +623,7 @@ None.
 
 ### REQ-AGENT-022: Legacy-codebase Import Mode Discovery
 
-**Intent:** Enterprises migrating a legacy codebase from manual development to autonomous agentic development need a transition path that converts un-extracted intent into a real spec. `/sdd init` Import Mode runs discovery against the full project history and produces two outputs from the same pass: official REQs for behavior clear from that surface, and a triage queue for everything unclear. The triage entry shape, transition gate, and Status semantics live in [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state).
+**Intent:** Enterprises migrating a legacy codebase from manual development to autonomous agentic development need a transition path that converts un-extracted intent into a real spec. `/sdd init` Import Mode runs discovery against the full project history and produces two outputs from the same pass: official REQs for behavior clear from that surface, and a triage queue for everything unclear. The triage entry shape, transition gate, and Status semantics live in [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state), [REQ-AGENT-092](#req-agent-092-import-transition-review-suppression), and [REQ-AGENT-093](#req-agent-093-import-mode-tdd-status-assignment).
 
 **Applies To:** User
 
@@ -688,19 +688,17 @@ None.
 
 ### REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
 
-**Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded. This REQ covers the SessionStart context injection, the preseeded rule and SKILL surface, and the soft-nudge PreToolUse hook. Graph-first discipline is advisory only: there is no hard-block enforcement. The `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
+**Intent:** In advanced session mode, the preseeded graph-first rule and graphify skill teach the agent to prefer the knowledge graph over Grep-style text search for structural questions. Runtime reminder hooks live in [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders), and `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, a SessionStart hook queries the knowledge graph for the highest-connectivity nodes and injects a compressed structural summary as additionalContext. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh::emit_reminder --> <!-- @test: host/__tests__/graphify-session-start.test.js (graphify-session-start.sh (REQ-AGENT-024 AC1)) -->
-2. In advanced session mode only, a short authoritative graph-first rule is preseeded, stating MUST / MUST NOT bullets for graph vs grep and routing to the graphify skill for mechanics rather than restating them. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) --> <!-- @manual -->
-3. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) --> <!-- @manual -->
-4. The skill documents the safe build path for large repos (more than 2000 files). <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- @manual -->
-5. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic) --> <!-- @manual -->
-6. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, `.graphify_labels.json`, and an optional wiki tree. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic) --> <!-- @manual -->
-7. In advanced session mode only, a soft-nudge hook fires on grep-class tool calls and emits a reminder to prefer the graph MCP tools when a graph exists for the cwd; the hook never blocks. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::TOOL --> <!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-024 AC7)) -->
+1. In advanced session mode only, a short authoritative graph-first rule is preseeded, stating MUST / MUST NOT bullets for graph vs grep and routing to the graphify skill for mechanics rather than restating them. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) --> <!-- @manual -->
+2. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) --> <!-- @manual -->
+3. The skill documents the safe build path for large repos (more than 2000 files). <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC3-AC5, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- @manual -->
+4. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC4-AC5 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic) --> <!-- @manual -->
+5. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, `.graphify_labels.json`, and an optional wiki tree. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC4-AC5 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -711,6 +709,33 @@ None.
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-091: Advanced-session graph-first runtime reminders
+
+**Intent:** Advanced sessions receive advisory graph-first context at startup and a non-blocking reminder before grep-class tool calls when a repository graph exists.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. In advanced session mode only, a SessionStart hook queries the knowledge graph for the highest-connectivity nodes and injects a compressed structural summary as additionalContext. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh::emit_reminder --> <!-- @test: host/__tests__/graphify-session-start.test.js (graphify-session-start.sh (REQ-AGENT-091 AC1)) -->
+2. In advanced session mode only, a soft-nudge hook fires on grep-class tool calls and emits a reminder to prefer the graph MCP tools when a graph exists for the cwd; the hook never blocks. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::TOOL --> <!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-091 AC2)) -->
+
+**Constraints:**
+
+- The SessionStart hook never auto-builds a graph; It only injects context when one exists or a build suggestion when source files are present without one.
+- The soft nudge never blocks; graph-first discipline stays advisory through the preseeded rule and per-call nudge.
+- The soft-nudge matcher set covers both the non-ctx tool surface (`Grep`/`Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`/`mcp__context-mode__ctx_batch_execute`).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
 **Verification:** Automated test
 
@@ -760,11 +785,11 @@ None.
 1. Knowledge-graph artefacts are excluded from R2 sync, so they never round-trip through user-bucket storage. <!-- @impl: entrypoint.sh::init_recovery_filters --> <!-- @test: host/__tests__/entrypoint-graphify-bisync.test.js (entrypoint.sh rclone bisync filter for graphify (REQ-AGENT-026)) -->
 2. The container image registers the graphify semantic merge driver globally, independent of session mode. <!-- @impl: Dockerfile::merge.graphify.driver --> <!-- @manual -->
 3. Repo owners with push permission commit the knowledge-graph artefacts to git so contributors inherit the graph and the visualization on clone; concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
-4. For repos without push permission, the graph lives in the working tree only and is ephemeral. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- @manual -->
+4. For repos without push permission, the graph lives in the working tree only and is ephemeral. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC3-AC5, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- @manual -->
 
 **Constraints:**
 
-- Per-repo ignore and merge-attribute wiring is the responsibility of the graphify skill ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline) AC5); this REQ covers only the platform-level pieces (sync exclusion, global merge-driver registration).
+- Per-repo ignore and merge-attribute wiring is the responsibility of the graphify skill ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline) AC4); this REQ covers only the platform-level pieces (sync exclusion, global merge-driver registration).
 
 **Priority:** P1
 
@@ -785,7 +810,7 @@ None.
 **Acceptance Criteria:**
 
 1. When the context-mode plugin is preseeded, `graphify update .` and `graphify query ...` run unimpeded: context-mode is wired as a tool only, with no Bash deny-gate, so no command-routing whitelist is needed. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
-2. The [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline) AC7 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::INPUT --> <!-- @test: host/__tests__/graph-first-nudge.test.js (graph-first-nudge.sh) -->
+2. The [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders) AC2 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::INPUT --> <!-- @test: host/__tests__/graph-first-nudge.test.js (graph-first-nudge.sh) -->
 
 **Constraints:**
 
@@ -793,7 +818,7 @@ None.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders)
 
 **Verification:** [Automated test](../../host/__tests__/graph-first-nudge.test.js)
 
@@ -1038,7 +1063,7 @@ None.
 
 1. A supported head-changing root boundary, including an explicit same-repository `gh pr update-branch <target>`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fetchPrHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: update-branch fetches and reviews a remote-only PR head) -->
 2. Ineligible PR state or an unsuccessful command requests no reviewer. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
-3. Root and nested SDD layouts suppress review only while transition is true and the active triage queue contains an open item. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+3. Root and nested SDD layouts suppress review only while transition is true and the active triage queue contains an open item. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 4. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 5. Successful protected-base PR creation creates a settled review window whose successful reviewer completion can acknowledge the head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window) -->
 6. Boundary repository context resolves through shell `cd`, explicit tool cwd, or Git `-C`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
@@ -1229,8 +1254,8 @@ None.
 2. In Pi, after detection, the graph refresh choice offers Architecture graph, Full repo AST-only, Full repo semantic, and an explicit no-graph option that stops without modifying `graphify-out`. <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::Architecture --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::graphify-out --> <!-- @test: host/__tests__/graphify-clone-prompt.test.js (graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)) -->
 3. Clone-time AST-only and no-graph choices suppress the duplicate post-detection mode question; clone-time Full semantic is intent only, and the agent must show the actual uncached file/subagent counts after detection and get confirmation before dispatching semantic subagents. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md::uncached --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::uncached --> <!-- @test: host/__tests__/graphify-clone-prompt.test.js (graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)) -->
 4. The semantic option is hidden when the corpus contains zero docs/papers/images; code-only repos still offer the Pi Architecture graph, Full repo AST-only, and no-graph options. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state) --> <!-- @manual -->
-5. In advanced session mode only, Claude Code Part B semantic subagents use the Claude graphify skill's configured reliable extraction model, while Pi Part B semantic subagents omit `model` overrides so they inherit the current main-session model. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- @manual -->
-6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - by saving subagent chunks into Graphify's semantic cache before official Graphify extraction/build consumes the cache. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- @manual -->
+5. In advanced session mode only, Claude Code Part B semantic subagents use the Claude graphify skill's configured reliable extraction model, while Pi Part B semantic subagents omit `model` overrides so they inherit the current main-session model. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC3-AC5, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- @manual -->
+6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - by saving subagent chunks into Graphify's semantic cache before official Graphify extraction/build consumes the cache. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC3-AC5, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- @manual -->
 7. Pi's native graphify skill does not instruct the agent to run headless semantic extraction or Graphify provider labeling. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
 
 **Constraints:**
@@ -1278,7 +1303,7 @@ None.
 
 ### REQ-AGENT-045: Import-Mode Triage Queue and Transition State
 
-**Intent:** Every unclear item from Import Mode lands in a typed triage entry with concrete Context evidence so the human resolver can decide without re-investigating, and the transition state suspends the entire review pipeline so legacy code does not trigger reviewers until the spec is real. Status defaults respect the project's TDD opt-out so imported codebases do not get falsely flagged as incomplete.
+**Intent:** Every unclear item from Import Mode lands in a typed triage entry with concrete Context evidence so the human resolver can decide without re-investigating.
 
 **Applies To:** User
 
@@ -1287,11 +1312,6 @@ None.
 1. Every Import-Mode triage entry carries concrete Context, Recommendation, and Rationale fields. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) --> <!-- @manual -->
 2. The enforce pass rejects placeholder or nonspecific triage guidance. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 7a + Iterate-to-clean against enforcement skills (binding) --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) --> <!-- @manual -->
 3. A lost triage entry carries a one-line Reason. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) --> <!-- @manual -->
-4. Open transition triage suppresses Pi review lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
-5. Import Mode with `enforce_tdd: false` marks source-implemented CLEAR requirements Implemented. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
-6. Import Mode with `enforce_tdd: true` marks requirements without REQ-referencing tests Partial. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
-7. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::requires_lane --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) -->
-
 **Constraints:**
 
 - Triage state lives only in `sdd/.init-triage.md` and Git history.
@@ -1306,7 +1326,69 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-092: Import transition review suppression
+
+**Intent:** Open Import Mode transition triage suppresses every automatic review path until the specification is ready for enforcement.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Open transition triage suppresses Pi review lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+2. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::requires_lane --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) -->
+
+**Constraints:**
+
+- Triage state lives only in `sdd/.init-triage.md` and Git history.
+- Triage resolution is interactive only.
+- `/sdd init` owns the triage file.
+- spec-reviewer may read the triage file.
+- Each code-only domain carries one verification footnote when `enforce_tdd: false`.
+- Unleashed mode is unavailable while transition triage remains open.
+- Resume Mode drain behavior is owned by [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state)
+
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-093: Import-mode TDD status assignment
+
+**Intent:** Import Mode assigns requirement status according to the project's TDD policy so imported implementations are not misclassified.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Import Mode with `enforce_tdd: false` marks source-implemented CLEAR requirements Implemented. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
+2. Import Mode with `enforce_tdd: true` marks requirements without REQ-referencing tests Partial. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
+
+**Constraints:**
+
+- Triage state lives only in `sdd/.init-triage.md` and Git history.
+- Triage resolution is interactive only.
+- `/sdd init` owns the triage file.
+- spec-reviewer may read the triage file.
+- Each code-only domain carries one verification footnote when `enforce_tdd: false`.
+- Unleashed mode is unavailable while transition triage remains open.
+- Resume Mode drain behavior is owned by [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state)
+
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1325,7 +1407,7 @@ None.
 3. Transition closure leaves `enforce_tdd` unchanged. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @manual -->
 4. Transition closure preserves the triage file as its audit record. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @manual -->
 5. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::SDD transition gate (REQ-AGENT-022) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) --> <!-- @manual -->
-6. Open transition triage suppresses Pi PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+6. Open transition triage suppresses Pi PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 
 **Constraints:** None.
 

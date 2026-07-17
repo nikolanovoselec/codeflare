@@ -1,4 +1,4 @@
-// Verifies REQ-AGENT-024 AC1: SessionStart hook three-tier fallback:
+// Verifies REQ-AGENT-091 AC1: SessionStart hook three-tier fallback:
 //   Tier 1: graph.json + python3 -> god-nodes structural summary
 //   Tier 2: graph.json, query fails -> GRAPH_REPORT.md preamble
 //   Tier 2 fallback: graph.json, no report -> generic nudge
@@ -38,7 +38,7 @@ function makeGraph(outDir, nodes, edges) {
   writeFileSync(join(outDir, 'graph.json'), JSON.stringify({ nodes, edges }));
 }
 
-describe('graphify-session-start.sh (REQ-AGENT-024 AC1)', () => {
+describe('graphify-session-start.sh (REQ-AGENT-091 AC1)', () => {
   let baseTmp;
   before(() => {
     baseTmp = mkdtempSync(join(tmpdir(), 'gf-session-'));

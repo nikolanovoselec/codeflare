@@ -166,7 +166,7 @@ describe('Claude-equivalent review boundary helpers', () => {
       .toEqual(cases.map(([command, expected]) => [command, expected, expected]));
   });
 
-  it('REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition', async () => {
+  it('REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition', async () => {
     const { isReviewTransitionSuspended } = await plannedHelpers();
     const root = tempRoot('pi-review-transition-root-');
     write(root, 'sdd/README.md', '# fixture\n');
