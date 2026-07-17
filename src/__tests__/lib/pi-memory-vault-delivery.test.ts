@@ -700,7 +700,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
   });
 });
 
-describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
+describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-028 (vault-edit isolation after launch)', () => {
   it('REQ-VAULT-027 AC2: reconstructs Vault retry state from root JSONL after reload', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
@@ -723,6 +723,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     expect(latestLaunch(reloadedPi, 'vault-extract').reminder).toBe(1);
   });
 
+  // REQ-VAULT-028: Vault edits remain isolated after extraction starts
   it('coalesces edits before launch and freezes the request after its first exact call', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
@@ -792,6 +793,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
   });
 
+  // REQ-VAULT-028: Vault edits remain isolated after extraction starts
   it('promotes matching staged bytes and creates one follow-up request for during-run edits', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
