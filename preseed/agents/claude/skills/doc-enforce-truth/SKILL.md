@@ -1,7 +1,7 @@
 ---
 name: doc-enforce-truth
-description: SDD documentation truth-check / source-of-truth enforcement. Runs Pass 8 (verification truth-check), Pass 9 (Implements-vs-AC cross-walk), Pass 10 (stale code-block detection), Pass 11 (content-preservation on trim), Pass 12 (stranger cold-read), Pass 15 (doc source-anchor truth-check, ALWAYS runs). Invoked conditionally by doc-enforce when Implemented REQ docs are touched OR scope=all.
-version: 2.0.0
+description: SDD documentation truth-check / source-of-truth enforcement — the canonical cross-agent contract. Runs Pass 8 (verification truth-check), Pass 9 (Implements-vs-AC cross-walk), Pass 10 (stale code-block detection), Pass 11 (content-preservation on trim), Pass 12 (stranger cold-read), Pass 15 (doc source-anchor truth-check, ALWAYS runs). Invoked conditionally by doc-enforce when Implemented REQ docs are touched OR scope=all.
+version: 4.0.0
 ---
 
 # Documentation Enforcement — Truth-check passes
@@ -10,11 +10,14 @@ This skill cross-references documentation against source code, tests, and REQs t
 
 ## Inputs
 
+- `purpose`: `review` | `clean` (inherited from parent — `review` reports only; `clean` may fix unambiguous drift but escalates uncertain truth)
 - `diff`: git diff against base
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
 - `src_globs`: from `sdd/config.yml`
 - `test_globs`: from `sdd/config.yml`
+
+Operate on the direct-impact set from `doc-enforce`; `scope=all` supplies the full corpus. Consume the parent packet without reconstructing the diff or printing whole files. Pass 15 always runs whenever an in-scope doc or changed source can affect an anchor.
 
 ## Output
 

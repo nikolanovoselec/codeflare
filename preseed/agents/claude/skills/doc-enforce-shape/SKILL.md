@@ -1,7 +1,7 @@
 ---
 name: doc-enforce-shape
-description: SDD documentation structural shape enforcement. Runs Pass 5 (format-template field presence), Pass 6 (file-level shape consistency), Pass 7 (canonical per-endpoint rendering for api-reference*.md), plus the jump-TOC binding rule, TOC content rule, and index-table link rule. Invoked conditionally by doc-enforce when api-reference*.md or any canonical lane file is touched in diff (OR scope=all).
-version: 1.0.0
+description: SDD documentation structural shape enforcement — the canonical cross-agent contract. Runs Pass 5 (format-template field presence), Pass 6 (file-level shape consistency), Pass 7 (canonical per-endpoint rendering for api-reference*.md), plus the jump-TOC binding rule, TOC content rule, and index-table link rule. Invoked conditionally by doc-enforce when api-reference*.md or any canonical lane file is touched in diff (OR scope=all).
+version: 4.0.0
 ---
 
 # Documentation Enforcement — Structural shape
@@ -10,11 +10,14 @@ This skill enforces the rules that police HOW canonical lane files are rendered:
 
 ## Inputs
 
+- `purpose`: `review` | `clean` (inherited from parent — `review` never edits; `clean` preserves content while normalizing shape)
 - `diff`: git diff against base
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
 - `files`: list of canonical lane files in diff (when scope=diff)
 - `layout`: `nested` | `flat` (auto-detected by parent `doc-enforce` via `test -d documentation/lanes`)
+
+Run on the canonical/index/API file set supplied by `doc-enforce`; run every canonical file only for `scope=all`.
 
 **Layout-awareness.** Canonical lane file resolution is layout-aware:
 - Nested: `documentation/lanes/{architecture,api-reference*,configuration,deployment,security,observability,troubleshooting}.md`

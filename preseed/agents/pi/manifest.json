@@ -174,46 +174,6 @@
       "advanced"
     ]
   },
-  "skills/spec-enforce/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce/scripts/round-limit.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce-ac/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce-truth/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/doc-enforce/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/doc-enforce-lanes/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/doc-enforce-shape/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/doc-enforce-truth/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/ci-monitoring/SKILL.md": {
     "modes": [
       "default",

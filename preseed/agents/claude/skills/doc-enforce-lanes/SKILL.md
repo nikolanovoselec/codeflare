@@ -1,7 +1,7 @@
 ---
 name: doc-enforce-lanes
-description: SDD documentation lane-discipline enforcement. Runs Pass 3 (implementation-prose detection), Pass 4 (lane-violation signature catalogue), dual-narrative ADR detection, and Big-O jargon detection. Invoked conditionally by doc-enforce per file in diff.
-version: 1.0.0
+description: SDD documentation lane-discipline enforcement — the canonical cross-agent contract. Runs Pass 3 (implementation-prose detection), Pass 4 (lane-violation signature catalogue), dual-narrative ADR detection, and Big-O jargon detection. Invoked conditionally by doc-enforce per file in diff.
+version: 4.0.0
 ---
 
 # Documentation Enforcement — Lane discipline
@@ -10,11 +10,14 @@ This skill enforces the rules that police what content belongs in which `documen
 
 ## Inputs
 
+- `purpose`: `review` | `clean` (inherited from parent — `review` reports only; `clean` may move text only when content and backlinks are preserved)
 - `diff`: git diff against base
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
 - `files`: list of changed doc files in diff (when scope=diff)
 - `layout`: `nested` | `flat` (auto-detected by parent `doc-enforce`)
+
+Operate only on the file set resolved by `doc-enforce`; `scope=all` supplies every doc file.
 
 **Layout-awareness.** Lane-violation auto-fix proposals resolve the target lane file path per the detected layout:
 - Nested: target lane = `documentation/lanes/{file}.md`

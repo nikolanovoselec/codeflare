@@ -643,6 +643,11 @@
       "advanced"
     ]
   },
+  "skills/spec-enforce/scripts/round-limit.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/tdd-enforce/SKILL.md": {
     "modes": [
       "advanced"
