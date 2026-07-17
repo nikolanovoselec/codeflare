@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-17
 
+- **Pi extension parse check migrated from the TypeScript compiler API to esbuild** (tooling; no REQ status change). `typescript@7`'s native compiler removed `ts.transpileModule`/`ScriptTarget`, breaking `scripts/check-pi-extensions.mjs` in the deps-branch deploy. The check now uses `esbuild.transformSync` with the TypeScript loader — the same type-strip-and-parse semantics Pi applies when loading extensions — with esbuild pinned as an exact root devDependency referenced by the pre-existing `esbuild` override; all 21 extensions verified parsing cleanly and the checker verified failable on broken syntax.
+
 - **The Enter-the-Matrix CTA decode no longer escapes the button border** ([REQ-LANDING-006](landing.md#req-landing-006-enter-the-matrix-sign-in-cta) AC3 test anchor updated; stays Implemented). The hover decode previously pinned each word span to a pixel width measured once at font-ready; measured while the nav was hidden or mid-layout, the lock captured a stale width and churn glyphs overflowed rightward past the border. The CTA now reuses the idle scramble's ghost + overlay structure with a centered-overlay variant: the in-flow ghost holds the footprint with no measurement at all, and churn spill is symmetric.
 
 ## 2026-07-16
