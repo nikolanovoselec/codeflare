@@ -13,7 +13,7 @@ System architecture, components, data flow, and design rationale for Codeflare.
 - [Data Flow](#data-flow)
 - [Module-Level Caches](#module-level-caches)
 - [Design Rationale](#design-rationale)
-- [Landing composition implementation](#landing-composition-implementation)
+- [Landing Composition Implementation](#landing-composition-implementation)
 - [Specification Coverage](#specification-coverage)
 - [Related Documentation](#related-documentation)
 
@@ -657,6 +657,7 @@ Architectural principles and design rationale.
      (b) an **unexpected** exit (crash, deploy-roll, platform reap) fires `onError()` - **not** `onStop()` - which writes `stopped` guarded on `!ctx.container.running` so a transient startup error cannot flip a still-starting container;
 
      (c) `collectMetrics()` is the 60s catch-all: its `!ctx.container.running` branch writes `stopped` on the next tick after any exit the hooks missed, then returns without re-arming. Without (b)/(c) an unexpected exit would dangle as `running` in KV forever.
+
 6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
 7. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
 8. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
@@ -696,7 +697,7 @@ Architectural principles and design rationale.
 
 ---
 
-## Landing composition implementation
+## Landing Composition Implementation
 
 **Implements:** [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)
 
