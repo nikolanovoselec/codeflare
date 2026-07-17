@@ -40,8 +40,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 3. In default mode, GET `/` redirects to `/app/` and the landing is never served. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: keeps redirecting / to /app in default mode (no landing)) -->
 4. The static page composes the typed content model into the ordered enterprise narrative, shared proof terminals, folded substations, orchestration, cost, platform, governance, dogfood, FAQ, and contact surfaces without requiring JavaScript. <!-- @impl: landing/src/pages/index.astro::gate-req --> <!-- @test: landing/src/__tests__/index-page.test.ts (landing page composition (REQ-LANDING-001)) -->
 5. Client enhancements animate terminal proofs, capability text, orchestration, reveals, and the page flare while preserving the complete server-rendered resting state and honoring reduced-motion preferences. <!-- @test: landing/src/__tests__/scramble.script.test.ts (scramble.ts (REQ-LANDING-001)) --> <!-- @manual -->
-6. Sections use shared composition components and centrally controlled typography, spacing, terminal chrome, responsive breakpoints, and visual hierarchy so peer and subordinate content remain distinguishable at every viewport. <!-- @test: landing/src/__tests__/components.test.ts (Terminal (shared chrome)) --> <!-- @manual -->
-7. Navigation, trust links, disclosure content, demo contact, sign-in, and footer controls retain valid destinations, keyboard access, and responsive layouts. <!-- @test: landing/src/__tests__/index-page.test.ts (grids, chips, nav, social proof, faq) --> <!-- @manual -->
+6. At mobile, tablet, and desktop widths, peer and subordinate sections remain visually distinct without overlap, clipping, or hidden content. <!-- @test: landing/src/__tests__/components.test.ts (Terminal (shared chrome)) --> <!-- @manual -->
+7. Each navigation, trust, disclosure, contact, sign-in, and footer control reaches its intended destination by keyboard and remains visible without overlap or clipping at mobile, tablet, and desktop widths. <!-- @test: landing/src/__tests__/index-page.test.ts (grids, chips, nav, social proof, faq) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -156,7 +156,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The landing layout declares the dark color scheme — a `<meta name="color-scheme" content="dark">` and an inline `html { color-scheme: dark; background-color: … }` rule emitted before any external stylesheet — so a cross-document navigation holds a dark canvas. <!-- @impl: landing/src/layouts/BaseLayout.astro::viewport --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
-2. The Worker serves content-hashed `/_astro/` build assets with `Cache-Control: public, max-age=31536000, immutable`, while non-hashed asset responses keep their revalidating default so HTML stays fresh. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004: immutable /_astro/ asset caching) -->
+2. Content-hashed landing assets remain reusable for one year without revalidation, while non-hashed assets continue to revalidate so HTML stays fresh. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004: immutable /_astro/ asset caching) -->
 3. Every same-origin full-page navigation between the landing and `/login` opts into a cross-document view transition. <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @manual -->
 
 **Constraints:**
