@@ -916,9 +916,51 @@ describe('useTerminal hook', () => {
           lineHeight: 1.2,
           allowProposedApi: true,
           convertEol: true,
-          scrollback: 1000,
+          scrollback: 5000,
+          // Keystroke re-anchoring is app-owned (onData → BufferService);
+          // xterm's built-in path resolves through clamp-vulnerable DOM state.
+          scrollOnUserInput: false,
         })
       );
+
+      dispose();
+    });
+
+    it('REQ-TERM-014 AC8: user input while reading scrollback re-anchors the viewport to the live bottom', () => {
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      const onDataCalls = vi.mocked(mockTerminalInstance.onData).mock.calls;
+      expect(onDataCalls.length).toBeGreaterThan(0);
+      const handler = onDataCalls[onDataCalls.length - 1][0] as (data: string) => void;
+
+      const active = mockTerminalInstance.buffer.active as any;
+      const prevType = active.type;
+      const prevViewportY = active.viewportY;
+      const prevBaseY = active.baseY;
+      try {
+        // Reading scrollback: any input route re-anchors (fallback path —
+        // the mock has no _bufferService, so the public anchor is used).
+        Object.assign(active, { type: 'normal', viewportY: 100, baseY: 500 });
+        handler('x');
+        expect(mockScrollToBottom).toHaveBeenCalledTimes(1);
+
+        // Already at the bottom: input does not inject a scroll.
+        mockScrollToBottom.mockClear();
+        Object.assign(active, { viewportY: 500, baseY: 500 });
+        handler('y');
+        expect(mockScrollToBottom).not.toHaveBeenCalled();
+
+        // Alternate-buffer applications own their screen: no re-anchor.
+        Object.assign(active, { type: 'alternate', viewportY: 0, baseY: 80 });
+        handler('z');
+        expect(mockScrollToBottom).not.toHaveBeenCalled();
+      } finally {
+        Object.assign(active, { type: prevType, viewportY: prevViewportY, baseY: prevBaseY });
+      }
 
       dispose();
     });

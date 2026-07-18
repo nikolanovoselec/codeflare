@@ -31,10 +31,15 @@ export interface XtermBufferService {
   scrollLines: (disp: number, suppressScrollEvent?: boolean) => void;
 }
 
+export interface XtermViewport {
+  scrollToLine: (line: number, disableSmoothScroll?: boolean) => void;
+}
+
 export interface XtermCore {
   coreService: XtermCoreService | undefined;
   _bufferService: XtermBufferService | undefined;
   _coreBrowserService: XtermCoreBrowserService | undefined;
+  _viewport: XtermViewport | undefined;
   _syncTextArea: (() => void) | undefined;
   _handleTextAreaFocus: ((e: FocusEvent) => void) | undefined;
   _handleTextAreaBlur: (() => void) | undefined;
@@ -93,6 +98,52 @@ export function scrollBufferLines(terminal: Terminal, lines: number): void {
     terminal.refresh(0, terminal.rows - 1);
   } else {
     terminal.scrollLines(lines);
+  }
+}
+
+/**
+ * Anchor the viewport to the live bottom through the BufferService.
+ *
+ * The public no-argument Terminal.scrollToBottom() resolves RELATIVE to the
+ * viewport's DOM scroll state (CoreBrowserTerminal.scrollToBottom →
+ * scrollLines(ybase - ydisp) → Viewport.scrollLines(pos.scrollTop + disp)).
+ * When the buffer already sits at the bottom that is scrollLines(0) — a no-op
+ * that can never repair a DOM state diverged by a clamped refit; when the
+ * buffer is above the bottom, the relative resolve lands wherever the stale
+ * DOM points. Scrolling the BufferService by the buffer-derived delta moves
+ * exactly to ybase, and the resulting onScroll makes Viewport._sync()
+ * re-command the DOM scroll state absolutely.
+ */
+export function scrollBufferToBottom(terminal: Terminal): void {
+  const active = terminal.buffer.active;
+  const delta = active.baseY - active.viewportY;
+  const bufferService = getXtermCore(terminal)?._bufferService;
+  if (!bufferService?.scrollLines) {
+    terminal.scrollToBottom();
+    return;
+  }
+  if (delta === 0) return;
+  scrollBufferLines(terminal, delta);
+}
+
+/**
+ * Re-command the viewport's DOM scroll state from the buffer position.
+ *
+ * Viewport._sync() clamps the DOM scrollTop with its scroll handler
+ * suppressed whenever scroll dimensions change (ScrollState clamps into
+ * [0, scrollHeight - height]), and a resize-driven sync runs against the
+ * cached _latestYDisp so it never re-commands the position. The stale DOM
+ * state then resolves the divergence through the next relative scroll —
+ * one wheel tick or keystroke yanks the buffer toward the top of scrollback.
+ * Calling the internal viewport's scrollToLine with disableSmoothScroll=true
+ * sets scrollTop absolutely from the CURRENT buffer position and corrects
+ * the _latestYDisp cache. Call after any refit that does not re-anchor to
+ * the bottom. No-ops when internals are unavailable.
+ */
+export function resyncViewportScrollState(terminal: Terminal): void {
+  const viewport = getXtermCore(terminal)?._viewport;
+  if (viewport?.scrollToLine) {
+    viewport.scrollToLine(terminal.buffer.active.viewportY, true);
   }
 }
 

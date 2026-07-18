@@ -36,7 +36,7 @@ export function sendTerminalKey(terminal: Terminal, sequence: string): void {
   }
 }
 
-function getScrollPxPerLine(terminal: Terminal): number {
+export function getScrollPxPerLine(terminal: Terminal): number {
   const fontSize = typeof terminal.options.fontSize === 'number' ? terminal.options.fontSize : 14;
   const lineHeight = typeof terminal.options.lineHeight === 'number' ? terminal.options.lineHeight : 1.2;
   return Math.max(12, Math.round(fontSize * lineHeight));

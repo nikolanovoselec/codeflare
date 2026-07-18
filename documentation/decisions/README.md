@@ -120,6 +120,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety) | context-mode is opt-in in Pi pending upstream memory safety | Agents, Architecture, Reliability |
 | [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Per-AC test evidence permits multiple resolving anchors | Process, Agents, Testing |
 | [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned) | context-mode MCP registration is universal and entrypoint-owned | Agents, Architecture |
+| [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) | Terminal scrolling is buffer-authoritative on every route; held output ring-drops | Architecture |
 
 ---
 
@@ -2683,6 +2684,24 @@ Manual verification became per-AC: an AC that cannot be automatically verified c
 **Consequences:** Claude users have the same manual `ctx_*` capability in every tier, Custom-tier users alone receive automatic routing hooks, first invocation performs no package download, and plugin metadata cannot create duplicate MCP registrations.
 
 **Related REQ:** [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install), [Pi preseed](../lanes/preseed.md#third-party-plugin-context-mode).
+
+### AD110: Terminal scrolling is buffer-authoritative on every route; held output ring-drops
+
+**Category:** Architecture
+
+**Status:** Accepted (2026-07-19)
+
+**Context:** [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) rerouted touch gestures and floating page controls to the internal `BufferService`, but desktop kept three paths on xterm 6.1's DOM-relative machinery: the mouse wheel (viewport-internal), `scrollOnUserInput` keystroke anchoring (`scrollToLine` clamped against possibly-stale scroll dimensions), and every app-initiated `scrollToBottom()` (relative resolve — `scrollLines(ybase - ydisp)`, a no-op at the bottom that can never repair a diverged DOM state). Source verification of the pinned build (`6.1.0-beta.288`; unchanged through `beta.290`) confirmed the divergence class: `Viewport._sync()` clamps `scrollTop` with its handler suppressed, resize syncs run against the cached `_latestYDisp` and never re-command position, and the first relative tick afterwards resolves the divergence as one jump to the top of scrollback (upstream [xterm.js#5620](https://github.com/xtermjs/xterm.js/issues/5620); the merged [#5770](https://github.com/xtermjs/xterm.js/pull/5770) sync-output deferral is already in the pinned build and insufficient). Separately, AD105's hold released in ONE write and force-flushed past its cap — xterm pins a scrolled-up reader at `ydisp = 0` while a full buffer trims (`BufferService` keeps text stable by decrementing), so both the release flood and the cap breach dragged stationary readers to the top during agent output.
+
+**Decision:** Extend buffer authority to every remaining scroll route and make the hold reader-proof. (1) A capture-phase wheel interceptor converts deltas to lines and scrolls the `BufferService` directly (normal buffer only; alternate-buffer and zoom-modified wheel pass through). (2) `scrollOnUserInput` is disabled; an `onData` listener re-anchors an owned normal-buffer viewport through the buffer service, covering hardware keys, the mobile compositor jail, swipe arrows, and voice. (3) All app-initiated bottom anchors use `scrollBufferToBottom()`; refits that do not re-anchor call `resyncViewportScrollState()` to re-command the DOM scroll state absolutely. (4) The hold releases in bounded whole-chunk slices (65,536 characters per flush tick), re-checking ownership between ticks, and past its 2,000,000-character cap drops the OLDEST held chunks at message boundaries instead of writing through the reader. Scrollback grows 1,000 → 5,000 lines.
+
+**Consequences:** No input route can resolve a stale DOM scroll state into a buffer jump, and no write path can move a reader — the two mechanisms behind the remaining desktop "snap to top". A reader who out-waits the cap loses the oldest held output (it was destined for scrollback trimming regardless); an escape sequence split at a drop boundary may render transient artifacts until the application's next repaint. Keyboard-open mobile behavior is unchanged: the keyboard lifecycle still owns fit-plus-bottom-anchor, now through the buffer service. Wheel interception bypasses xterm's `smoothScrollDuration`/`scrollSensitivity` options; the app owns wheel feel in the normal buffer.
+<!-- @impl: web-ui/src/lib/terminal-wheel.ts::attachWheelScrolling -->
+<!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferToBottom -->
+<!-- @impl: web-ui/src/lib/xterm-internals.ts::resyncViewportScrollState -->
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+
+**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming), [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input).
 
 ---
 

@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-19
+
+- **Terminal scrolling is buffer-authoritative on every route and held output ring-drops** ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming); Implemented). AC3 now releases the hold in bounded slices with mid-release re-deferral; new AC7 makes the held-output cap drop oldest chunks so a reader is never written through; new AC8 moves keystroke re-anchoring from xterm's `scrollOnUserInput` to an app-owned `onData` path covering every input route; new AC9 intercepts the mouse wheel and scrolls the buffer service directly with alternate-buffer and zoom passthrough. Closes the two remaining desktop "snap to top" mechanisms (DOM scroll-state divergence resolved by the first relative tick; trim-drag pinning during release floods and cap breaches) per [AD110](../../documentation/decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops).
+
 ## 2026-07-18
 
 - **Expired mobile sessions recover without a manual reload** ([REQ-AUTH-014](authentication.md#req-auth-014-auth-expiry-detection-mid-session), [REQ-AUTH-022](authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page), [REQ-MOB-009](mobile.md#req-mob-009-visibility-return-recovers-keyboard-state), [REQ-MOB-018](mobile.md#req-mob-018-decorative-webgl-canvas-retirement), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving), and [REQ-LANDING-009](landing.md#req-landing-009-decorative-flare-failure-fallback); Implemented). Explicit, opaque, HTML, and Samsung-style status-zero auth failures start top-level sign-in; decorative WebGL retires on coarse-pointer backgrounding or context loss so the stable dark CSS surface remains visible.

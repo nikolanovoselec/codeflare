@@ -146,8 +146,8 @@ In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, no
 
 **Scroll preservation after `fit()`:** Every `fit()` call site must preserve or restore scroll position, because `fit()` recalculates terminal dimensions and can reset the viewport to the top. The rules are:
 
-- **Mobile with keyboard open:** Always call `scrollToBottom()` after `fit()`. The user expects to see the prompt whenever the keyboard is open.
-- **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollToBottom()` after `fit()`. If the user had scrolled up into scrollback, preserve their position.
+- **Mobile with keyboard open:** Always anchor to the bottom after `fit()` via `scrollBufferToBottom()` (buffer-authoritative — the public `scrollToBottom()` resolves relative to clamp-vulnerable DOM scroll state, [AD110](../decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)). The user expects to see the prompt whenever the keyboard is open.
+- **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollBufferToBottom()` after `fit()`. If the user had scrolled up into scrollback, preserve their position and call `resyncViewportScrollState()` so the DOM scroll state is re-commanded from the buffer instead of drifting toward the next divergence jump.
 - **Zero-height guard:** All `fit()` call sites check `containerEl.clientHeight === 0` and bail early.
     - Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
 
@@ -257,7 +257,7 @@ The short intent window now serves only to correlate a wheel, pointer, navigatio
 
 ### xterm 6.1 Native Full-Buffer Anchoring
 
-When the 1000-line scrollback is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. That anchor is only content-stable until it reaches zero: under sustained agent output the reader's `viewportY` slides to the top within seconds and the viewed lines are then destroyed beneath them — the "terminal snaps to the top while the agent is outputting" failure. No viewport correction can fix this, because the content itself is being trimmed away.
+When the scrollback (capped at 5,000 lines) is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. That anchor is only content-stable until it reaches zero: under sustained agent output the reader's `viewportY` slides to the top within seconds and the viewed lines are then destroyed beneath them — the "terminal snaps to the top while the agent is outputting" failure. No viewport correction can fix this, because the content itself is being trimmed away.
 
 Codeflare therefore stops trimming under a reader entirely: while manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output (data keeps accumulating in the per-terminal write buffer, re-checked every 33ms tick) instead of writing it. The frozen buffer means no trims, no `onScroll` churn, and a perfectly stable reading position. Returning the viewport to the live bottom — swipe down, floating page-down button, or the keyboard-open bottom anchor — releases the entire held batch in one write.
 
@@ -306,7 +306,7 @@ Earlier iterations introduced overlapping correction mechanisms that fought each
 - Persistent manual ownership established by correlated intent
 - External intent registration for floating-button page navigation
 - Explicit touch-keyboard lifecycle ownership
-- A 1,000-line scrollback cap with agent-side virtual scrolling disabled
+- A 5,000-line scrollback cap with agent-side virtual scrolling disabled
 
 ## WebSocket Recovery
 
@@ -322,7 +322,7 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ### REQ-MOB-004 test scenarios
 
-1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, stream more than the 1,000-line cap, and confirm a bottom follower remains at the live prompt.
+1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, stream more than the 5,000-line cap, and confirm a bottom follower remains at the live prompt.
 2. **Manual ownership freezes streamed output.** Scroll into history and continue output beyond the intent-correlation window.
 
 The reading position must stay perfectly still (output is deferred — no trims, no drift toward the top), and scrolling back to the prompt must release the held output in one batch.

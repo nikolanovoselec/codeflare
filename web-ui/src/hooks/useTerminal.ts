@@ -11,7 +11,8 @@ import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
-import { getIframeInput } from '../lib/xterm-internals';
+import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
+import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
@@ -55,6 +56,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cleanup: (() => void) | undefined;
   let resizeObserver: ResizeObserver | undefined;
   let cleanupGestures: (() => void) | undefined;
+  let cleanupWheel: (() => void) | undefined;
+  let dataDisposable: { dispose: () => void } | undefined;
   let bufferChangeDisposable: { dispose: () => void } | undefined;
   let cursorHideDisposable: { dispose: () => void } | undefined;
   let cursorShowDisposable: { dispose: () => void } | undefined;
@@ -117,7 +120,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
       allowProposedApi: true,
       convertEol: true,
-      scrollback: 1000,
+      scrollback: 5000,
+      // Keystroke re-anchoring is handled by the onData listener below via
+      // the BufferService. xterm's built-in path routes through the viewport's
+      // clamp-vulnerable scrollToLine and can yank a diverged DOM scroll state
+      // to the top of scrollback on a single keypress.
+      scrollOnUserInput: false,
       // xterm >=6.1 answers CSI ?996n and (after the app enables DECSET 2031)
       // pushes CSI ?997;1n color-scheme reports on every theme change.
       // applyCursorVisibility() below reassigns options.theme on each DECTCEM
@@ -261,6 +269,22 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       terminalId: props.terminalId,
     });
 
+    // Wheel scrollback navigation goes through the BufferService, mirroring
+    // the touch-gesture path — the viewport's DOM-relative wheel handling can
+    // resolve a diverged scroll state into a jump to the top of scrollback.
+    cleanupWheel = attachWheelScrolling(containerEl, t);
+
+    // Replaces xterm's scrollOnUserInput (disabled in the options above):
+    // any user input while reading scrollback re-anchors to the live bottom
+    // through the BufferService. onData covers every input route — hardware
+    // keys, the mobile compositor jail, swipe-generated arrows, voice input.
+    dataDisposable = t.onData(() => {
+      const active = t.buffer.active;
+      if (active.type === 'normal' && active.viewportY < active.baseY) {
+        scrollBufferToBottom(t);
+      }
+    });
+
     terminalStore.setTerminal(props.sessionId, props.terminalId, t);
     terminalStore.registerFitAddon(props.sessionId, props.terminalId, fa);
     setTerminalInstance(t);
@@ -308,7 +332,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           // Only scroll on desktop/keyboard-closed when user was following output.
           if (!isTouchDevice() || !isVirtualKeyboardOpen()) {
             if (wasBottom) {
-              mountedTerm.scrollToBottom();
+              scrollBufferToBottom(mountedTerm);
+            } else {
+              resyncViewportScrollState(mountedTerm);
             }
           }
           const cols = mountedTerm.cols;
@@ -366,7 +392,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           const wasBottom = isAtBottom(term);
           term.options.fontFamily = currentFont;
           fitAddon?.fit();
-          if (wasBottom) term.scrollToBottom();
+          if (wasBottom) scrollBufferToBottom(term);
+          else resyncViewportScrollState(term);
         }
       });
     }
@@ -413,7 +440,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         mountedFitAddon.fit();
         // Read signal at execution time — not the stale closure capture
         if (isVirtualKeyboardOpen()) {
-          mountedTerm.scrollToBottom();
+          scrollBufferToBottom(mountedTerm);
         }
         setDimensions({ cols: mountedTerm.cols, rows: mountedTerm.rows });
       });
@@ -433,7 +460,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       mountedFitAddon.fit();
       // Read signal at execution time — not the stale closure capture
       if (isVirtualKeyboardOpen()) {
-        mountedTerm.scrollToBottom();
+        scrollBufferToBottom(mountedTerm);
       }
       setDimensions({ cols: mountedTerm.cols, rows: mountedTerm.rows });
       if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
@@ -504,7 +531,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         if (mountedContainer.clientHeight > 0) {
           const wasBottom = isAtBottom(mountedTerm);
           mountedFitAddon.fit();
-          if (wasBottom) mountedTerm.scrollToBottom();
+          if (wasBottom) scrollBufferToBottom(mountedTerm);
+          else resyncViewportScrollState(mountedTerm);
         }
       });
 
@@ -563,8 +591,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         // Subsequent activations: only if user was already following output,
         // or if the mobile keyboard is open (user expects to see the prompt).
         if (!hasInitialScrolled || wasBottom || (isTouchDevice() && isVirtualKeyboardOpen())) {
-          mountedTerm.scrollToBottom();
+          scrollBufferToBottom(mountedTerm);
           hasInitialScrolled = true;
+        } else {
+          resyncViewportScrollState(mountedTerm);
         }
         mountedTerm.refresh(0, mountedTerm.rows - 1);
         if (isFocused() && !isTouchDevice()) mountedTerm.focus();
@@ -589,7 +619,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           if (mountedContainer.clientHeight === 0) return;
           const wasBottom = isAtBottom(mountedTerm);
           mountedFitAddon.fit();
-          if (wasBottom) mountedTerm.scrollToBottom();
+          if (wasBottom) scrollBufferToBottom(mountedTerm);
+          else resyncViewportScrollState(mountedTerm);
           mountedTerm.refresh(0, mountedTerm.rows - 1);
           if (canConnect()) {
             if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
@@ -609,6 +640,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
     cleanup?.();
     cleanupGestures?.();
+    cleanupWheel?.();
+    dataDisposable?.dispose();
     bufferChangeDisposable?.dispose();
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();

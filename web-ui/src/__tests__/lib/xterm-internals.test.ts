@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   getXtermCore,
   getIframeInput,
@@ -6,6 +6,8 @@ import {
   getBufferActive,
   getRemoveFocusGuard,
   setRemoveFocusGuard,
+  scrollBufferToBottom,
+  resyncViewportScrollState,
 } from '../../lib/xterm-internals';
 
 function makeMockTerminal(overrides: Record<string, unknown> = {}) {
@@ -74,6 +76,60 @@ describe('xterm-internals', () => {
     it('returns undefined when buffer is missing', () => {
       const term = makeMockTerminal({ buffer: undefined });
       expect(getBufferActive(term)).toBeUndefined();
+    });
+  });
+
+  describe('scrollBufferToBottom', () => {
+    function makeScrollableTerminal(viewportY: number, baseY: number) {
+      const scrollLines = vi.fn();
+      const term = makeMockTerminal({
+        buffer: { active: { viewportY, baseY } },
+        rows: 24,
+        refresh: vi.fn(),
+        scrollToBottom: vi.fn(),
+      });
+      term._core._bufferService = { scrollLines };
+      return { term, scrollLines };
+    }
+
+    it('scrolls the buffer service by the buffer-derived delta and repaints', () => {
+      const { term, scrollLines } = makeScrollableTerminal(120, 500);
+      scrollBufferToBottom(term);
+      expect(scrollLines).toHaveBeenCalledWith(380);
+      expect(term.refresh).toHaveBeenCalledWith(0, 23);
+      expect(term.scrollToBottom).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the viewport already sits at the bottom', () => {
+      const { term, scrollLines } = makeScrollableTerminal(500, 500);
+      scrollBufferToBottom(term);
+      expect(scrollLines).not.toHaveBeenCalled();
+      expect(term.scrollToBottom).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the public scrollToBottom when internals are unavailable', () => {
+      const term = makeMockTerminal({
+        _core: undefined,
+        buffer: { active: { viewportY: 120, baseY: 500 } },
+        scrollToBottom: vi.fn(),
+      });
+      scrollBufferToBottom(term);
+      expect(term.scrollToBottom).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('resyncViewportScrollState', () => {
+    it('re-commands the DOM scroll state from the current buffer position without smooth scroll', () => {
+      const scrollToLine = vi.fn();
+      const term = makeMockTerminal({ buffer: { active: { viewportY: 321, baseY: 500 } } });
+      term._core._viewport = { scrollToLine };
+      resyncViewportScrollState(term);
+      expect(scrollToLine).toHaveBeenCalledWith(321, true);
+    });
+
+    it('no-ops when the internal viewport is unavailable', () => {
+      const term = makeMockTerminal({ buffer: { active: { viewportY: 321, baseY: 500 } } });
+      expect(() => resyncViewportScrollState(term)).not.toThrow();
     });
   });
 });

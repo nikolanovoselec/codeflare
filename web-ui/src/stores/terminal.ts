@@ -5,6 +5,7 @@ import { getTerminalWebSocketUrl } from '../api/client';
 import type { Terminal } from '@xterm/xterm';
 import { logger } from '../lib/logger';
 import { recordFrame, recordFlush, recordRestore } from '../lib/ws-debug';
+import { scrollBufferToBottom } from '../lib/xterm-internals';
 import {
   WS_RECONNECT_BASE_MS,
   WS_RECONNECT_MAX_MS,
@@ -152,9 +153,21 @@ const WRITE_FLUSH_INTERVAL_MS = 33;
 const writeBuffers = new Map<string, string[]>();
 const pendingFlushes = new Map<string, number>();
 
-// Cap on output held while the user reads scrollback. Beyond this the flush
-// proceeds anyway so held PTY output cannot grow memory without bound.
+// Cap on output held while the user reads scrollback. Beyond this the OLDEST
+// held chunks are dropped (ring semantics) so held PTY output cannot grow
+// memory without bound. Dropped bytes were destined for scrollback trimming
+// anyway — writing them through a reader would drag the viewport to the top
+// line by line (xterm pins a scrolled-up viewport at ydisp 0 while a full
+// buffer trims).
 export const READ_HOLD_MAX_CHARS = 2_000_000;
+
+// Bound on characters released per flush tick once the viewport returns to
+// the bottom. Releasing the entire hold in one write() leaves xterm parsing
+// the backlog for seconds — a reader who scrolls up again mid-parse is
+// dragged to the top by the continuing trims. Bounded slices re-check the
+// reading state between ticks, so scrolling up mid-release re-defers the
+// remainder within one interval.
+export const RELEASE_SLICE_MAX_CHARS = 65_536;
 
 /**
  * Whether the user is reading normal-buffer scrollback (viewport above the
@@ -172,28 +185,44 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   if (!buffer || buffer.length === 0) return;
 
   // Defer the flush while the user reads scrollback: writing would trim the
-  // full 1000-line buffer beneath the reader, dragging the viewport line by
-  // line to the top (the "snaps to top during agent output" failure). Output
-  // keeps accumulating and each tick re-checks; returning the viewport to the
-  // live bottom — or exceeding the hold cap — releases everything in one write.
+  // buffer beneath the reader, dragging the viewport line by line to the top
+  // (the "snaps to top during agent output" failure). Output accumulates and
+  // each tick re-checks; past the hold cap the oldest chunks are dropped so
+  // a reader is NEVER written through. Whole chunks are dropped (WebSocket
+  // message boundaries); a rare escape sequence split across the drop heals
+  // on the application's next repaint.
   if (isReadingScrollback(terminal)) {
     let heldChars = 0;
     for (const chunk of buffer) heldChars += chunk.length;
-    if (heldChars <= READ_HOLD_MAX_CHARS) {
-      const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
-      pendingFlushes.set(key, timerId);
-      return;
+    while (heldChars > READ_HOLD_MAX_CHARS && buffer.length > 1) {
+      heldChars -= buffer[0].length;
+      buffer.shift();
     }
+    const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
+    pendingFlushes.set(key, timerId);
+    return;
   }
 
-  const data = buffer.join('');
-  buffer.length = 0;
+  // Bounded release: write whole chunks up to the slice budget and leave the
+  // rest for the next tick, which re-checks the reading state first.
+  let sliceChars = 0;
+  let sliceCount = 0;
+  while (sliceCount < buffer.length && sliceChars < RELEASE_SLICE_MAX_CHARS) {
+    sliceChars += buffer[sliceCount].length;
+    sliceCount += 1;
+  }
+  const data = buffer.splice(0, sliceCount).join('');
 
   recordFlush(key, data.length);
 
   // xterm owns output-driven scrollback trimming; the write buffer never
   // scrolls or restores a viewport position after a write.
   terminal.write(data);
+
+  if (buffer.length > 0) {
+    const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
+    pendingFlushes.set(key, timerId);
+  }
 }
 
 function scheduleWrite(key: string, terminal: Terminal, data: string): void {
@@ -459,7 +488,9 @@ function connect(
           terminal.clear();
           terminal.reset();
           terminal.write(control.state);
-          terminal.scrollToBottom();
+          // Buffer-authoritative anchor: the public scrollToBottom() resolves
+          // relative to DOM scroll state that a reset can leave stale.
+          scrollBufferToBottom(terminal);
           terminal.refresh(0, terminal.rows - 1);
         }
         return;

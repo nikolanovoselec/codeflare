@@ -2,6 +2,7 @@ import type { Terminal } from '@xterm/xterm';
 import { onCleanup } from 'solid-js';
 import { hasRecentScrollIntent, clearScrollIntent } from '../lib/terminal-scroll-intent';
 import { isTouchDevice, isVirtualKeyboardOpen } from '../lib/mobile';
+import { scrollBufferToBottom } from '../lib/xterm-internals';
 
 /** Correlates an onScroll event with the gesture that immediately preceded it. */
 const USER_SCROLL_GRACE_MS = 150;
@@ -49,6 +50,15 @@ export function useScrollCorrection(
     }
   };
 
+  // A pointer drag (scrollbar thumb, drag-selection auto-scroll) produces
+  // scroll events for as long as the button stays held — often well past the
+  // grace window of its initial pointerdown. Refresh intent on every held-
+  // button move, but never on hover (buttons === 0), so plain mouse movement
+  // over the terminal cannot mask a genuine displacement correction.
+  const onPointerMove = (event: PointerEvent) => {
+    if (event.buttons !== 0) markUserScrollIntent();
+  };
+
   // Capture intent before xterm handles the event and emits onScroll.
   // touchmove is included because a touch drag keeps producing scrollLines
   // calls long after its initial pointerdown left the grace window; each
@@ -56,6 +66,7 @@ export function useScrollCorrection(
   // a browser displacement and snapped back to the bottom.
   container.addEventListener('wheel', markUserScrollIntent, { passive: true, capture: true });
   container.addEventListener('pointerdown', markUserScrollIntent, { passive: true, capture: true });
+  container.addEventListener('pointermove', onPointerMove, { passive: true, capture: true });
   container.addEventListener('touchmove', markUserScrollIntent, { passive: true, capture: true });
   container.addEventListener('keydown', onNavKeyDown, { capture: true });
 
@@ -100,10 +111,13 @@ export function useScrollCorrection(
 
     // Preserve the existing defense for a bottom-following viewport displaced
     // by a browser/layout event. User-owned scrollback never enters this path.
+    // Buffer-authoritative anchor: the public scrollToBottom() resolves
+    // relative to DOM scroll state — the very state whose divergence caused
+    // the displacement being corrected.
     if (previouslyFollowingOutput && viewportY < baseY) {
       isCorrectingScroll = true;
       try {
-        terminal.scrollToBottom();
+        scrollBufferToBottom(terminal);
       } finally {
         isCorrectingScroll = false;
       }
@@ -115,6 +129,7 @@ export function useScrollCorrection(
   onCleanup(() => {
     container.removeEventListener('wheel', markUserScrollIntent, { capture: true });
     container.removeEventListener('pointerdown', markUserScrollIntent, { capture: true });
+    container.removeEventListener('pointermove', onPointerMove, { capture: true });
     container.removeEventListener('touchmove', markUserScrollIntent, { capture: true });
     container.removeEventListener('keydown', onNavKeyDown, { capture: true });
     scrollDisposable.dispose();
