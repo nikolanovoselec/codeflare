@@ -45,14 +45,14 @@ describe('engineering constitution preseed', () => {
     );
   });
 
-  it('delivers the complete compact policy in both generated Pi modes', () => {
+  it('delivers exactly the compact policy in both generated Pi modes', () => {
+    const expected = `${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}\n`;
     for (const mode of ['default', 'advanced']) {
       const instructions = generatedDocuments.find(
         (document) => document.key === '.pi/agent/AGENTS.md' && document.modes.includes(mode),
       );
       assert.ok(instructions, `Pi ${mode} AGENTS.md must exist`);
-      assert.ok(instructions.content.includes(piConstitution.trim()), `${mode} lost Pi constitution`);
-      assert.ok(instructions.content.includes(piGitWorkflow.trim()), `${mode} lost Pi Git workflow`);
+      assert.equal(instructions.content, expected, `${mode} Pi policy composition drifted`);
     }
   });
 });
