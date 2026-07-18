@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const tokensCss = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8');
-const globalCss = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
+const tokensCss = readFileSync(resolve(process.cwd(), 'src/styles/tokens.css'), 'utf8');
+const globalCss = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8');
 
 function expectedBackground(token: string, value: string): string {
   const resolvedToken = getComputedStyle(document.documentElement).getPropertyValue(token).trim();

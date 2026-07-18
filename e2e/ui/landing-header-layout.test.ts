@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser, Page } from 'puppeteer';
 import { NAV_LINKS, HEADER_SIGN_IN } from '../../landing/src/content/site';
 import { launchBrowser } from '../helpers';
 
-const tokensCss = readFileSync(new URL('../../landing/src/styles/tokens.css', import.meta.url), 'utf8');
-const globalCss = readFileSync(new URL('../../landing/src/styles/global.css', import.meta.url), 'utf8');
+const tokensCss = readFileSync(resolve(process.cwd(), 'landing/src/styles/tokens.css'), 'utf8');
+const globalCss = readFileSync(resolve(process.cwd(), 'landing/src/styles/global.css'), 'utf8');
 const signInWords = HEADER_SIGN_IN.label.split(/\s+/);
 
 const word = (text: string) => `

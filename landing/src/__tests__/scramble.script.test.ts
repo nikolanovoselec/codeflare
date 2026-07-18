@@ -19,9 +19,10 @@
  * document.fonts BEFORE importing the module.
  */
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const globalCss = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
+const globalCss = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8');
 
 // From the script: one interval tick is TICK_MS=50ms.
 // hold: frame>60 (60 ticks * 50ms = 3000ms min)
