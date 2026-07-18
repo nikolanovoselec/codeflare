@@ -1,11 +1,10 @@
-import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@solidjs/testing-library';
 import SplashCursor from '../../components/SplashCursor';
+import appTokensCss from '../../styles/design-tokens.css?raw';
+import appBaseCssSource from '../../index.css?raw';
 
-const appTokensCss = readFileSync(new URL('../../styles/design-tokens.css', import.meta.url), 'utf8');
-const appBaseCss = readFileSync(new URL('../../index.css', import.meta.url), 'utf8')
-  .replace(/^@import[^;]+;\s*$/gm, '');
+const appBaseCss = appBaseCssSource.replace(/^@import[^;]+;\s*$/gm, '');
 
 function expectedAppBackground(): string {
   const resolvedToken = getComputedStyle(document.documentElement).getPropertyValue('--color-bg-base').trim();
