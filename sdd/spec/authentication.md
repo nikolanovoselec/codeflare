@@ -630,7 +630,7 @@ None.
 **Constraints:**
 
 - Redirect uses `location.replace`, not `href`, so the dead page is not left in history.
-- API responses declared `text/html` or beginning with an HTML document root are treated as login responses because API success contracts are JSON.
+- API responses declared `text/html` or beginning with an HTML document root are treated as login responses.
 - Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding); resume revalidation runs only inside the authenticated app shell.
 - Resume checks are deduplicated and event listeners are removed with the app lifecycle.
 - Only fingerprinted build assets are immutable; HTML and missing-asset SPA fallbacks remain revalidating.

@@ -12,6 +12,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Per-AC test evidence now supports one or more named anchors** ([REQ-AGENT-094](agents.md#req-agent-094-per-ac-test-evidence-supports-multiple-anchors); Implemented). Every non-manual AC still requires resolving behavioral evidence, while multiple independently validated blocks or files may jointly verify one behavior.
 
+- **Agent workflow traceability now separates graph reminders and Import Mode transition rules** ([REQ-AGENT-091](agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders), [REQ-AGENT-092](agents.md#req-agent-092-import-transition-review-suppression), and [REQ-AGENT-093](agents.md#req-agent-093-import-mode-tdd-status-assignment); Implemented). Existing graph-first startup and soft-nudge behavior, transition-time review suppression, and TDD-aware imported-requirement status assignment now have dedicated requirements; runtime behavior is unchanged.
+
 ## 2026-07-17
 
 - **“Agentic engineering engine” branding now appears consistently across current product surfaces** ([REQ-LANDING-003](landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-SETUP-010](setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page), and [REQ-AUTH-012](authentication.md#req-auth-012-welcome-email-on-first-login); Implemented). The SPA metadata, install manifest, login and onboarding surfaces, subscription and usage views, welcome email, documentation, and seeded tutorial use the current phrase while historical changelog wording remains archived.

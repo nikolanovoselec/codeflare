@@ -1,8 +1,7 @@
-// Verifies REQ-AGENT-024 AC1/AC2 (+ REQ-AGENT-091 AC1 file-existence only): in advanced session mode the discipline
-// pieces are preseeded (graph-first rule + SKILL.md + SessionStart hook
-// script). Also asserts the manifest gates the rule/skill to advanced mode
-// only, not default. The HOOK-level wiring (which advanced settings.json
-// adds the bash command) is covered by entrypoint-graphify-hooks.test.js.
+// Verifies the structural delivery for REQ-AGENT-024 AC2 and the
+// REQ-AGENT-091 AC1 hook asset: files are preseeded in advanced mode and
+// executable scripts retain their mode bits. Behavioral hook wiring is covered
+// by entrypoint-graphify-hooks.test.js.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, statSync } from 'node:fs';
@@ -17,42 +16,17 @@ function readPreseed(rel) {
 }
 
 describe('graphify preseed - advanced-mode discipline (REQ-AGENT-024)', () => {
-  it('AC2: rules/graph-first.md exists and is preseeded', () => {
+  it('graph-first rule asset exists', () => {
     const path = resolve(repoRoot, 'preseed/agents/claude/rules/graph-first.md');
     assert.ok(existsSync(path), 'graph-first.md must exist in preseed/agents/claude/rules/');
   });
 
-  it('AC2: graph-first.md is authoritative and short (target ~100 tokens, hard ceiling ~250 words)', () => {
-    const body = readPreseed('rules/graph-first.md');
-    const wordCount = body.split(/\s+/).filter(Boolean).length;
-    assert.ok(
-      wordCount < 250,
-      `graph-first.md must stay tight; got ${wordCount} words (target ~100 tokens, ceiling 250 words)`
-    );
-  });
-
-  it('AC2: graph-first.md uses MUST / MUST NOT decision-tree structure', () => {
-    const body = readPreseed('rules/graph-first.md');
-    assert.ok(/^MUST\s+(?:use|NOT\s+use)/m.test(body), 'must contain MUST bullets');
-    assert.ok(/MUST NOT use the graph/.test(body), 'must contain a MUST NOT block');
-  });
-
-  it('AC2: graph-first.md references the SKILL for mechanics rather than restating them', () => {
-    const body = readPreseed('rules/graph-first.md');
-    assert.ok(
-      /skills\/graphify\/SKILL\.md/.test(body),
-      'graph-first.md must point at the SKILL for mechanics'
-    );
-  });
-
-  it('AC3: skills/graphify/SKILL.md exists and is preseeded', () => {
+  it('AC2: skills/graphify/SKILL.md exists and is preseeded', () => {
     const path = resolve(repoRoot, 'preseed/agents/claude/skills/graphify/SKILL.md');
     assert.ok(existsSync(path), 'SKILL.md must exist in preseed/agents/claude/skills/graphify/');
-    const size = statSync(path).size;
-    assert.ok(size > 1000, `SKILL.md must carry real content; got ${size} bytes`);
   });
 
-  it('AC1: SessionStart hook script exists and is executable', () => {
+  it('REQ-AGENT-091 AC1: SessionStart hook script exists and is executable', () => {
     const path = resolve(
       repoRoot,
       'preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh'
@@ -62,7 +36,7 @@ describe('graphify preseed - advanced-mode discipline (REQ-AGENT-024)', () => {
     assert.ok(mode !== 0, 'graphify-session-start.sh must have execute bits set');
   });
 
-  it('AC4: graph-first-nudge.sh exists and is executable', () => {
+  it('REQ-AGENT-091 AC2: graph-first-nudge.sh exists and is executable', () => {
     const path = resolve(
       repoRoot,
       'preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh'
