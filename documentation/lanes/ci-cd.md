@@ -8,6 +8,8 @@ GitHub Actions workflows, test suites, E2E infrastructure, and deployment pipeli
 
 - [CI/CD (GitHub Actions)](#cicd-github-actions)
 - [Testing](#testing)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ---
 
