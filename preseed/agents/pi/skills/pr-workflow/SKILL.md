@@ -1,6 +1,6 @@
 ---
 name: pr-workflow
-description: "Pull request creation workflow for Pi. Covers commit/diff review, title and body drafting, REQ backlinks, push/upstream handling, independent CI request dispatch, and visible PR-boundary reviewers."
+description: Create a pull request with review, REQ backlinks, push, and CI handoff.
 version: 3.0.0
 ---
 

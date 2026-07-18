@@ -258,7 +258,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
-  it('preseeds work continuity, review push, and result handoff gates into every generated instruction surface', () => {
+  it('preseeds runtime-appropriate continuity, push, and result handoff gates', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -280,12 +280,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       const modes = entries.flatMap((entry) => entry.modes).sort();
       expect(modes, `${key} should have generated mode entries`).toEqual(['advanced', 'default']);
       for (const entry of entries) {
-        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`).toEqual(expect.arrayContaining([
-          'Work continuity',
-          'Review push gate',
-          'Review-result handoff gate',
-          'CI-result handoff gate',
-        ]));
+        const requiredHeadings = key === '.pi/agent/AGENTS.md'
+          ? ['Work continuity', 'Review push gate', 'CI-result handoff gate']
+          : ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate'];
+        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`)
+          .toEqual(expect.arrayContaining(requiredHeadings));
       }
     }
   });

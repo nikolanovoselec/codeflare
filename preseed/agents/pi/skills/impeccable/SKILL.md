@@ -1,6 +1,6 @@
 ---
 name: impeccable
-description: Use for frontend design, redesign, UX critique, accessibility, visual polish, responsive behavior, theming, or interaction work.
+description: Use for frontend design, UX critique, accessibility, polish, and interaction.
 version: 3.9.1
 user-invocable: true
 argument-hint: "[craft|shape · audit|critique · animate|bolder|colorize|delight|layout|overdrive|quieter|typeset · adapt|clarify|distill · harden|onboard|optimize|polish · init|document|extract|live] [target]"

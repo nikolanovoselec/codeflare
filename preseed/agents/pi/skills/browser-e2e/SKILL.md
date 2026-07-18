@@ -1,6 +1,6 @@
 ---
 name: browser-e2e
-description: Verify a deployed UI against intent in a real browser, including interaction, mobile layout, and visual correctness.
+description: Verify a deployed UI in a browser for interaction, mobile layout, and visuals.
 ---
 
 # Browser e2e (Pi)

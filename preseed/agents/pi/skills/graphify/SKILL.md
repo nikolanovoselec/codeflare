@@ -1,6 +1,6 @@
 ---
 name: graphify
-description: Build, refresh, query, explain, or trace repository, Vault, session, and global Graphify knowledge.
+description: Build, refresh, query, explain, or trace Graphify repo and Vault knowledge.
 ---
 
 # Graphify in Pi / Codeflare

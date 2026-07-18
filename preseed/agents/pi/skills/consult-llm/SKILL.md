@@ -1,6 +1,6 @@
 ---
 name: consult-llm
-description: User-invoked only for explicit requests to consult GPT, ChatGPT, Gemini, OpenAI, or another external LLM.
+description: User-invoked only for explicit requests to consult an external LLM.
 ---
 
 # Consult LLM (Pi): Query External AI Models

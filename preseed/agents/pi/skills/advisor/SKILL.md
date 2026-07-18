@@ -1,6 +1,6 @@
 ---
 name: advisor
-description: User-invoked only; use advisor solely when the current request explicitly asks for it.
+description: User-invoked only; use advisor solely when the user explicitly requests advisor.
 ---
 
 # Advisor (Pi): User-Invoked Stronger-Model Review

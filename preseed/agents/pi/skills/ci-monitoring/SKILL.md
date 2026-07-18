@@ -1,6 +1,6 @@
 ---
 name: ci-monitoring
-description: Launch one independent attached Pi CI monitor after an eligible Git event or explicit user request.
+description: Launch an independent Pi CI monitor after an eligible Git event or user request.
 version: 2.0.0
 ---
 

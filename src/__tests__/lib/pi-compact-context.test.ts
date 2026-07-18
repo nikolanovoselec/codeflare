@@ -35,6 +35,46 @@ const HIDDEN_INTERNAL_SKILLS = [
   'tdd-enforce',
 ] as const;
 
+const COMPACT_DESCRIPTION_TRIGGERS: Record<string, string[]> = {
+  advisor: ['user-invoked', 'advisor'],
+  'agents-sdk': ['Cloudflare', 'Agents SDK'],
+  'api-design': ['REST API'],
+  'backend-patterns': ['backend'],
+  'browser-e2e': ['deployed UI', 'browser'],
+  'browser-run': ['blocked', 'browser'],
+  'ci-monitoring': ['CI monitor'],
+  cloudflare: ['Cloudflare', 'Workers'],
+  'cloudflare-email-service': ['email', 'Cloudflare'],
+  'cloudflare-one': ['Cloudflare One', 'Zero Trust'],
+  'cloudflare-one-migrations': ['migrations', 'Cloudflare One'],
+  'cloudflare-stack': ['new project', 'Cloudflare'],
+  'consult-llm': ['user-invoked', 'external LLM'],
+  'content-hash-cache-pattern': ['SHA-256', 'cache'],
+  'database-migrations': ['database migration'],
+  'deploy-credentials': ['GitHub', 'Cloudflare', 'credentials'],
+  'deployment-patterns': ['deployment', 'CI/CD'],
+  'design-taste-frontend': ['frontend', 'design'],
+  'durable-objects': ['Durable Objects'],
+  'emil-design-eng': ['UI', 'animation'],
+  'frontend-components': ['UI', 'repeated'],
+  'frontend-patterns': ['React', 'Next.js'],
+  graphify: ['Graphify', 'query'],
+  impeccable: ['frontend', 'design'],
+  'iterative-retrieval': ['retrieval', 'subagent'],
+  'pi-mcp-adapter': ['MCP', 'proxy', 'context-mode'],
+  'pi-web-access': ['web', 'fetch'],
+  'pr-workflow': ['pull request'],
+  'sandbox-sdk': ['Cloudflare', 'Sandbox SDK'],
+  'search-first': ['research', 'coding'],
+  ship: ['ship', 'deploy'],
+  'turnstile-spin': ['Turnstile'],
+  'vault-note-capture': ['note', 'save'],
+  'vault-operations': ['Vault'],
+  'web-perf': ['web performance', 'Core Web Vitals'],
+  'workers-best-practices': ['Cloudflare Workers', 'production'],
+  wrangler: ['Wrangler'],
+};
+
 const PROACTIVE_SKILLS = [
   'browser-run',
   'cloudflare',
@@ -56,9 +96,18 @@ function frontmatter(content: string): Record<string, string> {
   return Object.fromEntries(
     (content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
       .split('\n')
-      .map((line) => line.split(/:\s*/, 2))
+      .map((line) => {
+        const separator = line.indexOf(':');
+        return separator < 0 ? [] : [line.slice(0, separator), line.slice(separator + 1).trim()];
+      })
       .filter((parts) => parts.length === 2),
   );
+}
+
+function skillDescription(content: string): string {
+  const raw = frontmatter(content).description ?? '';
+  if (!raw.startsWith('"')) return raw;
+  return JSON.parse(raw) as string;
 }
 
 function skillDoc(name: string, mode: 'default' | 'advanced' = 'advanced') {
@@ -128,6 +177,20 @@ describe('REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Cla
       const doc = skillDoc(name);
       expect(doc, `${name} should be seeded`).toBeTruthy();
       expect(frontmatter(doc!.content)['disable-model-invocation']).not.toBe('true');
+    }
+  });
+
+  it('keeps compact descriptions unambiguous without losing routing triggers', () => {
+    for (const [name, triggers] of Object.entries(COMPACT_DESCRIPTION_TRIGGERS)) {
+      const doc = skillDoc(name);
+      expect(doc, `${name} should be seeded`).toBeTruthy();
+      const description = skillDescription(doc!.content);
+      if (name !== 'pi-mcp-adapter') {
+        expect(description.length, `${name} description length`).toBeLessThanOrEqual(80);
+      }
+      for (const trigger of triggers) {
+        expect(description.toLowerCase(), `${name} trigger: ${trigger}`).toContain(trigger.toLowerCase());
+      }
     }
   });
 

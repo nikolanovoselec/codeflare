@@ -1,6 +1,6 @@
 ---
 name: frontend-components
-description: Mandatory composability and behavioral-test standards for UI with repeated structure, including landing pages and dashboards.
+description: Enforce composable UI and behavioral tests for repeated structure.
 ---
 
 # Frontend Components: Build It Composable, Control It Centrally, Test the Behavior

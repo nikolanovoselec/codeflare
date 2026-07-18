@@ -527,8 +527,9 @@ Copilot, OpenCode, and Antigravity. Pi instead receives a compact `AGENTS.md`:
 path-scoped canonical rules become five grouped native skills, rules already owned by a
 canonical skill are not duplicated, and long-form environment/coding/Graphify/build principles
 are condensed into the Pi-native constitution. The Pi-native Git/constitution adaptations retain
-Pi-only event mechanics. The review push gate remains in that generated Pi instruction
-surface: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
+Pi-only event mechanics. Shared review mechanics live once in the Git workflow while the
+constitution retains its independent push, CI-result, and non-blocking gates. The review push
+gate remains in that generated Pi instruction surface: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
 incomplete for the current head unless the user explicitly authorizes it. Implements
 [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents).
@@ -564,8 +565,8 @@ always-on rule kernel, progressively disclosed adapted skills/agents, and native
 extensions that reimplement the CC-only surfaces: slash commands, hooks, memory capture,
 and review enforcement. High-frequency proactive skills stay in Pi's startup catalog;
 only command/event/reviewer-owned internal skills carry `disable-model-invocation: true`;
-proactive skills remain model-visible. The native `capability` tool keeps
-basic/question/Graphify tools active initially and activates other
+proactive skills remain model-visible with concise trigger-preserving Codeflare descriptions; upstream skill metadata remains unchanged. The native
+`capability` tool keeps basic/question/Graphify tools active initially and activates other
 registered tools additively. PR-boundary and memory/Vault owners activate `subagent` before
 emitting their unchanged public follow-ups.
 

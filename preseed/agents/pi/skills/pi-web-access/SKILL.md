@@ -1,6 +1,6 @@
 ---
 name: pi-web-access
-description: Search the web or fetch URLs in Pi; choose among web search, direct fetch, indexed fetch, curl, and browser-run.
+description: Search the web or fetch URLs; choose direct, indexed, curl, or browser access.
 ---
 
 # Web Access (Pi)

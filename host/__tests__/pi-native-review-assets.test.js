@@ -72,8 +72,8 @@ function compactPiSkillDescription(content) {
     if (description.startsWith('"') && description.endsWith('"')) {
       try { description = JSON.parse(description); } catch { /* Preserve the raw YAML scalar. */ }
     }
-    if (description.length <= 120) return `description: ${JSON.stringify(description)}`;
-    const prefix = description.slice(0, 117).replace(/\s+\S*$/, '').trimEnd();
+    if (description.length <= 80) return `description: ${JSON.stringify(description)}`;
+    const prefix = description.slice(0, 77).replace(/\s+\S*$/, '').trimEnd();
     return `description: ${JSON.stringify(`${prefix}…`)}`;
   });
 }

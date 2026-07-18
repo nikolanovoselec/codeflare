@@ -1,6 +1,6 @@
 ---
 name: browser-run
-description: Read blocked public pages or interact with a rendered page through Cloudflare Browser Run and chrome-devtools.
+description: Read blocked pages or interact with them using Cloudflare Browser Run.
 ---
 
 # Browser Run (Pi)

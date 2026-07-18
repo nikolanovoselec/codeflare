@@ -91,6 +91,35 @@ const CLAUDE_ONLY_SKILLS = new Set(['consult-llm', 'impeccable']);
 
 // Pi hides only deterministic internals that are loaded by a named command,
 // extension event, or reviewer embedding. Proactive skills stay model-visible.
+const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
+  ['agents-sdk', 'Build AI agents on Cloudflare with Agents SDK state, Workflows, and WebSockets.'],
+  ['api-design', 'Design REST API resources, status codes, pagination, filtering, and errors.'],
+  ['backend-patterns', 'Apply backend architecture, API, database, and Node.js server patterns.'],
+  ['cloudflare', 'Cloudflare reference for Workers, Pages, storage, AI, networking, and security.'],
+  ['cloudflare-email-service', 'Send Cloudflare email and configure routing, SPF, DKIM, and DMARC.'],
+  ['cloudflare-one', 'Design Cloudflare One Zero Trust with Access, Gateway, WARP, and DLP.'],
+  ['cloudflare-one-migrations', 'Plan migrations from VPN, Zscaler, or Palo Alto to Cloudflare One.'],
+  ['cloudflare-stack', 'Default Cloudflare stack for a new project without stated preferences.'],
+  ['content-hash-cache-pattern', 'Cache file processing by SHA-256 content hash with automatic invalidation.'],
+  ['database-migrations', 'Plan database migrations, rollbacks, data changes, and zero-downtime rollout.'],
+  ['deploy-credentials', 'Use GitHub and Cloudflare credentials safely for Git, Wrangler, and deploys.'],
+  ['deployment-patterns', 'Design deployment and CI/CD workflows, health checks, rollbacks, and containers.'],
+  ['design-taste-frontend', 'Design distinctive frontend landing pages, portfolios, and redesigns.'],
+  ['durable-objects', 'Build Cloudflare Durable Objects with RPC, SQLite, alarms, and WebSockets.'],
+  ['emil-design-eng', "Apply Emil Kowalski's UI polish, component, interaction, and animation."],
+  ['frontend-patterns', 'Apply React and Next.js patterns for state, performance, and architecture.'],
+  ['iterative-retrieval', 'Refine retrieval iteratively to give a subagent only the context it needs.'],
+  ['sandbox-sdk', 'Build secure code execution and CI environments with Cloudflare Sandbox SDK.'],
+  ['search-first', 'Research existing libraries and patterns before coding a custom solution.'],
+  ['ship', 'Ship, deploy, publish, or push a project to GitHub and Cloudflare.'],
+  ['turnstile-spin', 'Set up Cloudflare Turnstile widgets and server-side siteverify validation.'],
+  ['vault-note-capture', 'Capture a note when the user says note, save, write down, or remember this.'],
+  ['vault-operations', 'Operate the persistent /home/user/Vault layout, sync, and graph safely.'],
+  ['web-perf', 'Audit web performance and Core Web Vitals with Chrome DevTools.'],
+  ['workers-best-practices', 'Review Cloudflare Workers for production correctness, security, and efficiency.'],
+  ['wrangler', 'Use Cloudflare Wrangler to deploy and manage Workers, KV, R2, D1, and Queues.'],
+]);
+
 const PI_MODEL_HIDDEN_SKILLS = new Set([
   'doc-enforce',
   'doc-enforce-lanes',
@@ -387,14 +416,17 @@ const PI_SDD_SKILLS = new Set([
 
 const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use Bash/Read/Grep/Find/Edit/Write directly; do not assume context-mode \`ctx_*\` tools exist.\n- Use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. If a native graphify tool resolves the workspace root instead of the active repo, use the CLI fallback with \`--graph <repo>/graphify-out/graph.json\`.\n- Use Pi's \`subagent\` tool for subagents. For Plan Mode, invoke the \`Plan\` agent or produce an explicit plan and wait for user approval before source edits.\n`;
 
-function compactPiSkillDescription(content) {
+function compactPiSkillDescription(content, skillName) {
   return content.replace(/^description:\s*(.+)$/m, (_match, rawDescription) => {
+    const override = PI_SKILL_DESCRIPTION_OVERRIDES.get(skillName);
+    if (override) return `description: ${JSON.stringify(override)}`;
+
     let description = rawDescription.trim();
     if (description.startsWith('"') && description.endsWith('"')) {
       try { description = JSON.parse(description); } catch { /* Preserve the raw YAML scalar. */ }
     }
-    if (description.length <= 120) return `description: ${JSON.stringify(description)}`;
-    const prefix = description.slice(0, 117).replace(/\s+\S*$/, '').trimEnd();
+    if (description.length <= 80) return `description: ${JSON.stringify(description)}`;
+    const prefix = description.slice(0, 77).replace(/\s+\S*$/, '').trimEnd();
     return `description: ${JSON.stringify(`${prefix}…`)}`;
   });
 }
@@ -419,7 +451,7 @@ function adaptPiSkillContent(content, withinClaude) {
       : `${next}${PI_SDD_COMPATIBILITY_NOTE}`;
   }
   if (!withinClaude.endsWith('SKILL.md')) return next;
-  return setPiModelVisibility(compactPiSkillDescription(next), skillName);
+  return setPiModelVisibility(compactPiSkillDescription(next, skillName), skillName);
 }
 
 /** Adapt skill content for the target runtime. */
@@ -622,6 +654,11 @@ async function generate() {
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
 
   validateModes(manifest, 'Claude');
+  for (const [skillName, description] of PI_SKILL_DESCRIPTION_OVERRIDES) {
+    if (description.length > 80) {
+      throw new Error(`Pi skill description exceeds 80 characters: ${skillName}`);
+    }
+  }
 
   // Read all manifest-listed files (manifest-driven, not filesystem-driven,
   // so non-manifest files like plugins/cache/** are safely ignored)

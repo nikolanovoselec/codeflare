@@ -2,9 +2,9 @@
 
 ## Environment and code
 
-Default new, preference-free projects to Cloudflare and load `cloudflare-stack`. This container is resource-constrained: never run local builds, test suites, type checks, linters, formatters, or dev servers unless the user explicitly accepts the freeze risk; use CI. Prefix browser-opening CLIs with `BROWSER=""`. Use Git HTTPS, noreply GitHub identity, `printf '%s'` for secrets, and never commit credentials. Explain outcomes without jargon.
+Default new, preference-free projects to Cloudflare and load `cloudflare-stack`. This resource-constrained container forbids local builds, tests, type checks, lint, formatting, and dev servers unless the user accepts the freeze risk; use CI. Prefix browser-opening CLIs with `BROWSER=""`. Use Git HTTPS, noreply identity, `printf '%s'` for secrets, and never commit credentials. Explain outcomes plainly.
 
-Prefer immutable updates; never store JSON patches with `undefined`. Validate user/file/network boundaries, trust typed internal calls, and move owned docs with public API, configuration, workflow, or architecture changes. For auth, input, secrets, uploads, or external APIs, apply the security checklist. Use Graphify first for broad architecture/call-flow questions when a repo graph exists, then refresh it safely after source edits; skip it for known-file edits and Git/CI state.
+Prefer immutable updates and never store JSON patches with `undefined`. Validate user/file/network boundaries; trust typed internal calls. Move owned docs with public API, configuration, workflow, or architecture changes. Apply the security checklist to auth, input, secrets, uploads, and external APIs. Use Graphify first for broad architecture/call-flow questions when a repo graph exists, then refresh safely after source edits; skip known-file edits and Git/CI state.
 
 ## Four mandates
 
@@ -25,8 +25,8 @@ Only a direct current-session user instruction to go **FULLY AUTONOMOUS** activa
 
 ## Review and CI gates
 
-- Obey each Pi PR-boundary plan exactly once: visible background reviewers first with inherited context disabled, independent CI last. Preserve supplied ranges, payloads, and autonomy markers.
-- Wait for every required reviewer before mutation. First publish one triage covering validity, proportionality, and the smallest reuse-based fix; reject unsupported proposals and apply legitimate fixes unless approval was requested. The root alone writes files, Git state, and triage.
+PR-boundary ordering, payload, triage, and root-ownership details live in Git Workflow.
+
 - **Review push gate:** do not push while required review is running, pending, missing, stale, or incomplete for the current head unless the user explicitly authorizes it.
 - **CI-result handoff gate:** after `CI_RESULT`, the next response begins with its exact result, monitored head, available run ID/URL, and next action before any analysis, tool call, task update, fix, deploy, or push.
 - **No blocking waits:** long CI, deploy, log, watch, or polling work runs detached or in a background agent.

@@ -36,10 +36,6 @@ With `sdd/` and `sdd/README.md`, plans list required report-only lanes for work 
 
 ## Hard obligations
 
-- Stop after successful push/PR creation so its plan can arrive.
 - Never recreate or retrigger a plan or use a no-op PR edit for delivery.
-- Execute each plan once: all reviewers first, CI last.
-- Pass explicit cwd/review state and submit returned CI unchanged once.
-- Never run long CI, deploy, log, watch, or polling commands in root.
 - Do not push a new head before required current-head review completes unless explicitly authorized.
 - Never deploy until every required CI check is green.
