@@ -247,14 +247,14 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 2. The CTA carries `aria-label="Sign in"` so its accessible name and purpose stay clear regardless of the visible flourish. <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @manual -->
 3. The CTA uses the page's primary white and the shared hover/focus scramble hook. <!-- @impl: landing/src/components/Header.astro::nav-signin--matrix --> <!-- @impl: landing/src/styles/global.css::nav-signin--matrix --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @manual -->
 4. Without JavaScript or under reduced motion, the visible sign-in label remains static and readable. <!-- @impl: landing/src/components/Header.astro::nav-signin--matrix --> <!-- @impl: landing/src/scripts/scramble.ts::setupHoverElement --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @test: landing/src/__tests__/scramble.script.test.ts (REQ-LANDING-001: under prefers-reduced-motion the element text is NOT mutated) -->
-5. Wider hover-decode frames expand the CTA border while every live glyph remains inside it. <!-- @impl: landing/src/styles/global.css::scramble-box--center --> <!-- @test: landing/src/__tests__/scramble.script.test.ts (REQ-LANDING-006: the hover-decode sign-in CTA keeps live words in flow so its border expands) --> <!-- @test: e2e/ui/landing-header-layout.test.ts (landing Matrix CTA layout isolation (REQ-LANDING-006)) -->
-6. At desktop link widths, the CTA animation leaves every navigation-link rectangle fixed. <!-- @impl: landing/src/components/Header.astro::nav-signin-slot --> <!-- @impl: landing/src/styles/global.css::nav-signin-slot --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @test: e2e/ui/landing-header-layout.test.ts (landing Matrix CTA layout isolation (REQ-LANDING-006)) -->
+5. During the hover decode the CTA keeps its resting box; over-wide churn frames paint symmetrically past the border without clipping. <!-- @impl: landing/src/styles/global.css::scramble-box--center --> <!-- @test: landing/src/__tests__/scramble.script.test.ts (REQ-LANDING-006: the hover-decode sign-in CTA paints churn on a centered overlay above a fixed-width box) --> <!-- @test: e2e/ui/landing-header-layout.test.ts (landing Matrix CTA layout isolation (REQ-LANDING-006)) -->
+6. The CTA animation leaves every navigation-link rectangle fixed. <!-- @impl: landing/src/styles/global.css::scramble-box--center --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) --> <!-- @test: e2e/ui/landing-header-layout.test.ts (landing Matrix CTA layout isolation (REQ-LANDING-006)) -->
 
 **Constraints:**
 
 - The visible flourish never removes the accessible or semantic sign-in meaning (aria-label kept, href unchanged).
 - Client-side scramble is enhancement-only; the button is fully readable and usable without JavaScript and under reduced-motion.
-- The header reserves a right-anchored desktop slot for the maximum decode footprint; below the link breakpoint, the wrapper keeps the CTA's prior content-sized behavior.
+- The CTA is content-sized at every breakpoint — no reserved slot or width lock; sibling stability comes from the fixed resting box with symmetric overlay spill.
 - No new color or font: the CTA colour is the existing `--text-primary` token; no new animation system (reuses `scramble.ts`).
 
 **Priority:** P3

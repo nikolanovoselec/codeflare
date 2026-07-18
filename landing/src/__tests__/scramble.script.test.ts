@@ -225,7 +225,7 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(liveDeviated).toBe(true); // the overlay actually animated
   });
 
-  it('REQ-LANDING-006: the hover-decode sign-in CTA keeps live words in flow so its border expands', async () => {
+  it('REQ-LANDING-006: the hover-decode sign-in CTA paints churn on a centered overlay above a fixed-width box', async () => {
     const el = document.createElement('a');
     el.setAttribute('data-scramble-hover', '');
     el.textContent = 'Enter The Matrix';
@@ -241,9 +241,10 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     style.textContent = globalCss;
     document.head.appendChild(style);
 
-    // "Enter" + "The" + "Matrix" -> three centered in-flow grid boxes. The live
-    // churn contributes width so the button border keeps its expanding animation;
-    // Header.astro isolates that expansion from adjacent links in a fixed slot.
+    // "Enter" + "The" + "Matrix" -> three centered overlay boxes. The ghost
+    // (in flow) fixes each box's width, so the button never changes size and
+    // adjacent nav links never move; the live churn paints on an absolute,
+    // centered overlay whose over-wide frames spill symmetrically past the box.
     const boxes = el.querySelectorAll<HTMLElement>('.scramble-box');
     expect(boxes.length).toBe(3);
     const labels: string[] = [];
@@ -254,8 +255,9 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
       expect(ghost).not.toBeNull();
       expect(live).not.toBeNull();
       expect(live!.style.width).toBe(''); // no stale inline pixel lock
-      expect(getComputedStyle(box).display).toBe('inline-grid');
-      expect(getComputedStyle(live!).position).toBe('static');
+      expect(getComputedStyle(box).display).toBe('inline-block');
+      expect(getComputedStyle(live!).position).toBe('absolute');
+      expect(getComputedStyle(live!).textAlign).toBe('center');
       expect(live!.textContent).toBe(ghost!.textContent);
       labels.push(ghost!.textContent ?? '');
     }

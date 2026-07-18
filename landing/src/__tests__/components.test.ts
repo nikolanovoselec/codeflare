@@ -317,6 +317,6 @@ describe('header sign-in CTA (REQ-LANDING-006)', () => {
     expect(cta.classList.contains('nav-signin--matrix')).toBe(true);
     expect(cta.hasAttribute('data-scramble-hover')).toBe(true);
     expect(nav.querySelector('.nav-right > .nav-links')).not.toBeNull();
-    expect(nav.querySelector('.nav-right > .nav-signin-slot > .nav-signin')).toBe(cta);
+    expect(nav.querySelector('.nav-right > .nav-signin')).toBe(cta);
   });
 });

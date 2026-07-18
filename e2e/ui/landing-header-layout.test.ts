@@ -44,11 +44,9 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
             <ul class="nav-links">
               ${NAV_LINKS.map((link) => `<li><a>${link.label}</a></li>`).join('')}
             </ul>
-            <span class="nav-signin-slot">
-              <a class="btn btn-ghost btn-sm nav-signin nav-signin--matrix">
-                ${signInWords.map(word).join(' ')}
-              </a>
-            </span>
+            <a class="btn btn-ghost btn-sm nav-signin nav-signin--matrix">
+              ${signInWords.map(word).join(' ')}
+            </a>
           </div>
         </div></nav>
       </body></html>`);
@@ -76,7 +74,7 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
     };
   });
 
-  it.each([900, 1280])('lets the button border expand at %ipx without moving any navigation-link rectangle', async (viewportWidth) => {
+  it.each([900, 1280])('keeps the button box fixed at %ipx while churn spills symmetrically, without moving any navigation-link rectangle', async (viewportWidth) => {
     await page.setViewport({ width: viewportWidth, height: 220, deviceScaleFactor: 1 });
     await page.evaluate((labels) => {
       document.querySelectorAll<HTMLElement>('.nav-signin--matrix .scramble-word')
@@ -92,11 +90,18 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 
     const during = await geometry();
-    expect(during.button.width).toBeGreaterThan(before.button.width);
+    // The button box never changes during churn — that is what keeps siblings still.
+    expect(during.button.width).toBeCloseTo(before.button.width, 3);
+    expect(during.button.left).toBeCloseTo(before.button.left, 3);
     expect(during.button.right).toBeCloseTo(before.button.right, 3);
-    during.words.forEach((wordRect) => {
-      expect(wordRect.left).toBeGreaterThanOrEqual(during.button.left);
-      expect(wordRect.right).toBeLessThanOrEqual(during.button.right);
+    // Over-wide frames spill symmetrically: each word overlay stays centered on
+    // the box it overflows instead of escaping one edge.
+    expect(during.words).toHaveLength(before.words.length);
+    during.words.forEach((wordRect, index) => {
+      const beforeRect = before.words[index]!;
+      const beforeCenter = beforeRect.left + beforeRect.width / 2;
+      const duringCenter = wordRect.left + wordRect.width / 2;
+      expect(duringCenter).toBeCloseTo(beforeCenter, 1);
     });
     expect(during.links).toHaveLength(NAV_LINKS.length);
     during.links.forEach((link, index) => {
