@@ -30,4 +30,12 @@ describe('test-anchor parser', () => {
 
     assert.deepEqual(parseTestAnchors(ac), []);
   });
+
+  it('rejects anchors without a named test block', () => {
+    const ac = '1. Observable behavior. ' +
+      '<!-- @test: src/empty.test.ts () --> ' +
+      '<!-- @test: src/whitespace.test.ts (   ) -->';
+
+    assert.deepEqual(parseTestAnchors(ac), []);
+  });
 });

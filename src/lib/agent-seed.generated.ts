@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = 'bc3ea16c507b4b37';
+export const PRESEED_CONTENT_HASH = 'f78a38fa672c4cdf';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -1029,7 +1029,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs",
     "contentType": "text/javascript; charset=utf-8",
-    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)].map((match) => ({\n    path: match[1],\n    blockTitle: match[2],\n  }));\n}\n",
+    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)]\n    .map((match) => ({\n      path: match[1].trim(),\n      blockTitle: match[2].trim(),\n    }))\n    .filter((anchor) => anchor.path.length > 0 && anchor.blockTitle.length > 0);\n}\n",
     "modes": [
       "advanced"
     ]
@@ -4286,7 +4286,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".codex/skills/spec-enforce-truth/references/parse-test-anchors.mjs",
     "contentType": "text/javascript; charset=utf-8",
-    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)].map((match) => ({\n    path: match[1],\n    blockTitle: match[2],\n  }));\n}\n",
+    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)]\n    .map((match) => ({\n      path: match[1].trim(),\n      blockTitle: match[2].trim(),\n    }))\n    .filter((anchor) => anchor.path.length > 0 && anchor.blockTitle.length > 0);\n}\n",
     "modes": [
       "advanced"
     ]
@@ -5349,7 +5349,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".gemini/skills/spec-enforce-truth/references/parse-test-anchors.mjs",
     "contentType": "text/javascript; charset=utf-8",
-    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)].map((match) => ({\n    path: match[1],\n    blockTitle: match[2],\n  }));\n}\n",
+    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)]\n    .map((match) => ({\n      path: match[1].trim(),\n      blockTitle: match[2].trim(),\n    }))\n    .filter((anchor) => anchor.path.length > 0 && anchor.blockTitle.length > 0);\n}\n",
     "modes": [
       "advanced"
     ]
@@ -6604,7 +6604,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".config/opencode/skills/spec-enforce-truth/references/parse-test-anchors.mjs",
     "contentType": "text/javascript; charset=utf-8",
-    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)].map((match) => ({\n    path: match[1],\n    blockTitle: match[2],\n  }));\n}\n",
+    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)]\n    .map((match) => ({\n      path: match[1].trim(),\n      blockTitle: match[2].trim(),\n    }))\n    .filter((anchor) => anchor.path.length > 0 && anchor.blockTitle.length > 0);\n}\n",
     "modes": [
       "advanced"
     ]
@@ -7681,7 +7681,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".pi/agent/skills/spec-enforce-truth/references/parse-test-anchors.mjs",
     "contentType": "text/javascript; charset=utf-8",
-    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)].map((match) => ({\n    path: match[1],\n    blockTitle: match[2],\n  }));\n}\n",
+    "content": "const TEST_ANCHOR_PATTERN = /<!--\\s*@test:\\s*(\\S+?)\\s*\\((.*?)\\)\\s*-->/g;\n\nexport function parseTestAnchors(acText) {\n  if (typeof acText !== 'string') return [];\n\n  return [...acText.matchAll(TEST_ANCHOR_PATTERN)]\n    .map((match) => ({\n      path: match[1].trim(),\n      blockTitle: match[2].trim(),\n    }))\n    .filter((anchor) => anchor.path.length > 0 && anchor.blockTitle.length > 0);\n}\n",
     "modes": [
       "advanced"
     ]
