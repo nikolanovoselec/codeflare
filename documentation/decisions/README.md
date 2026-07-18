@@ -119,6 +119,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification; test-anchor cardinality amended by [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Process, Agents |
 | [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety) | context-mode is opt-in in Pi pending upstream memory safety | Agents, Architecture, Reliability |
 | [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Per-AC test evidence permits multiple resolving anchors | Process, Agents, Testing |
+| [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned) | context-mode MCP registration is universal and entrypoint-owned | Agents, Architecture |
 
 ---
 
@@ -773,7 +774,7 @@ Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly c
 
 ### AD49: context-mode delivered as preseed plugin, not runtime install
 
-**Status:** Accepted (2026-05-10)
+**Status:** Accepted (2026-05-10); MCP registration wiring superseded by [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). The Custom-tier hook decision remains active.
 
 **Context:** [context-mode](https://github.com/mksglu/context-mode) reduces Claude Code's context-window pressure by routing tool calls through hooks that summarize before content lands in the conversation. It ships as an npm package whose Claude Code plugin metadata is normally written into the user's `~/.claude/plugins/` and `~/.claude/settings.json` by `claude plugin install context-mode`. During the first integration attempt (PR codeflare#293, since closed), a research subagent invoked that installer in the host's session and the upstream installer wrote `"matcher": null` for the SessionStart hook entry, which Claude Code 2.1.138 rejects with "Expected string, but received null", silently disabling every other hook in the file. The bug is recoverable for a single user but unacceptable as default behavior delivered to all paid users.
 
@@ -2637,7 +2638,7 @@ Manual verification became per-AC: an AC that cannot be automatically verified c
 
 **Status:** Accepted (2026-07-18)
 
-**Context:** [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) eliminated competing context-mode owners, but the upstream Pi adapter still keeps foreground lifecycle state in the long-lived Pi process and disables its bridge idle reaper. Long tool-heavy sessions can therefore exhaust the constrained container before Pi reaches a compaction boundary. The latest reviewed context-mode release remains 1.0.169, and Codeflare will not patch or fork either context-mode or Pi's MCP adapter. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::CONTEXT_MODE_PACKAGE = context-mode@1.0.169 -->
+**Context:** [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) eliminated competing context-mode owners, but the upstream Pi adapter still keeps foreground lifecycle state in the long-lived Pi process and disables its bridge idle reaper. Long tool-heavy sessions can therefore exhaust the constrained container before Pi reaches a compaction boundary. The latest reviewed context-mode release remains 1.0.169, and Codeflare will not patch or fork either package's lifecycle or ownership implementation; the existing image-build transforms remain limited to the ESM compatibility shim and update-probe suppression. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::CONTEXT_MODE_PACKAGE = context-mode@1.0.169 -->
 
 **Decision:** Keep the pinned context-mode package installed, but write its disabled marker (`extensions: []`, `skills: []`) on every container start. `/ctx on` remains an explicit per-container opt-in and continues to use AD101's single foreground owner; `/ctx off` removes the tools again. A later container start restores the disabled default. Reconsider default enablement only after a reviewed upstream release provides a memory-safe Pi lifecycle. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand -->
 
@@ -2664,6 +2665,22 @@ Manual verification became per-AC: an AC that cannot be automatically verified c
 **Consequences:** Existing Codeflare specs produce no new cardinality findings because every non-manual AC already has one anchor and none has multiple anchors. Future ACs may cite distributed evidence without artificial splitting; every extra anchor also creates another truth claim that can emit `spec-test-anchor-orphaned` or a test-quality finding.
 
 **Related REQ:** [REQ-AGENT-094](../../sdd/spec/agents.md#req-agent-094-per-ac-test-evidence-supports-multiple-anchors), [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification), [Test discipline](../lanes/preseed.md#agent-preseed-system).
+
+---
+
+### AD109: context-mode MCP registration is universal and entrypoint-owned
+
+**Category:** Agents, Architecture
+
+**Status:** Accepted (2026-07-18)
+
+**Context:** AD49 originally assigned Claude MCP registration to either plugin metadata or entrypoint according to tier. The shipped plugin manifest is now intentionally bare, while the container entrypoint writes the `context-mode` MCP registration for every Claude user. The image already installs and patches the package before any session starts.
+
+**Decision:** Keep one Claude registration owner: entrypoint always writes the MCP server configuration, independent of tier. Custom-tier Advanced delivery adds the context-mode plugin hooks only; it does not register a second MCP server. Pi uses its separate image-prewarmed package and remains disabled by default until `/ctx on` under [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety).
+
+**Consequences:** Claude users have the same manual `ctx_*` capability in every tier, Custom-tier users alone receive automatic routing hooks, first invocation performs no package download, and plugin metadata cannot create duplicate MCP registrations.
+
+**Related REQ:** [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install), [Pi preseed](../lanes/preseed.md#third-party-plugin-context-mode).
 
 ---
 

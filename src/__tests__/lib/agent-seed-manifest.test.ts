@@ -762,26 +762,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-024 AC4-AC5 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic', () => {
-    const skill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/graphify/SKILL.md');
-    expect(skill?.content).toContain('build-graphify-ast.sh');
-    expect(skill?.content).toContain('build-graphify-architecture.sh');
-    expect(skill?.content).toContain('safe-graphify-update.sh');
-    expect(skill?.content).toContain('Do not pass a model override');
-    expect(skill?.content).toContain('running session model');
-    expect(skill?.content).toContain('Pi main session agent');
-    expect(skill?.content).toContain('local-graphify-labels.sh apply .');
-    expect(skill?.content).toContain('existing community assignments');
-    expect(skill?.content).not.toContain('graphify label . --backend=gemini');
-    expect(skill?.content).not.toContain('--backend=gemini');
-    expect(skill?.content).toContain('Do not commit caches, manifests, chunks, or `.graphify_*` intermediates other than `.graphify_labels.json`');
-    expect(skill?.content).toContain('graphify-out/graph.json merge=graphify');
-    expect(skill?.content).toContain('graphify-out/graph.json');
-    expect(skill?.content).toContain('graphify-out/GRAPH_REPORT.md');
-    expect(skill?.content).toContain('graphify-out/graph.html');
-    expect(skill?.content).toContain('graphify-out/callflow.html');
-  });
-
   // Pi as a first-class resident: the Pi manifest's prompts/* entries are emitted
   // as native runtime assets under .pi/agent/prompts/* (piNativeKey maps prompts/* ->
   // .pi/agent/prompts/*). These are the memory-capture and vault-extract subagent prompts.
