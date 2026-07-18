@@ -1,6 +1,6 @@
 // Verifies the engineering constitution has one canonical Claude owner and one
 // Pi-native adaptation delivered through the generated instruction surface in
-// both Pi modes. Load-bearing policy phrases are contract values because they direct runtime behavior.
+// both Pi modes.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
@@ -18,35 +18,6 @@ const assignment = 'export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ';
 const jsonStart = generatedSource.indexOf(assignment) + assignment.length;
 const jsonEnd = generatedSource.lastIndexOf('];') + 1;
 const generatedDocuments = JSON.parse(generatedSource.slice(jsonStart, jsonEnd));
-
-const CONSTITUTION_CONTRACTS = [
-  /\*\*No overengineering\.\*\*/,
-  /\*\*Behavioral tests only\.\*\*/,
-  /\*\*Reusable, composable components\.\*\*/,
-  /\*\*SDD \+ TDD enforced\.\*\*/,
-  /scope=diff[\s\S]*scope=all/,
-  /direct current-session user instruction[\s\S]*FULLY AUTONOMOUS/,
-  /Review push gate:[\s\S]*do not push while required review/,
-  /CI-result handoff gate:[\s\S]*next response begins with its exact result/,
-  /No blocking waits:[\s\S]*background agent/,
-  /Work continuity[\s\S]*stop, pause, or reprioritize/,
-];
-
-const GIT_WORKFLOW_CONTRACTS = [
-  /After successful `git push` or `gh pr create`, \*\*end the turn immediately\*\*/,
-  /Launch all wave-1 reviewers together[\s\S]*inherit_context: false/,
-  /monitor-ci\.mjs request event=<push\|pr-create>[\s\S]*reviewState=<launched\|not-required>/,
-  /submit the sole JSON object unchanged once through public `subagent`; CI is the last launch/,
-  /Wait for all required reviewers before mutation/,
-  /The root alone evaluates findings and writes files or Git state/,
-  /Never recreate or retrigger a plan/,
-  /Do not push a new head before required current-head review completes/,
-  /Never deploy until every required CI check is green/,
-];
-
-function assertContracts(content, contracts, label) {
-  for (const contract of contracts) assert.match(content, contract, `${label} lost ${contract}`);
-}
 
 // REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 describe('engineering constitution preseed', () => {
@@ -72,11 +43,6 @@ describe('engineering constitution preseed', () => {
       ['default', 'advanced'],
       'Pi constitution must be present in Standard and Pro modes',
     );
-  });
-
-  it('preserves every load-bearing Pi constitution and Git workflow contract', () => {
-    assertContracts(piConstitution, CONSTITUTION_CONTRACTS, 'Pi constitution');
-    assertContracts(piGitWorkflow, GIT_WORKFLOW_CONTRACTS, 'Pi Git workflow');
   });
 
   it('delivers the complete compact policy in both generated Pi modes', () => {

@@ -40,9 +40,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 3. In default mode, GET `/` redirects to `/app/` and the landing is never served. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: keeps redirecting / to /app in default mode (no landing)) -->
 4. The static page composes the typed content model into the ordered enterprise narrative, shared proof terminals, folded substations, orchestration, cost, platform, governance, dogfood, FAQ, and contact surfaces without requiring JavaScript. <!-- @impl: landing/src/pages/index.astro::gate-req --> <!-- @test: landing/src/__tests__/index-page.test.ts (landing page composition (REQ-LANDING-001)) -->
 5. Client enhancements animate terminal proofs, capability text, orchestration, reveals, and the page flare while preserving the complete server-rendered resting state and honoring reduced-motion preferences. <!-- @test: landing/src/__tests__/scramble.script.test.ts (scramble.ts (REQ-LANDING-001)) --> <!-- @manual -->
-6. Backgrounding on a coarse-pointer device or losing WebGL context retires the flare and leaves the dark CSS page surface visible. <!-- @impl: landing/src/scripts/splash.ts::initFlareFluid --> <!-- @impl: landing/src/styles/global.css::html --> <!-- @test: landing/src/__tests__/splash.script.test.ts (landing flare-fluid lifecycle) -->
-7. At mobile, tablet, and desktop widths, peer and subordinate sections remain visually distinct without overlap, clipping, or hidden content. <!-- @test: landing/src/__tests__/components.test.ts (Terminal (shared chrome)) --> <!-- @manual -->
-8. Each navigation, trust, disclosure, contact, sign-in, and footer control reaches its intended destination by keyboard and remains visible without overlap or clipping at mobile, tablet, and desktop widths. <!-- @test: landing/src/__tests__/index-page.test.ts (grids, chips, nav, social proof, faq) --> <!-- @manual -->
+6. At mobile, tablet, and desktop widths, peer and subordinate sections remain visually distinct without overlap, clipping, or hidden content. <!-- @test: landing/src/__tests__/components.test.ts (Terminal (shared chrome)) --> <!-- @manual -->
+7. Each navigation, trust, disclosure, contact, sign-in, and footer control reaches its intended destination by keyboard and remains visible without overlap or clipping at mobile, tablet, and desktop widths. <!-- @test: landing/src/__tests__/index-page.test.ts (grids, chips, nav, social proof, faq) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -54,6 +53,30 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Priority:** P1
 
 **Dependencies:** None.
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-009: Decorative flare failure fallback
+
+**Intent:** The landing's decorative flare retires cleanly when a browser can no longer render it reliably, leaving the complete marketing surface readable on its stable CSS background.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Backgrounding on a coarse-pointer device or losing WebGL context retires the flare and leaves the dark CSS page surface visible. <!-- @impl: landing/src/scripts/splash.ts::initFlareFluid --> <!-- @impl: landing/src/styles/global.css::html --> <!-- @test: landing/src/__tests__/splash.script.test.ts (landing flare-fluid lifecycle) -->
+
+**Constraints:**
+
+- The flare is decorative and does not request context restoration after retirement.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
 **Verification:** Automated test
 

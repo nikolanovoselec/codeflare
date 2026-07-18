@@ -412,6 +412,7 @@ const PI_SDD_SKILLS = new Set([
   'doc-enforce-lanes',
   'doc-enforce-shape',
   'doc-enforce-truth',
+  'tdd-enforce',
 ]);
 
 const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use Bash/Read/Grep/Find/Edit/Write directly; do not assume context-mode \`ctx_*\` tools exist.\n- Use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. If a native graphify tool resolves the workspace root instead of the active repo, use the CLI fallback with \`--graph <repo>/graphify-out/graph.json\`.\n- Use Pi's \`subagent\` tool for subagents. For Plan Mode, invoke the \`Plan\` agent or produce an explicit plan and wait for user approval before source edits.\n`;

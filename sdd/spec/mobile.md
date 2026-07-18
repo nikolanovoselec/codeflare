@@ -326,8 +326,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 4. On Samsung, the dashboard bounce ([REQ-MOB-011](#req-mob-011-samsung-internet-keyboard-state-recovery)) replaces focus-based recovery. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Samsung: bounces through dashboard on visibility return to reset keyboard state) -->
 5. On Samsung, the virtual-keyboard overlay re-enable is delayed enough on visibility return that stale browser keyboard-geometry events arrive inside the ignore window. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)) -->
 6. Any WebSockets dropped while the page was hidden are re-established on visibility return. <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (pauses reconnect while hidden and resumes on visibility return) -->
-7. Backgrounding on a coarse-pointer device permanently retires the decorative WebGL canvas. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (retires the decorative canvas when a touch page is backgrounded) -->
-8. WebGL context loss retires the canvas on any device and leaves the app root's dark CSS surface visible. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @impl: web-ui/src/index.css::#root --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (falls back to the stable dark CSS background when the WebGL context is lost) -->
 
 **Constraints:**
 
@@ -337,6 +335,31 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Priority:** P1
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-018: Decorative WebGL canvas retirement
+
+**Intent:** The app's decorative WebGL canvas retires when mobile backgrounding or graphics-context loss makes continued rendering unreliable, preserving a stable dark application surface.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Backgrounding on a coarse-pointer device permanently retires the decorative WebGL canvas. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (retires the decorative canvas when a touch page is backgrounded) -->
+2. WebGL context loss retires the canvas on any device and leaves the app root's dark CSS surface visible. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @impl: web-ui/src/index.css::#root --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (falls back to the stable dark CSS background when the WebGL context is lost) -->
+
+**Constraints:**
+
+- The canvas is decorative and does not request context restoration after retirement.
+
+**Priority:** P2
+
+**Dependencies:** None.
 
 **Verification:** Automated test
 
