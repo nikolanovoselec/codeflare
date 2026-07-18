@@ -197,7 +197,7 @@ node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push
 
 No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap.
 
-When reviewers are required, the final runbook section requires every result to receive one row in `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. The root then makes no file or Git changes and ends the turn. Settled enforcement writes the reviewed-head acknowledgement and queues one separate FIX follow-up. Missing-work follow-ups remain distinct and forbid duplicating unmatched calls.
+When reviewers are required, the final runbook section requires every finding to receive one row in `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. The root then makes no file or Git changes and ends the turn. Settled enforcement writes the reviewed-head acknowledgement and queues one separate FIX follow-up. Missing-work follow-ups remain distinct and forbid duplicating unmatched calls.
 
 Malformed or superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the observed 41-character transcription whose first 40 characters exactly equal GitHub's authoritative PR head.
 
@@ -457,6 +457,7 @@ records the full-SHA checkpoint and emits one FIX follow-up; only that separate 
 accepted findings. A delayed terminal notification may acknowledge its reviewed head after
 reload or newer unpublished work only while that head remains authoritative.
 Unfinished or replaced work is requested again only by a later supported boundary.
+
 This implements
 [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions),
 [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation),
