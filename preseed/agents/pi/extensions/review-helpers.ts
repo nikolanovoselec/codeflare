@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
+export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-update-branch" | "pr-merge";
@@ -20,6 +21,7 @@ export type TranscriptFacts = {
   reviewRange?: string;
   bypassed: boolean;
   ciLaunched: boolean;
+  triageComplete: boolean;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
 };
@@ -313,11 +315,15 @@ function shellCommands(call: Record<string, any>): string[] {
   return [];
 }
 
-function userText(entry: Record<string, any>): string {
-  if (entry.type !== "message" || entry.message?.role !== "user") return "";
+function messageText(entry: Record<string, any>, role: "assistant" | "user"): string {
+  if (entry.type !== "message" || entry.message?.role !== role) return "";
   const content = entry.message.content;
   if (typeof content === "string") return content;
   return Array.isArray(content) ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n") : "";
+}
+
+function userText(entry: Record<string, any>): string {
+  return messageText(entry, "user");
 }
 
 function nativeNotification(entry: Record<string, any>): { toolUseId: string; succeeded: boolean } | undefined {
@@ -363,8 +369,9 @@ export function reviewTranscriptFacts(input: {
   });
 
   const lanes = Object.fromEntries(ALL_REVIEW_LANES.map((lane) => [lane, { state: "missing" }])) as Record<ReviewLane, LaneFact>;
-  if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, closedNotified: false, lanes };
+  if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, triageComplete: false, closedNotified: false, lanes };
   const later = entries.slice(boundaryIndex + 1);
+  const terminalIndexes = new Map<ReviewLane, number>();
   const window = later.reduce<{ head?: string; range?: string } | undefined>((current, entry) => reviewWindow(entry) ?? current, undefined);
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
@@ -373,15 +380,27 @@ export function reviewTranscriptFacts(input: {
       const wrongRange = window?.range && !prompt.includes(`review_range=${window.range}`);
       if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongRange) continue;
       const notifications = later.slice(entryIndex + 1)
-        .map(nativeNotification)
-        .filter((candidate) => candidate?.toolUseId === call.id);
-      const terminal = notifications.some((candidate) => candidate?.succeeded === true);
-      const failed = notifications.some((candidate) => candidate?.succeeded === false);
-      if (terminal) lanes[lane] = { state: "terminal", toolUseId: call.id };
-      else if (failed && lanes[lane].state !== "terminal") lanes[lane] = { state: "missing" };
+        .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
+        .filter((candidate) => candidate.value?.toolUseId === call.id);
+      const terminal = notifications.filter((candidate) => candidate.value?.succeeded === true).at(-1);
+      const failed = notifications.some((candidate) => candidate.value?.succeeded === false);
+      if (terminal) {
+        lanes[lane] = { state: "terminal", toolUseId: call.id };
+        terminalIndexes.set(lane, Math.max(terminalIndexes.get(lane) ?? -1, terminal.index));
+      } else if (failed && lanes[lane].state !== "terminal") lanes[lane] = { state: "missing" };
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
   });
+  const allRequiredTerminal = input.requiredLanes.length > 0
+    && input.requiredLanes.every((lane) => terminalIndexes.has(lane));
+  const latestRequiredTerminalIndex = allRequiredTerminal
+    ? Math.max(...input.requiredLanes.map((lane) => terminalIndexes.get(lane)!))
+    : undefined;
+  const triageComplete = latestRequiredTerminalIndex !== undefined && later.some((entry, index) =>
+    index > latestRequiredTerminalIndex
+    && toolCalls(entry).length === 0
+    && messageText(entry, "assistant").split("\n").some((line) => line.trim() === REVIEW_TRIAGE_HEADER),
+  );
   const ciLaunched = Boolean(input.ciHead && later.some((entry) => toolCalls(entry).some((call) => {
     const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
     return call.name === "subagent"
@@ -394,7 +413,7 @@ export function reviewTranscriptFacts(input: {
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );
-  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, ciLaunched, closedNotified, lanes };
+  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, ciLaunched, triageComplete, closedNotified, lanes };
 }
 
 export default function () {}

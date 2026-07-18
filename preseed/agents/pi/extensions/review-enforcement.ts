@@ -7,6 +7,7 @@ import { recallActiveRepo, rememberActiveRepoFromToolResult } from "./active-rep
 import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import {
   classifyReviewBoundaryCommand,
+  REVIEW_TRIAGE_HEADER,
   isReviewTransitionSuspended,
   requiredReviewLanes,
   reviewRange,
@@ -337,7 +338,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "",
       "Wait for every required reviewer result, then publish one table:",
       "",
-      "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |",
+      REVIEW_TRIAGE_HEADER,
       "|---|---|---|---|---|",
       "",
       "For every finding:",
@@ -488,7 +489,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
       if (reviewedFacts.reviewHead === reviewedHead
         && reviewedFacts.reviewRange === reviewedRange
-        && allReviewedLanesTerminal) {
+        && allReviewedLanesTerminal
+        && reviewedFacts.triageComplete) {
         acknowledge(context.repo, reviewedHead);
         sendFixFollowUp(pi, reviewedPr, reviewedRange);
       }
@@ -558,7 +560,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     const allReviewersTerminal = requiredLanes.length > 0
       && requiredLanes.every((lane) => facts.lanes[lane].state === "terminal");
-    if (allReviewersTerminal) acknowledge(review.repo, review.pr.headRefOid);
 
     const missingLanes = allReviewersTerminal || !shouldReview
       ? []

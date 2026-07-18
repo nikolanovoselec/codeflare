@@ -20,6 +20,7 @@ type TranscriptFacts = {
   reviewRange?: string;
   bypassed: boolean;
   ciLaunched: boolean;
+  triageComplete: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
 };
 type PlannedReviewHelpers = {
@@ -96,6 +97,25 @@ function assistantTool(toolUseId: string, name: string, args: Record<string, unk
 
 function userMessage(content: string, timestamp = '2026-07-12T12:00:30.000Z'): Record<string, unknown> {
   return sessionEntry('message', { timestamp, message: { role: 'user', content, timestamp: Date.parse(timestamp) } });
+}
+
+function assistantText(content: string, timestamp = '2026-07-12T12:03:00.000Z'): Record<string, unknown> {
+  return sessionEntry('message', {
+    timestamp,
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: content }],
+      provider: 'anthropic',
+      model: 'fixture',
+      usage: {},
+      stopReason: 'stop',
+      timestamp: Date.parse(timestamp),
+    },
+  });
+}
+
+function triageMessage(): Record<string, unknown> {
+  return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|');
 }
 
 function toolResult(toolUseId: string, toolName = 'subagent', isError = false): Record<string, unknown> {
@@ -294,6 +314,36 @@ describe('native Pi transcript review facts', () => {
       'spec-reviewer': { state: 'missing' },
       'doc-updater': { state: 'missing' },
     });
+  });
+
+  it('REQ-AGENT-098: recognizes structural triage only after all reviewer notifications', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const calls = [
+      assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }),
+      assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false }),
+      assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }),
+    ];
+    const beforeFinalNotification = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...calls,
+      notification('code-1'),
+      notification('spec-1'),
+      triageMessage(),
+      notification('doc-1'),
+    ]);
+    const afterFinalNotification = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...calls,
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageMessage(),
+    ]);
+
+    expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
+    expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
   });
 
   it('REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification', async () => {

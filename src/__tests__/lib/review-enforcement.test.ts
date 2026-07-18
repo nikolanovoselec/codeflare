@@ -171,6 +171,28 @@ function userMessage(content: string): Record<string, unknown> {
   };
 }
 
+function assistantText(content: string): Record<string, unknown> {
+  return {
+    type: 'message',
+    id: nextId('assistant'),
+    parentId: null,
+    timestamp: '2026-07-12T12:03:00.000Z',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: content }],
+      provider: 'anthropic',
+      model: 'fixture',
+      usage: {},
+      stopReason: 'stop',
+      timestamp: Date.parse('2026-07-12T12:03:00.000Z'),
+    },
+  };
+}
+
+function triageMessage(): Record<string, unknown> {
+  return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|');
+}
+
 function notification(toolUseId: string, status = 'Done'): Record<string, unknown> {
   return {
     type: 'custom_message',
@@ -791,6 +813,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-1'),
       notification('spec-1'),
       notification('doc-1'),
+      triageMessage(),
     );
 
     await harness.emit('agent_settled');
@@ -1058,7 +1081,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
-  it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only the reminder head after all lanes terminate', async () => {
+  it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -1081,6 +1104,11 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
 
     appendSession(fixture.sessionFile, notification('spec-1'));
+    await harness.emit('agent_settled');
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(harness.sent).toEqual([]);
+
+    appendSession(fixture.sessionFile, triageMessage());
     await harness.emit('agent_settled');
     expect(ackHead(fixture.repo)).toBe(fixture.head);
     expect(harness.sent).toEqual([{
@@ -1151,7 +1179,7 @@ describe('Pi review reminder and settled enforcement', () => {
     git(fixture.repo, 'commit', '-m', 'unpublished follow-up');
 
     const reloadedHarness = await registerFixture(fixture);
-    appendSession(fixture.sessionFile, notification('spec-1'));
+    appendSession(fixture.sessionFile, notification('spec-1'), triageMessage());
     await reloadedHarness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);

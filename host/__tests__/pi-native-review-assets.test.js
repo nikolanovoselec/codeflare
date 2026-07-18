@@ -90,7 +90,7 @@ function expectedCanonicalSkill(skillName) {
     (_match, frontmatter) => `---\n${frontmatter}\ndisable-model-invocation: true\n---\n`,
   );
   return SDD_SKILLS.has(skillName)
-    ? `${content.trimEnd()}${PI_SDD_COMPATIBILITY_NOTE}\n`
+    ? `${content.trimEnd()}\n${PI_SDD_COMPATIBILITY_NOTE}`
     : content;
 }
 

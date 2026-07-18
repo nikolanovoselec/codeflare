@@ -197,13 +197,13 @@ node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push
 
 No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap.
 
-When reviewers are required, the final runbook section requires every finding to receive one row in `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. The root then makes no file or Git changes and ends the turn. Settled enforcement writes the reviewed-head acknowledgement and queues one separate FIX follow-up. Missing-work follow-ups remain distinct and forbid duplicating unmatched calls.
+When reviewers are required, the final runbook section requires every finding to receive one row in `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. The root then makes no file or Git changes and ends the turn. Settled enforcement accepts that tool-free table only after the latest required successful notification, writes the reviewed-head acknowledgement, and queues one separate FIX follow-up. Missing-work follow-ups remain distinct and forbid duplicating unmatched calls.
 
 Malformed or superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the observed 41-character transcription whose first 40 characters exactly equal GitHub's authoritative PR head.
 
 Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted task is relaunched only after a later plan or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. After triage ends without mutation, `agent_settled` records that checkpoint and emits the next-turn FIX handoff. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
+Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. After the latest required notification, a tool-free structural triage table lets `agent_settled` record that checkpoint and emit the next-turn FIX handoff. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
 
 Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. All three use Pi's provider-neutral `medium` thinking level rather than inheriting the root session's level. The foreground-only context-mode extension is intentionally unavailable inside in-process reviewers. Each reviewer invokes the packet CLI through repository-rooted Bash/Node and consumes its JSON in the same processing call; packets are never persisted or handed between calls. Standalone read, grep, Graphify, and indexed batch/global retrieval are unavailable to the lanes. The root waits for every report and alone changes the head.
 
@@ -452,9 +452,9 @@ in both modes, so default-mode CI plans do not depend on the advanced main exten
 For PR boundaries, required lanes are named only after GitHub's authoritative PR head
 matches the pushed checkout; settled recovery retries during propagation. The root
 launches reviewers together without inherited context, waits for every native terminal
-notification, publishes triage, and ends that turn without mutation. Settled enforcement
-records the full-SHA checkpoint and emits one FIX follow-up; only that separate turn applies
-accepted findings. A delayed terminal notification may acknowledge its reviewed head after
+notification, publishes the fixed triage table in a tool-free response, and ends that turn
+without mutation. Settled enforcement records the full-SHA checkpoint and emits one FIX
+follow-up; only that separate turn applies accepted findings. A delayed terminal notification may acknowledge its reviewed head after
 reload or newer unpublished work only while that head remains authoritative.
 Unfinished or replaced work is requested again only by a later supported boundary.
 

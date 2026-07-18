@@ -26,7 +26,7 @@ After successful `git push` or `gh pr create`, **end the turn immediately** and 
    ```
 
 3. No stdout means no monitor. Otherwise submit the sole JSON object unchanged once through public `subagent`; CI is the last launch.
-4. Wait for all required reviewers; CI is independent. Publish one triage of validity, proportionality, and the smallest reuse-based fix. Reject unsupported proposals, make no file or Git changes, and end the turn immediately.
+4. Wait for all required reviewers; CI is independent. In a tool-free response after the latest required reviewer notification, publish one table with `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. Reject unsupported proposals, make no file or Git changes, and end the turn immediately.
 5. Settled enforcement acknowledges the reviewed head and queues the FIX follow-up. In that separate turn, apply only the accepted minimal fixes unless approval was requested.
 
 A plan may contain reviewers, CI, or both. Vibe-coding repositories receive eligible CI only. No request is returned when launch order is unresolved, cwd is absent, or no PR targets `main`/`master`. Never relaunch an aborted monitor automatically.
