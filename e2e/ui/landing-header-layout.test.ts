@@ -74,7 +74,7 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
     };
   });
 
-  it.each([900, 1280])('keeps the button box fixed at %ipx while churn spills symmetrically, without moving any navigation-link rectangle', async (viewportWidth) => {
+  it.each([900, 1280])('keeps the button and overlay boxes fixed at %ipx during churn, without moving any navigation-link rectangle', async (viewportWidth) => {
     await page.setViewport({ width: viewportWidth, height: 220, deviceScaleFactor: 1 });
     await page.evaluate((labels) => {
       document.querySelectorAll<HTMLElement>('.nav-signin--matrix .scramble-word')
@@ -94,8 +94,10 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
     expect(during.button.width).toBeCloseTo(before.button.width, 3);
     expect(during.button.left).toBeCloseTo(before.button.left, 3);
     expect(during.button.right).toBeCloseTo(before.button.right, 3);
-    // Over-wide frames spill symmetrically: each word overlay stays centered on
-    // the box it overflows instead of escaping one edge.
+    // Each word overlay box stays pinned to its ghost's width and position —
+    // it neither grows nor shifts when over-wide churn ink overflows it. (The
+    // ink's centering itself is pinned by the unit test's text-align
+    // assertion; a bounding-rect cannot see overflow ink.)
     expect(during.words).toHaveLength(before.words.length);
     during.words.forEach((wordRect, index) => {
       const beforeRect = before.words[index]!;
