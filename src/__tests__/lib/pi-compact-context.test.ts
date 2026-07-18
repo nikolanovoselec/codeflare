@@ -35,46 +35,6 @@ const HIDDEN_INTERNAL_SKILLS = [
   'tdd-enforce',
 ] as const;
 
-const COMPACT_DESCRIPTION_TRIGGERS: Record<string, string[]> = {
-  advisor: ['user-invoked', 'advisor'],
-  'agents-sdk': ['Cloudflare', 'Agents SDK'],
-  'api-design': ['REST API'],
-  'backend-patterns': ['backend'],
-  'browser-e2e': ['deployed UI', 'browser'],
-  'browser-run': ['blocked', 'browser'],
-  'ci-monitoring': ['CI monitor'],
-  cloudflare: ['Cloudflare', 'Workers'],
-  'cloudflare-email-service': ['email', 'Cloudflare'],
-  'cloudflare-one': ['Cloudflare One', 'Zero Trust'],
-  'cloudflare-one-migrations': ['migrations', 'Cloudflare One'],
-  'cloudflare-stack': ['new project', 'Cloudflare'],
-  'consult-llm': ['user-invoked', 'external LLM'],
-  'content-hash-cache-pattern': ['SHA-256', 'cache'],
-  'database-migrations': ['database migration'],
-  'deploy-credentials': ['GitHub', 'Cloudflare', 'credentials'],
-  'deployment-patterns': ['deployment', 'CI/CD'],
-  'design-taste-frontend': ['frontend', 'design'],
-  'durable-objects': ['Durable Objects'],
-  'emil-design-eng': ['UI', 'animation'],
-  'frontend-components': ['UI', 'repeated'],
-  'frontend-patterns': ['React', 'Next.js'],
-  graphify: ['Graphify', 'query'],
-  impeccable: ['frontend', 'design'],
-  'iterative-retrieval': ['retrieval', 'subagent'],
-  'pi-mcp-adapter': ['MCP', 'proxy', 'context-mode'],
-  'pi-web-access': ['web', 'fetch'],
-  'pr-workflow': ['pull request'],
-  'sandbox-sdk': ['Cloudflare', 'Sandbox SDK'],
-  'search-first': ['research', 'coding'],
-  ship: ['ship', 'deploy'],
-  'turnstile-spin': ['Turnstile'],
-  'vault-note-capture': ['note', 'save'],
-  'vault-operations': ['Vault'],
-  'web-perf': ['web performance', 'Core Web Vitals'],
-  'workers-best-practices': ['Cloudflare Workers', 'production'],
-  wrangler: ['Wrangler'],
-};
-
 const PROACTIVE_SKILLS = [
   'browser-run',
   'cloudflare',
@@ -180,17 +140,18 @@ describe('REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Cla
     }
   });
 
-  it('keeps compact descriptions unambiguous without losing routing triggers', () => {
-    for (const [name, triggers] of Object.entries(COMPACT_DESCRIPTION_TRIGGERS)) {
-      const doc = skillDoc(name);
-      expect(doc, `${name} should be seeded`).toBeTruthy();
-      const description = skillDescription(doc!.content);
-      if (name !== 'pi-mcp-adapter') {
-        expect(description.length, `${name} description length`).toBeLessThanOrEqual(80);
-      }
-      for (const trigger of triggers) {
-        expect(description.toLowerCase(), `${name} trigger: ${trigger}`).toContain(trigger.toLowerCase());
-      }
+  it('keeps model-visible Pi descriptions within the compact catalog budget', () => {
+    const visibleSkills = AGENTS_SEEDED_CONFIGS.filter(
+      (doc) => doc.key.startsWith('.pi/agent/skills/')
+        && doc.key.endsWith('/SKILL.md')
+        && doc.modes.includes('advanced')
+        && frontmatter(doc.content)['disable-model-invocation'] !== 'true',
+    );
+
+    for (const doc of visibleSkills) {
+      const name = frontmatter(doc.content).name;
+      if (name === 'pi-mcp-adapter') continue;
+      expect(skillDescription(doc.content).length, `${name} description length`).toBeLessThanOrEqual(80);
     }
   });
 

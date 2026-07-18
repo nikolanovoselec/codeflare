@@ -68,7 +68,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. Backgrounding on a coarse-pointer device or losing WebGL context retires the flare and leaves the dark CSS page surface visible. <!-- @impl: landing/src/scripts/splash.ts::initFlareFluid --> <!-- @impl: landing/src/styles/global.css::html --> <!-- @test: landing/src/__tests__/splash.script.test.ts (landing flare-fluid lifecycle) -->
+1. Backgrounding on a coarse-pointer device retires the flare permanently. <!-- @impl: landing/src/scripts/splash.ts::initFlareFluid --> <!-- @test: landing/src/__tests__/splash.script.test.ts (retires the decorative canvas when a touch page is backgrounded) -->
+2. Losing WebGL context retires the flare on any device and leaves the dark CSS page surface visible. <!-- @impl: landing/src/scripts/splash.ts::initFlareFluid --> <!-- @impl: landing/src/styles/global.css::html --> <!-- @test: landing/src/__tests__/splash.script.test.ts (falls back to the stable dark CSS background when the WebGL context is lost) -->
 
 **Constraints:**
 
