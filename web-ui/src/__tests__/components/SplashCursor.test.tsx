@@ -6,15 +6,20 @@ import appBaseCssSource from '../../index.css?raw';
 
 const appBaseCss = appBaseCssSource.replace(/^@import[^;]+;\s*$/gm, '');
 
-function expectedAppBackground(): string {
-  const resolvedToken = getComputedStyle(document.documentElement).getPropertyValue('--color-bg-base').trim();
-  expect(resolvedToken).toBe('#09090b');
+function stableDarkBackground(): string {
+  const token = /--color-bg-base:\s*([^;]+)/.exec(appTokensCss)?.[1]?.trim();
+  if (!token) throw new Error('Missing --color-bg-base design token');
+  expect(token).toBe('#09090b');
+  return token;
+}
+
+function expectedAppBackground(background: string): string {
   const probe = document.createElement('div');
-  probe.style.backgroundColor = 'var(--color-bg-base)';
+  probe.style.backgroundColor = background;
   document.body.appendChild(probe);
-  const background = getComputedStyle(probe).backgroundColor;
+  const computed = getComputedStyle(probe).backgroundColor;
   probe.remove();
-  return background;
+  return computed;
 }
 
 describe('SplashCursor Component', () => {
@@ -263,8 +268,11 @@ describe('SplashCursor Component', () => {
       (globalThis as any).WebGLRenderingContext = function () {};
       const mockGl = createMockWebGLContext();
       HTMLCanvasElement.prototype.getContext = vi.fn(() => mockGl) as any;
+      const backgroundToken = stableDarkBackground();
       const style = document.createElement('style');
-      style.textContent = `${appTokensCss}\n${appBaseCss}`;
+      // jsdom does not resolve stylesheet custom properties, so substitute the
+      // real token value while preserving the production selectors and rules.
+      style.textContent = appBaseCss.replaceAll('var(--color-bg-base)', backgroundToken);
       document.head.appendChild(style);
       const root = document.createElement('div');
       root.id = 'root';
@@ -280,7 +288,7 @@ describe('SplashCursor Component', () => {
         expect(canvas).toHaveAttribute('hidden');
         expect(canvas.style.display).toBe('none');
         expect(cafSpy).toHaveBeenCalled();
-        const darkBackground = expectedAppBackground();
+        const darkBackground = expectedAppBackground(backgroundToken);
         expect(getComputedStyle(document.documentElement).backgroundColor).toBe(darkBackground);
         expect(getComputedStyle(document.body).backgroundColor).toBe(darkBackground);
         expect(getComputedStyle(root).backgroundColor).toBe(darkBackground);
