@@ -131,7 +131,7 @@ describe('landing flare-fluid lifecycle', () => {
     const style = document.createElement('style');
     // happy-dom does not resolve stylesheet custom properties. Use a sentinel to
     // exercise the production selectors separately from the CSSOM token check.
-    style.textContent = globalCss.replaceAll('var(--bg-base)', backgroundSentinel);
+    style.textContent = globalCss.split('var(--bg-base)').join(backgroundSentinel);
     document.head.appendChild(style);
 
     try {

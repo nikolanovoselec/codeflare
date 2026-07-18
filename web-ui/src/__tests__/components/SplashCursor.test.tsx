@@ -282,7 +282,7 @@ describe('SplashCursor Component', () => {
       const style = document.createElement('style');
       // jsdom does not resolve stylesheet custom properties. Use a sentinel to
       // exercise the production selectors separately from the CSSOM token check.
-      style.textContent = appBaseCss.replaceAll('var(--color-bg-base)', backgroundSentinel);
+      style.textContent = appBaseCss.split('var(--color-bg-base)').join(backgroundSentinel);
       document.head.appendChild(style);
       const root = document.createElement('div');
       root.id = 'root';
