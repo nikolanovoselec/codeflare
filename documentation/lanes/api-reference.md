@@ -28,6 +28,8 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Public (Onboarding)](#public-onboarding)
 - [Public (Landing)](#public-landing)
 - [Health](#health)
+- [Related Documentation](#related-documentation)
+- [Specification Coverage](#specification-coverage)
 
 ---
 
