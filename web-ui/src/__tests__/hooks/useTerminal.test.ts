@@ -933,9 +933,11 @@ describe('useTerminal hook', () => {
         return dispose;
       });
 
-      const onDataCalls = vi.mocked(mockTerminalInstance.onData).mock.calls;
+      // The onData mock is declared parameterless, so its recorded calls must
+      // be re-typed to reach the registered listener.
+      const onDataCalls = vi.mocked(mockTerminalInstance.onData).mock.calls as unknown as Array<[(data: string) => void]>;
       expect(onDataCalls.length).toBeGreaterThan(0);
-      const handler = onDataCalls[onDataCalls.length - 1][0] as (data: string) => void;
+      const handler = onDataCalls[onDataCalls.length - 1][0];
 
       const active = mockTerminalInstance.buffer.active as any;
       const prevType = active.type;

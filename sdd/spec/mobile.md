@@ -184,6 +184,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 5. When the keyboard is closed and terminal scrollback is active, vertical swipes scroll that buffer directly. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (scrolls the buffer on vertical swipe when keyboard is closed) -->
 6. Scroll sensitivity scales with the terminal's font metrics so a swipe travels the same number of lines on different font sizes. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should scroll proportionally to finger movement including threshold distance) -->
 7. When the keyboard is open, vertical swipes send arrow keys while horizontal swipes remain available, regardless of any fullscreen application wheel capture. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-005 AC7: keyboard-open vertical swipes send arrow keys even under fullscreen wheel tracking) -->
+
 **Constraints:**
 
 - Normal scrollback scrolls xterm's buffer service directly rather than the public viewport-relative scroll API ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).

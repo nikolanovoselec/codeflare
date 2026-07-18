@@ -131,6 +131,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 5. The landing emits a JSON-LD `@graph` of schema.org structured data: a site-wide `Organization` (named, logo, `sameAs` the public repo) and `WebSite`, with the home page grafting on a `SoftwareApplication` entity, so search engines and LLMs resolve Codeflare to a named entity. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003: external metadata (SEO, social, structured data)) -->
 6. The Worker serves discoverability documents at the deployment root, gated on the public landing being active (SaaS or onboarding): `robots.txt`, `sitemap.xml`, and `llms.txt`. In a private (default/enterprise) deployment `robots.txt` disallows all crawling and `sitemap.xml` / `llms.txt` return 404. <!-- @impl: src/lib/seo.ts::CANONICAL_ORIGIN --> <!-- @test: src/__tests__/lib/seo.test.ts (SEO discoverability documents (REQ-LANDING-003)) -->
 7. The landing declares a `theme-color` and an `apple-touch-icon` for mobile share/install surfaces. <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC7: emits theme-color meta and an apple-touch-icon link) --> <!-- @manual -->
+
 **Constraints:**
 
 - The OG/Twitter preview image is the brand asset at `web-ui/public/og.png` (1200x630), served from the SPA asset root at `/og.png`.

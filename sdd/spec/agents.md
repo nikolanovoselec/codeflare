@@ -1312,6 +1312,7 @@ None.
 1. Every Import-Mode triage entry carries concrete Context, Recommendation, and Rationale fields. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) --> <!-- @manual -->
 2. The enforce pass rejects placeholder or nonspecific triage guidance. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 7a + Iterate-to-clean against enforcement skills (binding) --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) --> <!-- @manual -->
 3. A lost triage entry carries a one-line Reason. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) --> <!-- @manual -->
+
 **Constraints:**
 
 - Triage state lives only in `sdd/.init-triage.md` and Git history.
@@ -1345,13 +1346,7 @@ None.
 
 **Constraints:**
 
-- Triage state lives only in `sdd/.init-triage.md` and Git history.
-- Triage resolution is interactive only.
-- `/sdd init` owns the triage file.
-- spec-reviewer may read the triage file.
-- Each code-only domain carries one verification footnote when `enforce_tdd: false`.
-- Unleashed mode is unavailable while transition triage remains open.
-- Resume Mode drain behavior is owned by [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow).
+- Unleashed mode is unavailable while transition triage remains open; shared triage-state ownership rules live on [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state).
 
 **Priority:** P1
 
@@ -1376,13 +1371,7 @@ None.
 
 **Constraints:**
 
-- Triage state lives only in `sdd/.init-triage.md` and Git history.
-- Triage resolution is interactive only.
-- `/sdd init` owns the triage file.
-- spec-reviewer may read the triage file.
-- Each code-only domain carries one verification footnote when `enforce_tdd: false`.
-- Unleashed mode is unavailable while transition triage remains open.
-- Resume Mode drain behavior is owned by [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow).
+None.
 
 **Priority:** P1
 

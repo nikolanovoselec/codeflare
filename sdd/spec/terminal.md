@@ -457,7 +457,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 - The write buffer defers, drops oldest held data, or writes; it never scrolls the viewport.
 - Output-driven trimming stays delegated to xterm.
-- All scrollback navigation (touch, wheel, floating controls), bottom anchoring, and input re-anchoring scroll the buffer service directly with the paired repaint; `scrollOnUserInput` stays disabled, and refits that keep a reader's position re-command the DOM scroll state ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input), [AD110](../../documentation/decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)).
+- All scrollback navigation, bottom anchoring, and input re-anchoring scroll the buffer service directly with the paired repaint; `scrollOnUserInput` stays disabled; refits keeping a reader's position re-command the DOM scroll state ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input), [AD110](../../documentation/decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)).
 - Held output caps at 2,000,000 characters (oldest whole chunks dropped past it); bottom-return release is bounded to 65,536 characters per tick, re-checking ownership between ticks.
 - Alternate-buffer output never defers — fullscreen applications own their history and have no scrollback to read.
 - A zero display offset during full-buffer trimming is valid xterm behavior, not evidence of a browser reset.
