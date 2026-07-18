@@ -1,16 +1,25 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@solidjs/testing-library';
 import SplashCursor from '../../components/SplashCursor';
-import appTokensCss from '../../styles/design-tokens.css?raw';
-import appBaseCssSource from '../../index.css?raw';
 
-const appBaseCss = appBaseCssSource.replace(/^@import[^;]+;\s*$/gm, '');
+const appTokensCss = readFileSync(resolve(process.cwd(), 'src/styles/design-tokens.css'), 'utf8');
+const appBaseCss = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+  .replace(/^@import[^;]+;\s*$/gm, '');
 
-function stableDarkBackground(): string {
-  const token = /--color-bg-base:\s*([^;]+)/.exec(appTokensCss)?.[1]?.trim();
-  if (!token) throw new Error('Missing --color-bg-base design token');
-  expect(token).toBe('#09090b');
-  return token;
+function expectStableRootBackgroundToken(): void {
+  const style = document.createElement('style');
+  style.textContent = appTokensCss;
+  document.head.appendChild(style);
+  try {
+    const rootRule = Array.from(style.sheet?.cssRules ?? []).find(
+      (rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === ':root',
+    );
+    expect(rootRule?.style.getPropertyValue('--color-bg-base').trim()).toBe('#09090b');
+  } finally {
+    style.remove();
+  }
 }
 
 function expectedAppBackground(background: string): string {
@@ -268,11 +277,12 @@ describe('SplashCursor Component', () => {
       (globalThis as any).WebGLRenderingContext = function () {};
       const mockGl = createMockWebGLContext();
       HTMLCanvasElement.prototype.getContext = vi.fn(() => mockGl) as any;
-      const backgroundToken = stableDarkBackground();
+      expectStableRootBackgroundToken();
+      const backgroundSentinel = '#123456';
       const style = document.createElement('style');
-      // jsdom does not resolve stylesheet custom properties, so substitute the
-      // real token value while preserving the production selectors and rules.
-      style.textContent = appBaseCss.replaceAll('var(--color-bg-base)', backgroundToken);
+      // jsdom does not resolve stylesheet custom properties. Use a sentinel to
+      // exercise the production selectors separately from the CSSOM token check.
+      style.textContent = appBaseCss.replaceAll('var(--color-bg-base)', backgroundSentinel);
       document.head.appendChild(style);
       const root = document.createElement('div');
       root.id = 'root';
@@ -288,7 +298,7 @@ describe('SplashCursor Component', () => {
         expect(canvas).toHaveAttribute('hidden');
         expect(canvas.style.display).toBe('none');
         expect(cafSpy).toHaveBeenCalled();
-        const darkBackground = expectedAppBackground(backgroundToken);
+        const darkBackground = expectedAppBackground(backgroundSentinel);
         expect(getComputedStyle(document.documentElement).backgroundColor).toBe(darkBackground);
         expect(getComputedStyle(document.body).backgroundColor).toBe(darkBackground);
         expect(getComputedStyle(root).backgroundColor).toBe(darkBackground);
