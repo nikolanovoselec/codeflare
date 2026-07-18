@@ -75,8 +75,9 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
   7. Every AC describing observable behaviour ends with
      `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value
      use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. When
-     enforce_tdd is true the AC also carries at most ONE
-     `<!-- @test: <path> (<block title>) -->` anchor alongside it.
+     enforce_tdd is true the AC also carries one or more
+     `<!-- @test: <path> (<block title>) -->` anchors alongside it, and every
+     declared anchor must resolve independently.
   8. Applies To, Priority, and Verification are REQUIRED on every REQ.
   9. Each REQ ends with `---` on its own line, blank lines either side.
  10. Notes is OPTIONAL and uses one of two shapes only:

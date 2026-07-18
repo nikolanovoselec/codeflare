@@ -528,11 +528,12 @@ path-scoped canonical rules become five grouped native skills, rules already own
 canonical skill are not duplicated, and long-form environment/coding/Graphify/build principles
 are condensed into the Pi-native constitution. The Pi-native Git/constitution adaptations retain
 Pi-only event mechanics. Shared review mechanics live once in the Git workflow while the
-constitution retains its independent push, CI-result, and non-blocking gates. The review push
+constitution retains its push, CI-result, and non-blocking gates. The review push
 gate remains in that generated Pi instruction surface: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
 incomplete for the current head unless the user explicitly authorizes it. Implements
 [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents).
+
 `scripts/measure-seed-tokens.mjs` reports managed seed text; after materialization,
 `scripts/measure-pi-runtime-context.mjs` uses Pi's real resource loader and local faux
 provider to measure the complete first-turn input, including active schemas and extension context.
