@@ -327,11 +327,15 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     ].join("\n"));
   }
   if (input.reviewers.length > 0) {
-    order.push("TRIAGE", "FIX");
+    order.push("TRIAGE + ACK", "FIX");
     sections.push([
-      `### ${sections.length + 1}. Triage before fixing`,
+      `### ${sections.length + 1}. Triage and acknowledge before fixing`,
       "",
-      "Wait for every required reviewer result. **Before any file change**, publish one table:",
+      "**Triage turn:** publish the triage table; make no mutations; end the turn",
+      "",
+      "**Fix delivery:** next-turn follow-up after acknowledgement",
+      "",
+      "Wait for every required reviewer result, then publish one table:",
       "",
       "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |",
       "|---|---|---|---|---|",
@@ -343,7 +347,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "- reject unsupported or overengineered proposals",
       "- prefer the smallest correction that reuses existing machinery",
       "",
-      "Only after publishing the table, apply accepted minimal fixes unless the user explicitly requested approval.",
+      "After publishing the table, make no file or Git changes and end the turn immediately. Settled enforcement acknowledges the reviewed head and starts the FIX phase in a separate follow-up turn.",
     ].join("\n"));
   }
   const title = input.phase === "follow-up"
@@ -388,6 +392,25 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     content,
     display: true,
     details,
+  }, { deliverAs: "followUp", triggerTurn: true });
+}
+
+function sendFixFollowUp(pi: ReviewPi, pr: PrState, range: string | undefined): void {
+  pi.sendMessage({
+    customType: "pr-boundary-fix-follow-up",
+    content: [
+      "## PR boundary — apply accepted fixes",
+      "",
+      "**Phase:** FIX",
+      "",
+      `- Head: \`${pr.headRefOid}\``,
+      `- Scope: ${scopeSummary(pr, range)}`,
+      "- Review acknowledgement: written",
+      "",
+      "Apply only the accepted minimal decisions from the preceding triage. The reviewed head is now acknowledged, so fixes may begin without relaunching review or CI for that head.",
+    ].join("\n"),
+    display: true,
+    details: { head: pr.headRefOid, reviewRange: range },
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
@@ -467,6 +490,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         && reviewedFacts.reviewRange === reviewedRange
         && allReviewedLanesTerminal) {
         acknowledge(context.repo, reviewedHead);
+        sendFixFollowUp(pi, reviewedPr, reviewedRange);
       }
     }
 

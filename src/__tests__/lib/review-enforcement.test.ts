@@ -353,9 +353,15 @@ describe('Pi review reminder and settled enforcement', () => {
       '## PR boundary — review + CI',
       '### 1. Start reviewers together',
       '### 2. Start CI immediately',
-      '### 3. Triage before fixing',
+      '### 3. Triage and acknowledge before fixing',
     ]);
-    expect(markdownValue(plan, '**Order:** ')).toBe('REVIEWERS → CI → TRIAGE → FIX');
+    expect(markdownValue(plan, '**Order:** ')).toBe('REVIEWERS → CI → TRIAGE + ACK → FIX');
+    expect(markdownValue(plan, '**Triage turn:** ')).toBe(
+      'publish the triage table; make no mutations; end the turn',
+    );
+    expect(markdownValue(plan, '**Fix delivery:** ')).toBe(
+      'next-turn follow-up after acknowledgement',
+    );
     expect(markdownValue(plan, '- Agents: ')).toBe('`code-reviewer`, `spec-reviewer`, `doc-updater`');
     expect(markdownValue(plan, '- `inherit_context`: ')).toBe('`false`');
     expect(markdownValue(plan, '- Prompt scope: ')).toBe(
@@ -392,7 +398,7 @@ describe('Pi review reminder and settled enforcement', () => {
       '## PR boundary follow-up — missing work',
       '### 1. Start reviewers together',
       '### 2. Start CI immediately',
-      '### 3. Triage before fixing',
+      '### 3. Triage and acknowledge before fixing',
     ]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
@@ -1013,7 +1019,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(markdownHeadings(followUp)).toEqual([
       '## PR boundary follow-up — missing work',
       '### 1. Start reviewers together',
-      '### 2. Triage before fixing',
+      '### 2. Triage and acknowledge before fixing',
     ]);
     expect(followUp).toMatch(/\*\*Recovery rule:\*\*[\s\S]+Do not duplicate unmatched calls/);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
@@ -1077,6 +1083,18 @@ describe('Pi review reminder and settled enforcement', () => {
     appendSession(fixture.sessionFile, notification('spec-1'));
     await harness.emit('agent_settled');
     expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-fix-follow-up',
+        display: true,
+        details: {
+          head: fixture.head,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+    expect(markdownValue(harness.sent[0]?.message.content, '**Phase:** ')).toBe('FIX');
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
     expect(existsSync(join(fixture.repo, '.git/codeflare-review-jobs'))).toBe(false);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-results'))).toBe(false);
@@ -1137,7 +1155,22 @@ describe('Pi review reminder and settled enforcement', () => {
     await reloadedHarness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
-    expect(reloadedHarness.sent).toEqual([]);
+    expect(reloadedHarness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-fix-follow-up',
+        display: true,
+        details: {
+          head: fixture.head,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+
+    const postAckHarness = await registerFixture(fixture);
+    await postAckHarness.emit('agent_settled');
+    expect(postAckHarness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
   it('REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head', async () => {

@@ -2131,7 +2131,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. An eligible SDD head-changing boundary emits a numbered runbook with PR/head/scope context, reviewer-before-CI order, and a fixed triage table before fixes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
+1. An eligible SDD head-changing boundary emits a numbered runbook with PR/head/scope context, `REVIEWERS → CI → TRIAGE + ACK → FIX` order, and a fixed triage table whose turn ends without mutation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
 2. An eligible non-SDD boundary emits a CI-only plan. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068: emits a CI-only launch plan outside SDD mode) -->
 3. An eligible default-mode boundary emits a CI-only plan from its effective repository context. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewEnabled --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
 4. Transcript correlation recognizes a matching exact-head `ci-monitor` call independently from reviewer state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-068: recognizes one matching CI launch independently of reviewer completion) -->
@@ -2147,7 +2147,7 @@ None.
 - Git commands create no second CI trigger.
 - All launches use isolated public background subagents.
 - The dispatcher stores no durable job or result state.
-- Follow-up presentation labels itself as missing work and explicitly warns against duplicating unmatched calls.
+- Follow-up presentation labels missing launch work separately from the post-acknowledgement FIX phase and explicitly warns against duplicating unmatched calls.
 
 **Priority:** P1
 
@@ -2385,6 +2385,34 @@ None.
 **Dependencies:** [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog)
 
 **Verification:** [Pi compact-context tests](../../src/__tests__/lib/pi-compact-context.test.ts), manual release-seed measurement
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-098: Pi Review Triage Acknowledgement Barrier
+
+**Intent:** Pi must checkpoint the exact reviewed PR head after visible triage but before any accepted fix mutates the work, so a follow-up push reviews only the acknowledged-to-current increment.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A reviewer-bearing boundary plan orders `REVIEWERS → CI → TRIAGE + ACK → FIX` and instructs the root to publish triage, make no mutation, and end that turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
+2. When every required reviewer has terminated successfully for the unchanged authoritative head, settled enforcement writes its existing acknowledgement and emits exactly one visible triggering FIX follow-up for that head and review range. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only the reminder head after all lanes terminate) -->
+3. The persisted acknowledgement suppresses duplicate FIX follow-ups across later settled events or reloads, and the FIX follow-up does not request another reviewer or CI launch for the acknowledged head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: delayed completion acknowledges the reviewed PR head after reload and new local work) -->
+
+**Constraints:**
+
+- The barrier reuses `agent_settled` and `.git/sdd-last-ack-pr-head`; it adds no command, tool, pending file, or second acknowledgement path.
+- Review acknowledgement remains independent of CI completion.
+- Fixes begin only in the post-acknowledgement follow-up turn.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-074](#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection)
+
+**Verification:** [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 

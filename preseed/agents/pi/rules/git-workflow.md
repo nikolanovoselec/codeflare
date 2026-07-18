@@ -26,7 +26,8 @@ After successful `git push` or `gh pr create`, **end the turn immediately** and 
    ```
 
 3. No stdout means no monitor. Otherwise submit the sole JSON object unchanged once through public `subagent`; CI is the last launch.
-4. Wait for all required reviewers before mutation; CI is independent. Then publish one triage of validity, proportionality, and the smallest reuse-based fix. Reject unsupported proposals and apply legitimate fixes unless approval was requested.
+4. Wait for all required reviewers; CI is independent. Publish one triage of validity, proportionality, and the smallest reuse-based fix. Reject unsupported proposals, make no file or Git changes, and end the turn immediately.
+5. Settled enforcement acknowledges the reviewed head and queues the FIX follow-up. In that separate turn, apply only the accepted minimal fixes unless approval was requested.
 
 A plan may contain reviewers, CI, or both. Vibe-coding repositories receive eligible CI only. No request is returned when launch order is unresolved, cwd is absent, or no PR targets `main`/`master`. Never relaunch an aborted monitor automatically.
 
@@ -37,5 +38,6 @@ With `sdd/` and `sdd/README.md`, plans list required report-only lanes for work 
 ## Hard obligations
 
 - Never recreate or retrigger a plan or use a no-op PR edit for delivery.
+- Do not mutate the reviewed work between the triage summary and its acknowledgement/FIX follow-up.
 - Do not push a new head before required current-head review completes unless explicitly authorized.
 - Never deploy until every required CI check is green.
