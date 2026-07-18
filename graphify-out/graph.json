@@ -1501,7 +1501,7 @@
       "file_type": "code",
       "source_file": "preseed/agents/pi/extensions/review-command.ts",
       "source_location": null,
-      "top_symbols": "skillPrompt(), helpText(), sendUserPrompt(), ReviewCommandDecision, ReviewDocumentationSurfaceDecision, REVIEW_EXECUTION, ReviewWorkflowDecision, dispatchReview()",
+      "top_symbols": "skillPrompt(), helpText(), sendUserPrompt(), ReviewCommandDecision, ReviewDocumentationSurfaceDecision, REVIEW_EXECUTION, ReviewWorkflowDecision, ReviewCommandPi",
       "community": 9,
       "norm_label": "preseed/agents/pi/extensions/review-command.ts"
     },
@@ -8812,12 +8812,12 @@
       "relation": "depends_on",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "weight": 3,
+      "weight": 4,
       "source_file": null,
       "source_location": null,
       "relations": {
         "imports_from": 1,
-        "imports": 1,
+        "imports": 2,
         "calls": 1
       },
       "source": "file:preseed/agents/pi/extensions/capability-helpers.ts",
@@ -27535,5 +27535,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "732b24a0e00bbf474d82acca4e3903843ec11a8d"
+  "built_at_commit": "bfcc14ae6d88ad120d8274f68feb30f63c2b674c"
 }
