@@ -2087,14 +2087,14 @@ None.
 
 ### REQ-AGENT-076: Pi Context-Mode Enablement and Tool-Extension Defaults
 
-**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable and crash-free out of the box: context-mode is enabled by default for Pi (with Custom-tier's automatic context-window-reduction in Claude Code remaining tier-gated), the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to a workflow that never reaches an upstream `pi-web-access` crash path.
+**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable and crash-free out of the box: context-mode is disabled by default for Pi pending an upstream memory-safe adapter while explicit `/ctx on` remains available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to a workflow that never reaches an upstream `pi-web-access` crash path.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. On a fresh container, context-mode skill guidance is enabled for Pi by default. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1: fresh container enables context-mode skills by default) -->
-2. A state-changing `/ctx` command reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC2: /ctx reloads Pi into the selected state) --> <!-- @manual: Start a fresh container and call one root `ctx_*` tool; run `/ctx off`, confirm the disabled marker persists in Pi settings and the active process reload removes `ctx_*`; run `/ctx on`, confirm the enabled marker persists and the reloaded process restores working tools. Container startup restores the enabled default; `/ctx` changes persist in shared Pi settings until then. -->
+1. On a fresh container, context-mode skills and its Pi adapter are disabled until the user opts in with `/ctx on`. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1: fresh container disables context-mode by default) -->
+2. A state-changing `/ctx` command reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC2: /ctx reloads Pi into the selected state) --> <!-- @manual: Start a fresh container and confirm `ctx_*` tools are absent; run `/ctx on` and confirm reload restores working tools; run `/ctx off` and confirm reload removes them. Container startup restores the disabled default. -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::BUNDLE_NAMES --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Dockerfile context-mode patch (createRequire shim + REQ-AGENT-076 AC4 update-check disable)) -->
@@ -2110,7 +2110,8 @@ None.
 - Tool extensions require no per-user API key.
 - The update probe patch is build-owned, not a self-upgrade path.
 - Every Pi workflow retains an equivalent non-context fallback.
-- Foreground ownership and in-process subagent isolation are owned by [REQ-AGENT-089](#req-agent-089-pi-context-mode-foreground-ownership).
+- Container startup restores the disabled context-mode package marker regardless of a prior session's opt-in state.
+- Foreground ownership and in-process subagent isolation after explicit opt-in are owned by [REQ-AGENT-089](#req-agent-089-pi-context-mode-foreground-ownership).
 
 **Priority:** P1
 
@@ -2275,6 +2276,32 @@ None.
 
 ---
 
+### REQ-AGENT-094: Per-AC Test Evidence Supports Multiple Anchors
+
+**Intent:** Specification traceability must represent real behavioral coverage when one acceptance criterion is verified by multiple named test blocks or files, without forcing test structure into requirement granularity.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Every non-manual AC carries at least one `@test` anchor, and the canonical parser returns every adjacent anchor independently while preserving parentheses inside block titles. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors --> <!-- @test: host/__tests__/test-anchor-parser.test.js (REQ-AGENT-094 AC1: accepts one or more anchors per AC in declaration order) -->
+2. Multiple anchors on one AC are valid, while every declared anchor remains subject to file, named-block, and behavioral-quality verification. <!-- @manual: Add one resolving and one orphaned anchor to a fixture AC, run specification enforcement, and confirm the resolving block counts as coverage while the orphan still emits `spec-test-anchor-orphaned`. -->
+
+**Constraints:**
+
+- Anchor lists provide traceability evidence, not an exhaustive inventory of every test that touches the behavior.
+- Distinct observable behaviors still split under the existing AC-granularity rules; anchor count alone never triggers a split.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+
+**Verification:** [Test-anchor parser tests](../../host/__tests__/test-anchor-parser.test.js)
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-085: Pi Reviewer Direct Evidence Transport
 
 **Intent:** Pi reviewers must consume exact scoped evidence without recovering prior output through indexed searches.
@@ -2400,7 +2427,7 @@ None.
 
 ### REQ-AGENT-089: Pi Context-Mode Foreground Ownership
 
-**Intent:** Pi must retain context-mode in the interactive session without allowing in-process subagents to create competing context-mode owners.
+**Intent:** When a user explicitly enables context-mode, Pi must retain it in the interactive session without allowing in-process subagents to create competing context-mode owners.
 
 **Applies To:** Agent
 

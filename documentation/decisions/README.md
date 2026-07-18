@@ -111,12 +111,14 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Pi PR review uses visible session-scoped agents | Agents |
 | [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Pi CI monitoring uses one attached native background subagent | Agents |
 | [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Pin the upstream rpiv-todo session-isolation fix | Agents |
-| [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned in Pi; in-process subagents use native transports | Agents, Architecture |
+| [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned after opt-in; in-process subagents use native transports | Agents, Architecture |
 | [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Pi extraction delivery is root-owned, visible, and transactional | Agents, Architecture |
 | [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Pi extraction agents use bounded medium reasoning and one-pass inputs | Agents, Memory, Performance |
 | [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) | Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming | Architecture, Mobile |
 | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Streamed output defers while the user reads scrollback; keyboard-open swipes are always terminal input | Architecture, Mobile |
-| [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification | Process, Agents |
+| [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification; test-anchor cardinality amended by [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Process, Agents |
+| [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety) | context-mode is opt-in in Pi pending upstream memory safety | Agents, Architecture, Reliability |
+| [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Per-AC test evidence permits multiple resolving anchors | Process, Agents, Testing |
 
 ---
 
@@ -2608,9 +2610,6 @@ Keyboard-open gestures are deterministic again: arrows while typing, wheel/scrol
 
 ---
 
-## Related Documentation
-
-- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
 ### AD106: SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification
 
 **Category:** Process, Agents
@@ -2630,6 +2629,47 @@ Manual verification became per-AC: an AC that cannot be automatically verified c
 
 **Consequences:** Both agents now emit identical findings, severities, and category vocabulary for the same repository state, and parity can no longer rot silently because there is nothing to keep in parity. `grep -rn '@manual' sdd/` is the complete, always-current manual-verification inventory — every fully-anchored AC the REQ-level exemption previously blanket-skipped re-entered CQ-SOURCE/CQ-TEST enforcement, and future coverage work retrofits anchors AC-by-AC and deletes markers, shrinking the manual set monotonically. Pi reviewer prompts embed the full contract instead of the condensed rewrites, an accepted token-cost increase; the transform's compatibility note now appends only to SKILL.md files, which also fixed latent corruption of transformed executable aux files.
 
+---
+
+### AD107: context-mode is opt-in in Pi pending upstream memory safety
+
+**Category:** Agents, Architecture, Reliability
+
+**Status:** Accepted (2026-07-18)
+
+**Context:** [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) eliminated competing context-mode owners, but the upstream Pi adapter still keeps foreground lifecycle state in the long-lived Pi process and disables its bridge idle reaper. Long tool-heavy sessions can therefore exhaust the constrained container before Pi reaches a compaction boundary. The latest reviewed context-mode release remains 1.0.169, and Codeflare will not patch or fork either context-mode or Pi's MCP adapter. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::CONTEXT_MODE_PACKAGE = context-mode@1.0.169 -->
+
+**Decision:** Keep the pinned context-mode package installed, but write its disabled marker (`extensions: []`, `skills: []`) on every container start. `/ctx on` remains an explicit per-container opt-in and continues to use AD101's single foreground owner; `/ctx off` removes the tools again. A later container start restores the disabled default. Reconsider default enablement only after a reviewed upstream release provides a memory-safe Pi lifecycle. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand -->
+
+**Alternatives considered:** Leave context-mode enabled and accept recurring OOM failures; patch third-party lifecycle code; or route only its MCP tools through the stock generic adapter. The first is not crash-safe, the second creates an unowned fork, and the third removes context-mode's steering/session behavior without providing a hard bound during continuous use.
+
+**Consequences:** Fresh Pi sessions expose no `ctx_*` tools or context-mode steering and use the already-required native fallbacks. The five unrelated Pi tool extensions remain enabled. Users may opt in knowingly for one container lifetime, but Codeflare does not present that state as safe or persist it across container restart.
+
+**Related REQ:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership), [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [Pi preseed](../lanes/preseed.md#agent-preseed-system).
+
+---
+
+### AD108: Per-AC test evidence permits multiple resolving anchors
+
+**Category:** Process, Agents, Testing
+
+**Status:** Accepted (2026-07-18)
+
+**Context:** AD106 adopted a one-`@test`-anchor limit because the canonical greedy title regex could not separate adjacent HTML comments. That limit governs anchor pointers, not actual test cardinality: one pointer may name an outer suite containing many cases, while one AC may legitimately require blocks in different files. Source traceability already permits multiple `@impl` anchors. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors -->
+
+**Decision:** Require at least one resolving `@test` anchor on every non-manual AC, permit multiple anchors, and validate every declared file/block independently for resolution and behavioral quality. Replace the greedy single capture with the shared global comment-bounded parser; remove `spec-test-anchor-multiple`; let `/sdd clean` backfill multiple independently verified candidates without treating existing anchors as an exhaustive inventory. The Claude preseed remains canonical, transformed skills inherit the policy, and the dedicated Pi reviewer states the same rule directly. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors --> <!-- @impl: scripts/generate-agent-seed.mjs::generate -->
+
+**Alternatives considered:** Retain one pointer and force an outer suite; split a coherent AC to mirror test layout; or permit multiple comments without changing the parser. These respectively weaken precision, couple requirements to test organization, or preserve malformed extraction.
+
+**Consequences:** Existing Codeflare specs produce no new cardinality findings because every non-manual AC already has one anchor and none has multiple anchors. Future ACs may cite distributed evidence without artificial splitting; every extra anchor also creates another truth claim that can emit `spec-test-anchor-orphaned` or a test-quality finding.
+
+**Related REQ:** [REQ-AGENT-094](../../sdd/spec/agents.md#req-agent-094-per-ac-test-evidence-supports-multiple-anchors), [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification), [Test discipline](../lanes/preseed.md#agent-preseed-system).
+
+---
+
+## Related Documentation
+
+- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
 - [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
 - [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
 - [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth

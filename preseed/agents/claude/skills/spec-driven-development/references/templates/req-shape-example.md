@@ -18,7 +18,7 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
 
 1. First observable behaviour, single sentence, <=150 words. Describes what is true after the system runs. <!-- @impl: lib/services/example_service.dart::doThing --> <!-- @test: test/services/example_service_test.dart (doThing returns the processed result) -->
 2. Second behaviour asserting a concrete value. Use the `= <value-pattern>` form on the anchor so the value-drift check can resolve. <!-- @impl: lib/services/example_service.dart::doThing = 3 --> <!-- @test: test/services/example_service_test.dart (doThing retries three times) -->
-3. Up to 7 ACs maximum, numbered (`1.`, `2.`, ...), never bulleted (`-`). At most ONE `@test` anchor per AC. <!-- @impl: lib/services/example_service.dart::doThing --> <!-- @test: test/services/example_service_test.dart (doThing caps the list) -->
+3. Up to 7 ACs maximum, numbered (`1.`, `2.`, ...), never bulleted (`-`). Every non-manual AC has at least one `@test` anchor; multiple anchors are valid and each must resolve. <!-- @impl: lib/services/example_service.dart::doThing --> <!-- @test: test/services/example_service_test.dart (doThing caps the list) --> <!-- @test: test/services/example_limits_test.dart (doThing rejects an oversized list) -->
 
 **Constraints:** [CON-EXAMPLE-001](constraints.md#con-example-001-title-slug), [CON-SEC-001](constraints.md#con-sec-001-title-slug)
 

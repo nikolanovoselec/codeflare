@@ -48,13 +48,13 @@ deployed on Recreate or new bucket creation.
 | git-review-pipeline skill (SDD PR-boundary review pipeline) | No | Yes | Yes |
 | SDD template scaffolding for `/sdd init` | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
-| context-mode helper package (`ctx_*` tools) | Foreground Pi enabled by default; in-process subagents use native fallbacks | Foreground Pi enabled by default; in-process subagents use native fallbacks | Foreground Pi enabled by default; in-process subagents use native fallbacks |
+| context-mode helper package (`ctx_*` tools) | Installed, disabled by default; `/ctx on` opts in | Installed, disabled by default; `/ctx on` opts in | Installed, disabled by default; `/ctx on` opts in |
 | Pi tool extensions (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
-The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Container startup writes the context-mode-enabled Pi package setting by default, so the foreground session exposes `ctx_*` tools and the bash-curl-redirect hook without `/ctx on`. A state-changing `/ctx on` or `/ctx off` command persists the selected shared Pi setting and reloads the active Pi process; the next Codeflare container start resets the setting to enabled.
+The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Container startup writes context-mode's disabled Pi package marker, so `ctx_*` tools and its steering hooks remain absent until the user runs `/ctx on`. A state-changing `/ctx on` or `/ctx off` command persists the selected shared Pi setting and reloads the active Pi process; the next Codeflare container start restores the disabled default.
 
-Package settings expose context-mode skills but filter out its extension. The managed `context-mode-runtime.ts` extension claims one process-wide foreground owner and loads the installed context-mode Pi adapter only for that owner; every in-process subagent sees the claim and skips the adapter, so no reviewer/capture/CI child creates a bridge helper. The owner is released after context-mode handles `session_shutdown`, allowing `/reload` and `/ctx` toggles to reattach cleanly. Codeflare does not patch either upstream package ([AD101](../decisions/README.md#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC7, [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
+After explicit opt-in, package settings expose context-mode skills but filter out its extension. The managed `context-mode-runtime.ts` extension claims one process-wide foreground owner and loads the installed context-mode Pi adapter only for that owner; every in-process subagent sees the claim and skips the adapter, so no reviewer/capture/CI child creates a bridge helper. The owner is released after context-mode handles `session_shutdown`, allowing `/reload` and `/ctx` toggles to reattach cleanly. Codeflare does not patch either upstream package ([AD101](../decisions/README.md#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [AD107](../decisions/README.md#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC7, [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
 
 The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. Every Pi skill treats `ctx_*` tools as optional; `/ctx off` switches root workflows to documented native fallbacks without narrowing work.
 
@@ -149,7 +149,9 @@ The SDD skill set covers the Import/Resume legacy-codebase transition below.
 The SDD enforcement family is advanced-only: `spec-enforce` +
 `spec-enforce-ac` + `spec-enforce-truth`, `doc-enforce` +
 `doc-enforce-lanes` + `doc-enforce-shape` + `doc-enforce-truth`, and
-`tdd-enforce`. The git-workflow family is `ci-monitoring`,
+`tdd-enforce`. `spec-enforce-truth` requires at least one resolving `@test`
+anchor per non-manual AC, parses multiple anchors independently, and validates
+every declared block ([AD108](../decisions/README.md#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors)). The git-workflow family is `ci-monitoring`,
 `git-review-pipeline` (advanced-only), `pr-workflow`, and `deploy-credentials`.
 
 The design family (UI/frontend work) is `emil-design-eng` and

@@ -1,6 +1,5 @@
 // Verifies REQ-AGENT-005 AC4 (Pi stays functional regardless of context-mode)
-// and REQ-AGENT-076 AC1/AC2/AC3 (Pi context-mode default enablement,
-// Custom-tier tier-gating, and tool-extension gating): context-mode MCP
+// and REQ-AGENT-076 AC3 (Custom-tier Claude context-mode tier-gating): context-mode MCP
 // server registration in ~/.claude.json and PLUGINS_CONFIG enabledPlugins
 // gating.
 import { describe, it, before } from 'node:test';

@@ -139,8 +139,8 @@ Passes 4 and 5 are the legacy-import bridge. On a project where every REQ alread
 
 - **ACs missing per-AC `@test` anchors** (the test parallel of the `@impl` backfill above; only when `enforce_tdd: true`) → backfill in `auto`/`unleashed`. Mechanics:
   1. For each AC carrying a resolved `<!-- @impl: <path>::<symbol> -->` anchor, reuse the symbol→test-block resolution from the REQ-ID backfill above: grep `test_globs` for the symbol, then locate the outermost `describe`/`test`/`it` block whose body references it.
-  2. If exactly one block resolves, emit `<!-- @test: <test-path> (<block-title>) -->` inline on the AC, alongside its `@impl` anchor (copy the block title verbatim, parentheses and all). More than one strong candidate, or none: leave the AC unanchored and route to `## Coverage gaps`.
-  3. Idempotent: an AC that already carries a `@test` anchor is a no-op.
+  2. If one or more independently verified strong blocks resolve, emit one `<!-- @test: <test-path> (<block-title>) -->` per block inline on the AC, alongside its `@impl` anchors (copy each block title verbatim, parentheses and all). Deduplicate exact path/title pairs and order them by test path then block title. No strong block, or ambiguous candidates: leave the AC unanchored and route to `## Coverage gaps`.
+  3. Idempotent: an AC that already carries at least one `@test` anchor is a no-op; existing anchors are not expanded into an exhaustive test inventory.
 
   Severity: MEDIUM `ac-missing-test-anchor` per anchorless AC (the parallel of pass 4's `req-missing-impl-anchors`). Runs AFTER the `@impl` backfill — those anchors are this pass's input — and produces the spec-side `@test` anchors that the per-AC CQ-TEST check then verifies. Interactive prompts per REQ before writing. Gated by `enforce_tdd: true`; when `false`, write `ac-missing-test-anchor` entries to the `## Coverage gaps` triage section instead of mutating the spec.
 

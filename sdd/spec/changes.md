@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-18
+
+- **Pi starts with context-mode disabled pending an upstream memory-safe adapter** ([REQ-AGENT-076](agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) and [REQ-AGENT-089](agents.md#req-agent-089-pi-context-mode-foreground-ownership); Implemented). Fresh containers preserve the package for explicit `/ctx on` but disable its skills and adapter by default; every workflow retains its native fallback.
+
+- **Per-AC test evidence now supports one or more named anchors** ([REQ-AGENT-094](agents.md#req-agent-094-per-ac-test-evidence-supports-multiple-anchors); Implemented). Every non-manual AC still requires resolving behavioral evidence, while multiple independently validated blocks or files may jointly verify one behavior.
+
 ## 2026-07-17
 
 - **“Agentic engineering engine” branding now appears consistently across current product surfaces** ([REQ-LANDING-003](landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-SETUP-010](setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page), and [REQ-AUTH-012](authentication.md#req-auth-012-welcome-email-on-first-login); Implemented). The SPA metadata, install manifest, login and onboarding surfaces, subscription and usage views, welcome email, documentation, and seeded tutorial use the current phrase while historical changelog wording remains archived.
