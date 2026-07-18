@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const tokensCss = readFileSync(resolve(process.cwd(), 'src/styles/tokens.css'), 'utf8');
+const tokensCss = readFileSync(resolve(process.cwd(), 'src/styles/tokens.css'), 'utf8')
+  .replace(/^@import[^;]+;\s*$/gm, '');
 const globalCss = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8')
   .replace(/^@import[^;]+;\s*$/gm, '');
 
