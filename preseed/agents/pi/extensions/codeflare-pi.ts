@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
@@ -39,7 +40,7 @@ type ExtensionCommandContext = ExtensionContext & {
   reload(): Promise<void>;
 };
 
-type ExtensionAPI = {
+type ExtensionAPI = ToolActivationPi & {
   registerCommand(
     name: string,
     config: {
@@ -57,24 +58,6 @@ const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
-
-// Always-on engineering constitution injected into every Pi agent system prompt.
-// Mirrors the Claude rule preseed/agents/claude/rules/engineering-constitution.md —
-// keep the four mandates in sync across both agents.
-const ENGINEERING_CONSTITUTION = [
-  "<codeflare_constitution>",
-  "Non-negotiable for ALL planning and coding (restate as success criteria in every plan; trivial one-liners excepted):",
-  "1. No overengineering — minimum code that solves the actual request; nothing speculative.",
-  "2. Behavioral tests only — assert behavior/contract values (state, DOM, status codes, parsed values), never UI copy/prose; a test must fail if the implementation is gutted.",
-  "3. Reusable, composable components — extract any structure used more than twice; tokens/one source of truth; validate at boundaries; immutability.",
-  "4. SDD + TDD enforced — failing behavioral test first; every change traces to a REQ; specs/anchors/docs move with the code; never leave a REQ Partial.",
-  "Work continuity: when a new user message arrives mid-task, do not switch topics just because it arrived; queue it, finish the current concrete step to a safe stopping point, then handle the new request unless the user explicitly says to stop/pause/reprioritize.",
-  "Review push gate: at a PR boundary, launch every required reviewer visibly through public background subagent calls without inherited context. The main session waits for every reviewer to complete, presents their findings, fixes legitimate findings, and does not push another head until the review is complete unless the user explicitly authorizes pushing sooner.",
-  "CI-result handoff gate: when an independent background CI monitor completes with CI_RESULT, the very next assistant response MUST start with a user-facing CI summary before analysis, tool calls, todo updates, fixes, deploys, or pushes. Include the exact result line, monitored head, workflow/run id and URL when present, and planned next action.",
-  "No blocking waits: any long-running CI, deploy, log, watch, or polling command must run detached/background or in a background agent. Visible PR reviewers run independently; the main session remains available while waiting for their results.",
-  "Plan gate: present no plan without a Success-criteria/verification section covering these four. Fix legitimate findings in-session.",
-  "</codeflare_constitution>",
-].join("\n");
 
 export type PiSettings = {
   packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
@@ -570,6 +553,7 @@ export default function (pi: ExtensionAPI) {
       }
       const scopeText = sddWorkflowScopeText(decision);
       const executionText = sddWorkflowExecutionText(decision);
+      activateRegisteredTools(pi, ["subagent"]);
       await sendWorkflowMessage(
         pi,
         ctx,
@@ -583,6 +567,7 @@ export default function (pi: ExtensionAPI) {
     description: "Run Codeflare graphify workflow without shadowing the Pi graphify package command",
     handler: async (args, ctx) => {
       const repo = activeRepo(ctx) ?? ctx.sessionManager.getCwd();
+      activateRegisteredTools(pi, ["subagent"]);
       if (args.trim() === "refresh") {
         await sendWorkflowMessage(pi, ctx, "/graphify refresh", `Refresh the graphify graph for ${repo}. Use upstream Graphify via /home/user/.pi/agent/scripts/safe-graphify-update.sh for AST refresh, and only run semantic refresh through Pi Agent subagents from this session if the user chooses Full mode in the graphify skill. Merge ${repo}/graphify-out/graph.json into the global graph if present.`);
         return;
@@ -620,7 +605,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", (event, ctx) => {
     const repo = activeRepo(ctx);
-    const parts = [String(event?.systemPrompt ?? ""), ENGINEERING_CONSTITUTION];
+    const parts = [String(event?.systemPrompt ?? "")];
     if (repo) {
       const summary = graphSummary(repo);
       if (summary) parts.push(`<codeflare_graphify>\n${summary}\n</codeflare_graphify>`);

@@ -1,6 +1,6 @@
 ---
 name: frontend-components
-description: Mandatory coding standards for building and refactoring any UI that has repeated structure — landing pages, marketing sites, dashboards, component libraries, any page where a pattern appears more than twice. Use BEFORE writing a new page/section/widget, and ALWAYS when you notice yourself copy-pasting markup, tuning the same thing in several places, or about to assert `toContain('some copy')` in a test. Enforces extract-don't-duplicate, central control (tokens + content data), behavior-preserving refactors, and behavioral-only tests (no string-matching theater). Framework-agnostic (Astro, React, Svelte, Vue, plain HTML).
+description: Mandatory composability and behavioral-test standards for UI with repeated structure, including landing pages and dashboards.
 ---
 
 # Frontend Components: Build It Composable, Control It Centrally, Test the Behavior

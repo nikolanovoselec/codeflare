@@ -1,8 +1,6 @@
-// Verifies the engineering constitution is hardwired into every preseed-managed
-// agent: seeded as an advanced-gated Claude rule, and injected into every Pi agent
-// system prompt via before_agent_start. Asserts the seeding/wiring CONTRACT only
-// (file presence, manifest mode gate, always-on injection) — never the prose, so
-// the constitution text can be edited without churning this test.
+// Verifies the engineering constitution has one canonical Claude owner and one
+// Pi-native adaptation delivered through the generated instruction surface in
+// both Pi modes. The test asserts ownership and mode contracts, never prose.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
@@ -12,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
 const claudeDir = resolve(repoRoot, 'preseed/agents/claude');
+const piDir = resolve(repoRoot, 'preseed/agents/pi');
 
 // REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 describe('engineering constitution preseed', () => {
@@ -26,19 +25,16 @@ describe('engineering constitution preseed', () => {
     assert.deepEqual(entry.modes, ['advanced'], 'constitution rule must be advanced-gated');
   });
 
-  it('injects the constitution into every Pi agent system prompt (always-on)', () => {
-    const ext = readFileSync(
-      resolve(repoRoot, 'preseed/agents/pi/extensions/codeflare-pi.ts'),
-      'utf8',
+  it('seeds one Pi-native constitution adaptation in both modes', () => {
+    assert.ok(
+      existsSync(resolve(piDir, 'rules/engineering-constitution.md')),
+      'Pi engineering constitution adaptation must exist',
     );
-    // The block is a tagged, self-contained constitution.
-    assert.match(ext, /<codeflare_constitution>[\s\S]*<\/codeflare_constitution>/);
-    // It is seeded into the base systemPrompt parts array (not behind a conditional),
-    // so it is present on every before_agent_start, not only in some sessions.
-    assert.match(
-      ext,
-      /const parts = \[[^\]]*ENGINEERING_CONSTITUTION/,
-      'ENGINEERING_CONSTITUTION must be in the base before_agent_start parts array',
+    const manifest = JSON.parse(readFileSync(resolve(piDir, 'manifest.json'), 'utf8'));
+    assert.deepEqual(
+      manifest['rules/engineering-constitution.md']?.modes,
+      ['default', 'advanced'],
+      'Pi constitution must be present in Standard and Pro modes',
     );
   });
 });

@@ -218,7 +218,7 @@ Multi-agent support, preseed system, and session modes.
 
 1. Every supported non-Claude agent receives an instruction document in both default and advanced modes. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (instructions files appear twice (one per mode, different content)) -->
 2. Tool names are remapped per agent (e.g., `Read` -> `read` for Codex and Pi). <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_SKILLS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`, Antigravity: `.gemini/GEMINI.md`, Pi: `AGENTS.md`). <!-- @impl: scripts/generate-agent-seed.mjs::AGENT_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+3. Codex, Copilot, OpenCode, and Antigravity receive monolithic transformed instructions, while Pi receives one compact `AGENTS.md` plus grouped native skills for canonical path-scoped rules. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
 4. Every Pi manifest entry is emitted once in each declared mode with bytes equal to its canonical Pi source. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (emits every manifest-declared Pi asset exactly once per mode with canonical bytes) -->
 
 **Constraints:**
@@ -1848,7 +1848,7 @@ None.
 **Acceptance Criteria:**
 
 1. In advanced session mode, the constitution is seeded as a Claude rule — the preseed rule file is present and the seed manifest gates it to `advanced` only, matching the other engineering rules ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). <!-- @test: host/__tests__/engineering-constitution.test.js (seeds the Claude constitution rule, gated to advanced mode) --> <!-- @manual -->
-2. The constitution is injected into every Pi agent system prompt on `before_agent_start` as an always-on, self-contained `<codeflare_constitution>` block (placed in the base prompt parts, not behind a conditional), so it is present in every Pi session. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: host/__tests__/engineering-constitution.test.js (injects the constitution into every Pi agent system prompt (always-on)) -->
+2. Pi receives one compact native constitution rule in both session modes, with the shared four mandates aligned to the Claude canon and Pi-only review/CI mechanics owned by that native adaptation rather than a duplicate per-turn injection. <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Four mandates --> <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
 
 **Constraints:**
 
@@ -2297,6 +2297,40 @@ None.
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
 
 **Verification:** [Test-anchor parser tests](../../host/__tests__/test-anchor-parser.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-095: Compact Pi Context and On-Demand Capabilities
+
+**Intent:** Pi must start with a focused Codeflare context and discover specialized skills and tools only when relevant, while preserving every event-driven review, CI, memory, Vault, Graphify, and context-mode contract.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi packages canonical path-scoped Claude rules into grouped native skills while keeping Claude and other agent outputs unchanged. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
+2. The model-visible Pi skill catalog keeps proactive workflows visible and hides only internals loaded by a named command, deterministic event, or reviewer embedding. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPiSkillContent --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
+3. Pi starts with registered basic editing, question, capability, and Graphify tools while leaving specialized registered tools inactive. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-095: registered Pi tool discovery and activation) -->
+4. Capability search discovers and additively activates only tools already registered through Pi's public extension API without granting authorization. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-095: registered Pi tool discovery and activation) -->
+5. PR-boundary and extraction launch owners activate `subagent` before delivering their unchanged follow-up requests. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
+6. Context-mode remains absent on fresh startup and explicit `/ctx on` reloads a foreground owner whose registered `ctx_*` tools remain active. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-095: registered Pi tool discovery and activation) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC2: /ctx reloads Pi into the selected state) -->
+7. After release-seed materialization, Pi's complete first-turn context stays below 10,000 approximate tokens under the local faux-provider measurement while the generated managed seed remains constrained independently. <!-- @impl: scripts/measure-pi-runtime-context.mjs --> <!-- @impl: scripts/measure-seed-tokens.mjs::measurePiSeed --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) --> <!-- @manual: Materialize the advanced release seed into a Pi agent directory, run `node scripts/measure-pi-runtime-context.mjs`, and confirm `inputTokens` is below 10,000. -->
+
+**Constraints:**
+
+- Claude rule and skill files remain the shared policy canon; Pi changes delivery and runtime names only.
+- Project `AGENTS.md` files and project skills are never truncated or hidden by Codeflare.
+- Tool activation is additive and uses Pi's public extension API.
+- Context-mode and `pi-mcp-adapter` remain unmodified dependencies.
+- Review, CI, memory, and Vault request payloads remain unchanged and exactly once.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+
+**Verification:** [Pi compact-context tests](../../src/__tests__/lib/pi-compact-context.test.ts), [Pi capability tests](../../src/__tests__/lib/pi-capabilities.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts), [Pi memory/Vault delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { recallActiveRepo, rememberActiveRepoFromToolResult } from "./active-repo-memory";
+import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import {
   classifyReviewBoundaryCommand,
   isReviewTransitionSuspended,
@@ -40,7 +41,7 @@ type ReviewContext = {
   };
 };
 
-type ReviewPi = {
+type ReviewPi = ToolActivationPi & {
   on(event: "tool_result" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
@@ -288,6 +289,7 @@ function reviewerPromptScope(pr: PrState, range: string | undefined): string {
 }
 
 function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
+  activateRegisteredTools(pi, ["subagent"]);
   const sections: string[] = [];
   const order: string[] = [];
   if (input.reviewers.length > 0) {

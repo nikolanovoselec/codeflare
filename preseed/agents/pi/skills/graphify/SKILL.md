@@ -1,6 +1,6 @@
 ---
 name: graphify
-description: Graphify workflow for Pi/Codeflare. Build, refresh, query, explain, trace, or locate repo/Vault/session knowledge. Uses official Graphify AST/build/cluster/report/export flows, and uses the Pi main session agent for semantic extraction and community labels.
+description: Build, refresh, query, explain, or trace repository, Vault, session, and global Graphify knowledge.
 ---
 
 # Graphify in Pi / Codeflare
@@ -14,7 +14,7 @@ Hard rules:
 - **Vault graph rebuilds publish to `Raw/Graphs/`.** After a local `graphify cluster-only .` from `/home/user/Vault`, copy `graphify-out/graph.html` to `Raw/Graphs/vault-graph.html` so the seeded `Raw/Graphs/Vault Graph.md` index link resolves through the SilverBullet `.fs/` route. `graphify-out/` is excluded from R2 bisync and the `.fs/` route, so without the copy the link 404s.
 - **The Vault graph uses the canonical graphify schema.** Vault nodes carry `file_type` + `source_file` (document/code) or `file_type: "concept"` with `source_file: null`; edges carry `relation` + `confidence` + `confidence_score`, identical to repo and global graphs. Never write the legacy `type`/`path`/`mentions` shape - `graphify global add` label-merges any node lacking `source_file`, collapsing document identity.
 - **Use the Pi main session agent for community labels.** The main session writes `graphify-out/.graphify_labels.json`; then Graphify regenerates report/html locally from the graph's existing community assignments.
-- **Use Pi `Agent` subagents only for uncached Full-mode semantic extraction chunks.** Do not run headless semantic extraction for uncached docs/images.
+- **Use Pi `subagent` tool calls only for uncached Full-mode semantic extraction chunks.** Do not run headless semantic extraction for uncached docs/images.
 - **Use official Graphify flows** for AST detection/extraction, graph build/merge, clustering, report generation, HTML generation, query/path/explain, global merge, and callflow export.
 - **Do not hand-edit graph output JSON.** Do not add Codeflare-specific AST allowlists, import rewrites, or graph normalization.
 
@@ -45,7 +45,7 @@ After answering from a `graphify_query` / `graphify_path` / `graphify_explain` r
 Clone-time prompts must never authorize an automatic graph update. When a cloned repo has no graph, ask the user which graph action they want before running any build:
 
 - **Full repo AST-only build** — free/local code graph.
-- **Full repo semantic build** — intent to run Pi Agent semantic extraction after detection shows the actual uncached file/subagent counts.
+- **Full repo semantic build** — intent to run Pi `subagent` semantic extraction after detection shows the actual uncached file/subagent counts.
 - **No graph action right now** — stop without creating `graphify-out`.
 
 When a cloned repo has a stale/unknown existing graph, ask before any update and offer only:
@@ -87,7 +87,7 @@ After detection, present these choices and wait for the user to choose one, unle
 
 1. **Architecture graph** — recommended for large/noisy repos and daily navigation. Builds a smaller runtime-source graph by excluding tests, fixtures, generated files, docs/spec bulk, and build artifacts. Free/local.
 2. **Full repo AST-only** — official Graphify AST/code graph for every detected code file. Free/local, but can be noisy on large repos.
-3. **Full repo semantic** — Pi Agent subagents produce semantic chunks for docs/papers/images, then Graphify consumes local semantic fragments and rebuilds locally.
+3. **Full repo semantic** — Pi `subagent` tool calls produce semantic chunks for docs/papers/images, then Graphify consumes local semantic fragments and rebuilds locally.
 4. **No, I don't want to create/update a graph right now.** — stop without modifying `graphify-out`.
 
 If there are zero docs/papers/images, hide only the semantic option; still offer Architecture graph, Full repo AST-only, and the no-graph option. For repos with more than ~200 files, recommend Architecture graph unless the user explicitly wants exhaustive coverage.
@@ -132,7 +132,7 @@ Then label communities using the **Local main-session community labels** section
 
 ## Full build/update without provider LLMs
 
-Use this when the user chooses Full repo semantic. Pi `Agent` subagents produce semantic chunks for the uncached docs/papers/images, then Graphify consumes the local semantic fragments and rebuilds locally. **Do not pass a model override** when dispatching those subagents - they use the running session model. The full four-step flow (create semantic file list, dispatch subagents, merge chunks into the Graphify cache + local fragment, then rebuild from an AST baseline with `build-graphify-ast.sh`) lives in `references/build.md`. Load it only after the post-detection cost/count confirmation passes.
+Use this when the user chooses Full repo semantic. Pi `subagent` tool calls produce semantic chunks for the uncached docs/papers/images, then Graphify consumes the local semantic fragments and rebuilds locally. **Do not pass a model override** when dispatching those subagents - they use the running session model. The full four-step flow (create semantic file list, dispatch subagents, merge chunks into the Graphify cache + local fragment, then rebuild from an AST baseline with `build-graphify-ast.sh`) lives in `references/build.md`. Load it only after the post-detection cost/count confirmation passes.
 
 Then label communities using the **Local main-session community labels** flow below.
 

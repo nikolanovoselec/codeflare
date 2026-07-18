@@ -1,6 +1,6 @@
 ---
 name: advisor
-description: User-invoked only. Never call the advisor tool, run /advisor, or suggest /advisor unless the user's current request explicitly asks for advisor. Forbidden for proactive planning, review, debugging, risk checks, stuck states, or completion checks.
+description: User-invoked only; use advisor solely when the current request explicitly asks for it.
 ---
 
 # Advisor (Pi): User-Invoked Stronger-Model Review

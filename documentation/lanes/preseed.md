@@ -406,7 +406,8 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/npm/rpiv-todo-session-isolation/*` | default, advanced | `~/.pi/agent/npm/rpiv-todo-session-isolation/` | Version-gated rpiv-todo 1.20.0 session-isolation override |
 | `preseed/agents/pi/skills/pr-workflow/SKILL.md` | default, advanced | `~/.pi/agent/skills/pr-workflow/SKILL.md` | PR creation procedure |
 | `preseed/agents/pi/skills/git-review-pipeline/SKILL.md` | advanced | `~/.pi/agent/skills/git-review-pipeline/SKILL.md` | Session-scoped review procedure |
-| `preseed/agents/pi/rules/engineering-constitution.md` | advanced | `~/.pi/agent/rules/engineering-constitution.md` | Pi planning, TDD/SDD, and review gates |
+| `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact Pi planning, TDD/SDD, capability, and review gates |
+| `preseed/agents/pi/extensions/capability.ts` + `capability-helpers.ts` | default, advanced | `~/.pi/agent/extensions/` | Registered-tool search and additive activation through Pi's public API |
 | `preseed/agents/pi/skills/review-scope/SKILL.md` | advanced | `~/.pi/agent/skills/review-scope/SKILL.md` | Shared `diff`/`all` scope resolver |
 | `preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs` | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |
 | `preseed/agents/pi/agents/{code-reviewer,spec-reviewer,doc-updater}.md` | advanced | `~/.pi/agent/agents/` | Native report-only review lanes |
@@ -520,11 +521,20 @@ from CC's preseed as the default source of truth. Pi-specific runtime contracts
 that must differ from Claude, such as `git-workflow` and `ci-monitoring`, live as
 native Pi manifest entries instead of transformed Claude files.
 
-Shared operational rules in `preseed/agents/claude/rules/engineering-constitution.md`
-fan out through `scripts/generate-agent-seed.mjs` to every agent instruction surface.
-The review push gate is sourced from that constitution: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise incomplete for the current head unless the user explicitly authorizes it. Implements
+Shared operational policy remains canonical under `preseed/agents/claude/`.
+`scripts/generate-agent-seed.mjs` keeps monolithic transformed instructions for Codex,
+Copilot, OpenCode, and Antigravity. Pi instead receives a compact `AGENTS.md`:
+path-scoped canonical rules become five grouped native skills, rules already owned by a
+canonical skill are not duplicated, and long-form environment/coding/Graphify/build principles
+are condensed into the Pi-native constitution. The Pi-native Git/constitution adaptations retain
+Pi-only event mechanics. The review push gate remains in that generated Pi instruction
+surface: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
+incomplete for the current head unless the user explicitly authorizes it. Implements
 [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents).
+`scripts/measure-seed-tokens.mjs` reports managed seed text; after materialization,
+`scripts/measure-pi-runtime-context.mjs` uses Pi's real resource loader and local faux
+provider to measure the complete first-turn input, including active schemas and extension context.
 
 **Supported agents and their config locations:**
 
@@ -549,9 +559,15 @@ AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-const
 | Glob | glob | glob | search | glob | find |
 
 **What each agent gets:** Claude Code and Pi both receive the full capability set.
-Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses
-adapted rules/skills/agents plus native TypeScript extensions that reimplement the
-CC-only surfaces: slash commands, hooks, memory capture, and review enforcement.
+Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses a compact
+always-on rule kernel, progressively disclosed adapted skills/agents, and native TypeScript
+extensions that reimplement the CC-only surfaces: slash commands, hooks, memory capture,
+and review enforcement. High-frequency proactive skills stay in Pi's startup catalog;
+only command/event/reviewer-owned internal skills carry `disable-model-invocation: true`;
+proactive skills remain model-visible. The native `capability` tool keeps
+basic/question/Graphify tools active initially and activates other
+registered tools additively. PR-boundary and memory/Vault owners activate `subagent` before
+emitting their unchanged public follow-ups.
 
 Codex, Copilot, OpenCode, and Antigravity receive a reduced, runtime-appropriate
 subset: adapted rules and, where the runtime supports them, skills and agents. They

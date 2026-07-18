@@ -1,6 +1,6 @@
 ---
 name: consult-llm
-description: Use only when the user explicitly asks to consult an external LLM or names GPT, ChatGPT, Gemini, OpenAI, or consult_llm. Never use at session start, for routine planning/review/debugging, or for a generic "second opinion" unless the user names external LLMs.
+description: User-invoked only for explicit requests to consult GPT, ChatGPT, Gemini, OpenAI, or another external LLM.
 ---
 
 # Consult LLM (Pi): Query External AI Models

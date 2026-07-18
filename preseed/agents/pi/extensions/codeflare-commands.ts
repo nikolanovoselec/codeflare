@@ -6,7 +6,7 @@
  * loads a SKILL.md via skillPrompt), these workflows have no Pi skill file, so the
  * instruction text is embedded here.
  *
- * Pi adaptations: subagents are spawned via the Agent tool; agent state lives
+ * Pi adaptations: subagents are spawned via the `subagent` tool; agent state lives
  * under /home/user/.pi; graph lookups use graphify_query / graphify_path /
  * graphify_explain. The workflow text and instruction assembly live in
  * commands-helpers.ts so they can be unit-tested without the Pi package.

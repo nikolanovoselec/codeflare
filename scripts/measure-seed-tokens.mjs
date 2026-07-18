@@ -11,10 +11,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseGeneratedSeed } from './materialize-agent-seed.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const claudeDir = path.join(__dirname, '..', 'preseed/agents/claude');
 const manifest = JSON.parse(fs.readFileSync(path.join(claudeDir, 'manifest.json'), 'utf8'));
+const generatedSeedPath = path.join(__dirname, '..', 'src', 'lib', 'agent-seed.generated.ts');
 const tok = (chars) => Math.round(chars / 4);
 
 function frontmatter(file) {
@@ -29,6 +31,37 @@ function descChars(file) {
 }
 function hasPaths(file) {
   return /^\s*paths:/m.test(frontmatter(file));
+}
+
+function seedFrontmatter(content) {
+  return Object.fromEntries(
+    (content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
+      .split('\n')
+      .map((line) => line.split(/:\s*/, 2))
+      .filter((parts) => parts.length === 2),
+  );
+}
+
+export function measurePiSeed(documents, mode) {
+  const instructionChars = documents
+    .filter((doc) => doc.key === '.pi/agent/AGENTS.md' && doc.modes.includes(mode))
+    .reduce((total, doc) => total + doc.content.length, 0);
+  const catalogChars = documents
+    .filter((doc) => doc.key.startsWith('.pi/agent/skills/') && doc.key.endsWith('/SKILL.md') && doc.modes.includes(mode))
+    .map((doc) => ({ doc, metadata: seedFrontmatter(doc.content) }))
+    .filter(({ metadata }) => metadata['disable-model-invocation'] !== 'true')
+    .reduce((total, { doc, metadata }) => total + [
+      '<skill>',
+      `<name>${metadata.name ?? ''}</name>`,
+      `<description>${metadata.description ?? ''}</description>`,
+      `<location>~/${doc.key}</location>`,
+      '</skill>',
+    ].join('\n').length, 0);
+  return {
+    instructionChars,
+    catalogChars,
+    estimatedTokens: Math.ceil((instructionChars + catalogChars) / 4),
+  };
 }
 
 for (const mode of ['default', 'advanced']) {
@@ -58,5 +91,16 @@ for (const mode of ['default', 'advanced']) {
     fat.sort((a, b) => b[1] - a[1]);
     console.log(`  fattest skill descriptions:`);
     for (const [n, c] of fat.slice(0, 10)) console.log(`     ${n.padEnd(28)} ${c} chars ~${tok(c)} tok`);
+  }
+}
+
+if (fs.existsSync(generatedSeedPath)) {
+  const documents = parseGeneratedSeed(fs.readFileSync(generatedSeedPath, 'utf8'));
+  for (const mode of ['default', 'advanced']) {
+    const measured = measurePiSeed(documents, mode);
+    console.log(`\n=== Pi controlled startup: ${mode} ===`);
+    console.log(`  instructions: ${measured.instructionChars} chars`);
+    console.log(`  visible skill catalog: ${measured.catalogChars} chars`);
+    console.log(`  --> managed seed text: ~${measured.estimatedTokens} tok`);
   }
 }

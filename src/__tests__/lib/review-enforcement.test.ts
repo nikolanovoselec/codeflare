@@ -49,6 +49,9 @@ type PlannedReviewEnforcement = {
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void;
+  getActiveTools(): string[];
+  getAllTools(): Array<{ name: string; description: string }>;
+  setActiveTools(names: string[]): void;
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
@@ -230,13 +233,28 @@ function makeHarness(repo: string, sessionFile: string): {
   pi: TestPi;
   ctx: TestContext;
   sent: SentMessage[];
+  operations: string[];
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
   const sent: SentMessage[] = [];
+  const operations: string[] = [];
+  let activeTools = ['read', 'bash'];
+  const allTools = [
+    { name: 'read', description: 'Read files' },
+    { name: 'bash', description: 'Run shell commands' },
+    { name: 'subagent', description: 'Launch a background specialist' },
+  ];
   const pi: TestPi = {
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
+    getActiveTools: () => [...activeTools],
+    getAllTools: () => allTools.map((tool) => ({ ...tool })),
+    setActiveTools: (names) => {
+      activeTools = [...names];
+      operations.push(`activate:${names.join(',')}`);
+    },
     sendMessage: (message, options) => {
+      operations.push(`send:${message.customType}`);
       sent.push({ message, options });
       appendSession(sessionFile, {
         type: 'custom_message',
@@ -258,6 +276,7 @@ function makeHarness(repo: string, sessionFile: string): {
     pi,
     ctx,
     sent,
+    operations,
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
@@ -309,6 +328,10 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent());
+    expect(harness.operations.slice(0, 2)).toEqual([
+      'activate:read,bash,subagent',
+      'send:pr-boundary-launch-plan',
+    ]);
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',

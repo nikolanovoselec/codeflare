@@ -18,6 +18,19 @@
   },
   "rules/engineering-constitution.md": {
     "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/capability.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/capability-helpers.ts": {
+    "modes": [
+      "default",
       "advanced"
     ]
   },

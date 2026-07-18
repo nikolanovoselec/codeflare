@@ -1,6 +1,6 @@
 # Full build/update without provider LLMs
 
-Load this for the Full repo semantic flow: Pi `Agent` subagents produce semantic chunks for docs/papers/images, then Graphify consumes the local semantic fragments and rebuilds locally. Use this only after the user has chosen Full repo semantic (see the core skill's "Mandatory graph refresh choice") and the post-detection cost/count confirmation has passed.
+Load this for the Full repo semantic flow: Pi `subagent` tool calls produce semantic chunks for docs/papers/images, then Graphify consumes the local semantic fragments and rebuilds locally. Use this only after the user has chosen Full repo semantic (see the core skill's "Mandatory graph refresh choice") and the post-detection cost/count confirmation has passed.
 
 The AST-only and Architecture builds do not need this file - they run `build-graphify-ast.sh` / `build-graphify-architecture.sh` directly (see the core skill). This file is for the semantic merge on top of an AST baseline.
 
@@ -23,11 +23,11 @@ Path('graphify-out/.graphify_semantic_files.txt').write_text('\n'.join(files), e
 cached_nodes, cached_edges, cached_hyperedges, uncached = check_semantic_cache(files, root=root)
 Path('graphify-out/.graphify_cached.json').write_text(json.dumps({'nodes': cached_nodes, 'edges': cached_edges, 'hyperedges': cached_hyperedges}, ensure_ascii=False), encoding='utf-8')
 Path('graphify-out/.graphify_uncached.txt').write_text('\n'.join(uncached), encoding='utf-8')
-print(f"Semantic cache: {len(files) - len(uncached)} hit, {len(uncached)} need Pi Agent extraction")
+print(f"Semantic cache: {len(files) - len(uncached)} hit, {len(uncached)} need Pi subagent extraction")
 PY
 ```
 
-## Step 2 — dispatch Pi Agent semantic subagents for uncached files
+## Step 2 — dispatch Pi semantic subagents for uncached files
 
 Split `graphify-out/.graphify_uncached.txt` into chunks:
 

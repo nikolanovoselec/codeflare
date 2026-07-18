@@ -2,6 +2,7 @@
 name: git-review-pipeline
 description: "SDD-mode PR-boundary review policy for Pi. The extension names required visible reviewer lanes; the root main session launches them together, waits for all, fixes legitimate findings, and alone pushes. Review is independent of CI."
 version: 3.0.0
+disable-model-invocation: true
 ---
 
 # Git Review Pipeline in Pi

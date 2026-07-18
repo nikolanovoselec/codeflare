@@ -1,6 +1,6 @@
 ---
 name: browser-run
-description: Read or drive public web pages with a real headless browser (Cloudflare Browser Run). Two surfaces — cheap one-shot Markdown/HTML/scrape via the native browser_markdown / browser_content / browser_scrape tools, and the interactive chrome-devtools browser reached through the pi-mcp-adapter `mcp` proxy (navigate / click / screenshot). Use when the built-in web fetch is blocked or when you need to interact with a page.
+description: Read blocked public pages or interact with a rendered page through Cloudflare Browser Run and chrome-devtools.
 ---
 
 # Browser Run (Pi)

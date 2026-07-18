@@ -1,6 +1,7 @@
 ---
 name: review
 description: Pi-native Codeflare /review workflow. Run a full multi-perspective codebase review from 6 specialized subagents, cross-reference findings, filter against architecture decisions and prior triage, optionally verify externally, then triage interactively with the user. Static analysis only - no runtime, build, or test execution.
+disable-model-invocation: true
 ---
 
 # Pi Review Workflow

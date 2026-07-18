@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { findGitRoot, recallActiveRepo } from "./active-repo-memory";
+import { activateRegisteredTools } from "./capability-helpers";
 import { resolveReviewScope, scopeContract, type ReviewScopeContract } from "./review-scope";
 
 function skillPrompt(name: string, fallback: string): string {
@@ -116,6 +117,7 @@ export async function dispatchReview(
     existsSync(join(decision.repo, "sdd")),
     existsSync(join(decision.repo, "documentation")),
   );
+  activateRegisteredTools(pi, ["subagent"]);
   const reviewInstructions = [
     skillPrompt("review", "Run the Codeflare multi-phase review workflow for the requested scope and report findings."),
     "",

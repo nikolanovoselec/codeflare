@@ -89,6 +89,63 @@ const CLAUDE_ONLY_FILES = new Set(['rules/memory.md']);
 // .mjs scripts. So impeccable reaches exactly Claude (this tree) + Pi (native), nothing else.
 const CLAUDE_ONLY_SKILLS = new Set(['consult-llm', 'impeccable']);
 
+// Pi hides only deterministic internals that are loaded by a named command,
+// extension event, or reviewer embedding. Proactive skills stay model-visible.
+const PI_MODEL_HIDDEN_SKILLS = new Set([
+  'doc-enforce',
+  'doc-enforce-lanes',
+  'doc-enforce-shape',
+  'doc-enforce-truth',
+  'sdd-clean',
+  'sdd-init',
+  'spec-driven-development',
+  'spec-enforce',
+  'spec-enforce-ac',
+  'spec-enforce-truth',
+  'tdd-enforce',
+]);
+
+// These canonical principles are already preserved by the compact Pi-native
+// constitution, so duplicating their long-form prose in AGENTS.md adds no policy.
+const PI_COMPACTED_RULES = new Set([
+  'rules/cloudflare-environment.md',
+  'rules/common/coding-style.md',
+  'rules/graph-first.md',
+  'rules/karpathy.md',
+  'rules/no-local-builds.md',
+]);
+
+const PI_COVERED_RULES = new Map([
+  ['rules/documentation-discipline.md', 'doc-enforce'],
+  ['rules/frontend-components.md', 'frontend-components'],
+  ['rules/spec-discipline.md', 'spec-driven-development'],
+  ['rules/tdd-discipline.md', 'tdd-enforce'],
+  ['rules/vault-note-capture.md', 'vault-note-capture'],
+]);
+
+const PI_RULE_SKILL_GROUPS = new Map([
+  ['rules/cloudflare-workers.md', {
+    name: 'codeflare-cloudflare-workers',
+    description: 'Use when editing Cloudflare Worker source or Wrangler configuration.',
+  }],
+  ['rules/golang/', {
+    name: 'codeflare-go',
+    description: 'Use when editing Go source, modules, security behavior, or tests.',
+  }],
+  ['rules/python/', {
+    name: 'codeflare-python',
+    description: 'Use when editing Python source, types, security behavior, or tests.',
+  }],
+  ['rules/swift/', {
+    name: 'codeflare-swift',
+    description: 'Use when editing Swift source, packages, security behavior, or tests.',
+  }],
+  ['rules/typescript/', {
+    name: 'codeflare-typescript',
+    description: 'Use when editing TypeScript or JavaScript source, security behavior, or tests.',
+  }],
+]);
+
 // ---------------------------------------------------------------------------
 // Classification
 // ---------------------------------------------------------------------------
@@ -194,7 +251,10 @@ const PI_RUNTIME_REPLACEMENTS = [
   ['mcp__context-mode__ctx_fetch_and_index', 'ctx_fetch_and_index'],
   ['Claude Code: `EnterPlanMode`', 'Pi: use the `Plan` agent'],
   ['`EnterPlanMode`', 'the Pi `Plan` agent'],
-  ['Task tool', 'Agent tool'],
+  ['Task(subagent_type', 'subagent(subagent_type'],
+  ['Task tool', 'subagent tool'],
+  ['Agent tool', 'subagent tool'],
+  ['Agent call', 'subagent call'],
   ['Claude Code', 'Pi'],
 ];
 
@@ -325,7 +385,26 @@ const PI_SDD_SKILLS = new Set([
   'doc-enforce-truth',
 ]);
 
-const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use Bash/Read/Grep/Find/Edit/Write directly; do not assume context-mode \`ctx_*\` tools exist.\n- Use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. If a native graphify tool resolves the workspace root instead of the active repo, use the CLI fallback with \`--graph <repo>/graphify-out/graph.json\`.\n- Use Pi's \`Agent\` tool for subagents. For Plan Mode, invoke the \`Plan\` agent or produce an explicit plan and wait for user approval before source edits.\n`;
+const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use Bash/Read/Grep/Find/Edit/Write directly; do not assume context-mode \`ctx_*\` tools exist.\n- Use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. If a native graphify tool resolves the workspace root instead of the active repo, use the CLI fallback with \`--graph <repo>/graphify-out/graph.json\`.\n- Use Pi's \`subagent\` tool for subagents. For Plan Mode, invoke the \`Plan\` agent or produce an explicit plan and wait for user approval before source edits.\n`;
+
+function compactPiSkillDescription(content) {
+  return content.replace(/^description:\s*(.+)$/m, (_match, rawDescription) => {
+    let description = rawDescription.trim();
+    if (description.startsWith('"') && description.endsWith('"')) {
+      try { description = JSON.parse(description); } catch { /* Preserve the raw YAML scalar. */ }
+    }
+    if (description.length <= 120) return `description: ${JSON.stringify(description)}`;
+    const prefix = description.slice(0, 117).replace(/\s+\S*$/, '').trimEnd();
+    return `description: ${JSON.stringify(`${prefix}…`)}`;
+  });
+}
+
+function setPiModelVisibility(content, skillName) {
+  if (!skillName || !PI_MODEL_HIDDEN_SKILLS.has(skillName)) return content;
+  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (!match || /^disable-model-invocation:/m.test(match[1])) return content;
+  return `---\n${match[1]}\ndisable-model-invocation: true\n---\n${match[2]}`;
+}
 
 function adaptPiSkillContent(content, withinClaude) {
   let next = adaptPiRuntimeNames(adaptPaths(content, 'pi'));
@@ -335,12 +414,12 @@ function adaptPiSkillContent(content, withinClaude) {
   // executable aux files (.py/.mjs) makes them unparseable at runtime.
   if (PI_SDD_SKILLS.has(skillName) && withinClaude.endsWith('SKILL.md')) {
     const parts = next.split('\n---\n');
-    if (parts.length >= 3) {
-      return `${parts[0]}\n---\n${parts.slice(1).join('\n---\n')}${PI_SDD_COMPATIBILITY_NOTE}`;
-    }
-    return `${next}${PI_SDD_COMPATIBILITY_NOTE}`;
+    next = parts.length >= 3
+      ? `${parts[0]}\n---\n${parts.slice(1).join('\n---\n')}${PI_SDD_COMPATIBILITY_NOTE}`
+      : `${next}${PI_SDD_COMPATIBILITY_NOTE}`;
   }
-  return next;
+  if (!withinClaude.endsWith('SKILL.md')) return next;
+  return setPiModelVisibility(compactPiSkillDescription(next), skillName);
 }
 
 /** Adapt skill content for the target runtime. */
@@ -356,8 +435,62 @@ function adaptSkillContent(content, agentId, withinClaude) {
 function renderInstructionsFile(ruleFiles, agentId) {
   const sections = ruleFiles
     .sort((a, b) => a.withinClaude.localeCompare(b.withinClaude))
-    .map((f) => adaptPaths(f.content.trim(), agentId));
+    .map((f) => agentId === 'pi'
+      ? adaptPiRuntimeNames(adaptPaths(f.content.trim(), agentId))
+      : adaptPaths(f.content.trim(), agentId));
   return sections.join('\n\n---\n\n') + '\n';
+}
+
+function hasPathsFrontmatter(content) {
+  return /^---\n[\s\S]*?^paths:/m.test(content);
+}
+
+function stripFrontmatter(content) {
+  return content.replace(/^---\n[\s\S]*?\n---\n/, '').trim();
+}
+
+function piRuleSkillGroup(withinClaude) {
+  for (const [prefix, group] of PI_RULE_SKILL_GROUPS) {
+    if (withinClaude === prefix || withinClaude.startsWith(prefix)) return group;
+  }
+  return undefined;
+}
+
+function renderPiRuleSkills(sourceFiles) {
+  const groups = new Map();
+  for (const file of sourceFiles) {
+    if (file.category !== 'rule' || isClaudeOnlyFile(file.withinClaude) || !hasPathsFrontmatter(file.content)) continue;
+    const group = piRuleSkillGroup(file.withinClaude);
+    if (!group) throw new Error(`Pi path-scoped rule has no skill group: ${file.withinClaude}`);
+    const existing = groups.get(group.name) ?? { ...group, files: [], modes: file.modes };
+    if (JSON.stringify(existing.modes) !== JSON.stringify(file.modes)) {
+      throw new Error(`Pi rule skill group has inconsistent modes: ${group.name}`);
+    }
+    existing.files.push(file);
+    groups.set(group.name, existing);
+  }
+
+  return [...groups.values()].map((group) => ({
+    key: `.pi/agent/skills/${group.name}/SKILL.md`,
+    contentType: 'text/markdown; charset=utf-8',
+    content: [
+      '---',
+      `name: ${group.name}`,
+      `description: ${group.description}`,
+      '---',
+      '',
+      `# ${group.name}`,
+      '',
+      ...group.files
+        .sort((left, right) => left.withinClaude.localeCompare(right.withinClaude))
+        .flatMap((file, index) => [
+          ...(index > 0 ? ['', '---', ''] : []),
+          adaptPiRuntimeNames(adaptPaths(stripFrontmatter(file.content), 'pi')),
+        ]),
+      '',
+    ].join('\n'),
+    modes: group.modes,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -569,6 +702,21 @@ async function generate() {
     if (!error || error.code !== 'ENOENT') throw error;
   }
 
+  const canonicalSkillNames = new Set(
+    sourceFiles
+      .map((file) => file.withinClaude.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1])
+      .filter(Boolean),
+  );
+  for (const [rule, owner] of PI_COVERED_RULES) {
+    if (!sourceFiles.some((file) => file.withinClaude === rule)) {
+      throw new Error(`Pi covered rule is absent from the Claude manifest: ${rule}`);
+    }
+    if (!canonicalSkillNames.has(owner) && ![...piNativeSkillKeys].some((key) => key === `${owner}/SKILL.md`)) {
+      throw new Error(`Pi covered rule owner is not seeded: ${rule} -> ${owner}`);
+    }
+  }
+  documents.push(...renderPiRuleSkills(sourceFiles));
+
   // --- Non-Claude agent documents ---
   for (const [agentId, config] of Object.entries(AGENT_CONFIGS)) {
     // Instructions files (one per mode, same key, different content)
@@ -579,7 +727,12 @@ async function generate() {
             f.category === 'rule' &&
             f.modes.includes(mode) &&
             !isClaudeOnlyFile(f.withinClaude) &&
-            !(agentId === 'pi' && piNativeRuleKeys.has(f.withinClaude))
+            !(agentId === 'pi' && (
+              piNativeRuleKeys.has(f.withinClaude)
+              || PI_COMPACTED_RULES.has(f.withinClaude)
+              || hasPathsFrontmatter(f.content)
+              || PI_COVERED_RULES.has(f.withinClaude)
+            ))
         ),
         ...(agentId === 'pi' ? piNativeRuleFiles.filter((f) => f.modes.includes(mode)) : []),
       ];

@@ -42,6 +42,7 @@ import {
   type PublicExtractionRequest,
   type VaultExtractRequest,
 } from "./memory-vault-helpers";
+import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import {
   collectVaultFileHashes,
   commitVaultManifestTo,
@@ -67,7 +68,7 @@ export interface MemoryVaultDependencies {
   randomUUID(): string;
 }
 
-export interface MemoryVaultPi {
+export interface MemoryVaultPi extends ToolActivationPi {
   on(event: string, handler: (event: any, ctx: any) => void | Promise<void>): void;
   sendMessage(
     message: {
@@ -515,6 +516,7 @@ function sendDueExtractionMessages(
     if (due.kind === "giveup") giveups.push({ requestId: item.request.requestId, jobType: item.job });
   }
   if (launches.length > 0) {
+    activateRegisteredTools(pi, ["subagent"]);
     const jobs = launches.map((item) => (
       `- \`${String(item.jobType)}\` · delivery ${Number(item.reminder) + 1}/6`
     ));

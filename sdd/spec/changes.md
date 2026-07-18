@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-18
 
+- **Pi starts with compact canonical context and discovers specialized capabilities on demand** ([REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents), and [REQ-AGENT-095](agents.md#req-agent-095-compact-pi-context-and-on-demand-capabilities); Implemented). Canonical path rules become grouped Pi skills, proactive skills stay visible, one capability tool activates registered tools, and event owners activate delegation before unchanged review and extraction follow-ups.
+
 - **Pi starts with context-mode disabled pending an upstream memory-safe adapter** ([REQ-AGENT-076](agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) and [REQ-AGENT-089](agents.md#req-agent-089-pi-context-mode-foreground-ownership); Implemented). Fresh containers preserve the package for explicit `/ctx on` but disable its skills and adapter by default; every workflow retains its native fallback.
 
 - **Per-AC test evidence now supports one or more named anchors** ([REQ-AGENT-094](agents.md#req-agent-094-per-ac-test-evidence-supports-multiple-anchors); Implemented). Every non-manual AC still requires resolving behavioral evidence, while multiple independently validated blocks or files may jointly verify one behavior.

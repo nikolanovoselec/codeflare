@@ -79,8 +79,24 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
 
   it('REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract', async () => {
     const messages: string[] = [];
+    const operations: string[] = [];
+    let activeTools = ['read'];
     await dispatchReview(
-      { sendUserMessage: (message: string) => { messages.push(message); } } as never,
+      {
+        getActiveTools: () => [...activeTools],
+        getAllTools: () => [
+          { name: 'read', description: 'Read files' },
+          { name: 'subagent', description: 'Launch a background specialist' },
+        ],
+        setActiveTools: (names: string[]) => {
+          activeTools = [...names];
+          operations.push(`activate:${names.join(',')}`);
+        },
+        sendUserMessage: (message: string) => {
+          operations.push('send:review');
+          messages.push(message);
+        },
+      } as never,
       '--diff',
       {
         cwd: '/home/user/workspace/codeflare',
@@ -95,6 +111,7 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
       }),
     );
 
+    expect(operations).toEqual(['activate:read,subagent', 'send:review']);
     expect(messages).toHaveLength(1);
     const executionLine = messages[0].split('\n').find((line) => line.startsWith('Review execution: '));
     expect(JSON.parse(executionLine?.slice('Review execution: '.length) ?? '')).toEqual({
