@@ -213,7 +213,8 @@ export async function refreshSessionStatuses(): Promise<void> {
       }
     }
   } catch (err) {
-    // Detect auth expiry: stop polling and surface to UI instead of thrashing
+    // Detect auth expiry: the API helper has started top-level sign-in; stop
+    // polling and retain the banner only as a fallback while navigation proceeds.
     if (err instanceof ApiError && err.status === 401) {
       logger.warn('[SessionStore] Auth expired - stopping background polling');
       setAuthExpiredFn(true);

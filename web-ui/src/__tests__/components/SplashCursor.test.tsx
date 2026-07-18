@@ -1,6 +1,22 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@solidjs/testing-library';
 import SplashCursor from '../../components/SplashCursor';
+
+const appTokensCss = readFileSync(new URL('../../styles/design-tokens.css', import.meta.url), 'utf8');
+const appBaseCss = readFileSync(new URL('../../index.css', import.meta.url), 'utf8')
+  .replace(/^@import[^;]+;\s*$/gm, '');
+
+function expectedAppBackground(): string {
+  const resolvedToken = getComputedStyle(document.documentElement).getPropertyValue('--color-bg-base').trim();
+  expect(resolvedToken).toBe('#09090b');
+  const probe = document.createElement('div');
+  probe.style.backgroundColor = 'var(--color-bg-base)';
+  document.body.appendChild(probe);
+  const background = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  return background;
+}
 
 describe('SplashCursor Component', () => {
   let rafSpy: any;
@@ -179,6 +195,101 @@ describe('SplashCursor Component', () => {
       render(() => <SplashCursor />);
       // No animation should be scheduled when WebGLRenderingContext is absent
       expect(rafSpy).not.toHaveBeenCalled();
+    });
+
+    it('retires the decorative canvas when a touch page is backgrounded', () => {
+      (globalThis as any).WebGLRenderingContext = function () {};
+      const mockGl = createMockWebGLContext();
+      HTMLCanvasElement.prototype.getContext = vi.fn(() => mockGl) as any;
+      (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation((query: string) => ({
+        matches: query === '(pointer: coarse)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+      const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+
+      try {
+        const { container } = render(() => <SplashCursor />);
+        const canvas = container.querySelector('canvas')!;
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        expect(canvas).toHaveAttribute('hidden');
+        expect(canvas.style.display).toBe('none');
+        expect(cafSpy).toHaveBeenCalled();
+      } finally {
+        if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+        else Reflect.deleteProperty(document, 'visibilityState');
+        delete (globalThis as any).WebGLRenderingContext;
+      }
+    });
+
+    it('does not start the decorative simulation when a touch page mounts hidden', () => {
+      (globalThis as any).WebGLRenderingContext = function () {};
+      const mockGl = createMockWebGLContext();
+      HTMLCanvasElement.prototype.getContext = vi.fn(() => mockGl) as any;
+      (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation((query: string) => ({
+        matches: query === '(pointer: coarse)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+      const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+
+      try {
+        const { container } = render(() => <SplashCursor />);
+        const canvas = container.querySelector('canvas')!;
+        expect(canvas).toHaveAttribute('hidden');
+        expect(canvas.style.display).toBe('none');
+        expect(rafSpy).not.toHaveBeenCalled();
+      } finally {
+        if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+        else Reflect.deleteProperty(document, 'visibilityState');
+        delete (globalThis as any).WebGLRenderingContext;
+      }
+    });
+
+    it('falls back to the stable dark CSS background when the WebGL context is lost', () => {
+      (globalThis as any).WebGLRenderingContext = function () {};
+      const mockGl = createMockWebGLContext();
+      HTMLCanvasElement.prototype.getContext = vi.fn(() => mockGl) as any;
+      const style = document.createElement('style');
+      style.textContent = `${appTokensCss}\n${appBaseCss}`;
+      document.head.appendChild(style);
+      const root = document.createElement('div');
+      root.id = 'root';
+      document.body.appendChild(root);
+
+      try {
+        const { container } = render(() => <SplashCursor />);
+        const canvas = container.querySelector('canvas')!;
+        const contextLost = new Event('webglcontextlost', { cancelable: true });
+        canvas.dispatchEvent(contextLost);
+
+        expect(contextLost.defaultPrevented).toBe(false);
+        expect(canvas).toHaveAttribute('hidden');
+        expect(canvas.style.display).toBe('none');
+        expect(cafSpy).toHaveBeenCalled();
+        const darkBackground = expectedAppBackground();
+        expect(getComputedStyle(document.documentElement).backgroundColor).toBe(darkBackground);
+        expect(getComputedStyle(document.body).backgroundColor).toBe(darkBackground);
+        expect(getComputedStyle(root).backgroundColor).toBe(darkBackground);
+      } finally {
+        root.remove();
+        style.remove();
+        delete (globalThis as any).WebGLRenderingContext;
+      }
     });
 
     it('should clean up animation frame on unmount when WebGL was available', () => {

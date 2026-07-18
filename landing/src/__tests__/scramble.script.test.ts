@@ -18,7 +18,10 @@
  * setInterval, each test MUST: build the DOM, mock matchMedia and
  * document.fonts BEFORE importing the module.
  */
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+const globalCss = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
 
 // From the script: one interval tick is TICK_MS=50ms.
 // hold: frame>60 (60 ticks * 50ms = 3000ms min)
@@ -221,7 +224,7 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(liveDeviated).toBe(true); // the overlay actually animated
   });
 
-  it('REQ-LANDING-006: the hover-decode sign-in CTA holds a resting-width ghost box per word so the header never reflows', async () => {
+  it('REQ-LANDING-006: the hover-decode sign-in CTA keeps live words in flow so its border expands', async () => {
     const el = document.createElement('a');
     el.setAttribute('data-scramble-hover', '');
     el.textContent = 'Enter The Matrix';
@@ -233,9 +236,13 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     await Promise.resolve();
     vi.runAllTicks();
 
-    // "Enter" + "The" + "Matrix" -> three centered ghost/overlay boxes. The in-flow
-    // ghost IS the footprint (no measured pixel lock exists to be captured while the
-    // nav is hidden and go stale), so churn can never resize the button.
+    const style = document.createElement('style');
+    style.textContent = globalCss;
+    document.head.appendChild(style);
+
+    // "Enter" + "The" + "Matrix" -> three centered in-flow grid boxes. The live
+    // churn contributes width so the button border keeps its expanding animation;
+    // Header.astro isolates that expansion from adjacent links in a fixed slot.
     const boxes = el.querySelectorAll<HTMLElement>('.scramble-box');
     expect(boxes.length).toBe(3);
     const labels: string[] = [];
@@ -246,6 +253,8 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
       expect(ghost).not.toBeNull();
       expect(live).not.toBeNull();
       expect(live!.style.width).toBe(''); // no stale inline pixel lock
+      expect(getComputedStyle(box).display).toBe('inline-grid');
+      expect(getComputedStyle(live!).position).toBe('static');
       expect(live!.textContent).toBe(ghost!.textContent);
       labels.push(ghost!.textContent ?? '');
     }
@@ -267,6 +276,7 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     // After the full decode pass the overlay settles back to the exact label.
     vi.advanceTimersByTime(30 * 50);
     expect(live.textContent).toBe('Enter');
+    style.remove();
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {

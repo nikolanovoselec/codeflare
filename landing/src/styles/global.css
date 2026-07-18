@@ -48,6 +48,8 @@
 }
 
 html {
+  color-scheme: dark;
+  background: var(--bg-base);
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
   scroll-padding-top: calc(var(--nav-height) + 1rem);
@@ -394,12 +396,17 @@ svg {
    (scramble.ts [data-scramble-hover]). aria-label keeps it "Sign in". Solid white,
    not the flare gradient, so the churning word spans render white instead of the
    gradient-clip transparent. */
+.nav-signin-slot {
+  display: flex;
+  justify-content: flex-end;
+  overflow: visible;
+}
+
 .nav-signin--matrix {
   color: var(--text-primary);
   white-space: nowrap;
-  /* No overflow clipping here: the centered scramble boxes are in-flow
-     (.scramble-box--center, inline-grid), so the button border grows to
-     accommodate over-wide churn frames instead of cutting them off. */
+  /* The centered live words remain in-flow, so the border keeps its current
+     animated expansion. The fixed desktop slot absorbs that width change. */
 }
 
 .nav-signin--matrix:hover,
@@ -416,6 +423,13 @@ svg {
 @media (min-width: 900px) {
   .nav-links {
     display: flex;
+  }
+
+  /* Reserve the CTA's maximum churn footprint. The button keeps expanding
+     inside this right-anchored slot without changing nav-right's total width. */
+  .nav-signin-slot {
+    flex: 0 0 16rem;
+    width: 16rem;
   }
 }
 
@@ -504,11 +518,8 @@ svg {
 }
 
 /* Hover-CTA variant: IN-FLOW grid stacking instead of the absolute overlay.
-   Ghost and live word share one grid cell, so the cell — and the button around
-   it — sizes to max(resting label, current churn frame) on every tick: the
-   border dynamically accommodates over-wide frames (never clips, never lets a
-   glyph paint outside the border), and the invisible ghost keeps the resting
-   label width as the floor so the button never shrinks below its label. */
+   Ghost and live word share one grid cell, so the button border continues to
+   size to max(resting label, current churn frame) on every tick. */
 .scramble-box--center {
   display: inline-grid;
 }

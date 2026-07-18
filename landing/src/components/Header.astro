@@ -31,12 +31,14 @@ const { variant = 'landing' } = Astro.props;
               </li>
             ))}
           </ul>
-          <a
-            class="btn btn-ghost btn-sm nav-signin nav-signin--matrix"
-            href={APP_LINKS.signIn}
-            aria-label={HEADER_SIGN_IN.a11y}
-            data-scramble-hover
-          >{HEADER_SIGN_IN.label}</a>
+          <span class="nav-signin-slot">
+            <a
+              class="btn btn-ghost btn-sm nav-signin nav-signin--matrix"
+              href={APP_LINKS.signIn}
+              aria-label={HEADER_SIGN_IN.a11y}
+              data-scramble-hover
+            >{HEADER_SIGN_IN.label}</a>
+          </span>
         </div>
       </div>
     </nav>

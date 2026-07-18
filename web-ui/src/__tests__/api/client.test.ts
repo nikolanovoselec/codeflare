@@ -125,14 +125,14 @@ describe('API Client', () => {
       await expect(getUser()).rejects.toThrow('Invalid JSON response from server');
     });
 
-    it('should throw ApiError for HTML response body', async () => {
+    it('should classify an HTML API response as expired authentication', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: () => Promise.resolve('<html><body>Error</body></html>'),
+        text: () => Promise.resolve('<html><body>Access login</body></html>'),
       });
 
-      await expect(getUser()).rejects.toThrow('Invalid JSON response from server');
+      await expect(getUser()).rejects.toThrow('Authentication expired');
     });
   });
 

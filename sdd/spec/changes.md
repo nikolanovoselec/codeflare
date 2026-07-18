@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-18
 
+- **Expired mobile sessions recover without a manual reload** ([REQ-AUTH-014](authentication.md#req-auth-014-auth-expiry-detection-mid-session), [REQ-AUTH-022](authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page), [REQ-MOB-009](mobile.md#req-mob-009-visibility-return-recovers-keyboard-state), and [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving); Implemented). Explicit, opaque, HTML, and Samsung-style status-zero auth failures start top-level sign-in; decorative WebGL retires on coarse-pointer backgrounding or context loss so the stable dark CSS surface remains visible.
+
 - **Pi starts with compact canonical context and discovers specialized capabilities on demand** ([REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents), and [REQ-AGENT-095](agents.md#req-agent-095-compact-pi-context-and-on-demand-capabilities); Implemented). Canonical path rules become grouped Pi skills, proactive skills stay visible with compact trigger-preserving descriptions, one capability tool activates registered tools, and event owners activate delegation before unchanged review and extraction follow-ups.
 
 - **Pi starts with context-mode disabled pending an upstream memory-safe adapter** ([REQ-AGENT-076](agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) and [REQ-AGENT-089](agents.md#req-agent-089-pi-context-mode-foreground-ownership); Implemented). Fresh containers preserve the package for explicit `/ctx on` but disable its skills and adapter by default; every workflow retains its native fallback.
@@ -18,6 +20,6 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Enterprise route reasoning exposes every supported Pi thinking level** ([REQ-ENTERPRISE-012](enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list) and [REQ-ENTERPRISE-013](enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing); Implemented). Default-route and per-group selectors accept the full supported range and reject unknown levels.
 
-- **The Enter-the-Matrix call-to-action contains every decode frame** ([REQ-LANDING-006](landing.md#req-landing-006-enter-the-matrix-sign-in-cta); Implemented). Its border grows with wide churn glyphs while the resting label remains the minimum width, preventing clipping or paint outside the control.
+- **The Enter-the-Matrix call-to-action contains every decode frame** ([REQ-LANDING-006](landing.md#req-landing-006-enter-the-matrix-sign-in-cta); Implemented). Its border keeps expanding with wide churn glyphs inside an isolated slot, so Velocity, Quality, Security, Control, and Cost remain stationary.
 
 - **Pi extension dependency updates open independently** ([REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation); Implemented). Automatic discovery feeds one non-fail-fast update job and pull request per extension, so one failed bump no longer blocks unrelated extensions.

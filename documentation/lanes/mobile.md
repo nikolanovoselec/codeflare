@@ -130,6 +130,8 @@ When the browser is backgrounded and returned to, keyboard state signals (`keybo
 
 The 50ms delay gives SolidJS time to process the null state and run cleanup effects before re-initialization begins. The user doesn't see the dashboard (50ms is below perception threshold).
 
+**WebGL fallback:** Mobile GPU eviction can emit `webglcontextlost` while the app or public landing is backgrounded. Coarse-pointer backgrounding retires both decorative canvases proactively; context loss does the same on any device without requesting restoration. The simulations stop, their canvases leave compositing, and the root/body dark CSS background remains painted instead of a persistent bright gray or white layer.
+
 **Samsung-specific input resume:** `terminal-mobile-input.ts` `restoreFocusIfNeeded()` does NOT auto-focus on Samsung (which would open the keyboard and trigger stale `geometrychange` events). Instead, it delays `enableVirtualKeyboardOverlay()` by 300ms so the compositor settles, then leaves the keyboard closed for the user to tap when ready. The 300ms delay ensures Samsung's delayed stale `geometrychange` events (which can arrive up to ~200ms after toggle) are caught by the 50ms ignore window from the delayed toggle.
 
 

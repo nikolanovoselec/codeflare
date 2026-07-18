@@ -177,11 +177,8 @@ function setupHoverElement(el: HTMLElement): void {
   // variant stacks both IN FLOW (one inline-grid cell): the ghost sets the
   // resting-width floor at any font, viewport, or visibility state -- no
   // measurement, so there is no pixel lock to be captured while the element is
-  // hidden or mid-layout and go stale (the old width lock measured 0 in a
-  // hidden nav and let churn glyphs escape rightward past the CTA border).
-  // Because the live word contributes width, the button border dynamically
-  // grows to fit wider churn frames -- glyphs are never clipped and never
-  // paint outside the border.
+  // hidden or mid-layout and go stale. The button border dynamically grows to
+  // fit wider churn frames; Header.astro isolates that growth in a fixed slot.
   const words = buildWordBoxes(el, true);
 
   let running = false;

@@ -26,13 +26,25 @@ interface BaseFetchOptions {
   basePath?: string;
 }
 
+export function redirectExpiredSession(): boolean {
+  const path = window.location.pathname;
+  const authenticatedPath = path === '/app'
+    || path.startsWith('/app/')
+    || path === '/admin'
+    || path.startsWith('/admin/');
+  if (!authenticatedPath) return false;
+  try { window.location.replace('/'); } catch { /* non-browser/test env */ }
+  return true;
+}
+
+function isHtmlResponse(response: Response, body: string): boolean {
+  const contentType = response.headers?.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+  return contentType === 'text/html' || /^\s*<!doctype\s|^\s*<html[\s>]/i.test(body);
+}
+
 function expiredSessionError(message: string, body?: unknown): ApiError {
   const error = new ApiError(message, 401, 'Unauthorized', body);
-  const path = window.location.pathname;
-  if (path === '/app' || path.startsWith('/app/') || path === '/admin' || path.startsWith('/admin/')) {
-    try { window.location.replace('/'); } catch { /* non-browser/test env */ }
-    error.authRedirect = true;
-  }
+  error.authRedirect = redirectExpiredSession();
   return error;
 }
 
@@ -58,7 +70,11 @@ export async function baseFetch<T>(
   // 3xx (or status 0 for opaque redirects) instead of silently following to HTML
   // — which previously caused JSON parse failures and, with CF Access's injected
   // scripts, a full page reload.
-  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+  if (
+    response.type === 'opaqueredirect'
+    || response.status === 0
+    || (response.status >= 300 && response.status < 400)
+  ) {
     throw expiredSessionError('Authentication redirect detected — session may have expired');
   }
 
@@ -69,7 +85,7 @@ export async function baseFetch<T>(
 
     // Detect HTML error pages (e.g., CF Access login page returned as 403).
     // Show a clean auth message instead of dumping raw HTML into the UI.
-    if (body && /^\s*<!doctype\s|^\s*<html[\s>]/i.test(body)) {
+    if (body && isHtmlResponse(response, body)) {
       throw expiredSessionError(
         'Authentication expired — please refresh the page to log in again',
         body,
@@ -111,6 +127,9 @@ export async function baseFetch<T>(
   }
 
   const text = await response.text();
+  if (isHtmlResponse(response, text)) {
+    throw expiredSessionError('Authentication expired — redirecting to sign in', text);
+  }
   if (!text) {
     if (options.schema) {
       throw new ApiError(

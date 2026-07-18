@@ -31,13 +31,14 @@ function accessRedirect(type: 'basic' | 'opaqueredirect', status: number) {
   };
 }
 
-function accessHtml403() {
+function accessHtml(status: 200 | 403) {
   return {
     type: 'basic',
-    ok: false,
-    status: 403,
-    statusText: 'Forbidden',
-    text: () => Promise.resolve('<!doctype html><html><body>Access login</body></html>'),
+    ok: status === 200,
+    status,
+    statusText: status === 200 ? 'OK' : 'Forbidden',
+    headers: new Headers({ 'Content-Type': 'text/html; charset=utf-8' }),
+    text: () => Promise.resolve('<!-- Access response --><body>Access login</body>'),
   };
 }
 
@@ -96,7 +97,9 @@ describe('REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hang
   it.each([
     { label: 'basic redirect', response: () => accessRedirect('basic', 302) },
     { label: 'opaque redirect', response: () => accessRedirect('opaqueredirect', 0) },
-    { label: 'HTML login response', response: () => accessHtml403() },
+    { label: 'Samsung status-zero manual redirect', response: () => accessRedirect('basic', 0) },
+    { label: '403 HTML login response', response: () => accessHtml(403) },
+    { label: '200 HTML login response', response: () => accessHtml(200) },
   ])('REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)', async ({ response }) => {
     stubLocation('/app/sessions');
     mockFetch.mockResolvedValueOnce(response());
@@ -106,6 +109,21 @@ describe('REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hang
       authRedirect: true,
     });
     expect(replaceSpy).toHaveBeenCalledWith('/');
+  });
+
+  it('does not misclassify a successful JSON API response as expired authentication', async () => {
+    stubLocation('/app/sessions');
+    mockFetch.mockResolvedValueOnce({
+      type: 'basic',
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      text: () => Promise.resolve('{"authenticated":true}'),
+    });
+
+    await expect(baseFetch('/api/user', {})).resolves.toEqual({ authenticated: true });
+    expect(replaceSpy).not.toHaveBeenCalled();
   });
 
   it('does NOT redirect on a public path (login/root) — leaves the 401 to the caller', async () => {
