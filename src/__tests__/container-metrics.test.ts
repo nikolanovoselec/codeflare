@@ -645,7 +645,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
   });
 
-  describe('idle timeout resolution (REQ-OPS-006 AC8/AC9) / REQ-OPS-017 (sleepAfter fail-safe invariants)', () => {
+  describe('idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)', () => {
     it('uses fail-safe 4h default when storage has no sleepAfter', async () => {
       // Storage returns undefined for 'sleepAfter'.
       // Class-field default is '4h' (max safe). Container has been idle for 1 hour.
