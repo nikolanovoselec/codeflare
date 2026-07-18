@@ -4,13 +4,26 @@ import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const tokensCss = readFileSync(resolve(process.cwd(), 'src/styles/tokens.css'), 'utf8');
-const globalCss = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8');
+const globalCss = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8')
+  .replace(/^@import[^;]+;\s*$/gm, '');
 
-function expectedBackground(token: string, value: string): string {
-  const resolvedToken = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
-  expect(resolvedToken).toBe(value);
+function expectStableRootBackgroundToken(): void {
+  const style = document.createElement('style');
+  style.textContent = tokensCss;
+  document.head.appendChild(style);
+  try {
+    const rootRule = Array.from(style.sheet?.cssRules ?? []).find(
+      (rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === ':root',
+    );
+    expect(rootRule?.style.getPropertyValue('--bg-base').trim()).toBe('#0a0a0c');
+  } finally {
+    style.remove();
+  }
+}
+
+function expectedBackground(value: string): string {
   const probe = document.createElement('div');
-  probe.style.backgroundColor = `var(${token})`;
+  probe.style.backgroundColor = value;
   document.body.appendChild(probe);
   const background = getComputedStyle(probe).backgroundColor;
   probe.remove();
@@ -112,8 +125,12 @@ describe('landing flare-fluid lifecycle', () => {
   });
 
   it('falls back to the stable dark CSS background when the WebGL context is lost', async () => {
+    expectStableRootBackgroundToken();
+    const backgroundSentinel = '#123456';
     const style = document.createElement('style');
-    style.textContent = `${tokensCss}\n${globalCss}`;
+    // happy-dom does not resolve stylesheet custom properties. Use a sentinel to
+    // exercise the production selectors separately from the CSSOM token check.
+    style.textContent = globalCss.replaceAll('var(--bg-base)', backgroundSentinel);
     document.head.appendChild(style);
 
     try {
@@ -130,7 +147,7 @@ describe('landing flare-fluid lifecycle', () => {
       expect(canvas.hidden).toBe(true);
       expect(canvas.style.display).toBe('none');
       expect(splash.destroy).toHaveBeenCalledOnce();
-      const darkBackground = expectedBackground('--bg-base', '#0a0a0c');
+      const darkBackground = expectedBackground(backgroundSentinel);
       expect(getComputedStyle(document.documentElement).backgroundColor).toBe(darkBackground);
       expect(getComputedStyle(document.body).backgroundColor).toBe(darkBackground);
     } finally {
