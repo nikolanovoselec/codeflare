@@ -442,7 +442,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-TERM-014: clears a queued resize-authority claim when the pane loses focus', async () => {
+    it('REQ-TERM-016: clears a queued resize-authority claim when the pane loses focus', async () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
       const [focused, setFocused] = createSignal(true);
 
@@ -926,7 +926,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-TERM-014 AC8: user input while reading scrollback re-anchors the viewport to the live bottom', () => {
+    it('REQ-TERM-014 AC6: user input while reading scrollback re-anchors the viewport to the live bottom', () => {
       const dispose = createRoot((dispose) => {
         const result = useTerminal(defaultProps);
         result.containerRef(containerEl);
@@ -944,7 +944,10 @@ describe('useTerminal hook', () => {
       try {
         // Reading scrollback: any input route re-anchors (fallback path —
         // the mock has no _bufferService, so the public anchor is used).
+        // Mount-time effects legitimately anchor a bottom viewport; drop
+        // those calls so the assertion isolates the input-driven anchor.
         Object.assign(active, { type: 'normal', viewportY: 100, baseY: 500 });
+        mockScrollToBottom.mockClear();
         handler('x');
         expect(mockScrollToBottom).toHaveBeenCalledTimes(1);
 

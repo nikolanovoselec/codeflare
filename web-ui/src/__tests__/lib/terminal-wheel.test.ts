@@ -22,7 +22,7 @@ function wheel(deltaY: number, init: WheelEventInit = {}): WheelEvent {
   return new WheelEvent('wheel', { deltaY, cancelable: true, bubbles: true, ...init });
 }
 
-describe('terminal-wheel / REQ-TERM-014 AC9 buffer-authoritative wheel scrolling', () => {
+describe('terminal-wheel / REQ-TERM-014 AC7 buffer-authoritative wheel scrolling', () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {

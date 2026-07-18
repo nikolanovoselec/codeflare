@@ -855,7 +855,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-014 AC7: a cap-exceeding hold drops oldest chunks and never writes through a reader', async () => {
+    it('REQ-TERM-014 AC5: a cap-exceeding hold drops oldest chunks and never writes through a reader', async () => {
       const activeBuffer = { type: 'normal', viewportY: 500, baseY: 1000 };
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;
