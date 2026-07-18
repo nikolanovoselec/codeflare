@@ -7,6 +7,7 @@ import { recallActiveRepo, rememberActiveRepoFromToolResult } from "./active-rep
 import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import {
   classifyReviewBoundaryCommand,
+  REVIEW_TRIAGE_DIVIDER,
   REVIEW_TRIAGE_HEADER,
   isReviewTransitionSuspended,
   requiredReviewLanes,
@@ -339,7 +340,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "Wait for every required reviewer result, then publish one table:",
       "",
       REVIEW_TRIAGE_HEADER,
-      "|---|---|---|---|---|",
+      REVIEW_TRIAGE_DIVIDER,
       "",
       "For every finding:",
       "",

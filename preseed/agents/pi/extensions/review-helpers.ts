@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
 export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |";
+export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-update-branch" | "pr-merge";
@@ -399,7 +400,9 @@ export function reviewTranscriptFacts(input: {
   const triageComplete = latestRequiredTerminalIndex !== undefined && later.some((entry, index) =>
     index > latestRequiredTerminalIndex
     && toolCalls(entry).length === 0
-    && messageText(entry, "assistant").split("\n").some((line) => line.trim() === REVIEW_TRIAGE_HEADER),
+    && messageText(entry, "assistant").split("\n").some((line, lineIndex, lines) =>
+      line.trim() === REVIEW_TRIAGE_HEADER && lines[lineIndex + 1]?.trim() === REVIEW_TRIAGE_DIVIDER,
+    ),
   );
   const ciLaunched = Boolean(input.ciHead && later.some((entry) => toolCalls(entry).some((call) => {
     const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";

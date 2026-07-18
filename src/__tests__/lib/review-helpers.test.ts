@@ -114,6 +114,10 @@ function assistantText(content: string, timestamp = '2026-07-12T12:03:00.000Z'):
   });
 }
 
+function triageHeaderMessage(): Record<string, unknown> {
+  return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |');
+}
+
 function triageMessage(): Record<string, unknown> {
   return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|');
 }
@@ -332,6 +336,15 @@ describe('native Pi transcript review facts', () => {
       triageMessage(),
       notification('doc-1'),
     ]);
+    const afterFinalHeaderOnly = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...calls,
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageHeaderMessage(),
+    ]);
     const afterFinalNotification = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
@@ -343,6 +356,7 @@ describe('native Pi transcript review facts', () => {
     ]);
 
     expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
+    expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
   });
 
