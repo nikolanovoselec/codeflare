@@ -33,7 +33,7 @@ graph TD
     P2 -->|"rclone bisync (15min + manual triggers)"| R2
 ```
 
-**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, operators route all traffic through that domain, protected by the configured auth mechanism (CF Access or GitHub OIDC). In CF Access mode, the workers.dev URL should be gated behind one-click Access in the Cloudflare dashboard.
+**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, operators route all traffic through that domain, protected by the configured auth mechanism (CF Access or GitHub OIDC), as required by [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) AC7. In CF Access mode, the workers.dev URL should be gated behind one-click Access in the Cloudflare dashboard.
 
 ---
 
