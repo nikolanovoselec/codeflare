@@ -560,16 +560,21 @@ function connect(
       else logger.warn(closeLog);
       connections.delete(key);
 
-      // Stream boundary: queued units and a partially assembled synchronized
-      // frame die with the socket. The host serializes full terminal state and
-      // sends an authoritative restore on reconnect, so anything still queued
-      // here is superseded — releasing a stale partial frame after the restore
-      // (or letting it absorb the new stream until its first end marker) would
-      // corrupt the restored screen.
-      cancelPendingFlush(key);
+      // Stream boundary: a partially assembled synchronized frame always dies
+      // with the socket — releasing it later (or letting it absorb the next
+      // stream until its first end marker) would corrupt the screen. Queued
+      // COMPLETE units differ by close kind: on a reconnectable close the
+      // host's serialize-based restore supersedes them (pure discard), while
+      // a final close has no restore coming, so the at-most-one-tick of
+      // already-complete output paints once before the state is dropped.
+      const releaseTrailingOutput = () => {
+        flushWriteBuffer(key, terminal);
+        cancelPendingFlush(key);
+      };
 
       // Intentional disconnect from dashboard — do not reconnect
       if (event.reason === 'dashboard-disconnect') {
+        releaseTrailingOutput();
         setConnectionState(sessionId, terminalId, 'disconnected');
         return;
       }
@@ -578,6 +583,7 @@ function connect(
       // Don't retry — session status will be updated by KV polling or is already stopped.
       if (event.code === WS_CONTAINER_STOPPED_CODE) {
         logger.info(`[Terminal ${key}] Container stopped (4503)`);
+        releaseTrailingOutput();
         setConnectionState(sessionId, terminalId, 'disconnected');
         setRetryMessage(sessionId, terminalId, 'Session stopped');
         return;
@@ -586,6 +592,7 @@ function connect(
       // Retry on retryable close codes (flat delay, no limit).
       // Network errors (1006) just retry — KV polling handles session status.
       if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
+        cancelPendingFlush(key);
         const retryLog = `[Terminal ${key}] Scheduling reconnect, next attempt ${attemptNumber + 1}, code=${event.code}`;
         if (event.code === 1013) logger.debug(retryLog);
         else logger.warn(retryLog);
@@ -594,6 +601,7 @@ function connect(
       }
 
       // Non-retryable close (normal closure, etc.)
+      releaseTrailingOutput();
       setConnectionState(sessionId, terminalId, 'disconnected');
       setRetryMessage(sessionId, terminalId, null);
     }

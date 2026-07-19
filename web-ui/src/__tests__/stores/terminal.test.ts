@@ -1136,6 +1136,48 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('REQ-TERM-021 AC6: a final close paints already-complete units once and drops the partial frame', async () => {
+      const activeBuffer = { type: 'normal', viewportY: 1000, baseY: 1000 };
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines: vi.fn(),
+        scrollToBottom: vi.fn(),
+        write: vi.fn(),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const BSU = '\x1b[?2026h';
+      const ESU = '\x1b[?2026l';
+
+      // A complete frame is queued and another frame is mid-assembly when the
+      // session ends normally (code 1000 — final, no restore will follow).
+      wsInstance._simulateMessage(`${BSU}farewell${ESU}`);
+      wsInstance._simulateMessage(`${BSU}never-finished`);
+      wsInstance.onclose?.(new CloseEvent('close', { code: 1000 }));
+
+      // The already-complete unit paints exactly once at the boundary; the
+      // partial frame dies with the socket and never fails open later.
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(terminal.write).mock.calls[0][0]).toBe(`${BSU}farewell${ESU}`);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
     it('REQ-TERM-014 AC3: defers streamed output while the user owns the viewport and flushes on bottom return', async () => {
       const activeBuffer = { type: 'normal', viewportY: 80, baseY: 1000 };
       let onScrollHandler: ((viewportY: number) => void) | undefined;
