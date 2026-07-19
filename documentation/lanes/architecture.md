@@ -200,7 +200,7 @@ The `containerStartedAt` fallback is critical: if a user opens a terminal but ne
 
    A fresh connection starts only after the user explicitly restarts the session.
 
-**WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, focus ownership, process-name, restore) as JSON. No application-level ping/pong -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
+**WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, focus ownership, process-name, restore) as JSON. No application-level ping/pong -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection. The host forwards PTY chunks without preserving application write boundaries, so the web UI reassembles DEC 2026 synchronized frames at ingest and hands each one to xterm as a single write — an agent full-redraw can never be painted partially by xterm's synchronized-output timeout ([REQ-TERM-021](../../sdd/spec/terminal.md#req-term-021-synchronized-output-frame-atomicity)).
 
 **Resize Authority:** A PTY can have multiple browser WebSocket clients, but only the foreground owner is allowed to apply resize frames. The first client owns resize by default; a focused terminal sends a `focus` control frame before its resize frame; a pane that loses focus before its WebSocket opens clears the queued focus claim.
 

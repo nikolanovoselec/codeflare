@@ -121,6 +121,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Per-AC test evidence permits multiple resolving anchors | Process, Agents, Testing |
 | [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned) | context-mode MCP registration is universal and entrypoint-owned | Agents, Architecture |
 | [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) | Terminal scrolling is buffer-authoritative on every route; held output ring-drops | Architecture |
+| [AD111](#ad111-synchronized-output-frames-are-delivered-atomically-at-the-write-boundary) | Synchronized-output frames are delivered atomically at the write boundary | Architecture, Reliability |
 
 ---
 
@@ -2714,6 +2715,31 @@ Separately, AD105's hold released in ONE write and force-flushed past its cap �
 <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
 
 **Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming), [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input).
+
+---
+
+### AD111: Synchronized-output frames are delivered atomically at the write boundary
+
+**Category:** Architecture, Reliability
+
+**Status:** Accepted (2026-07-19)
+
+**Context:** Pi renders through DEC 2026 synchronized frames (`ESC[?2026h` … `ESC[?2026l`) at up to ~62 fps; when differential rendering cannot reach a changed line it clears the screen AND scrollback (`CSI 2J`/`CSI H`/`CSI 3J`) and replays the entire transcript. Live capture measured such replays at 385–401 KB across ~100 WebSocket messages over 344–623 ms host-side. The pinned xterm (`6.1.0-beta.288`) defers rendering inside a sync block but arms a 1,000 ms safety timeout at the first buffered row (`RenderService.SYNCHRONIZED_OUTPUT_TIMEOUT_MS`); the host forwards raw PTY chunks and the frontend fed them to `terminal.write()` incrementally, so network arrival plus 33 ms batching consumed that budget. On timeout xterm abandons atomicity and paints the partially rebuilt transcript, then walks through it as later chunks parse — the observed split-second scroll through the entire scrollback (browser-reproduced on the exact pinned build; coalesced delivery showed zero intermediate paints). Separately, `CSI 3J` resets `ydisp`/`ybase` but leaves `BufferService.isUserScrolling` stale (upstream [xterm.js#6046](https://github.com/xtermjs/xterm.js/issues/6046)), pinning the regrowing buffer at the top — and [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)'s `scrollBufferToBottom()` returned early at zero delta, repairing neither that lock nor a diverged DOM position.
+
+**Decision:** Preserve the frame boundary the application authored, at the single WebSocket-to-write boundary:
+
+- A per-terminal frame assembler splits ingest into atomic units: ordinary bytes pass through under the existing 33 ms batching; everything from an outer begin marker to its matching outer end marker (depth-counted, markers split across messages handled via a bounded carry) is parked and emitted as ONE `terminal.write()` call. One synchronous parse cannot be interleaved by the timeout callback — the end marker clears the timer in the same task.
+- Malformed streams fail open: a frame idle past 2,000 ms or grown past 4,000,000 characters is released as-is (pre-assembly behavior), never deferred indefinitely.
+- The read-hold, held-output cap, and bounded release compose at unit granularity: a held frame releases in one write even past the 65,536-character slice budget; ring-drop discards whole units (a dropped full replay is superseded by the next one).
+- The zero-delta bottom anchor now repairs stale state instead of no-opping: internal `scrollLines(0)` clears a stale user-scroll lock (no scroll event, no repaint — `ydisp` unchanged) and the viewport resync re-commands the DOM position absolutely.
+
+**Consequences:** Refines AD110 — buffer authority governs every scroll route, and atomic frame delivery is the missing half its "definitive" scope did not cover: corrections no longer race mid-frame buffer states because those states are never observable between writes. Applications that never emit the markers see byte-identical passthrough (one `indexOf` per chunk); Claude Code and Codex gain the same atomicity. First paint of a frame moves after its full arrival — no added latency in practice, since xterm's sync deferral already withheld painting until the end marker. Atomicity depends on xterm parsing one write chunk synchronously, so no asynchronous parser handlers may ever be registered on the terminal.
+<!-- @impl: web-ui/src/lib/terminal-frames.ts::createFrameAssembler -->
+<!-- @impl: web-ui/src/stores/terminal.ts::scheduleWrite -->
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferToBottom -->
+
+**Related REQ:** [REQ-TERM-021](../../sdd/spec/terminal.md#req-term-021-synchronized-output-frame-atomicity), [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops).
 
 ---
 

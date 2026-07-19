@@ -100,10 +100,20 @@ describe('xterm-internals', () => {
       expect(term.scrollToBottom).not.toHaveBeenCalled();
     });
 
-    it('does nothing when the viewport already sits at the bottom', () => {
+    it('REQ-TERM-021 AC5: repairs stale scroll state at the nominal bottom instead of no-opping', () => {
+      // viewportY === baseY can hide stale state: CSI 3J leaves xterm's
+      // isUserScrolling lock set (xterm.js#6046) and a clamped refit leaves
+      // the DOM scroll position diverged. The zero-delta path must clear the
+      // lock (internal scrollLines(0) — no scroll event fires because ydisp
+      // is unchanged) and re-command the DOM absolutely, without repainting.
       const { term, scrollLines } = makeScrollableTerminal(500, 500);
+      const scrollToLine = vi.fn();
+      term._core._viewport = { scrollToLine };
       scrollBufferToBottom(term);
-      expect(scrollLines).not.toHaveBeenCalled();
+      expect(scrollLines).toHaveBeenCalledTimes(1);
+      expect(scrollLines).toHaveBeenCalledWith(0);
+      expect(scrollToLine).toHaveBeenCalledWith(500, true);
+      expect(term.refresh).not.toHaveBeenCalled();
       expect(term.scrollToBottom).not.toHaveBeenCalled();
     });
 

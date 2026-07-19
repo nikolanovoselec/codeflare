@@ -955,6 +955,101 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('REQ-TERM-021 AC1: a synchronized frame split across WebSocket messages reaches xterm as exactly one write', async () => {
+      const activeBuffer = { type: 'normal', viewportY: 1000, baseY: 1000 };
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines: vi.fn(),
+        scrollToBottom: vi.fn(),
+        write: vi.fn(),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const BSU = '\x1b[?2026h';
+      const ESU = '\x1b[?2026l';
+      const body = 'x'.repeat(90_000);
+
+      // A Pi-style full replay: clear + home + scrollback wipe, then the
+      // transcript, split across three WebSocket messages with ticks between.
+      wsInstance._simulateMessage(`${BSU}\x1b[2J\x1b[H\x1b[3J`);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(terminal.write).not.toHaveBeenCalled();
+
+      wsInstance._simulateMessage(body);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(terminal.write).not.toHaveBeenCalled();
+
+      wsInstance._simulateMessage(`tail${ESU}`);
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Exactly one write, byte-identical, and larger than the release
+      // budget — an atomic frame is never split by the slice bound.
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+      const written = vi.mocked(terminal.write).mock.calls[0][0] as string;
+      expect(written).toBe(`${BSU}\x1b[2J\x1b[H\x1b[3J${body}tail${ESU}`);
+      expect(written.length).toBeGreaterThan(RELEASE_SLICE_MAX_CHARS);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('REQ-TERM-021 AC4: a held synchronized frame releases whole through the read-hold, never split', async () => {
+      const activeBuffer = { type: 'normal', viewportY: 400, baseY: 1000 };
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines: vi.fn(),
+        scrollToBottom: vi.fn(),
+        write: vi.fn(),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const BSU = '\x1b[?2026h';
+      const ESU = '\x1b[?2026l';
+      const body = 'y'.repeat(90_000);
+      const frame = `${BSU}${body}${ESU}`;
+
+      // The frame completes while the user reads scrollback: it must be held
+      // entirely (a reader is never written through) and stay one unit.
+      wsInstance._simulateMessage(`${BSU}${body.slice(0, 45_000)}`);
+      wsInstance._simulateMessage(`${body.slice(45_000)}${ESU}`);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(terminal.write).not.toHaveBeenCalled();
+
+      // Bottom return releases the complete frame in one write despite it
+      // exceeding the per-tick release budget.
+      activeBuffer.viewportY = activeBuffer.baseY;
+      await vi.advanceTimersByTimeAsync(50);
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(terminal.write).mock.calls[0][0]).toBe(frame);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
     it('REQ-TERM-014 AC3: defers streamed output while the user owns the viewport and flushes on bottom return', async () => {
       const activeBuffer = { type: 'normal', viewportY: 80, baseY: 1000 };
       let onScrollHandler: ((viewportY: number) => void) | undefined;

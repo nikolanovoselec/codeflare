@@ -6,6 +6,7 @@ import type { Terminal } from '@xterm/xterm';
 import { logger } from '../lib/logger';
 import { recordFrame, recordFlush, recordRestore } from '../lib/ws-debug';
 import { scrollBufferToBottom } from '../lib/xterm-internals';
+import { createFrameAssembler, type FrameAssembler } from '../lib/terminal-frames';
 import {
   WS_RECONNECT_BASE_MS,
   WS_RECONNECT_MAX_MS,
@@ -153,6 +154,14 @@ const WRITE_FLUSH_INTERVAL_MS = 33;
 const writeBuffers = new Map<string, string[]>();
 const pendingFlushes = new Map<string, number>();
 
+// DEC 2026 synchronized frames are reassembled at ingest so a full-screen
+// agent redraw split across WebSocket messages reaches xterm as ONE write —
+// keeping the frame inside xterm's synchronized-output window instead of
+// letting its 1,000 ms safety timeout paint a partially rebuilt transcript.
+// The queue below therefore holds atomic units: ordinary chunk runs or whole
+// frames (see lib/terminal-frames.ts).
+const frameAssemblers = new Map<string, FrameAssembler>();
+
 // Cap on output held while the user reads scrollback. Beyond this the OLDEST
 // held chunks are dropped (ring semantics) so held PTY output cannot grow
 // memory without bound. Dropped bytes were destined for scrollback trimming
@@ -181,16 +190,39 @@ function isReadingScrollback(terminal: Terminal): boolean {
 
 function flushWriteBuffer(key: string, terminal: Terminal): void {
   pendingFlushes.delete(key);
-  const buffer = writeBuffers.get(key);
-  if (!buffer || buffer.length === 0) return;
+  const assembler = frameAssemblers.get(key);
+  let buffer = writeBuffers.get(key);
+
+  // Fail-open reap: a synchronized frame whose stream stalled, or an idle
+  // marker-prefix carry, is released into the queue instead of parking
+  // forever inside the assembler.
+  const reaped = assembler ? assembler.reap(Date.now()) : [];
+  if (reaped.length > 0) {
+    if (!buffer) {
+      buffer = [];
+      writeBuffers.set(key, buffer);
+    }
+    buffer.push(...reaped);
+  }
+
+  if (!buffer || buffer.length === 0) {
+    // Nothing queued, but a frame may still be assembling — keep the tick
+    // alive so the fail-open reaper runs even if no further bytes arrive.
+    if (assembler?.hasPending()) {
+      const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
+      pendingFlushes.set(key, timerId);
+    }
+    return;
+  }
 
   // Defer the flush while the user reads scrollback: writing would trim the
   // buffer beneath the reader, dragging the viewport line by line to the top
   // (the "snaps to top during agent output" failure). Output accumulates and
-  // each tick re-checks; past the hold cap the oldest chunks are dropped so
-  // a reader is NEVER written through. Whole chunks are dropped (WebSocket
-  // message boundaries); a rare escape sequence split across the drop heals
-  // on the application's next repaint.
+  // each tick re-checks; past the hold cap the oldest units are dropped so
+  // a reader is NEVER written through. Whole atomic units are dropped
+  // (WebSocket chunk runs or complete synchronized frames — dropping a whole
+  // frame is safe: the next full redraw supersedes it); a rare escape
+  // sequence split across the drop heals on the application's next repaint.
   if (isReadingScrollback(terminal)) {
     let heldChars = 0;
     for (const chunk of buffer) heldChars += chunk.length;
@@ -203,8 +235,12 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
     return;
   }
 
-  // Bounded release: write whole chunks up to the slice budget and leave the
-  // rest for the next tick, which re-checks the reading state first.
+  // Bounded release: write whole units up to the slice budget and leave the
+  // rest for the next tick, which re-checks the reading state first. The
+  // budget is checked BEFORE adding each unit, so the first unit always
+  // ships regardless of size — a synchronized frame larger than the budget
+  // is written whole in one call, never split (splitting would re-open
+  // xterm's synchronized-output timeout window mid-frame).
   let sliceChars = 0;
   let sliceCount = 0;
   while (sliceCount < buffer.length && sliceChars < RELEASE_SLICE_MAX_CHARS) {
@@ -219,21 +255,30 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   // scrolls or restores a viewport position after a write.
   terminal.write(data);
 
-  if (buffer.length > 0) {
+  if (buffer.length > 0 || assembler?.hasPending()) {
     const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
     pendingFlushes.set(key, timerId);
   }
 }
 
 function scheduleWrite(key: string, terminal: Terminal, data: string): void {
+  let assembler = frameAssemblers.get(key);
+  if (!assembler) {
+    assembler = createFrameAssembler();
+    frameAssemblers.set(key, assembler);
+  }
+  const units = assembler.ingest(data, Date.now());
+
   let buffer = writeBuffers.get(key);
   if (!buffer) {
     buffer = [];
     writeBuffers.set(key, buffer);
   }
-  buffer.push(data);
+  buffer.push(...units);
 
-  if (!pendingFlushes.has(key)) {
+  // Arm the tick even when ingest returned no units: a frame mid-assembly
+  // needs the tick alive for the fail-open reaper.
+  if ((buffer.length > 0 || assembler.hasPending()) && !pendingFlushes.has(key)) {
     const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
     pendingFlushes.set(key, timerId);
   }
@@ -246,6 +291,7 @@ function cancelPendingFlush(key: string): void {
     pendingFlushes.delete(key);
   }
   writeBuffers.delete(key);
+  frameAssemblers.delete(key);
 }
 
 // L26: FitAddon management and layout resize delegated to terminal-layout.ts
