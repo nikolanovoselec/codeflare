@@ -2730,7 +2730,8 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Decision:** Preserve the frame boundary the application authored, at the single WebSocket-to-write boundary:
 
-- A per-terminal frame assembler splits ingest into atomic units: ordinary bytes pass through under the existing 33 ms batching. Everything from a begin marker to the first end marker (set/reset mode semantics matching xterm; split markers carried across messages) is parked and emitted as ONE `terminal.write()` call.
+- A per-terminal frame assembler splits ingest into atomic units: ordinary bytes pass through under the existing 33 ms batching.
+- Everything from a begin marker to the first end marker (set/reset mode semantics matching xterm; split markers carried across messages) is parked and emitted as ONE `terminal.write()` call.
 - One synchronous parse cannot be interleaved by the timeout callback — the end marker clears the timer in the same task.
 - Malformed streams fail open: a frame idle past 2,000 ms or grown past 4,000,000 characters is released as-is (pre-assembly behavior), never deferred indefinitely.
 - The read-hold, held-output cap, and bounded release compose at unit granularity: a held frame releases in one write even past the 65,536-character slice budget; ring-drop discards whole units (a dropped full replay is superseded by the next one).
