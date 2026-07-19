@@ -468,8 +468,9 @@ svg {
    .scramble-ghost copy of the word, and the churning .scramble-word paints on an absolute
    overlay on top (see .scramble-box rules below) -- content-sized, so a churn glyph wider
    than the resting letters paints past the box without clipping and without growing it, so
-   the phrase never reflows. The hover CTA uses the same boxes with the --center modifier,
-   which centers the overlay so churn spill is symmetric instead of escaping one edge.
+   the phrase never reflows. The hover CTA instead keeps a full-label ghost in flow and
+   puts its churning words IN FLOW inside the out-of-flow .scramble-shell (below), so the
+   visible chrome grows with the churn while the layout box stays fixed.
    Each .scramble-word carries its own gradient clip because a parent's clip does not
    paint through child boxes; nowrap keeps a word intact. */
 .scramble-word {
@@ -500,15 +501,33 @@ svg {
   left: 0;
 }
 
-/* Hover-CTA variant: pin the overlay to the ghost's full box and center its text.
-   The resting label is width-identical to the ghost, so it sits exactly where the
-   ghost sits (no transform, no subpixel blur); an over-wide churn frame overflows a
-   centered line symmetrically, keeping the spill balanced around the button border —
-   and the button box never changes width, so header siblings never move. */
-.scramble-box--center .scramble-word {
-  left: 0;
-  right: 0;
-  text-align: center;
+/* Hover-CTA chrome handoff: scramble.ts rebuilds [data-scramble-hover] as an
+   in-flow full-label .scramble-ghost (holds the host's resting layout box) plus
+   an out-of-flow .scramble-shell that mirrors the host's .btn chrome classes and
+   shrink-wraps the churning in-flow words. Centered on the host, a wide churn
+   frame GROWS the visible border symmetrically past the resting box while the
+   host's layout box -- and the nav links beside it -- never moves. The host's
+   own chrome goes transparent rather than removed, so its footprint stays
+   identical to the no-JS button; the pseudo-class variants outrank
+   .btn-ghost:hover, which would otherwise repaint the host border on hover. */
+.scramble-host,
+.scramble-host:hover,
+.scramble-host:focus-visible {
+  position: relative;
+  border-color: transparent;
+  background: transparent;
+}
+
+/* The :active variant outranks .btn:active, whose translateY(1px) would replace
+   the centering transform; press feedback still works because the host's own
+   .btn:active shift carries the shell with it. */
+.scramble-shell,
+.scramble-shell:active {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-block;
+  transform: translate(-50%, -50%);
 }
 
 /* The plain "what it is" answer directly under the headline: the terminal command
