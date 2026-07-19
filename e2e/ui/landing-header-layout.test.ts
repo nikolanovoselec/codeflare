@@ -104,6 +104,7 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
       const beforeCenter = beforeRect.left + beforeRect.width / 2;
       const duringCenter = wordRect.left + wordRect.width / 2;
       expect(duringCenter).toBeCloseTo(beforeCenter, 1);
+      expect(wordRect.width).toBeCloseTo(beforeRect.width, 1);
     });
     expect(during.links).toHaveLength(NAV_LINKS.length);
     during.links.forEach((link, index) => {
