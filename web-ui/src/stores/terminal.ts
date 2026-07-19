@@ -560,6 +560,14 @@ function connect(
       else logger.warn(closeLog);
       connections.delete(key);
 
+      // Stream boundary: queued units and a partially assembled synchronized
+      // frame die with the socket. The host serializes full terminal state and
+      // sends an authoritative restore on reconnect, so anything still queued
+      // here is superseded — releasing a stale partial frame after the restore
+      // (or letting it absorb the new stream until its first end marker) would
+      // corrupt the restored screen.
+      cancelPendingFlush(key);
+
       // Intentional disconnect from dashboard — do not reconnect
       if (event.reason === 'dashboard-disconnect') {
         setConnectionState(sessionId, terminalId, 'disconnected');

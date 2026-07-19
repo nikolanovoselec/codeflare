@@ -127,6 +127,9 @@ export function createFrameAssembler(): FrameAssembler {
           if (mode === 'frame' && heldChars > FRAME_MAX_CHARS) {
             // Ceiling breached mid-frame: fail open. The released begin marker
             // re-enters xterm's own timeout regime — pre-assembly behavior.
+            // A frame whose end marker arrives in the same ingest bypasses
+            // this deliberately: its bytes are already in memory, so atomic
+            // emission is strictly better than failing open.
             releaseHeld(out);
           }
         }

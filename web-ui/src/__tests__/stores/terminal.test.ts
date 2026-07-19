@@ -1050,6 +1050,92 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('REQ-TERM-021 AC3: a stalled partial frame fails open through the flush tick after the stall timeout', async () => {
+      const activeBuffer = { type: 'normal', viewportY: 1000, baseY: 1000 };
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines: vi.fn(),
+        scrollToBottom: vi.fn(),
+        write: vi.fn(),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const BSU = '\x1b[?2026h';
+      // A begin marker whose stream stalls: the flush tick must keep running
+      // and the reaper must release the partial frame after the stall bound —
+      // never defer output forever.
+      wsInstance._simulateMessage(`${BSU}stall-tail`);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(terminal.write).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(terminal.write).mock.calls[0][0]).toBe(`${BSU}stall-tail`);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('REQ-TERM-021 AC6: a partially assembled frame does not survive a WebSocket stream boundary', async () => {
+      const activeBuffer = { type: 'normal', viewportY: 1000, baseY: 1000 };
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines: vi.fn(),
+        scrollToBottom: vi.fn(),
+        write: vi.fn(),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const BSU = '\x1b[?2026h';
+      const ESU = '\x1b[?2026l';
+
+      // A frame is mid-assembly when the socket dies abnormally.
+      wsInstance._simulateMessage(`${BSU}stale-partial`);
+      const staleSocket = wsInstance;
+      staleSocket.onclose?.(new CloseEvent('close', { code: 1006 }));
+
+      // The retry reconnects; the new stream's frame must be the ONLY thing
+      // ever written — the dead stream's partial frame must neither absorb the
+      // new bytes nor be released by the stall reaper later.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(wsInstance).not.toBe(staleSocket);
+      wsInstance._simulateMessage(`${BSU}fresh${ESU}`);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(terminal.write).mock.calls[0][0]).toBe(`${BSU}fresh${ESU}`);
+
+      // Long after the stall bound: the stale partial never surfaces.
+      await vi.advanceTimersByTimeAsync(5_000);
+      const everWritten = vi.mocked(terminal.write).mock.calls.map((c) => c[0] as string).join('');
+      expect(everWritten.includes('stale-partial')).toBe(false);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
     it('REQ-TERM-014 AC3: defers streamed output while the user owns the viewport and flushes on bottom return', async () => {
       const activeBuffer = { type: 'normal', viewportY: 80, baseY: 1000 };
       let onScrollHandler: ((viewportY: number) => void) | undefined;
