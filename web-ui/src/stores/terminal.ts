@@ -189,6 +189,13 @@ function isReadingScrollback(terminal: Terminal): boolean {
 }
 
 function flushWriteBuffer(key: string, terminal: Terminal): void {
+  // Clear-then-delete: when invoked directly (the final-close drain loop)
+  // rather than as a fired timer callback, a previously armed timer may still
+  // be live — a bare map delete would orphan it to fire later against a
+  // future session's buffer for the same key. clearTimeout on an
+  // already-fired timer is a no-op, so this is safe on the timer path too.
+  const armed = pendingFlushes.get(key);
+  if (armed !== undefined) clearTimeout(armed);
   pendingFlushes.delete(key);
   const assembler = frameAssemblers.get(key);
   let buffer = writeBuffers.get(key);
