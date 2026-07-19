@@ -255,7 +255,11 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(ghost.parentElement).toBe(el);
     expect(shell.parentElement).toBe(el);
     expect(ghost.textContent).toBe('Enter The Matrix');
-    expect(getComputedStyle(ghost).position).toBe('static'); // in flow: holds the layout box
+    // happy-dom resolves only explicitly-set properties ('' otherwise), so the
+    // in-flow contract is asserted as "never absolutely positioned" rather than
+    // as the resolved 'static' default.
+    expect(getComputedStyle(ghost).position).not.toBe('absolute'); // in flow: holds the layout box
+    expect(getComputedStyle(ghost).visibility).toBe('hidden'); // invisible reservation, not painted text
     expect(getComputedStyle(shell).position).toBe('absolute'); // out of flow: growth cannot displace siblings
     for (const cls of ['btn', 'btn-ghost', 'btn-sm']) {
       expect(shell.classList.contains(cls)).toBe(true); // chrome mirrored from the host, not duplicated in CSS
@@ -264,7 +268,7 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(lives.map((w) => w.textContent)).toEqual(['Enter', 'The', 'Matrix']);
     expect(shell.textContent).toBe('Enter The Matrix'); // whitespace preserved between in-flow words
     for (const live of lives) {
-      expect(getComputedStyle(live).position).toBe('static'); // in flow inside the shell, so the shell sizes to the churn
+      expect(getComputedStyle(live).position).not.toBe('absolute'); // in flow inside the shell, so the shell sizes to the churn
       expect(live.style.width).toBe(''); // no stale inline pixel lock
     }
 
