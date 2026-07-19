@@ -1162,18 +1162,24 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       const BSU = '\x1b[?2026h';
       const ESU = '\x1b[?2026l';
 
-      // A complete frame is queued and another frame is mid-assembly when the
-      // session ends normally (code 1000 — final, no restore will follow).
+      // An over-budget complete frame, a trailing complete unit behind it,
+      // and a frame mid-assembly when the session ends normally (code 1000 —
+      // final, no restore will follow). The boundary drain must not strand
+      // the trailing unit behind the oversized frame's release slice.
+      const bigFrame = `${BSU}${'x'.repeat(90_000)}${ESU}`;
+      wsInstance._simulateMessage(bigFrame);
       wsInstance._simulateMessage(`${BSU}farewell${ESU}`);
       wsInstance._simulateMessage(`${BSU}never-finished`);
       wsInstance.onclose?.(new CloseEvent('close', { code: 1000 }));
 
-      // The already-complete unit paints exactly once at the boundary; the
-      // partial frame dies with the socket and never fails open later.
-      expect(terminal.write).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(terminal.write).mock.calls[0][0]).toBe(`${BSU}farewell${ESU}`);
+      // Every already-complete unit paints exactly once at the boundary —
+      // byte order preserved — while the partial frame dies with the socket
+      // and never fails open later.
+      const painted = vi.mocked(terminal.write).mock.calls.map((c) => c[0] as string).join('');
+      expect(painted).toBe(`${bigFrame}${BSU}farewell${ESU}`);
       await vi.advanceTimersByTimeAsync(5_000);
-      expect(terminal.write).toHaveBeenCalledTimes(1);
+      const paintedAfter = vi.mocked(terminal.write).mock.calls.map((c) => c[0] as string).join('');
+      expect(paintedAfter).toBe(`${bigFrame}${BSU}farewell${ESU}`);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

@@ -568,7 +568,20 @@ function connect(
       // a final close has no restore coming, so the at-most-one-tick of
       // already-complete output paints once before the state is dropped.
       const releaseTrailingOutput = () => {
-        flushWriteBuffer(key, terminal);
+        // Drain ALL queued complete units. The per-tick release budget exists
+        // to re-check reader ownership between ticks; at a final boundary
+        // there are no more ticks, so a single budgeted slice would strand
+        // every unit after an oversized frame for cancelPendingFlush to
+        // discard. Each iteration writes at least one whole unit, so the
+        // loop terminates; a reading user keeps the discard semantics — a
+        // reader is never written through, even at the end of the stream.
+        for (
+          let queued = writeBuffers.get(key);
+          queued && queued.length > 0 && !isReadingScrollback(terminal);
+          queued = writeBuffers.get(key)
+        ) {
+          flushWriteBuffer(key, terminal);
+        }
         cancelPendingFlush(key);
       };
 
