@@ -795,6 +795,7 @@ function disposeSession(sessionId: string): void {
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
   cleanupMapByPrefix(pendingFlushes, prefix, (rafId) => clearTimeout(rafId));
   cleanupMapByPrefix(writeBuffers, prefix);
+  cleanupMapByPrefix(frameAssemblers, prefix);
   for (const key of [...pendingFocusClaims]) {
     if (key.startsWith(prefix)) pendingFocusClaims.delete(key);
   }
@@ -845,6 +846,7 @@ function disposeAll(): void {
   }
   pendingFlushes.clear();
   writeBuffers.clear();
+  frameAssemblers.clear();
 
   // Abort all retry loops
   for (const controller of abortControllers.values()) {
@@ -995,6 +997,7 @@ function disconnectAll(): void {
   }
   pendingFlushes.clear();
   writeBuffers.clear();
+  frameAssemblers.clear();
 
   // Abort all retry loops
   for (const controller of abortControllers.values()) {

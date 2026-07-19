@@ -55,11 +55,14 @@ describe('terminal-frames (REQ-TERM-021)', () => {
     expect(units).toEqual(['before', `${BSU}frame${ESU}`, 'after']);
   });
 
-  it('REQ-TERM-021 AC1: nested synchronized blocks complete only at the outer end marker', () => {
+  it('REQ-TERM-021 AC1: a redundant begin marker does not extend the frame — the first end marker closes it (set/reset mode semantics)', () => {
+    // DEC 2026 is a mode, not a nesting scope: xterm ignores a redundant
+    // begin and stops synchronizing at the FIRST end marker, so holding past
+    // it would defer bytes xterm no longer treats as synchronized.
     const assembler = createFrameAssembler();
-    const nested = `${BSU}a${BSU}b${ESU}c${ESU}`;
-    expect(assembler.ingest(`${BSU}a${BSU}b${ESU}`, 0)).toEqual([]);
-    expect(assembler.ingest(`c${ESU}`, 1)).toEqual([nested]);
+    expect(assembler.ingest(`${BSU}a${BSU}b${ESU}`, 0)).toEqual([`${BSU}a${BSU}b${ESU}`]);
+    expect(assembler.ingest(`c${ESU}`, 1)).toEqual([`c${ESU}`]);
+    expect(assembler.hasPending()).toBe(false);
   });
 
   it('REQ-TERM-021 AC3: a stalled frame fails open after the stall timeout, not before', () => {
