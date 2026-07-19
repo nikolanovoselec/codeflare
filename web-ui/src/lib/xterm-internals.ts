@@ -113,6 +113,15 @@ export function scrollBufferLines(terminal: Terminal, lines: number): void {
  * DOM points. Scrolling the BufferService by the buffer-derived delta moves
  * exactly to ybase, and the resulting onScroll makes Viewport._sync()
  * re-command the DOM scroll state absolutely.
+ *
+ * A zero delta is NOT a no-op: the nominal bottom can hide stale state. A
+ * scrollback wipe (CSI 3J — Pi's full replay) resets ydisp and ybase to zero
+ * but leaves BufferService.isUserScrolling set (xterm.js#6046), which pins
+ * the regrowing buffer at the top; and a clamped refit can leave the DOM
+ * scroll state diverged while ydisp already equals ybase. Internal
+ * scrollLines(0) clears a stale lock with no scroll event and no repaint
+ * (ydisp is unchanged), and the viewport resync re-commands the DOM position
+ * absolutely.
  */
 export function scrollBufferToBottom(terminal: Terminal): void {
   const active = terminal.buffer.active;
@@ -122,7 +131,11 @@ export function scrollBufferToBottom(terminal: Terminal): void {
     terminal.scrollToBottom();
     return;
   }
-  if (delta === 0) return;
+  if (delta === 0) {
+    bufferService.scrollLines(0);
+    resyncViewportScrollState(terminal);
+    return;
+  }
   scrollBufferLines(terminal, delta);
 }
 

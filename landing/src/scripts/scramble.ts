@@ -81,10 +81,9 @@ function animateWord(span: HTMLElement, target: string): void {
  * A resting-width ghost (invisible, in flow) reserves the layout box; the churning
  * text is overlaid absolutely on top, so a glyph wider than the resting letters
  * paints past the box without clipping and without growing it -- wrap points and
- * siblings never move. `centered` centers the overlay over the ghost (the hover
- * CTA) so wide churn glyphs spill symmetrically instead of escaping rightward.
+ * siblings never move.
  */
-function buildWordBoxes(el: HTMLElement, centered: boolean): { live: HTMLElement; text: string }[] {
+function buildWordBoxes(el: HTMLElement): { live: HTMLElement; text: string }[] {
   const full = el.textContent ?? '';
   // Keep whitespace runs as their own tokens so word boundaries are preserved.
   const parts = full.split(/(\s+)/);
@@ -97,7 +96,7 @@ function buildWordBoxes(el: HTMLElement, centered: boolean): { live: HTMLElement
       el.appendChild(document.createTextNode(part));
     } else {
       const box = document.createElement('span');
-      box.className = centered ? 'scramble-box scramble-box--center' : 'scramble-box';
+      box.className = 'scramble-box';
       const ghost = document.createElement('span');
       ghost.className = 'scramble-ghost';
       ghost.textContent = part;
@@ -115,7 +114,7 @@ function buildWordBoxes(el: HTMLElement, centered: boolean): { live: HTMLElement
 
 /** Split one [data-scramble] element into per-word ghost + churn-overlay boxes, then run. */
 function setupElement(el: HTMLElement): void {
-  const words = buildWordBoxes(el, false);
+  const words = buildWordBoxes(el);
 
   // Start only after the webfont has loaded, so the first churn frame is Inter, not the
   // fallback font.
@@ -148,9 +147,12 @@ initScramble();
 /**
  * Hover / focus decode: [data-scramble-hover] elements (the header "Enter The
  * Matrix" sign-in CTA) rest static and run a single scramble -> decode pass when
- * hovered or focused, painting on the same ghost + centered-overlay structure as
- * the idle scramble so the button footprint never changes. Disabled under
- * reduced motion; with no JS the label is plain, legible text.
+ * hovered or focused. The host's in-flow layout box is held by a full-label
+ * ghost while the visible button chrome rides an out-of-flow .scramble-shell
+ * that shrink-wraps the churning words: a wide churn frame GROWS the visible
+ * border symmetrically around the resting box without ever moving the host or
+ * its header siblings. Disabled under reduced motion; with no JS the label is
+ * plain, legible text on the host's own chrome.
  */
 const HOVER_FRAMES = 26;
 
@@ -171,13 +173,43 @@ function decodeWord(span: HTMLElement, target: string): void {
 }
 
 function setupHoverElement(el: HTMLElement): void {
-  // Same ghost + overlay structure as the idle scramble, centered: the in-flow
-  // ghost holds the resting layout box at any font, viewport, or visibility
-  // state -- no measurement, so there is no pixel lock to be captured while the
-  // element is hidden or mid-layout and go stale. The decode paints on the
-  // centered overlay, so wider churn glyphs spill symmetrically around the
-  // stable box instead of shoving one edge -- and header siblings never move.
-  const words = buildWordBoxes(el, true);
+  // The in-flow full-label ghost holds the host's resting layout box at any
+  // font, viewport, or visibility state -- no measurement, so there is no pixel
+  // lock to go stale. The churning words are IN FLOW inside the absolutely-
+  // positioned shell, which mirrors the host's chrome classes and shrink-wraps
+  // them: the visible border grows with a wide churn frame while the host's
+  // layout box -- and the nav links beside it -- never moves. .scramble-host
+  // turns the host's own chrome transparent so only the shell's copy paints.
+  const full = el.textContent ?? '';
+  el.textContent = '';
+
+  const ghost = document.createElement('span');
+  ghost.className = 'scramble-ghost';
+  ghost.textContent = full;
+
+  const shell = document.createElement('span');
+  shell.className = 'scramble-shell';
+  for (const cls of ['btn', 'btn-ghost', 'btn-sm']) {
+    if (el.classList.contains(cls)) shell.classList.add(cls);
+  }
+
+  const words: { live: HTMLElement; text: string }[] = [];
+  for (const part of full.split(/(\s+)/)) {
+    if (part === '') continue;
+    if (/^\s+$/.test(part)) {
+      shell.appendChild(document.createTextNode(part));
+    } else {
+      const live = document.createElement('span');
+      live.className = 'scramble-word';
+      live.textContent = part;
+      shell.appendChild(live);
+      words.push({ live, text: part });
+    }
+  }
+
+  el.appendChild(ghost);
+  el.appendChild(shell);
+  el.classList.add('scramble-host');
 
   let running = false;
   const run = () => {

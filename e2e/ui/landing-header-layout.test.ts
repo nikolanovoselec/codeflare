@@ -9,11 +9,7 @@ const tokensCss = readFileSync(resolve(process.cwd(), 'landing/src/styles/tokens
 const globalCss = readFileSync(resolve(process.cwd(), 'landing/src/styles/global.css'), 'utf8');
 const signInWords = HEADER_SIGN_IN.label.split(/\s+/);
 
-const word = (text: string) => `
-  <span class="scramble-box scramble-box--center">
-    <span class="scramble-ghost">${text}</span>
-    <span class="scramble-word">${text}</span>
-  </span>`;
+const word = (text: string) => `<span class="scramble-word">${text}</span>`;
 
 interface RectGeometry {
   top: number;
@@ -25,8 +21,8 @@ interface RectGeometry {
 
 interface HeaderGeometry {
   button: RectGeometry;
+  shell: RectGeometry;
   links: RectGeometry[];
-  words: RectGeometry[];
 }
 
 describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
@@ -36,6 +32,9 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
   beforeAll(async () => {
     browser = await launchBrowser();
     page = await browser.newPage();
+    // The runtime structure scramble.ts builds for [data-scramble-hover]: an
+    // in-flow full-label ghost holds the host's layout box; the chrome shell is
+    // out of flow and shrink-wraps the churning in-flow words.
     await page.setContent(`<!doctype html>
       <html><head><style>${tokensCss}\n${globalCss}</style></head><body>
         <nav class="site-nav"><div class="container">
@@ -44,8 +43,9 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
             <ul class="nav-links">
               ${NAV_LINKS.map((link) => `<li><a>${link.label}</a></li>`).join('')}
             </ul>
-            <a class="btn btn-ghost btn-sm nav-signin nav-signin--matrix">
-              ${signInWords.map(word).join(' ')}
+            <a class="btn btn-ghost btn-sm nav-signin nav-signin--matrix scramble-host">
+              <span class="scramble-ghost">${HEADER_SIGN_IN.label}</span>
+              <span class="scramble-shell btn btn-ghost btn-sm">${signInWords.map(word).join(' ')}</span>
             </a>
           </div>
         </div></nav>
@@ -69,43 +69,64 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
     };
     return {
       button: toGeometry(document.querySelector<HTMLElement>('.nav-signin--matrix')!),
+      shell: toGeometry(document.querySelector<HTMLElement>('.scramble-shell')!),
       links: [...document.querySelectorAll<HTMLElement>('.nav-links a')].map(toGeometry),
-      words: [...document.querySelectorAll<HTMLElement>('.nav-signin--matrix .scramble-word')].map(toGeometry),
     };
   });
 
-  it.each([900, 1280])('keeps the button and overlay boxes fixed at %ipx during churn, without moving any navigation-link rectangle', async (viewportWidth) => {
-    await page.setViewport({ width: viewportWidth, height: 220, deviceScaleFactor: 1 });
-    await page.evaluate((labels) => {
-      document.querySelectorAll<HTMLElement>('.nav-signin--matrix .scramble-word')
-        .forEach((live, index) => { live.textContent = labels[index]!; });
-    }, signInWords);
+  const setWords = async (labels: string[]): Promise<void> => {
+    await page.evaluate((texts) => {
+      document.querySelectorAll<HTMLElement>('.scramble-shell .scramble-word')
+        .forEach((live, index) => { live.textContent = texts[index]!; });
+    }, labels);
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  };
+
+  it.each([900, 1280])('at %ipx the visible shell grows symmetrically during churn while the layout box and every navigation-link rectangle stay fixed', async (viewportWidth) => {
+    await page.setViewport({ width: viewportWidth, height: 220, deviceScaleFactor: 1 });
+    await setWords(signInWords);
     const before = await geometry();
 
-    await page.evaluate((labels) => {
-      document.querySelectorAll<HTMLElement>('.nav-signin--matrix .scramble-word')
-        .forEach((live, index) => { live.textContent = 'W'.repeat(labels[index]!.length); });
-    }, signInWords);
-    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    // At rest the shell chrome is congruent with the host's (invisible) box —
+    // the visible button sits exactly where the layout box is.
+    expect(before.shell.width).toBeCloseTo(before.button.width, 0);
+    expect(before.shell.left).toBeCloseTo(before.button.left, 0);
+    expect(before.shell.top).toBeCloseTo(before.button.top, 0);
+    expect(before.shell.height).toBeCloseTo(before.button.height, 0);
 
+    // The chrome handoff itself: the host's own border is transparent and the
+    // shell's is painted — gutting .scramble-host or .scramble-shell fails here.
+    const chrome = await page.evaluate(() => {
+      const host = document.querySelector<HTMLElement>('.nav-signin--matrix')!;
+      const shell = document.querySelector<HTMLElement>('.scramble-shell')!;
+      return {
+        hostBorder: getComputedStyle(host).borderTopColor,
+        shellBorder: getComputedStyle(shell).borderTopColor,
+        shellBorderWidth: getComputedStyle(shell).borderTopWidth,
+        shellPosition: getComputedStyle(shell).position,
+      };
+    });
+    expect(chrome.hostBorder).toBe('rgba(0, 0, 0, 0)');
+    expect(chrome.shellBorder).not.toBe('rgba(0, 0, 0, 0)');
+    expect(chrome.shellBorderWidth).toBe('1px');
+    expect(chrome.shellPosition).toBe('absolute');
+
+    await setWords(signInWords.map((label) => 'W'.repeat(label.length)));
     const during = await geometry();
-    // The button box never changes during churn — that is what keeps siblings still.
+
+    // The visible chrome GROWS with the wide churn frame...
+    expect(during.shell.width).toBeGreaterThan(before.shell.width + 1);
+    // ...symmetrically around the resting box (both edges extend outward)...
+    const beforeCenter = before.shell.left + before.shell.width / 2;
+    const duringCenter = during.shell.left + during.shell.width / 2;
+    expect(duringCenter).toBeCloseTo(beforeCenter, 1);
+    expect(during.shell.left).toBeLessThan(before.shell.left);
+    expect(during.shell.right).toBeGreaterThan(before.shell.right);
+    // ...while the host's layout box never changes — that is what keeps siblings still.
     expect(during.button.width).toBeCloseTo(before.button.width, 3);
     expect(during.button.left).toBeCloseTo(before.button.left, 3);
     expect(during.button.right).toBeCloseTo(before.button.right, 3);
-    // Each word overlay box stays pinned to its ghost's width and position —
-    // it neither grows nor shifts when over-wide churn ink overflows it. (The
-    // ink's centering itself is pinned by the unit test's text-align
-    // assertion; a bounding-rect cannot see overflow ink.)
-    expect(during.words).toHaveLength(before.words.length);
-    during.words.forEach((wordRect, index) => {
-      const beforeRect = before.words[index]!;
-      const beforeCenter = beforeRect.left + beforeRect.width / 2;
-      const duringCenter = wordRect.left + wordRect.width / 2;
-      expect(duringCenter).toBeCloseTo(beforeCenter, 1);
-      expect(wordRect.width).toBeCloseTo(beforeRect.width, 1);
-    });
+    // ...and no navigation-link rectangle moves either.
     expect(during.links).toHaveLength(NAV_LINKS.length);
     during.links.forEach((link, index) => {
       expect(link.top).toBeCloseTo(before.links[index]!.top, 3);
@@ -114,5 +135,10 @@ describe('landing Matrix CTA layout isolation (REQ-LANDING-006)', () => {
       expect(link.height).toBeCloseTo(before.links[index]!.height, 3);
     });
     expect(during.button.left).toBeGreaterThan(during.links.at(-1)!.right);
+
+    // Content-driven, not a ratchet: restoring the label shrinks the shell back.
+    await setWords(signInWords);
+    const after = await geometry();
+    expect(after.shell.width).toBeCloseTo(before.shell.width, 0);
   });
 });
