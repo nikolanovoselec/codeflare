@@ -12,6 +12,8 @@ See [Architecture](architecture.md) for system overview, components, data flow, 
 - [Code Structure (Pre-Launch Refactoring)](#code-structure-pre-launch-refactoring)
 - [Appendix: CF-NNN Code Index](#appendix-cf-nnn-code-index)
 - [SaaS UI Components](#saas-ui-components)
+- [Related Documentation](#related-documentation)
+- [Specification Coverage](#specification-coverage)
 
 ---
 

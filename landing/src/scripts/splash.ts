@@ -5,7 +5,8 @@
  * pointer listeners are bound to window) and behaves like a fixed background.
  * It is vivid behind the hero and recedes to a calm, legible wash behind the
  * text-dense sections below (a scroll-linked veil plus near-opaque glass panels;
- * see global.css). Paused while the tab is hidden so it never burns the GPU.
+ * see global.css). Desktop animation pauses while hidden; touch animation is
+ * retired on backgrounding because mobile browsers may evict its GPU context.
  *
  * Runs on both desktop and touch devices, disabled only under
  * prefers-reduced-motion. Desktop fine pointers drive the fluid with the cursor;
@@ -55,6 +56,43 @@ function initFlareFluid(): void {
     canvas.remove();
     return;
   }
+  let disabled = false;
+  let removeAmbientListeners = () => {};
+  let removeLifecycleListeners = () => {};
+  const disableCanvas = () => {
+    if (disabled) return;
+    disabled = true;
+    canvas.hidden = true;
+    canvas.style.display = 'none';
+    removeAmbientListeners();
+    removeLifecycleListeners();
+    sim.destroy();
+  };
+  const handleContextLost = () => {
+    // Do not cancel the event: cancellation asks the browser to restore this
+    // context, while this decorative surface is intentionally retired.
+    disableCanvas();
+  };
+  const handleVisibilityChange = () => {
+    if (disabled) return;
+    if (document.hidden && !finePointer) {
+      disableCanvas();
+    } else if (document.hidden) {
+      sim.pause();
+    } else {
+      sim.resume();
+    }
+  };
+  canvas.addEventListener('webglcontextlost', handleContextLost);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  removeLifecycleListeners = () => {
+    canvas.removeEventListener('webglcontextlost', handleContextLost);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+  if (document.hidden && !finePointer) {
+    disableCanvas();
+    return;
+  }
   sim.start();
 
   // The landing layout renders html.flare-on on the server. Do not add or remove
@@ -75,38 +113,42 @@ function initFlareFluid(): void {
     // wrong coordinates instead of under the finger. Suppress the sweep during an
     // active touch so the finger is the sole driver, matching the SPA.
     let touchActive = false;
-    const endTouch = () => { touchActive = false; };
-    window.addEventListener('touchstart', () => { touchActive = true; }, { passive: true });
-    window.addEventListener('touchend', endTouch, { passive: true });
-    window.addEventListener('touchcancel', endTouch, { passive: true });
-
     let queued = false;
+    let sweepRaf: number | null = null;
+    const startTouch = () => { touchActive = true; };
+    const endTouch = () => { touchActive = false; };
     const sweep = () => {
+      sweepRaf = null;
       queued = false;
-      if (touchActive) return; // finger drives the flare during an active swipe
+      if (disabled || touchActive) return;
       const y = window.scrollY;
       const xFrac = 0.5 + 0.32 * Math.sin(y / 320);
       const yFrac = 0.5 + 0.3 * Math.cos(y / 240);
       sim.pointerMove(xFrac, yFrac);
     };
+    const handleScroll = () => {
+      if (disabled || queued) return;
+      queued = true;
+      sweepRaf = requestAnimationFrame(sweep);
+    };
+
+    window.addEventListener('touchstart', startTouch, { passive: true });
+    window.addEventListener('touchend', endTouch, { passive: true });
+    window.addEventListener('touchcancel', endTouch, { passive: true });
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    removeAmbientListeners = () => {
+      window.removeEventListener('touchstart', startTouch);
+      window.removeEventListener('touchend', endTouch);
+      window.removeEventListener('touchcancel', endTouch);
+      window.removeEventListener('scroll', handleScroll);
+      if (sweepRaf !== null) cancelAnimationFrame(sweepRaf);
+      sweepRaf = null;
+      queued = false;
+    };
+
     sweep(); // prime
     sim.pointerMove(0.62, 0.46); // one seed splat so the hero shows flare on load
-    window.addEventListener(
-      'scroll',
-      () => {
-        if (queued) return;
-        queued = true;
-        requestAnimationFrame(sweep);
-      },
-      { passive: true }
-    );
   }
-
-  // Pause on a hidden tab so a backgrounded page does no GPU work.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) sim.pause();
-    else sim.resume();
-  });
 }
 
 initFlareFluid();

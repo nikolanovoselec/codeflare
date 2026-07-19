@@ -4,7 +4,7 @@ import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
 import { getUser, getSetupStatus, getAuthProviders, getOnboardingConfig, getAuthStatus } from './api/client';
-import { ApiError } from './api/fetch-helper';
+import { ApiError, redirectExpiredSession } from './api/fetch-helper';
 import { sessionStore } from './stores/session';
 import { storageStore } from './stores/storage';
 import { terminalStore } from './stores/terminal';
@@ -50,6 +50,7 @@ const AppContent: Component = () => {
 
   const markAuthRedirect = (err: unknown): boolean => {
     if (err instanceof ApiError && (err.authRedirect || err.status === 401)) {
+      if (!err.authRedirect) redirectExpiredSession();
       setRedirecting(true);
       return true;
     }

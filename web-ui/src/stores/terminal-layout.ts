@@ -3,6 +3,7 @@ import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import { CSS_TRANSITION_DELAY_MS } from '../lib/constants';
 import { logger } from '../lib/logger';
+import { scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
 
 /**
  * Terminal Layout module — extracted from terminal.ts (L26).
@@ -95,9 +96,12 @@ function refitAllTerminals(): void {
         }
       }
 
-      // Preserve user scroll position — only follow output if already at bottom
+      // Preserve user scroll position — only follow output if already at bottom.
+      // Buffer-authoritative anchor + DOM resync: see xterm-internals.
       if (wasAtBottom) {
-        terminal.scrollToBottom();
+        scrollBufferToBottom(terminal);
+      } else {
+        resyncViewportScrollState(terminal);
       }
     } catch (err) {
       logger.warn(`[Terminal ${key}] Failed to refit on layout change:`, err);

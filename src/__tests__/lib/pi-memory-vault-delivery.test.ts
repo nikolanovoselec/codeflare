@@ -64,6 +64,13 @@ interface TestContext {
 class FakePi implements MemoryVaultPi {
   readonly handlers = new Map<string, Handler[]>();
   readonly sent: SentMessage[] = [];
+  readonly operations: string[] = [];
+  private activeTools = ['read', 'bash'];
+  private readonly allTools = [
+    { name: 'read', description: 'Read files' },
+    { name: 'bash', description: 'Run shell commands' },
+    { name: 'subagent', description: 'Launch a background specialist' },
+  ];
 
   constructor(private readonly sessionFile: string) {}
 
@@ -71,7 +78,21 @@ class FakePi implements MemoryVaultPi {
     this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]);
   }
 
+  getActiveTools(): string[] {
+    return [...this.activeTools];
+  }
+
+  getAllTools(): Array<{ name: string; description: string }> {
+    return this.allTools.map((tool) => ({ ...tool }));
+  }
+
+  setActiveTools(names: string[]): void {
+    this.activeTools = [...names];
+    this.operations.push(`activate:${names.join(',')}`);
+  }
+
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void {
+    this.operations.push(`send:${message.customType}`);
     this.sent.push({ message, options });
     appendEntry(this.sessionFile, {
       type: 'custom_message',
@@ -484,6 +505,10 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await harness.emit('agent_settled');
 
     const launch = latestLaunch(harness.pi, 'memory-capture');
+    expect(harness.pi.operations.slice(-2)).toEqual([
+      'activate:read,bash,subagent',
+      'send:background-extraction-launch',
+    ]);
     expect(launch.reminder).toBe(0);
     expect(launch.request).toMatchObject({
       subagent_type: 'memory-capture',

@@ -28,7 +28,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { terminalStore, sendInputToTerminal, cleanupMapByPrefix, READ_HOLD_MAX_CHARS } from '../../stores/terminal';
+import { terminalStore, sendInputToTerminal, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
 
 // Get mock WebSocket class from global
 const _MockWebSocket = globalThis.WebSocket as unknown as {
@@ -855,7 +855,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-014 AC3: releases deferred output at the held-output cap without injecting correction', async () => {
+    it('REQ-TERM-014 AC5: a cap-exceeding hold drops oldest chunks and never writes through a reader', async () => {
       const activeBuffer = { type: 'normal', viewportY: 500, baseY: 1000 };
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;
@@ -866,12 +866,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
         buffer: { active: activeBuffer },
         scrollLines,
         scrollToBottom,
-        write: vi.fn((_data: string, callback?: () => void) => {
-          // The forced flush trims the full buffer; xterm's native anchor
-          // moves the viewport and the store must not react to it.
-          activeBuffer.viewportY = 0;
-          callback?.();
-        }),
+        write: vi.fn(),
       } as unknown as Terminal;
 
       const OriginalWebSocket = globalThis.WebSocket;
@@ -887,13 +882,75 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       terminalStore.connect(sessionId, terminalId, terminal);
       await vi.advanceTimersByTimeAsync(0);
 
+      // An old chunk followed by a cap-exceeding newest chunk: the ring drops
+      // the oldest, keeps the newest even when it alone exceeds the cap, and
+      // NEVER writes while the user reads scrollback.
+      wsInstance._simulateMessage('a'.repeat(1000));
       wsInstance._simulateMessage('x'.repeat(READ_HOLD_MAX_CHARS + 1));
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(terminal.write).not.toHaveBeenCalled();
+
+      // Returning to the bottom releases only the retained tail.
+      activeBuffer.viewportY = activeBuffer.baseY;
       await vi.advanceTimersByTimeAsync(50);
 
       expect(terminal.write).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(terminal.write).mock.calls[0][0]).toHaveLength(READ_HOLD_MAX_CHARS + 1);
+      const released = vi.mocked(terminal.write).mock.calls[0][0] as string;
+      expect(released).toHaveLength(READ_HOLD_MAX_CHARS + 1);
+      expect(released.includes('a')).toBe(false);
       expect(scrollLines).not.toHaveBeenCalled();
       expect(scrollToBottom).not.toHaveBeenCalled();
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('REQ-TERM-014 AC3: releases the hold in bounded slices and re-defers when the reader scrolls up mid-release', async () => {
+      const activeBuffer = { type: 'normal', viewportY: 1000, baseY: 1000 };
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines: vi.fn(),
+        scrollToBottom: vi.fn(),
+        write: vi.fn(),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const chunk = 60_000;
+      wsInstance._simulateMessage('a'.repeat(chunk));
+      wsInstance._simulateMessage('b'.repeat(chunk));
+      wsInstance._simulateMessage('c'.repeat(chunk));
+
+      // First tick at the bottom: whole chunks up to the slice budget
+      // (budget may be exceeded by at most one chunk, never split).
+      await vi.advanceTimersByTimeAsync(40);
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+      const firstSlice = vi.mocked(terminal.write).mock.calls[0][0] as string;
+      expect(firstSlice.length).toBeLessThanOrEqual(RELEASE_SLICE_MAX_CHARS + chunk);
+      expect(firstSlice.endsWith('b')).toBe(true);
+
+      // Reader scrolls up before the next tick: the remainder re-defers.
+      activeBuffer.viewportY = 400;
+      await vi.advanceTimersByTimeAsync(200);
+      expect(terminal.write).toHaveBeenCalledTimes(1);
+
+      // Back at the bottom, the remainder releases.
+      activeBuffer.viewportY = activeBuffer.baseY;
+      await vi.advanceTimersByTimeAsync(50);
+      expect(terminal.write).toHaveBeenCalledTimes(2);
+      expect((vi.mocked(terminal.write).mock.calls[1][0] as string).startsWith('c')).toBe(true);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
@@ -1005,10 +1062,12 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it.each([
+    const batchedWriteViewportCases = [
       { name: 'the viewport follows the live bottom', bufferType: 'normal', viewportY: 1000, baseY: 1000 },
       { name: 'an alternate-buffer application owns the screen', bufferType: 'alternate', viewportY: 0, baseY: 80 },
-    ])('REQ-TERM-014 AC3: writes batched output without viewport correction when $name', async ({ bufferType, viewportY, baseY }) => {
+    ];
+
+    it.each(batchedWriteViewportCases)('REQ-TERM-014 AC3: writes batched output without viewport correction when $name', async ({ bufferType, viewportY, baseY }) => {
       const activeBuffer = { type: bufferType, viewportY, baseY };
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;

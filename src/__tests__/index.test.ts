@@ -173,6 +173,18 @@ describe('Edge-level setup redirect', () => {
     expect(mockAssets.fetch).toHaveBeenCalled();
   });
 
+  it('REQ-LANDING-008: marks the public login response noindex without blocking the asset', async () => {
+    const { env, mockKV, mockAssets } = createMockEnv();
+    env.SAAS_MODE = 'active';
+    mockKV.get.mockResolvedValue('true');
+
+    const response = await worker.fetch(new Request('https://example.com/login'), env, createMockCtx());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    expect(mockAssets.fetch).toHaveBeenCalled();
+  });
+
   // REQ-LANDING-003: discoverability documents served at the deployment root,
   // mode-aware (public marketing surface advertises indexable docs; private
   // app deployments disallow all crawling and expose no sitemap/llms).

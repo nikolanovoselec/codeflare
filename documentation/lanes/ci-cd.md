@@ -8,6 +8,8 @@ GitHub Actions workflows, test suites, E2E infrastructure, and deployment pipeli
 
 - [CI/CD (GitHub Actions)](#cicd-github-actions)
 - [Testing](#testing)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ---
 
@@ -42,7 +44,7 @@ Additional details:
 
 The OpenVSCode job validates upstream release tags against a strict version pattern before creating outputs. Its write-enabled shell steps receive the validated version and derived branch through quoted environment variables, so release metadata is never parsed as shell source ([REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation)).
 
-The `pi-extensions` bump is data-driven: the `pi-extensions-discover` job lists **every** dependency in `preseed/agents/pi/package.json` except context-mode (`@gotgenes/pi-subagents` and the five tool extensions: `@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`), and a `fail-fast: false` matrix diffs each against npm latest and bumps it in its own leg and PR; context-mode is owned separately by the `context-mode:` job. Each version is duplicated as a literal in entrypoint.sh (the Pi settings `required` install array, so context-mode is enabled by default and the extensions stay available regardless of the `/ctx` toggle), the pinned-version test assertions (`host/__tests__/pi-settings-packages.test.js`), and the generated seed. Dependabot intentionally skips that directory, so this workflow keeps every copy aligned.
+The `pi-extensions` bump is data-driven: the `pi-extensions-discover` job lists **every** dependency in `preseed/agents/pi/package.json` except context-mode (`@gotgenes/pi-subagents` and the five tool extensions: `@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`), and a `fail-fast: false` matrix diffs each against npm latest and bumps it in its own leg and PR; context-mode is owned separately by the `context-mode:` job. Each version is duplicated as a literal in entrypoint.sh (context-mode in the disabled-by-default package set; the extensions in the always-on `required` set), the pinned-version test assertions (`host/__tests__/pi-settings-packages.test.js`), and the generated seed. Dependabot intentionally skips that directory, so this workflow keeps every copy aligned.
 
 ### GitHub Environments
 

@@ -24,7 +24,7 @@ export const CANONICAL_ORIGIN = 'https://codeflare.ch';
 const SITEMAP_PATHS = ['/', '/landing/privacy/'];
 
 /** robots.txt body. Public mode allows crawling of the marketing surface (but
- *  not the app, API, auth, login, or setup paths) and points at the sitemap;
+ *  not the app, API, auth, or setup paths) and points at the sitemap;
  *  private mode disallows everything. */
 export function buildRobotsTxt(publicMode: boolean): string {
   if (!publicMode) {
@@ -36,7 +36,6 @@ export function buildRobotsTxt(publicMode: boolean): string {
     'Disallow: /app/',
     'Disallow: /api/',
     'Disallow: /auth/',
-    'Disallow: /login',
     'Disallow: /setup',
     '',
     `Sitemap: ${CANONICAL_ORIGIN}/sitemap.xml`,
@@ -56,9 +55,9 @@ export function buildSitemapXml(): string {
 export function buildLlmsTxt(): string {
   return `# Codeflare
 
-> Codeflare is the agentic engineering engine: autonomous coding agents that build, review, test, and ship inside your own cloud boundary, governed, attributed, and encrypted. It is not a coding assistant. The engineer specifies, steers, and judges; the agents do everything else, subject to your git, your CI, and your zero-trust boundary.
+> Codeflare is the agentic engineering engine: governed engineering agents that build, test, review, and operate inside your own estate. It is not a coding assistant. The engineer specifies, steers, and judges; the agents do everything else, subject to your identity, policy, and delivery controls.
 
-Codeflare runs spec-driven development (SDD) and test-driven development (TDD) as enforced, self-healing loops: every change is checked against its specification and acceptance criteria at the pull-request boundary, drift is a blocking finding, and a parallel board of specialist review agents converges on a single human triage gate. Agents read the open web through a throwaway isolated browser (heavy pages distilled to clean markdown), every model call is inspected at your AI Gateway with guardrails and DLP, and every token of spend is attributed. Codeflare Enterprise deploys into the customer's own cloud account, where their identity provider and access policies govern who can do what.
+Codeflare runs spec-driven development (SDD) and test-driven development (TDD) as enforced, self-healing loops: every change is checked against its specification and acceptance criteria at the pull-request boundary, drift is a blocking finding, and a parallel board of specialist review agents converges on a single human triage gate. Agents read the open web through a throwaway isolated browser (heavy pages distilled to clean markdown), every model call is inspected at your AI Gateway with guardrails and DLP, and every token of spend is attributed. Codeflare Enterprise deploys into the customer's own estate, where their identity provider and access policies govern who can do what.
 
 ## Product
 - [Codeflare](${CANONICAL_ORIGIN}/): The agentic engineering engine, its zero-trust security model, and how one governed run moves from intent to merge.
@@ -68,6 +67,6 @@ Codeflare runs spec-driven development (SDD) and test-driven development (TDD) a
 - [Codeflare on GitHub](https://github.com/nikolanovoselec/codeflare): Public repository. This landing page is itself a Codeflare-governed requirement (REQ-LANDING-001).
 
 ## Contact
-- [Request a demo](${CANONICAL_ORIGIN}/#contact): Enterprise deployment starts with a conversation; the engine deploys into your own cloud account where your IdP and access policies are configured.
+- [Request a demo](${CANONICAL_ORIGIN}/#contact): Enterprise deployment starts with a conversation; the engine deploys into your own estate where your IdP and access policies are configured.
 `;
 }

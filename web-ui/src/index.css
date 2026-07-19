@@ -27,6 +27,11 @@ html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
+  background-color: var(--color-bg-base);
+}
+
+html {
+  color-scheme: dark;
 }
 
 body {

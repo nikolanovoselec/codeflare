@@ -47,11 +47,37 @@ export default function SplashCursor(props: SplashCursorProps) {
     const sim = createSplashSimulation(canvas, config);
     if (!sim) return;
 
-    sim.start();
+    const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+    let disabled = false;
+    const disableCanvas = () => {
+      if (disabled) return;
+      disabled = true;
+      canvas.hidden = true;
+      canvas.style.display = 'none';
+      sim.destroy();
+    };
+    const handleContextLost = () => {
+      // Do not cancel the event: cancellation asks the browser to restore this
+      // context, while this decorative surface is intentionally retired.
+      disableCanvas();
+    };
+    const handleVisibilityChange = () => {
+      if (coarsePointer && document.visibilityState === 'hidden') disableCanvas();
+    };
+    canvas.addEventListener('webglcontextlost', handleContextLost);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     onCleanup(() => {
-      sim.destroy();
+      canvas.removeEventListener('webglcontextlost', handleContextLost);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (!disabled) sim.destroy();
     });
+
+    if (coarsePointer && document.visibilityState === 'hidden') {
+      disableCanvas();
+      return;
+    }
+    sim.start();
   });
 
   return (

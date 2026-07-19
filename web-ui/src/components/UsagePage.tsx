@@ -2,6 +2,7 @@ import { Component, createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { getUsage } from '../api/client';
 import { sessionStore } from '../stores/session';
 import { formatDuration } from '../lib/format';
+import { AGENTIC_ENGINE_LABEL } from '../lib/marketing-content';
 import ScrambleText from './ScrambleText';
 import '../styles/usage-page.css';
 import '../styles/login-page.css';
@@ -66,7 +67,7 @@ const UsagePage: Component = () => {
         </h1>
 
         <p class="login-subtitle">
-          The enterprise agentic engine. Autonomous agents build,
+          The {AGENTIC_ENGINE_LABEL}. Autonomous agents build,
           review, test, and ship inside your own cloud boundary.
         </p>
 

@@ -53,7 +53,7 @@ Marker semantics (per-AC — there is NO REQ-level exemption):
 Walks every `Implemented` REQ that has at least one AC without `@manual`. REQs where every AC carries `@manual` are exempt (there is no automated behaviour to cross-check). CQ-1 is satisfied by EITHER:
 
 - **(a) ID-in-block-name**: a test file (per `test_globs`) contains the REQ ID literally, the ID appears in the name of a `describe`/`test`/`it` block (not just a code comment, not just a fixture filename), AND at least one assertion references content that the REQ's ACs describe — by symbol, user-observable string, or named behaviour; OR
-- **(b) anchor parity**: every non-`@manual` AC carries a RESOLVING `@test` anchor (per CQ-TEST's per-anchor validation). Anchor-level proof is finer-grained than the ID grep and satisfies the same truth claim.
+- **(b) anchor parity**: every non-`@manual` AC carries AT LEAST ONE resolving `@test` anchor, and every declared anchor resolves (per CQ-TEST's per-anchor validation). Anchor-level proof is finer-grained than the ID grep and satisfies the same truth claim.
 
 When neither holds, the finding splits:
 
@@ -62,7 +62,7 @@ When neither holds, the finding splits:
 **Subclass B — no-coverage (MEDIUM `req-test-name-only-match`).** No test file mentions the REQ ID at all, OR mentions are only in comments / fixture paths, OR every named block asserts unrelated behaviour — and anchor parity (b) does not hold either. Real coverage absence. No auto-fix; escalate to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat-legacy).
 
 Classification mechanics:
-1. For each eligible Implemented REQ: if every non-`@manual` AC has a resolving `@test` anchor, CQ-1 passes (parity path).
+1. For each eligible Implemented REQ: if every non-`@manual` AC has at least one resolving `@test` anchor and every declared anchor resolves, CQ-1 passes (parity path).
 2. Else grep `test_globs` for the REQ ID. Zero matches: Subclass B.
 3. Matches exist; walk matched files: any block name contains the REQ ID? Yes: CQ-1 passes. No: block has assertions on AC-content tokens? Yes: Subclass A. No: Subclass B.
 
@@ -105,13 +105,13 @@ When `enforce_tdd: false`:
 
 Beyond the binary REQ-level check above, when `enforce_tdd: true` CQ-TEST verifies each AC's inline `@test` anchor, giving AC-by-AC coverage parity with `@impl`. When `enforce_tdd: false` every finding here is informational only — written to the `## Coverage gaps` section of the layout-resolved triage file, never a Status mutation, never blocking.
 
-**Anchor parsing.** For every `Implemented` or `Partial` REQ, scan each AC bullet for the inline test-anchor comment:
+**Anchor parsing.** For every `Implemented` or `Partial` REQ, scan each AC bullet for every inline test-anchor comment using `references/parse-test-anchors.mjs` (or its exact global matcher):
 
 ```
-<!--\s*@test:\s*(\S+?)\s*\((.+)\)\s*-->
+<!--\s*@test:\s*(\S+?)\s*\((.*?)\)\s*-->
 ```
 
-Capture groups: `<path>`, `<block-title>`. The title capture `(.+)` is GREEDY (parentheses nested in the title are captured) — therefore an AC carries **at most one** `@test` anchor. Multiple `@test` anchors on one AC = HIGH `spec-test-anchor-multiple`: split the behaviours into separate ACs or point to one encompassing named test block.
+Capture groups: `<path>`, `<block-title>`. Apply the pattern globally. The comment-bounded non-greedy title preserves nested parentheses while parsing adjacent anchors independently. Every non-`@manual` AC carries **at least one** `@test` anchor; multiple anchors are valid when verification spans blocks or files.
 
 **Per-anchor validation.** For each captured `@test` anchor (including anchors on `@manual` ACs — supplemental evidence is still validated):
 
@@ -122,7 +122,7 @@ Capture groups: `<path>`, `<block-title>`. The title capture `(.+)` is GREEDY (p
 **Unanchored AC detection.** For every AC bullet describing observable behaviour without a `@test` anchor:
 
 - Skip clause: ACs carrying `<!-- @manual -->` are exempt.
-- MEDIUM `ac-missing-test-anchor` (the test parallel of `ac-missing-source-anchor`) listing REQ-ID, AC-N. Auto-fix in `auto`/`unleashed`: best-effort retrofit — for the AC's resolved `@impl` symbol, find a `test_globs` block whose body exercises that symbol (import + call) or whose name overlaps the AC ≥3 tokens; if exactly one plausible block resolves, write the `@test` anchor inline via Edit. Otherwise escalate. (Same retrofit shape as CQ-SOURCE's unanchored-AC auto-fix, and the same engine `/sdd clean` pass 5 uses.)
+- MEDIUM `ac-missing-test-anchor` (the test parallel of `ac-missing-source-anchor`) listing REQ-ID, AC-N. Auto-fix in `auto`/`unleashed`: best-effort retrofit — for the AC's resolved `@impl` symbols, find `test_globs` blocks whose bodies exercise those symbols (import + call) or whose names overlap the AC ≥3 tokens. If one or more independently verified blocks resolve, write one deduplicated `@test` anchor per block in stable path/title order; ambiguous candidates escalate. (Same retrofit shape as CQ-SOURCE's unanchored-AC auto-fix, and the same engine `/sdd clean` pass 5 uses.)
 
 **This pass is the only place `@test` parity is enforced**: the always-on `@impl` truth-check is CQ-SOURCE; the per-AC `@test` check lives here under `enforce_tdd` because tests are opt-out-able while source truth is not.
 
@@ -194,7 +194,6 @@ CRITICAL: `phase-7a-self-attestation`, `phase-7b-self-attestation`, `phase-7a-ev
 HIGH:
 - CQ-TEST `source-vs-test coverage gap` on Implemented REQ when not in transition (only when `enforce_tdd: true`).
 - CQ-TEST `spec-test-anchor-orphaned` (file or block not resolved).
-- CQ-TEST `spec-test-anchor-multiple` (more than one `@test` anchor on one AC).
 - CQ-SOURCE `spec-anchor-orphaned` (symbol not resolved).
 - CQ-SOURCE `spec-value-drift` (value-pattern not found in symbol body).
 

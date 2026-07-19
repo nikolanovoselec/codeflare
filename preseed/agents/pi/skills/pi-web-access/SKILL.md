@@ -1,6 +1,6 @@
 ---
 name: pi-web-access
-description: Web search and URL fetching for Pi (tools web_search, fetch_content, get_search_content). The only web SEARCH Pi has. Includes the decision rule for choosing between web_search, ctx_fetch_and_index, curl, and browser-run.
+description: Search the web or fetch URLs; choose direct, indexed, curl, or browser access.
 ---
 
 # Web Access (Pi)

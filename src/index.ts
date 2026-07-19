@@ -476,6 +476,9 @@ export default {
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       secureResponse.headers.set(key, value);
     }
+    if (path === '/login' || path === '/login/') {
+      secureResponse.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    }
     // Content-hashed build assets (Astro emits under /_astro/; Vite under
     // /assets/) are immutable for a given URL. Workers Assets otherwise serves
     // them `max-age=0, must-revalidate`; after an Access session expires, a

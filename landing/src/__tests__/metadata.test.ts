@@ -42,8 +42,19 @@ describe('REQ-LANDING-003: external metadata (SEO, social, structured data)', ()
     expect(ogUrl, 'og:url meta exists').not.toBeNull();
     expect(ogUrl!.getAttribute('content')).toBe('https://codeflare.ch/');
 
+    for (const [property, expected] of [
+      ['og:image:type', 'image/png'],
+      ['og:image:width', '1200'],
+      ['og:image:height', '630'],
+      ['og:locale', 'en_US'],
+    ]) {
+      const tag = doc.querySelector(`meta[property="${property}"]`);
+      expect(tag, `${property} meta exists`).not.toBeNull();
+      expect(tag!.getAttribute('content')).toBe(expected);
+    }
+
     // Copy-bearing OG tags: assert presence + non-empty content, not the prose.
-    for (const prop of ['og:title', 'og:description']) {
+    for (const prop of ['og:title', 'og:description', 'og:image:alt']) {
       const tag = doc.querySelector(`meta[property="${prop}"]`);
       expect(tag, `${prop} meta exists`).not.toBeNull();
       expect((tag!.getAttribute('content') ?? '').trim().length).toBeGreaterThan(0);
@@ -60,7 +71,7 @@ describe('REQ-LANDING-003: external metadata (SEO, social, structured data)', ()
     expect(image!.getAttribute('content')).toBe('https://codeflare.ch/og.png');
 
     // Copy-bearing Twitter tags: presence + non-empty content only.
-    for (const name of ['twitter:title', 'twitter:description']) {
+    for (const name of ['twitter:title', 'twitter:description', 'twitter:image:alt']) {
       const tag = doc.querySelector(`meta[name="${name}"]`);
       expect(tag, `${name} meta exists`).not.toBeNull();
       expect((tag!.getAttribute('content') ?? '').trim().length).toBeGreaterThan(0);
@@ -91,9 +102,19 @@ describe('REQ-LANDING-003: external metadata (SEO, social, structured data)', ()
     expect(parsed['@context']).toBe('https://schema.org');
 
     expect(Array.isArray(parsed['@graph'])).toBe(true);
-    const types = parsed['@graph'].map((node: { '@type'?: string }) => node['@type']);
+    const graph = parsed['@graph'] as Array<Record<string, unknown>>;
+    const types = graph.map((node) => node['@type']);
     expect(types).toContain('Organization');
     expect(types).toContain('WebSite');
+    expect(types).toContain('SoftwareApplication');
+
+    const organization = graph.find((node) => node['@type'] === 'Organization');
+    expect(organization?.['@id']).toBe('https://codeflare.ch/#organization');
+    expect(organization?.logo).toBe('https://codeflare.ch/icon-512.png');
+    expect(organization?.sameAs).toEqual(['https://github.com/nikolanovoselec/codeflare']);
+
+    const application = graph.find((node) => node['@type'] === 'SoftwareApplication');
+    expect(application?.publisher).toEqual({ '@id': 'https://codeflare.ch/#organization' });
   });
 
   it('REQ-LANDING-003 AC7: emits theme-color meta and an apple-touch-icon link', () => {

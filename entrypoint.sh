@@ -1960,20 +1960,20 @@ const fs = require('fs');
 const path = process.argv[2];
 const required = [
   'npm:@gotgenes/pi-subagents@18.0.3',
-  // Keep context-mode's skills available to every Pi session but do not autoload its extension
-  // through shared package resources. context-mode-runtime.ts attaches that extension once to the
-  // foreground process owner; in-process subagents use the equivalent Bash review transport.
-  { source: 'npm:context-mode@1.0.169', extensions: [] },
   // Pi tool extensions, always enabled (in `required`) so they are available
-  // independently of the context-mode toggle — toggling /ctx off never disables them.
+  // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@1.20.0',
   'npm:@juicesharp/rpiv-ask-user-question@1.20.0',
   'npm:@juicesharp/rpiv-todo@1.20.0',
   'npm:pi-web-access@0.13.0',
   'npm:pi-mcp-adapter@2.11.0',
 ];
-const disabledPackageIds = new Set([]);
-const disabledPackages = [];
+// Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
+// every fresh container start until upstream ships a memory-safe Pi adapter.
+const disabledPackageIds = new Set(['npm:context-mode']);
+const disabledPackages = [
+  { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
+];
 // Migration: hard-remove the deprecated third-party graphify wrapper from existing settings.
 // graphify is now the first-party graphify-native.ts extension; loading both registers the same
 // tools (graphify_query/path/explain) and Pi refuses to start. Unlike disabled packages this is

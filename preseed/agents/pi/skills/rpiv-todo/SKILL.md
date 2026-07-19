@@ -1,6 +1,7 @@
 ---
 name: rpiv-todo
 description: Track a multi-step task as a live to-do overlay (tool todo) that survives /reload and conversation compaction. Create/update/list/get/delete/clear tasks with a 4-state machine and blockedBy dependencies.
+disable-model-invocation: true
 ---
 
 # Todo (Pi)

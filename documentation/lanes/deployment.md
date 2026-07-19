@@ -12,6 +12,9 @@ Development setup, project file structure, and cost analysis.
 - [Development](#development)
 - [File Structure](#file-structure)
 - [Cost Analysis](#cost-analysis)
+- [Specification Coverage](#specification-coverage)
+- [Governed Mode migration (batch-status driven)](#governed-mode-migration-batch-status-driven)
+- [Related Documentation](#related-documentation)
 
 ---
 
@@ -29,13 +32,32 @@ The enterprise-only binding procedure, Gateway policy preparation, verification 
 
 ## Production Rollback
 
-**When:** The active production Worker deployment is faulty and the previous version remains compatible with current bindings and stored data.
+**When:** The active production Worker deployment is faulty and a previous version remains compatible with current bindings and stored data.
 
-**Command:** Run `npx wrangler rollback`, then select the last known-good Worker version. Cloudflare immediately creates a deployment that sends 100% of traffic to that version.
+**Prerequisites:** Run from the repository root with the production `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` exported, then confirm `npx wrangler whoami` names the production account. In the incident record, capture the failed user-flow step and its expected result before rollback.
 
-**Verifies:** Confirm the selected version receives 100% traffic, then check the production `/health` endpoint and the affected user flow.
+**Command:** List successful production workflow runs and Worker deployments. Choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, then pass its exact ID to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/):
 
-**Rollback:** If the selected version is incompatible with current bindings or stored data, redeploy the previously active commit. Worker rollbacks do not change connected resources or bindings. See [Cloudflare's rollback guidance](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
+```sh
+gh run list --workflow deploy.yml --branch main --status success --limit 10
+npx wrangler deployments list
+npx wrangler versions view <CANDIDATE_VERSION_ID>
+npx wrangler rollback <CANDIDATE_VERSION_ID>
+```
+
+Cloudflare immediately creates a deployment that sends 100% of traffic to the selected version, as defined by its [rollback behavior](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
+
+**Verifies:** Confirm the active deployment, public health, and provider discovery:
+
+```sh
+npx wrangler deployments status
+curl -fsS https://codeflare.ch/health
+curl -fsS https://codeflare.ch/public/auth/providers | jq -e '.providers | type == "array"'
+```
+
+The status output names only the selected version at 100% traffic, `/health` succeeds, and provider discovery returns an array. Re-run the recorded failed step and confirm its expected result before closing the incident.
+
+**Rollback:** If the selected version is incompatible with current bindings or stored data, revert the faulty source changes on a branch, open a pull request to `main`, wait for `PR Checks`, and merge it. The `.github/workflows/deploy.yml` workflow then rebuilds and deploys the reverted `main`; production dispatches from old SHAs are intentionally blocked. Worker rollback does not change connected resources or bindings. See [Cloudflare's rollback guidance](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
 
 ---
 

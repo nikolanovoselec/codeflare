@@ -16,6 +16,8 @@ Technical reference for the mobile terminal implementation covering keyboard han
 - [Scroll Stability](#scroll-stability)
 - [WebSocket Recovery](#websocket-recovery)
 - [Scroll-Stability Integration Test Plan](#scroll-stability-integration-test-plan)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ## MultiView Availability
 
@@ -128,6 +130,8 @@ When the browser is backgrounded and returned to, keyboard state signals (`keybo
 
 The 50ms delay gives SolidJS time to process the null state and run cleanup effects before re-initialization begins. The user doesn't see the dashboard (50ms is below perception threshold).
 
+**WebGL fallback:** Mobile GPU eviction can emit `webglcontextlost` while the app or public landing is backgrounded. Coarse-pointer backgrounding retires both decorative canvases proactively; context loss does the same on any device without requesting restoration. The simulations stop, their canvases leave compositing, and the root/body dark CSS background remains painted instead of a persistent bright gray or white layer. Implements [REQ-MOB-018](../../sdd/spec/mobile.md#req-mob-018-decorative-webgl-canvas-retirement) and [REQ-LANDING-009](../../sdd/spec/landing.md#req-landing-009-decorative-flare-failure-fallback).
+
 **Samsung-specific input resume:** `terminal-mobile-input.ts` `restoreFocusIfNeeded()` does NOT auto-focus on Samsung (which would open the keyboard and trigger stale `geometrychange` events). Instead, it delays `enableVirtualKeyboardOverlay()` by 300ms so the compositor settles, then leaves the keyboard closed for the user to tap when ready. The 300ms delay ensures Samsung's delayed stale `geometrychange` events (which can arrive up to ~200ms after toggle) are caught by the 50ms ignore window from the delayed toggle.
 
 
@@ -138,12 +142,12 @@ Three code paths can trigger `fitAddon.fit()` (git: Fix 3):
 2. **Active-state effect** (immediate `requestAnimationFrame`)
 3. **ResizeObserver** (immediate `requestAnimationFrame`)
 
-A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. The ResizeObserver checks `kbDebounceTimer !== null` and skips `fit()` when active. The timer callback sets it back to `null`. Using the timer ID (vs. a boolean flag) prevents a race condition where cleanup of the debounce timer doesn't properly clear the gate.
+In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. The ResizeObserver checks `kbDebounceTimer !== null` and skips `fit()` when active. The timer callback sets it back to `null`. Using the timer ID instead of a boolean prevents timer cancellation from leaving the ResizeObserver gate set.
 
 **Scroll preservation after `fit()`:** Every `fit()` call site must preserve or restore scroll position, because `fit()` recalculates terminal dimensions and can reset the viewport to the top. The rules are:
 
-- **Mobile with keyboard open:** Always call `scrollToBottom()` after `fit()`. The user expects to see the prompt whenever the keyboard is open.
-- **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollToBottom()` after `fit()`. If the user had scrolled up into scrollback, preserve their position.
+- **Mobile with keyboard open:** Always anchor to the bottom after `fit()` via `scrollBufferToBottom()` (buffer-authoritative — the public `scrollToBottom()` resolves relative to clamp-vulnerable DOM scroll state, [AD110](../decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)). The user expects to see the prompt whenever the keyboard is open.
+- **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollBufferToBottom()` after `fit()`. If the user had scrolled up into scrollback, preserve their position and call `resyncViewportScrollState()` so the DOM scroll state is re-commanded from the buffer instead of drifting toward the next divergence jump.
 - **Zero-height guard:** All `fit()` call sites check `containerEl.clientHeight === 0` and bail early.
     - Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
 
@@ -253,7 +257,7 @@ The short intent window now serves only to correlate a wheel, pointer, navigatio
 
 ### xterm 6.1 Native Full-Buffer Anchoring
 
-When the 1000-line scrollback is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. That anchor is only content-stable until it reaches zero: under sustained agent output the reader's `viewportY` slides to the top within seconds and the viewed lines are then destroyed beneath them — the "terminal snaps to the top while the agent is outputting" failure. No viewport correction can fix this, because the content itself is being trimmed away.
+When the scrollback (capped at 5,000 lines) is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. That anchor is only content-stable until it reaches zero: under sustained agent output the reader's `viewportY` slides to the top within seconds and the viewed lines are then destroyed beneath them — the "terminal snaps to the top while the agent is outputting" failure. No viewport correction can fix this, because the content itself is being trimmed away.
 
 Codeflare therefore stops trimming under a reader entirely: while manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output (data keeps accumulating in the per-terminal write buffer, re-checked every 33ms tick) instead of writing it. The frozen buffer means no trims, no `onScroll` churn, and a perfectly stable reading position. Returning the viewport to the live bottom — swipe down, floating page-down button, or the keyboard-open bottom anchor — releases the entire held batch in one write.
 
@@ -302,7 +306,7 @@ Earlier iterations introduced overlapping correction mechanisms that fought each
 - Persistent manual ownership established by correlated intent
 - External intent registration for floating-button page navigation
 - Explicit touch-keyboard lifecycle ownership
-- A 1,000-line scrollback cap with agent-side virtual scrolling disabled
+- A 5,000-line scrollback cap with agent-side virtual scrolling disabled
 
 ## WebSocket Recovery
 
@@ -318,7 +322,7 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ### REQ-MOB-004 test scenarios
 
-1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, stream more than the 1,000-line cap, and confirm a bottom follower remains at the live prompt.
+1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, stream more than the 5,000-line cap, and confirm a bottom follower remains at the live prompt.
 2. **Manual ownership freezes streamed output.** Scroll into history and continue output beyond the intent-correlation window.
 
 The reading position must stay perfectly still (output is deferred — no trims, no drift toward the top), and scrolling back to the prompt must release the held output in one batch.
@@ -350,6 +354,7 @@ The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) poin
 - [REQ-MOB-011](../../sdd/spec/mobile.md#req-mob-011-samsung-internet-keyboard-state-recovery) - Samsung Internet keyboard state recovery
 - [REQ-MOB-013](../../sdd/spec/mobile.md#req-mob-013-mobile-input-system-platform-compatibility) - Mobile input-system platform compatibility
 - [REQ-MOB-014](../../sdd/spec/mobile.md#req-mob-014-mobile-background-surface-focus-isolation) - Mobile background-surface focus isolation
+- [REQ-MOB-018](../../sdd/spec/mobile.md#req-mob-018-decorative-webgl-canvas-retirement) - Decorative WebGL canvas retirement
 
 ---
 

@@ -260,6 +260,54 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
     });
   });
 
+  it('REQ-TERM-014 AC2: a pointer drag (scrollbar/selection) that outlives the intent grace still transfers ownership (no bottom snap)', async () => {
+    await createRoot(async (dispose) => {
+      vi.useFakeTimers();
+      try {
+        const terminal = createFakeTerminal();
+        const container = document.createElement('div');
+        useScrollCorrection(terminal as any, container, { sessionId: 's1', terminalId: '1' });
+
+        terminal.emitScroll(200, 200);
+        // Thumb grabbed, then held past the grace window before pulling.
+        container.dispatchEvent(new Event('pointerdown'));
+        vi.advanceTimersByTime(400);
+
+        // The drag's held-button pointermove precedes the scroll event it
+        // produces, so intent must be fresh when that scroll event arrives.
+        container.dispatchEvent(new MouseEvent('pointermove', { buttons: 1 }));
+        terminal.emitScroll(199, 200);
+
+        expect(terminal.scrollToBottom).not.toHaveBeenCalled();
+
+        // Ownership persists for later output-driven scroll events.
+        vi.advanceTimersByTime(5_000);
+        terminal.emitScroll(198, 200);
+        expect(terminal.scrollToBottom).not.toHaveBeenCalled();
+        expect(terminal.buffer.active.viewportY).toBe(198);
+      } finally {
+        vi.useRealTimers();
+        dispose();
+      }
+    });
+  });
+
+  it('REQ-TERM-014 AC1: buttonless hover movement does not mask displacement correction', () => {
+    createRoot((dispose) => {
+      const terminal = createFakeTerminal();
+      const container = document.createElement('div');
+      useScrollCorrection(terminal as any, container, { sessionId: 's1', terminalId: '1' });
+
+      terminal.emitScroll(100, 100);
+      container.dispatchEvent(new MouseEvent('pointermove', { buttons: 0 }));
+      terminal.emitScroll(99, 100);
+
+      expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
+      expect(terminal.buffer.active.viewportY).toBe(100);
+      dispose();
+    });
+  });
+
   it('REQ-MOB-004 AC5: ignores a small trim shift while manual ownership is active', async () => {
     await createRoot(async (dispose) => {
       vi.useFakeTimers();

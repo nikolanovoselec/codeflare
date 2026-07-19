@@ -251,13 +251,13 @@ describe('fetch-helper: baseFetch', () => {
       await expect(baseFetch('/api/test', {})).rejects.toThrow('HTTP 502');
     });
 
-    it('should throw ApiError for non-JSON success response', async () => {
+    it('should throw ApiError for a non-HTML, non-JSON success response', async () => {
       mockFetch.mockResolvedValueOnce({
         type: 'basic',
         ok: true,
         status: 200,
         statusText: 'OK',
-        text: () => Promise.resolve('<html>Not JSON</html>'),
+        text: () => Promise.resolve('Not JSON'),
       });
 
       await expect(baseFetch('/api/test', {})).rejects.toThrow('Invalid JSON response');

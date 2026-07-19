@@ -1,59 +1,43 @@
 # Git Workflow
 
-**Commit format:** `<type>: <description>` (types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`). AI attribution disabled - no `Co-Authored-By`, no emoji, no "Generated with Claude".
-
-## Triggers and routes
+Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`. No AI attribution, emoji, or co-author line.
 
 <!-- git-workflow-ci-route -->
 
-| Event | Skill |
+| Event | Route |
 |---|---|
-| Pi emits a PR-boundary launch plan after a successful push or protected-base PR creation | Follow its ordered reviewer wave, then its independent `ci-monitoring` wave |
-| PR-boundary launch plan includes reviewers | `git-review-pipeline` (visible spec/doc/code reviewers, independent of CI) |
-| User explicitly requests CI monitoring | `ci-monitoring` |
-| User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
-| Need gh/wrangler access, creds unclear | `deploy-credentials` (env-var table + check-then-fallback) |
+| Pi PR-boundary plan | Its reviewers first, then independent CI |
+| Reviewers listed | `git-review-pipeline` |
+| Explicit CI request | `ci-monitoring` |
+| Open a PR | `pr-workflow` |
+| Credentials unclear | `deploy-credentials` |
 
-## Mandatory stop after boundary commands
+## Mandatory boundary stop
 
-After any successful `git push` or `gh pr create`, **end the current assistant turn immediately**. The extension queues its boundary message with `deliverAs: "followUp"`; becoming idle is the delivery trigger.
+After successful `git push` or `gh pr create`, **end the turn immediately** and report only the push result or PR URL. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. A plan not yet visible is queued, not missing.
 
-In the boundary-command turn, report only the push result or PR URL. Do not call another tool, inspect session JSONL, search for the plan, run `gh pr edit`, invoke the CI resolver, or attempt another boundary command. A plan that is not yet visible while the turn is active is queued, not missing. Execute it exactly once when it starts the next turn.
+## Execute one boundary plan
 
-## Unified PR-boundary launch plan
-
-The Pi extension is the sole automatic boundary dispatcher. Do not independently infer or duplicate an automatic CI launch from the preceding Git command. When it emits a launch plan or follow-up in the next turn:
-
-1. Launch every review agent listed in wave 1 together through public `subagent` calls with `run_in_background: true` and `inherit_context: false`. Preserve the exact `review_range=<acknowledged>..<current>` marker when supplied. When the current user activated the fully-autonomous override for this task, include `autonomy_override=fully-autonomous` in every reviewer prompt until the user cancels or narrows it.
-2. Immediately after issuing the wave-1 calls—not after reviewer completion—run the plan's wave-2 resolver exactly once:
+1. Launch all wave-1 reviewers together as public background `subagent` calls with `inherit_context: false`. Preserve exact ranges and direct-user autonomy markers.
+2. Immediately run wave 2 exactly once:
 
    ```bash
-   node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
+   node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
    ```
 
-3. No stdout means no CI monitor is requested. Otherwise parse the sole JSON object and submit it unchanged exactly once through the public `subagent` tool. CI is the last launch for that boundary.
-4. Wait for every required reviewer result before editing, committing, or pushing. CI completion is independent and never gates review acknowledgement.
-5. After all required reviewer results arrive, automatically publish one consolidated triage summary before the first fixing or other project-mutation tool call. For each finding, classify the finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery.
-6. Reject unsupported or overengineered proposals. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.
+3. No stdout means no monitor. Otherwise submit the sole JSON object unchanged once through public `subagent`; CI is the last launch.
+4. Wait for all required reviewers; CI is independent. In a tool-free response after the latest required reviewer notification, publish one table with `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. Reject unsupported proposals, make no file or Git changes, and end the turn immediately.
+5. Settled enforcement acknowledges the reviewed head and queues the FIX follow-up. In that separate turn, apply only the accepted minimal fixes unless approval was requested.
 
-A plan may contain reviewers only, CI only, or both. Vibe-coding repositories receive CI-only plans for eligible boundaries. The resolver returns no request when launch order is unresolved, repository cwd is absent, or there is no open PR targeting `main`/`master`. If monitoring aborts, do not relaunch it automatically; a later eligible boundary plan or explicit user request may launch a new monitor.
+A plan may contain reviewers, CI, or both. Vibe-coding repositories receive eligible CI only. No request is returned when launch order is unresolved, cwd is absent, or no PR targets `main`/`master`. Never relaunch an aborted monitor automatically.
 
-## SDD review flow
-
-- **Vibe-coding** (no `sdd/`): pushes and PR creation do not launch reviewers; an eligible plan may still launch CI.
-- **SDD mode** (`sdd/` + `sdd/README.md`): the launch plan lists only required reviewer lanes for work headed to `main`/`master`.
-- Reviewers are independent and report-only. The root main session evaluates all findings, fixes legitimate findings, and alone commits or pushes follow-up work. No subagent pushes.
-- Review and CI never launch, wait for, or recover each other. Reload may lose active reviewer or CI work; only a later supported boundary or explicit user request starts fresh work.
-
-## Hard obligations
+With `sdd/` and `sdd/README.md`, plans list required report-only lanes for work headed to `main`/`master`; otherwise no reviewers launch. The root alone evaluates findings and writes files or Git state. Reload never authorizes duplicate work.
 
 <!-- git-workflow-hard-obligations -->
 
-- After a successful push or PR creation, stop the current turn before any other tool call so the queued boundary plan can be delivered.
-- Never search for, recreate, or retrigger a boundary plan from the same turn; in particular, never use a no-op `gh pr edit` as a delivery mechanism.
-- Obey each extension-issued launch plan exactly once in the next turn: all listed reviewers first, independent CI last, without waiting between waves.
-- Never create a second automatic CI trigger from the Git command itself.
-- Pass explicit repository cwd and review launch state. Submit a returned CI request unchanged exactly once through public `subagent`; no request means no monitor.
-- Never run long CI, deploy, log, watch, or polling commands in the root session.
-- Wait for all required visible reviewers, then publish the consolidated triage summary before any review follow-up mutation. Triage and apply legitimate minimal fixes automatically unless the user explicitly requests approval.
-- Never deploy to integration until every required CI check is green.
+## Hard obligations
+
+- Never recreate or retrigger a plan or use a no-op PR edit for delivery.
+- Do not mutate the reviewed work between the triage summary and its acknowledgement/FIX follow-up.
+- Do not push a new head before required current-head review completes unless explicitly authorized.
+- Never deploy until every required CI check is green.

@@ -1,6 +1,6 @@
 # Codeflare Specification
 
-Codeflare is the enterprise agentic engine: it runs autonomous AI coding agents in isolated containers on Cloudflare's edge. Each session spins up a dedicated container pre-loaded with the user's choice of agent (Claude Code, Codex, Antigravity, GitHub Copilot, OpenCode, Pi, or Bash), provides a browser-native terminal accessible from any device, and tears itself down when idle. Files persist in per-user R2 storage via bidirectional sync; containers do not. The product targets teams who want zero-setup AI coding from any screen -- phone, tablet, or laptop -- without touching their local machine.
+Codeflare is the agentic engineering engine: it runs autonomous AI coding agents in isolated containers on Cloudflare's edge. Each session spins up a dedicated container pre-loaded with the user's choice of agent (Claude Code, Codex, Antigravity, GitHub Copilot, OpenCode, Pi, or Bash), provides a browser-native terminal accessible from any device, and tears itself down when idle. Files persist in per-user R2 storage via bidirectional sync; containers do not. The product targets teams who want zero-setup AI coding from any screen -- phone, tablet, or laptop -- without touching their local machine.
 
 ## Principles
 
@@ -55,7 +55,8 @@ The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their
 |------|---------|
 | [constraints.md](spec/constraints.md) | Global `CON-*` constraints referenced by REQ Dependencies |
 | [glossary.md](spec/glossary.md) | Canonical terminology |
-| [changes.md](spec/changes.md) | Product changelog (user-facing spec changes) |
+| [changes.md](spec/changes.md) | Current product changelog (user-facing spec changes) |
+| [changes-archive-2026-07.md](spec/changes-archive-2026-07.md) | Archived product changelog through 2026-07-17 |
 | [config.yml](spec/config.yml) | SDD autonomy mode and enforcement config |
 | `.review-queue.md` | Live PR-boundary review queue (open findings only) |
 

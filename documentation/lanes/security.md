@@ -19,7 +19,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [View-Only Storage (Enterprise Anti-Exfil)](#view-only-storage-enterprise-anti-exfil)
 - [GitHub Token Handling](#github-token-handling)
-- [Container Auth Token (REQ-SEC-012)](#container-auth-token-req-sec-012)
+- [Container Auth Token](#container-auth-token-req-sec-012-req-sec-022)
 - [Dual R2 Credential Architecture](#dual-r2-credential-architecture)
 - [Graceful Shutdown](#graceful-shutdown)
 - [Security Hardening (Pre-Launch Review)](#security-hardening-pre-launch-review)
@@ -29,6 +29,9 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Body Limit](#body-limit)
 - [Credential Encryption at Rest](#credential-encryption-at-rest)
 - [Rate Limiting](#rate-limiting)
+- [Specification Coverage](#specification-coverage)
+- [Governed Mode — R2 SSE-C governance trade-off](#governed-mode--r2-sse-c-governance-trade-off)
+- [Related Documentation](#related-documentation)
 
 ## Authentication Gate
 
@@ -201,11 +204,11 @@ This satisfies [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterpri
 
 **Revocation and offboarding.** `POST /api/github/disconnect` revokes the token at GitHub (App/OAuth sources) and clears the github fields from the deploy-keys entry; a manually-pasted PAT is cleared but never sent to GitHub's revoke endpoint (Codeflare does not own it). User offboarding (`user-cleanup.ts`) revokes and clears on the same path as the scoped R2 token, before the deploy-keys entry is deleted, so a leaked-but-not-yet-deleted token cannot outlive the account ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)).
 
-## Container Auth Token (REQ-SEC-012)
+## Container Auth Token (REQ-SEC-012, REQ-SEC-022)
 
 A random shared secret is generated per DO lifecycle and proxied requests from the DO to the container include it in the `Authorization: Bearer` header. The terminal server (`host/src/server.ts`) validates the token on all non-exempt paths. Internal paths (`/health`, `/activity`) are whitelisted because `collectMetrics()` calls them directly via the SDK's private TCP plumbing (`ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)`), never through the public `fetch()` override -- so no `Authorization` header is injected. The whitelist is safe because these two paths expose no user data and no mutable container state.
 
-**Threat model -- silent Unauthorized after DO wake (AC5/AC6):** Without lifecycle-scoped persistence, every DO wake from hibernation regenerates a fresh token while the container process retains the original value, breaking every subsequent proxied request with `{"error":"Unauthorized"}` until the user manually recreates the session. The terminal, vault, and every other in-container HTTP surface go silently unreachable.
+**Threat model -- silent Unauthorized after DO wake (REQ-SEC-012 AC2/AC3):** Without lifecycle-scoped persistence, every DO wake from hibernation regenerates a fresh token while the container process retains the original value, breaking every subsequent proxied request with `{"error":"Unauthorized"}` until the user manually recreates the session. The terminal, vault, and every other in-container HTTP surface go silently unreachable.
 
 **Mitigation:** The token is scoped to one DO lifecycle and survives hibernate/wake within that lifecycle; on `destroy()` it is cleared so the next session under the same DO ID starts fresh. Persistence mechanics (DO storage key, restore site, hibernate-window pinning, cleanup hook) live in [architecture.md](./architecture.md#container-do-container). The env-var name (`CONTAINER_AUTH_TOKEN`) is catalogued in [configuration.md](./configuration.md#container-environment).
 
@@ -484,7 +487,7 @@ Implements [REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-
 
 ### Vault Editor Rate Limit (REQ-VAULT-005 + REQ-SEC-007)
 
-The vault editor proxy at `/api/vault/<token>/*` (the bucket-stable serving path) runs through `validateVaultRoute` -> `handleVaultRequest` in `src/routes/vault.ts`; the session-keyed entry path `/api/vault/<sid>/` only issues a 302 redirect (setting `cf_vault_sid`) and never reaches the proxy. WebSocket upgrades for SilverBullet's live-edit sync are rate-limited via the same `ws-connect:<email>` bucket as terminal WebSockets (30 connections per 60s window), sharing budget across both surfaces so a runaway editor reconnect cannot starve terminal use. Plain HTTP requests to the editor share the per-user HTTP rate-limit defaults.
+The vault editor proxy at `/api/vault/<token>/*` (the bucket-stable serving path) runs through `validateVaultRoute` -> `handleVaultRequest` in `src/routes/vault.ts`; the session-keyed entry path `/api/vault/<sid>/` only issues a 302 redirect (setting `cf_vault_sid`) and never reaches the proxy. The serving path checks authentication, the origin allowlist, active-tier access, session ownership, and container health before forwarding to the container. WebSocket upgrades for SilverBullet's live-edit sync are rate-limited via the same `ws-connect:<email>` bucket as terminal WebSockets (30 connections per 60s window), sharing budget across both surfaces so a runaway editor reconnect cannot starve terminal use. Plain HTTP requests to the editor share the per-user HTTP rate-limit defaults. <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 
 Surface: [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (proxy exists). Rate-limit infrastructure: [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (shared bucket and 30/60s window).
 
@@ -543,6 +546,7 @@ Every entry carries an inline comment recording the affected package, the impact
 - [REQ-SEC-010](../../sdd/spec/security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints) - Path traversal prevention on storage endpoints
 - [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy) - Container image scanned for CVEs before deploy
 - [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle) - Container auth token per DO lifecycle
+- [REQ-SEC-022](../../sdd/spec/security.md#req-sec-022-container-proxy-bearer-validation) - Container proxy bearer validation
 - [REQ-SEC-014](../../sdd/spec/security.md#req-sec-014-saas-service-token-header-not-trusted-in-saas-mode) - SaaS service-token header not trusted in SaaS mode
 - [REQ-SEC-016](../../sdd/spec/security.md#req-sec-016-concurrent-cache-deduplication-for-auth-config) - Concurrent cache deduplication for auth config
 - [REQ-SEC-018](../../sdd/spec/security.md#req-sec-018-credential-encryption-operational-policy) - Credential encryption operational policy

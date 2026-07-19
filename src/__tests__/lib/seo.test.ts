@@ -3,7 +3,8 @@ import { buildRobotsTxt, buildSitemapXml, buildLlmsTxt, CANONICAL_ORIGIN } from 
 
 describe('SEO discoverability documents (REQ-LANDING-003)', () => {
   describe('buildRobotsTxt', () => {
-    it('advertises the marketing surface + sitemap in public mode, but excludes app/api/auth/login/setup', () => {
+    // REQ-LANDING-008 AC3
+    it('advertises the marketing surface + sitemap while excluding private routes', () => {
       const robots = buildRobotsTxt(true);
       expect(robots).toContain('User-agent: *');
       expect(robots).toContain('Allow: /');
@@ -11,8 +12,9 @@ describe('SEO discoverability documents (REQ-LANDING-003)', () => {
       // The private surfaces stay out of the index even on a public deployment.
       expect(robots).toContain('Disallow: /app/');
       expect(robots).toContain('Disallow: /api/');
-      expect(robots).toContain('Disallow: /login');
       expect(robots).toContain('Disallow: /setup');
+      // Login stays crawlable so its noindex response directive can be observed.
+      expect(robots).not.toContain('Disallow: /login');
     });
 
     it('disallows all crawling and omits the sitemap in private mode', () => {
@@ -23,6 +25,7 @@ describe('SEO discoverability documents (REQ-LANDING-003)', () => {
     });
   });
 
+  // REQ-LANDING-008 AC1
   describe('buildSitemapXml', () => {
     it('is a valid urlset listing the indexable routes at the canonical origin', () => {
       const xml = buildSitemapXml();

@@ -111,12 +111,16 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Pi PR review uses visible session-scoped agents | Agents |
 | [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Pi CI monitoring uses one attached native background subagent | Agents |
 | [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Pin the upstream rpiv-todo session-isolation fix | Agents |
-| [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned in Pi; in-process subagents use native transports | Agents, Architecture |
+| [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned after opt-in; in-process subagents use native transports | Agents, Architecture |
 | [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Pi extraction delivery is root-owned, visible, and transactional | Agents, Architecture |
 | [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Pi extraction agents use bounded medium reasoning and one-pass inputs | Agents, Memory, Performance |
 | [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) | Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming | Architecture, Mobile |
 | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Streamed output defers while the user reads scrollback; keyboard-open swipes are always terminal input | Architecture, Mobile |
-| [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification | Process, Agents |
+| [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification; test-anchor cardinality amended by [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Process, Agents |
+| [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety) | context-mode is opt-in in Pi pending upstream memory safety | Agents, Architecture, Reliability |
+| [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Per-AC test evidence permits multiple resolving anchors | Process, Agents, Testing |
+| [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned) | context-mode MCP registration is universal and entrypoint-owned | Agents, Architecture |
+| [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) | Terminal scrolling is buffer-authoritative on every route; held output ring-drops | Architecture |
 
 ---
 
@@ -771,7 +775,7 @@ Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly c
 
 ### AD49: context-mode delivered as preseed plugin, not runtime install
 
-**Status:** Accepted (2026-05-10)
+**Status:** Accepted (2026-05-10); MCP registration wiring superseded by [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). The Custom-tier hook decision remains active.
 
 **Context:** [context-mode](https://github.com/mksglu/context-mode) reduces Claude Code's context-window pressure by routing tool calls through hooks that summarize before content lands in the conversation. It ships as an npm package whose Claude Code plugin metadata is normally written into the user's `~/.claude/plugins/` and `~/.claude/settings.json` by `claude plugin install context-mode`. During the first integration attempt (PR codeflare#293, since closed), a research subagent invoked that installer in the host's session and the upstream installer wrote `"matcher": null` for the SessionStart hook entry, which Claude Code 2.1.138 rejects with "Expected string, but received null", silently disabling every other hook in the file. The bug is recoverable for a single user but unacceptable as default behavior delivered to all paid users.
 
@@ -1124,7 +1128,7 @@ Per the product decision, a genuinely >135s sync still deletes (data loss accept
 
 The raw TCP-port fetch bypasses the DO's public `fetch()` override -- the only place the `Authorization: Bearer` header is injected (the reason `/health` and `/activity` are explicitly auth-exempt in `host/src/auth-check.ts`; `/internal/final-sync` is not) -- so the host's auth gate rejected the drain before the final-sync handler ever ran. Compounding it on the delete path, `destroy()` wipes `containerAuthToken` from storage and memory *before* the drain fires (REQ-SESSION-009 resurrection-guard ordering), so even an auth-aware drain would have had no token to send. The manual storage-panel "Sync R2" button always worked because it routes through the worker's authenticated container fetch -- the working reference path that exposed the contrast.
 
-**Fix:** `destroy()` captures the token before the storage clear (alongside the audit session id) and passes it to the drain; both drains now set `Authorization: Bearer <token>` (the idle/quota-stop path reads the still-intact token from DO storage). The budget-inversion fix above remains correct and necessary -- but it was unreachable behind this 401; the auth header is the prerequisite for any of the timeout machinery to matter. REQ-SESSION-011 AC8 pins the behavior; tests assert the header on both paths and that the delete-path token is the pre-clear capture.
+**Fix:** `destroy()` captures the token before the storage clear (alongside the audit session id) and passes it to the drain; both drains now set `Authorization: Bearer <token>` (the idle/quota-stop path reads the still-intact token from DO storage). The budget-inversion fix above remains correct and necessary -- but it was unreachable behind this 401; the auth header is the prerequisite for any of the timeout machinery to matter. REQ-SESSION-011 AC1/AC6 pin the behavior; tests assert the header on both paths and that the delete-path token is the pre-clear capture.
 
 **Consequences:**
 - Final bisync has headroom for the worst-case 15-minute accumulation.
@@ -1273,7 +1277,7 @@ That buffer was empty immediately after a Pi reload/resume, so the first capture
 
 **Alternative considered:** Keep the thin inline Pi contract and ratchet its prompt. Rejected for the same reason [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rejected prompt-only tightening: recency bias is a function of feeding raw tool records to the model, not a prompt-comprehension gap, and a divergent contract drifts from the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) source of truth over time.
 
-**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) (bounded Pi extraction).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile) (bounded Pi extraction requests), [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile) (bounded Pi extraction agent definitions).
 
 ---
 
@@ -1732,7 +1736,7 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 - The `save-result` feedback loop is restored in both agents' graphify skills, which move to the `references/` progressive-disclosure layout.
 - Clone-time triage (detect graph, prompt build/update/skip) is unchanged in both agents — only the query-tool provider changed.
 
-**Implements:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline).
+**Implements:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders).
 
 **Related:** [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (Pi reviewers run as visible session-scoped public subagents).
 
@@ -2422,7 +2426,7 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12); amended 2026-07-18 with a triage-settlement acknowledgement barrier.
 
 **Supersedes:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)
 
@@ -2430,15 +2434,17 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 **Context:** Pi's durable review design accumulated detached lane processes, job directories, PID recovery, monitor claims, result summaries, status rendering, and a hard merge gate. The recovery machinery became larger and less reliable than the review behavior it protected. Pi now exposes visible public subagent calls, persisted completion notifications correlated by tool-use ID, root/child session lineage, and an `agent_settled` event. Those primitives can express the same reminder and completion proof used by Claude without a second execution system. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
-**Decision:** Pi PR-boundary review is session-scoped ([REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch)). With a valid prior acknowledgement, the reminder and every counted reviewer prompt carry the exact acknowledged-to-current range; otherwise the full protected-base PR is reviewed. Unmatched calls remain in flight until native terminal notification, and only the reminder SHA can be acknowledged after every required correlated notification. Review agents remain parallel and report-only. The root main session alone fixes, commits, and pushes. Pi keeps no pre-command merge gate, durable lane, `review-monitor`, result file, summary, or recovery state. Reload may repeat work but cannot fabricate completion.
+**Decision:** Pi PR-boundary review is session-scoped ([REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch)). With a valid prior acknowledgement, the reminder and every counted reviewer prompt carry the exact acknowledged-to-current range; otherwise the full protected-base PR is reviewed. Unmatched calls remain in flight until native terminal notification. Only the reminder SHA can be acknowledged, and only when a tool-free root response contains the fixed triage table after every required successful notification. `agent_settled` then writes the existing acknowledgement and emits one next-turn FIX handoff; only that separate turn applies accepted corrections ([REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier)).
+
+Review agents remain parallel and report-only. The root main session alone fixes, commits, and pushes. Pi keeps no pre-command merge gate, durable lane, `review-monitor`, result file, summary, or recovery state. Reload may repeat work but cannot fabricate completion.
 
 Pi owns native reviewer agents, engineering rules, and spec/document enforcement skills. Their shared `review-scope` contract treats PR-boundary review as diff scope, limits diff work to changed hunks and direct invalidations, and reserves exhaustive scans for explicit all scope. Seed generation gives these Pi manifest paths precedence over transformed Claude paths, so Claude review behavior is unchanged.
 
 **Alternatives considered:** Retain detached lanes and repair their recovery paths; keep only a durable checkpoint; call `SubagentsService` directly; parse reviewer findings into another state machine; or preserve the hard Pi merge interceptor. Each adds a second source of execution or completion truth. The public tool call plus root transcript already provides the required proof with fewer failure modes.
 
-**Consequences:** Review execution is visible and simple, but active reviews end with the Pi session. A later supported boundary safely reruns an unacknowledged head. AD78's parallel report-only policy remains; only Pi's durable result-file mechanics are replaced. AD76's detached lane architecture and AD80's hard merge gate no longer govern Pi.
+**Consequences:** Review execution is visible and simple, but active reviews end with the Pi session. A later supported boundary safely reruns an unacknowledged head. Triage and fixing consume separate root turns, preventing accepted fixes from replacing the reviewed head before acknowledgement and preserving incremental push ranges. AD78's parallel report-only policy remains; only Pi's durable result-file mechanics are replaced. AD76's detached lane architecture and AD80's hard merge gate no longer govern Pi.
 
-**Related REQ:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff).
+**Related REQ:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier).
 
 ---
 
@@ -2548,7 +2554,7 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 
 **Alternatives considered:** Keep broad tools and rely on stronger prose; retain 200-turn replay and merely lower reasoning; move extraction into a new service/queue; or add a separate success receipt. Prompt-only restraint did not stop the live worker, lowering reasoning alone would leave repeated input cost, a service/queue is disproportionate, and the canonical request chunk already provides a post-commit qualification artifact.
 
-**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile), [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter), [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile), [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter), [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
 
 ---
 
@@ -2608,9 +2614,6 @@ Keyboard-open gestures are deterministic again: arrows while typing, wheel/scrol
 
 ---
 
-## Related Documentation
-
-- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
 ### AD106: SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification
 
 **Category:** Process, Agents
@@ -2621,7 +2624,7 @@ Keyboard-open gestures are deterministic again: arrows while typing, wheel/scrol
 
 Separately, manual verification was REQ-level: `Verification: Manual check` exempted a whole REQ (157 of 341) from every anchor requirement even when most of its ACs carried resolving anchors, sustained by 161 boilerplate Notes pointers into four generated checklist sections whose rows were almost all "verify every acceptance criterion". The `.doc-coverage.md` lane-scope-broad escalation had already concluded the clean resolution was a whole-structure decision requiring explicit user direction.
 
-**Decision:** The Claude-tree skill files are the single canonical, agent-neutral enforcement contract; Pi receives them through the existing seed-generator transform (tool-name remap, path rewrites, appended compatibility note), and the seven Pi-native overrides plus their manifest entries are deleted. Reviewer agent definitions and Pi's `review`/`review-scope` dispatch layer are unchanged ([AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill-claude-commands-do-not-deploy-to-pi) still governs the Pi-native `review` skill; this decision covers only the enforcement-policy layer). Where the copies conflicted, the stricter side won: 40-word list items, `prose-unverifiable` HIGH, mandated verbatim integrity commands. Pi-only rules were ported into the canon: `spec-test-anchor-multiple` (HIGH — the greedy title capture cannot parse two `@test` anchors on one line) and the FULLY AUTONOMOUS round-limit override backed by the shared `round-limit.mjs` gate.
+**Decision:** The Claude-tree skill files are the single canonical, agent-neutral enforcement contract; Pi receives them through the existing seed-generator transform (tool-name remap, path rewrites, appended compatibility note), and the seven Pi-native overrides plus their manifest entries are deleted. Reviewer agent definitions and Pi's `review`/`review-scope` dispatch layer are unchanged ([AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) still governs the Pi-native `review` skill; this decision covers only the enforcement-policy layer). Where the copies conflicted, the stricter side won: 40-word list items, `prose-unverifiable` HIGH, mandated verbatim integrity commands. Pi-only rules were ported into the canon: `spec-test-anchor-multiple` (HIGH — the greedy title capture cannot parse two `@test` anchors on one line) and the FULLY AUTONOMOUS round-limit override backed by the shared `round-limit.mjs` gate.
 
 Manual verification became per-AC: an AC that cannot be automatically verified carries inline `<!-- @manual -->` (bare) or `<!-- @manual: <procedure> -->` (with dedicated guidance) instead of anchors; the `Verification:` field derives categorically from the markers (`Manual check` iff every AC is `@manual`; drift is MEDIUM `verification-field-marker-drift`); the four checklist sections, their TOC entries, and all pointer sites were deleted, with the eleven bespoke procedures relocated verbatim into their owning REQs' marker payloads ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract), [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)).
 <!-- @impl: scripts/generate-agent-seed.mjs::adaptPiSkillContent -->
@@ -2630,6 +2633,93 @@ Manual verification became per-AC: an AC that cannot be automatically verified c
 
 **Consequences:** Both agents now emit identical findings, severities, and category vocabulary for the same repository state, and parity can no longer rot silently because there is nothing to keep in parity. `grep -rn '@manual' sdd/` is the complete, always-current manual-verification inventory — every fully-anchored AC the REQ-level exemption previously blanket-skipped re-entered CQ-SOURCE/CQ-TEST enforcement, and future coverage work retrofits anchors AC-by-AC and deletes markers, shrinking the manual set monotonically. Pi reviewer prompts embed the full contract instead of the condensed rewrites, an accepted token-cost increase; the transform's compatibility note now appends only to SKILL.md files, which also fixed latent corruption of transformed executable aux files.
 
+---
+
+### AD107: context-mode is opt-in in Pi pending upstream memory safety
+
+**Category:** Agents, Architecture, Reliability
+
+**Status:** Accepted (2026-07-18)
+
+**Context:** [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) eliminated competing context-mode owners, but the upstream Pi adapter still keeps foreground lifecycle state in the long-lived Pi process and disables its bridge idle reaper. Long tool-heavy sessions can therefore exhaust the constrained container before Pi reaches a compaction boundary. The latest reviewed context-mode release remains 1.0.169, and Codeflare will not patch or fork either package's lifecycle or ownership implementation; the existing image-build transforms remain limited to the ESM compatibility shim and update-probe suppression. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.169" -->
+
+**Decision:** Keep the pinned context-mode package installed, but write its disabled marker (`extensions: []`, `skills: []`) on every container start. `/ctx on` remains an explicit per-container opt-in and continues to use AD101's single foreground owner; `/ctx off` removes the tools again. A later container start restores the disabled default. Reconsider default enablement only after a reviewed upstream release provides a memory-safe Pi lifecycle. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand -->
+
+**Alternatives considered:** Leave context-mode enabled and accept recurring OOM failures; patch third-party lifecycle code; or route only its MCP tools through the stock generic adapter. The first is not crash-safe, the second creates an unowned fork, and the third removes context-mode's steering/session behavior without providing a hard bound during continuous use.
+
+**Consequences:** Fresh Pi sessions expose no `ctx_*` tools or context-mode steering and use the already-required native fallbacks. The five unrelated Pi tool extensions remain enabled. Users may opt in knowingly for one container lifetime, but Codeflare does not present that state as safe or persist it across container restart.
+
+**Related REQ:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership), [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [Pi preseed](../lanes/preseed.md#agent-preseed-system).
+
+---
+
+### AD108: Per-AC test evidence permits multiple resolving anchors
+
+**Category:** Process, Agents, Testing
+
+**Status:** Accepted (2026-07-18)
+
+**Context:** AD106 adopted a one-`@test`-anchor limit because the canonical greedy title regex could not separate adjacent HTML comments. That limit governs anchor pointers, not actual test cardinality: one pointer may name an outer suite containing many cases, while one AC may legitimately require blocks in different files. Source traceability already permits multiple `@impl` anchors. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors -->
+
+**Decision:** Require at least one resolving `@test` anchor on every non-manual AC, permit multiple anchors, and validate every declared file/block independently for resolution and behavioral quality. Replace the greedy single capture with the shared global comment-bounded parser; remove `spec-test-anchor-multiple`; let `/sdd clean` backfill multiple independently verified candidates without treating existing anchors as an exhaustive inventory. The Claude preseed remains canonical, transformed skills inherit the policy, and the dedicated Pi reviewer states the same rule directly. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors --> <!-- @impl: scripts/generate-agent-seed.mjs::generate -->
+
+**Alternatives considered:** Retain one pointer and force an outer suite; split a coherent AC to mirror test layout; or permit multiple comments without changing the parser. These respectively weaken precision, couple requirements to test organization, or preserve malformed extraction.
+
+**Consequences:** Existing Codeflare specs produce no new cardinality findings because every non-manual AC already has one anchor and none has multiple anchors. Future ACs may cite distributed evidence without artificial splitting; every extra anchor also creates another truth claim that can emit `spec-test-anchor-orphaned` or a test-quality finding.
+
+**Related REQ:** [REQ-AGENT-094](../../sdd/spec/agents.md#req-agent-094-per-ac-test-evidence-supports-multiple-anchors), [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification), [Test discipline](../lanes/preseed.md#agent-preseed-system).
+
+---
+
+### AD109: context-mode MCP registration is universal and entrypoint-owned
+
+**Category:** Agents, Architecture
+
+**Status:** Accepted (2026-07-18)
+
+**Context:** AD49 originally assigned Claude MCP registration to either plugin metadata or entrypoint according to tier. The shipped plugin manifest is now intentionally bare, while the container entrypoint writes the `context-mode` MCP registration for every Claude user. The image already installs and patches the package before any session starts.
+
+**Decision:** Keep one Claude registration owner: entrypoint always writes the MCP server configuration, independent of tier. Custom-tier Advanced delivery adds the context-mode plugin hooks only; it does not register a second MCP server. Pi uses its separate image-prewarmed package and remains disabled by default until `/ctx on` under [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety).
+
+**Consequences:** Claude users have the same manual `ctx_*` capability in every tier, Custom-tier users alone receive automatic routing hooks, first invocation performs no package download, and plugin metadata cannot create duplicate MCP registrations.
+
+**Related REQ:** [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install), [Pi preseed](../lanes/preseed.md#third-party-plugin-context-mode).
+
+---
+
+### AD110: Terminal scrolling is buffer-authoritative on every route; held output ring-drops
+
+**Category:** Architecture
+
+**Status:** Accepted (2026-07-19)
+
+**Context:** [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) rerouted touch gestures and floating page controls to the internal `BufferService`, but desktop kept three paths on xterm 6.1's DOM-relative machinery: the mouse wheel (viewport-internal), `scrollOnUserInput` keystroke anchoring (`scrollToLine` clamped against possibly-stale scroll dimensions), and every app-initiated `scrollToBottom()` (relative resolve — `scrollLines(ybase - ydisp)`, a no-op at the bottom that can never repair a diverged DOM state).
+
+Source verification of the pinned build (`6.1.0-beta.288`; unchanged through `beta.290`) confirmed the divergence class: `Viewport._sync()` clamps `scrollTop` with its handler suppressed, resize syncs run against the cached `_latestYDisp` and never re-command position, and the first relative tick afterwards resolves the divergence as one jump to the top of scrollback (upstream [xterm.js#5620](https://github.com/xtermjs/xterm.js/issues/5620); the merged [#5770](https://github.com/xtermjs/xterm.js/pull/5770) sync-output deferral is already in the pinned build and insufficient).
+
+Separately, AD105's hold released in ONE write and force-flushed past its cap — xterm pins a scrolled-up reader at `ydisp = 0` while a full buffer trims (`BufferService` keeps text stable by decrementing), so both the release flood and the cap breach dragged stationary readers to the top during agent output.
+
+**Decision:** Extend buffer authority to every remaining scroll route and make the hold reader-proof:
+
+- A capture-phase wheel interceptor converts deltas to lines and scrolls the `BufferService` directly (normal buffer only; alternate-buffer and zoom-modified wheel pass through).
+- `scrollOnUserInput` is disabled; an `onData` listener re-anchors an owned normal-buffer viewport through the buffer service, covering hardware keys, the mobile compositor jail, swipe arrows, and voice.
+- All app-initiated bottom anchors use `scrollBufferToBottom()`; refits that do not re-anchor call `resyncViewportScrollState()` to re-command the DOM scroll state absolutely.
+- The hold releases in bounded whole-chunk slices (65,536 characters per flush tick), re-checking ownership between ticks, and past its 2,000,000-character cap drops the OLDEST held chunks at message boundaries instead of writing through the reader.
+- Scrollback grows 1,000 → 5,000 lines.
+
+**Consequences:** No input route can resolve a stale DOM scroll state into a buffer jump, and no write path can move a reader — the two mechanisms behind the remaining desktop "snap to top". A reader who out-waits the cap loses the oldest held output (it was destined for scrollback trimming regardless); an escape sequence split at a drop boundary may render transient artifacts until the application's next repaint. Keyboard-open mobile behavior is unchanged: the keyboard lifecycle still owns fit-plus-bottom-anchor, now through the buffer service. Wheel interception bypasses xterm's `smoothScrollDuration`/`scrollSensitivity` options; the app owns wheel feel in the normal buffer.
+<!-- @impl: web-ui/src/lib/terminal-wheel.ts::attachWheelScrolling -->
+<!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferToBottom -->
+<!-- @impl: web-ui/src/lib/xterm-internals.ts::resyncViewportScrollState -->
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+
+**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming), [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input).
+
+---
+
+## Related Documentation
+
+- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
 - [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
 - [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
 - [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth

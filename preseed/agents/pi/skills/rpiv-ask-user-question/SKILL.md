@@ -1,6 +1,7 @@
 ---
 name: rpiv-ask-user-question
 description: Ask the user a structured, multiple-choice question (tool ask_user_question) instead of guessing when a decision is genuinely the user's to make. Tabbed single/multi-select dialog with previews and an "Other" free-text fallback.
+disable-model-invocation: true
 ---
 
 # Ask User Question (Pi)

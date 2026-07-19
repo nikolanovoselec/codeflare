@@ -638,6 +638,11 @@
       "advanced"
     ]
   },
+  "skills/spec-enforce-truth/references/parse-test-anchors.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/spec-enforce/SKILL.md": {
     "modes": [
       "advanced"

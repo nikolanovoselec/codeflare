@@ -258,7 +258,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
-  it('preseeds work continuity, review push, and result handoff gates into every generated instruction surface', () => {
+  it('preseeds runtime-appropriate continuity, push, and result handoff gates', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -280,12 +280,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       const modes = entries.flatMap((entry) => entry.modes).sort();
       expect(modes, `${key} should have generated mode entries`).toEqual(['advanced', 'default']);
       for (const entry of entries) {
-        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`).toEqual(expect.arrayContaining([
-          'Work continuity',
-          'Review push gate',
-          'Review-result handoff gate',
-          'CI-result handoff gate',
-        ]));
+        const requiredHeadings = key === '.pi/agent/AGENTS.md'
+          ? ['Work continuity', 'Review push gate', 'CI-result handoff gate']
+          : ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate'];
+        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`)
+          .toEqual(expect.arrayContaining(requiredHeadings));
       }
     }
   });
@@ -405,9 +404,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/active-repo-memory.ts',
       '.pi/agent/extensions/browser-run-helpers.ts',
       '.pi/agent/extensions/browser-run.ts',
+      '.pi/agent/extensions/capability-helpers.ts',
+      '.pi/agent/extensions/capability.ts',
       '.pi/agent/extensions/codeflare-commands.ts',
       '.pi/agent/extensions/codeflare-pi.ts',
       '.pi/agent/extensions/commands-helpers.ts',
+      '.pi/agent/extensions/context-mode-runtime.ts',
       '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/extensions/graphify-native.ts',
       '.pi/agent/extensions/guard-helpers.ts',
@@ -758,26 +760,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       const doc = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === key);
       expect(doc?.modes, `${key} should be advanced-only`).toEqual(['advanced']);
     }
-  });
-
-  it('REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic', () => {
-    const skill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/graphify/SKILL.md');
-    expect(skill?.content).toContain('build-graphify-ast.sh');
-    expect(skill?.content).toContain('build-graphify-architecture.sh');
-    expect(skill?.content).toContain('safe-graphify-update.sh');
-    expect(skill?.content).toContain('Do not pass a model override');
-    expect(skill?.content).toContain('running session model');
-    expect(skill?.content).toContain('Pi main session agent');
-    expect(skill?.content).toContain('local-graphify-labels.sh apply .');
-    expect(skill?.content).toContain('existing community assignments');
-    expect(skill?.content).not.toContain('graphify label . --backend=gemini');
-    expect(skill?.content).not.toContain('--backend=gemini');
-    expect(skill?.content).toContain('Do not commit caches, manifests, chunks, or `.graphify_*` intermediates other than `.graphify_labels.json`');
-    expect(skill?.content).toContain('graphify-out/graph.json merge=graphify');
-    expect(skill?.content).toContain('graphify-out/graph.json');
-    expect(skill?.content).toContain('graphify-out/GRAPH_REPORT.md');
-    expect(skill?.content).toContain('graphify-out/graph.html');
-    expect(skill?.content).toContain('graphify-out/callflow.html');
   });
 
   // Pi as a first-class resident: the Pi manifest's prompts/* entries are emitted
@@ -1148,7 +1130,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
   });
 
-  it('REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter', () => {
+  it('REQ-MEM-018: transformed Pi extraction agents expose bounded frontmatter', () => {
     for (const key of ['.pi/agent/agents/memory-capture.md', '.pi/agent/agents/vault-extract.md']) {
       const agent = AGENTS_SEEDED_CONFIGS.find((document) => document.key === key);
       expect(agent?.modes).toEqual(['advanced']);

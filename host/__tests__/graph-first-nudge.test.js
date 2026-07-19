@@ -44,7 +44,7 @@ function makeRepoNoGraph(baseTmp) {
   return mkdtempSync(join(baseTmp, 'repo-no-graph-'));
 }
 
-// REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
+// REQ-AGENT-091 AC2: Advanced-session graph-first runtime reminders
 // REQ-AGENT-027: Context-Mode Interoperability
 
 describe('graph-first-nudge.sh', () => {

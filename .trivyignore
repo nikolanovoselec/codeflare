@@ -722,3 +722,17 @@ CVE-2026-2229
 # node_modules/lodash-es — arbitrary code execution via untrusted template imports:
 CVE-2026-4800
 # ============================================================================
+# ============================================================================
+# Pi agent npm tree (/opt/codeflare/pi-agent/npm) runs inside the single-tenant
+# session container only, behind the Worker auth boundary, on the user's own
+# workspace.
+#
+# foundry-local-sdk bundles its own node_modules inside the published tarball,
+# so this transitive pin is not reachable from any repo lockfile or override;
+# only an upstream foundry-local-sdk release can move it.
+#
+# bundled adm-zip 0.5.17 — DoS (excessive resource use) via crafted ZIP; would
+# require the user's own in-container agent to unpack a hostile archive through
+# the Foundry Local provider, and the blast radius is that user's own sandboxed
+# session:
+CVE-2026-39244

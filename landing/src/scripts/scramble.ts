@@ -81,10 +81,8 @@ function animateWord(span: HTMLElement, target: string): void {
  * A resting-width ghost (invisible, in flow) reserves the layout box; the churning
  * text is overlaid absolutely on top, so a glyph wider than the resting letters
  * paints past the box without clipping and without growing it -- wrap points and
- * siblings never move. `centered` (the hover CTA) swaps the overlay for in-flow
- * grid stacking (.scramble-box--center): ghost + live word share one cell, so the
- * box and the button border around it grow to fit wide churn frames -- the ghost
- * only sets the resting-width floor.
+ * siblings never move. `centered` centers the overlay over the ghost (the hover
+ * CTA) so wide churn glyphs spill symmetrically instead of escaping rightward.
  */
 function buildWordBoxes(el: HTMLElement, centered: boolean): { live: HTMLElement; text: string }[] {
   const full = el.textContent ?? '';
@@ -173,15 +171,12 @@ function decodeWord(span: HTMLElement, target: string): void {
 }
 
 function setupHoverElement(el: HTMLElement): void {
-  // Same ghost + live-word structure as the idle scramble, but the --center
-  // variant stacks both IN FLOW (one inline-grid cell): the ghost sets the
-  // resting-width floor at any font, viewport, or visibility state -- no
-  // measurement, so there is no pixel lock to be captured while the element is
-  // hidden or mid-layout and go stale (the old width lock measured 0 in a
-  // hidden nav and let churn glyphs escape rightward past the CTA border).
-  // Because the live word contributes width, the button border dynamically
-  // grows to fit wider churn frames -- glyphs are never clipped and never
-  // paint outside the border.
+  // Same ghost + overlay structure as the idle scramble, centered: the in-flow
+  // ghost holds the resting layout box at any font, viewport, or visibility
+  // state -- no measurement, so there is no pixel lock to be captured while the
+  // element is hidden or mid-layout and go stale. The decode paints on the
+  // centered overlay, so wider churn glyphs spill symmetrically around the
+  // stable box instead of shoving one edge -- and header siblings never move.
   const words = buildWordBoxes(el, true);
 
   let running = false;

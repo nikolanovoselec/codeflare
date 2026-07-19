@@ -205,7 +205,7 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. A new user record is created with a pending subscription tier on first SaaS login. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-2. Pending users can access identity-only endpoints but are blocked from the IDE. <!-- @impl: src/middleware/auth.ts::requireIdentity --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, 403 PENDING/BLOCKED, no-op outside SaaS) / REQ-AUTH-005 AC4 (also exported as authMiddleware for backcompat)) -->
+2. Pending users can access identity-only endpoints but are blocked from the IDE. <!-- @impl: src/middleware/auth.ts::requireIdentity --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, PENDING/BLOCKED responses, outside-SaaS and authMiddleware backward compatibility)) -->
 3. The frontend detects the pending state and redirects the user to the subscription page. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC3: pending user redirected to subscribe) --> <!-- @manual -->
 4. After subscription (self-service or admin approval), the user record is updated with an active tier. <!-- @impl: src/lib/user-record.ts::updateUserRecord --> <!-- @test: src/__tests__/lib/user-record.test.ts (REQ-AUTH-007 AC4: transitions a pending user record to an active tier after subscription) -->
 5. First-time active users are redirected to onboarding for guided setup. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
@@ -394,19 +394,19 @@ None.
 
 ### REQ-AUTH-014: Auth expiry detection mid-session
 
-**Intent:** Users are warned when their auth session expires during active use instead of silently failing.
+**Intent:** When authentication expires during active use, the app starts top-level sign-in automatically instead of silently failing or waiting for a manual refresh.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When API calls return 401, an amber re-auth banner appears in the UI. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-2. Clicking the banner refreshes auth. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-3. Session polling stops on expiry to prevent noise. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) --> <!-- @manual -->
+1. An API 401 or Access redirect on an authenticated path starts top-level sign-in without leaving the expired app reachable through browser history; a re-auth banner may render only while navigation is pending. <!-- @impl: web-ui/src/api/fetch-helper.ts::redirectExpiredSession --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
+2. Authentication expiry detected during bootstrap or resume starts the same sign-in recovery even when the error lacks redirect metadata. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
+3. Session polling stops on expiry to prevent noise while the top-level navigation proceeds. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (should stop session list polling after auth expiry) -->
 
 **Constraints:**
 
-None.
+- Top-level sign-in uses history-replacing navigation so Back cannot reopen the expired app.
 
 **Priority:** P1
 
@@ -620,16 +620,17 @@ None.
 **Acceptance Criteria:**
 
 1. The API client's 401 handler on an authenticated path (`/app/*`, `/admin/*`) performs `window.location.replace('/')` and **throws** an `ApiError` tagged `authRedirect = true`; it never returns a non-resolving promise, so the bootstrap promise always settles. <!-- @impl: web-ui/src/api/fetch-helper.ts::ApiError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
-2. On a caught `authRedirect`/401 bootstrap error, `AppContent` clears the loading shell and renders a calm "redirecting" state, not the generic auth-error page and not a hung spinner. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
+2. Bootstrap expiry starts top-level sign-in and replaces the loading shell with a non-empty redirecting state, including when the 401 lacks API-helper metadata. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
 3. `RootPage` renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @impl: web-ui/src/App.tsx::RootPage --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
 4. A top-level `ErrorBoundary` wraps the app; an unhandled bootstrap/render error renders a recovery fallback (reload control) instead of a blank document. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw) -->
-5. An Access 3xx, opaque manual redirect, or HTML login response on an authenticated API request performs the same top-level `location.replace('/')` and tagged rejection as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::expiredSessionError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
+5. Access 3xx, opaque or status-zero redirects, and HTML login responses on either successful or unsuccessful authenticated API requests settle through the same clean sign-in recovery as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @impl: web-ui/src/api/fetch-helper.ts::isHtmlResponse --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
 6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
 7. Fingerprinted Vite CSS and JavaScript requests execute the Worker asset path and receive immutable browser caching only for successful non-HTML assets, preventing an expired Access session from replacing a restored document's styles while keeping SPA fallback HTML revalidating. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) -->
 
 **Constraints:**
 
 - Redirect uses `location.replace`, not `href`, so the dead page is not left in history.
+- API responses declared `text/html` or beginning with an HTML document root are treated as login responses.
 - Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding); resume revalidation runs only inside the authenticated app shell.
 - Resume checks are deduplicated and event listeners are removed with the app lifecycle.
 - Only fingerprinted build assets are immutable; HTML and missing-asset SPA fallbacks remain revalidating.

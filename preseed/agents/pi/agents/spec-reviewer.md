@@ -45,7 +45,7 @@ Scope is the work bound. Build and consume the `spec-reviewer` packet once insid
 
 ## Evidence rules
 
-Every finding includes REQ ID, AC number when applicable, spec location, source/test evidence, severity, and the smallest corrective action. `@impl` and `@test` anchors must resolve to real symbols and named test blocks. One AC carries at most one `@test` anchor because the canonical title capture is greedy; split distinct behaviors into separate ACs instead of appending anchors.
+Every finding includes REQ ID, AC number when applicable, spec location, source/test evidence, severity, and the smallest corrective action. `@impl` and `@test` anchors must resolve to real symbols and named test blocks. Every non-manual AC carries at least one resolving `@test` anchor; multiple anchors are valid when verification spans blocks or files, and every declared anchor must resolve. Split distinct behaviors based on AC granularity, not anchor count.
 
 Severity floor:
 

@@ -17,12 +17,16 @@ import { JSDOM } from 'jsdom';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let doc: Document;
+let manifest: { theme_color?: string; background_color?: string };
 beforeAll(() => {
   const html = readFileSync(
     resolve(__dirname, '../../index.html'),
     'utf8'
   );
   doc = new JSDOM(html).window.document;
+  manifest = JSON.parse(
+    readFileSync(resolve(__dirname, '../../public/manifest.webmanifest'), 'utf8'),
+  ) as { theme_color?: string; background_color?: string };
 });
 
 function ogContent(property: string): string | null {
@@ -102,6 +106,15 @@ describe('REQ-SETUP-010: Social-share preview metadata on the public landing pag
       // SEO description may extend it; substring containment in either
       // direction proves the two are in sync.
       expect(desc!.includes(og!) || og!.includes(desc!)).toBe(true);
+    });
+  });
+
+  describe('PWA install metadata', () => {
+    it('uses the HTML theme color for the manifest theme and launch background', () => {
+      const htmlTheme = nameContent('theme-color');
+      expect(htmlTheme).not.toBeNull();
+      expect(manifest.theme_color).toBe(htmlTheme);
+      expect(manifest.background_color).toBe(htmlTheme);
     });
   });
 

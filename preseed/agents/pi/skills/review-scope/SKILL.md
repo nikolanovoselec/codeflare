@@ -2,6 +2,7 @@
 name: review-scope
 description: Canonical executable Pi scope resolver shared by PR-boundary review, /review, and /sdd clean.
 version: 2.0.0
+disable-model-invocation: true
 ---
 
 # Pi Review Scope

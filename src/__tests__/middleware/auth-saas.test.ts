@@ -159,7 +159,7 @@ describe('Three-tier auth middleware (SaaS mode) / REQ-AUTH-005 (requireIdentity
   // ===========================================================================
   // requireActiveUser
   // ===========================================================================
-  describe('requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, 403 PENDING/BLOCKED, no-op outside SaaS) / REQ-AUTH-005 AC4 (also exported as authMiddleware for backcompat)', () => {
+  describe('requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, PENDING/BLOCKED responses, outside-SaaS and authMiddleware backward compatibility)', () => {
     it('allows standard tier through when SAAS_MODE=active', async () => {
       mockAuthResult.user = {
         email: 'std@example.com',

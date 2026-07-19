@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { findGitRoot, recallActiveRepo } from "./active-repo-memory";
+import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import { resolveReviewScope, scopeContract, type ReviewScopeContract } from "./review-scope";
 
 function skillPrompt(name: string, fallback: string): string {
@@ -96,8 +97,10 @@ export function reviewWorkflowDecision(
   return { ...decision, repo };
 }
 
+type ReviewCommandPi = ExtensionAPI & ToolActivationPi;
+
 export async function dispatchReview(
-  pi: ExtensionAPI,
+  pi: ReviewCommandPi,
   args: string,
   ctx: ExtensionCommandContext,
   decide: (args: string, cwd: string) => ReviewWorkflowDecision = reviewWorkflowDecision,
@@ -116,6 +119,7 @@ export async function dispatchReview(
     existsSync(join(decision.repo, "sdd")),
     existsSync(join(decision.repo, "documentation")),
   );
+  activateRegisteredTools(pi, ["subagent"]);
   const reviewInstructions = [
     skillPrompt("review", "Run the Codeflare multi-phase review workflow for the requested scope and report findings."),
     "",
@@ -131,7 +135,7 @@ export async function dispatchReview(
   await sendUserPrompt(pi, ctx, reviewInstructions);
 }
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ReviewCommandPi) {
   pi.registerCommand("review", {
     description: "Run Codeflare review workflow",
     handler: (args, ctx) => dispatchReview(pi, args, ctx),

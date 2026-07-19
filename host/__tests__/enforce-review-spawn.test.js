@@ -949,7 +949,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
   });
 });
 
-// REQ-AGENT-045 + REQ-AGENT-047: while triage items remain open the entire review pipeline is suspended
+// REQ-AGENT-092 + REQ-AGENT-047: while triage items remain open the entire review pipeline is suspended
 describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => {
   function withTransitionConfig(cwd, { transition = true } = {}) {
     writeFileSync(

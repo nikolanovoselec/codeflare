@@ -28,6 +28,8 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Public (Onboarding)](#public-onboarding)
 - [Public (Landing)](#public-landing)
 - [Health](#health)
+- [Related Documentation](#related-documentation)
+- [Specification Coverage](#specification-coverage)
 
 ---
 
@@ -208,10 +210,11 @@ The Connect-Cloudflare callback re-derives identity from the live session, verif
 | GET | `/public/contact-config` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) | Turnstile site key for the landing contact form (SaaS or onboarding mode) |
 | POST | `/public/contact` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Demo-request submission: Turnstile-verified, relayed to admins as email, never persisted (rate-limited 5/min) |
 
-Auth-provider discovery can be checked without a session:
+The login surface calls auth-provider discovery before rendering its choices ([REQ-AUTH-013](../../sdd/spec/authentication.md#req-auth-013-custom-branded-login-page) AC3), making it the primary public discovery call. Check the canonical production deployment without a session:
 
 ```sh
-curl -sS https://<worker-host>/public/auth/providers
+curl -fsS https://codeflare.ch/public/auth/providers \
+  | jq '{providers: [.providers[] | {id, type, name, loginUrl}]}'
 ```
 
 The response is `{ "providers": [...] }`. Each provider contains `id`, `type`, and `name`; direct GitHub mode also includes `loginUrl`.
@@ -222,9 +225,11 @@ Served at the deployment root by the Worker (in `src/index.ts`, before the setup
 
 | Method | Endpoint | Public mode (SaaS / onboarding) | Private mode (default / enterprise) | Implements |
 |--------|----------|----------|----------|------------|
-| GET | `/robots.txt` | `200` — allows the marketing surface, excludes `/app /api /auth /login /setup`, points at `/sitemap.xml` | `200` — disallow-all | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
-| GET | `/sitemap.xml` | `200` — canonical marketing routes (login excluded, it is noindex) | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
+| GET | `/robots.txt` | `200` — allows the marketing surface, excludes `/app /api /auth /setup`, points at `/sitemap.xml`; `/login` remains crawlable so its `noindex` response directive is observed | `200` — disallow-all | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-008](../../sdd/spec/landing.md#req-landing-008-login-crawler-exclusion-controls) |
+| GET | `/sitemap.xml` | `200` — canonical marketing routes (login excluded, it is noindex) | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-008](../../sdd/spec/landing.md#req-landing-008-login-crawler-exclusion-controls) |
 | GET | `/llms.txt` | `200` — llmstxt.org-convention product summary | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
+
+Every `/login` asset response also carries `X-Robots-Tag: noindex, nofollow`; the sitemap omits that route ([REQ-LANDING-008](../../sdd/spec/landing.md#req-landing-008-login-crawler-exclusion-controls)).
 
 ### Setup
 

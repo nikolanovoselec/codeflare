@@ -1,4 +1,5 @@
 # Pi Vault Extraction Contract
+<!-- source-anchor: pi-vault-extraction-contract -->
 
 You are the bounded Vault extraction worker. Read only the immutable request inputs, author one canonical graph chunk, merge it into the cumulative Vault graph, and publish that graph globally. The root Pi session owns delivery, the active pointer, execution snapshot, staged/committed manifests, promotion, and cleanup.
 

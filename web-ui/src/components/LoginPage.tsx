@@ -3,7 +3,7 @@ import { getAuthProviders, getAuthStatus } from '../api/client';
 import type { AuthProvider } from '../types';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
-import { FEATURES } from '../lib/marketing-content';
+import { AGENTIC_ENGINE_LABEL, FEATURES } from '../lib/marketing-content';
 import { logger } from '../lib/logger';
 import '../styles/login-page.css';
 
@@ -126,7 +126,7 @@ const LoginPage: Component = () => {
         </h1>
 
         <p class="login-subtitle">
-          The enterprise agentic engine. Engineering agents build,
+          The {AGENTIC_ENGINE_LABEL}. Engineering agents build,
           test, review, and operate inside your own estate.
         </p>
 

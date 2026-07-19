@@ -20,6 +20,7 @@ type TranscriptFacts = {
   reviewRange?: string;
   bypassed: boolean;
   ciLaunched: boolean;
+  triageComplete: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
 };
 type PlannedReviewHelpers = {
@@ -98,6 +99,29 @@ function userMessage(content: string, timestamp = '2026-07-12T12:00:30.000Z'): R
   return sessionEntry('message', { timestamp, message: { role: 'user', content, timestamp: Date.parse(timestamp) } });
 }
 
+function assistantText(content: string, timestamp = '2026-07-12T12:03:00.000Z'): Record<string, unknown> {
+  return sessionEntry('message', {
+    timestamp,
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: content }],
+      provider: 'anthropic',
+      model: 'fixture',
+      usage: {},
+      stopReason: 'stop',
+      timestamp: Date.parse(timestamp),
+    },
+  });
+}
+
+function triageHeaderMessage(): Record<string, unknown> {
+  return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |');
+}
+
+function triageMessage(): Record<string, unknown> {
+  return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|');
+}
+
 function toolResult(toolUseId: string, toolName = 'subagent', isError = false): Record<string, unknown> {
   return sessionEntry('message', {
     message: { role: 'toolResult', toolCallId: toolUseId, toolName, content: [{ type: 'text', text: isError ? 'failed' : 'ok' }], isError },
@@ -166,7 +190,7 @@ describe('Claude-equivalent review boundary helpers', () => {
       .toEqual(cases.map(([command, expected]) => [command, expected, expected]));
   });
 
-  it('REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition', async () => {
+  it('REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition', async () => {
     const { isReviewTransitionSuspended } = await plannedHelpers();
     const root = tempRoot('pi-review-transition-root-');
     write(root, 'sdd/README.md', '# fixture\n');
@@ -294,6 +318,46 @@ describe('native Pi transcript review facts', () => {
       'spec-reviewer': { state: 'missing' },
       'doc-updater': { state: 'missing' },
     });
+  });
+
+  it('REQ-AGENT-098: recognizes structural triage only after all reviewer notifications', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const calls = [
+      assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }),
+      assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false }),
+      assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }),
+    ];
+    const beforeFinalNotification = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...calls,
+      notification('code-1'),
+      notification('spec-1'),
+      triageMessage(),
+      notification('doc-1'),
+    ]);
+    const afterFinalHeaderOnly = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...calls,
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageHeaderMessage(),
+    ]);
+    const afterFinalNotification = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...calls,
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageMessage(),
+    ]);
+
+    expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
+    expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
+    expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
   });
 
   it('REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification', async () => {

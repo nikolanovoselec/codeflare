@@ -17,6 +17,8 @@ See [Authentication](authentication.md) for auth flows. See [Billing](billing.md
 - [CF Access Configuration Strategy](#cf-access-configuration-strategy)
 - [Frontend Components](#frontend-components)
 - [Legacy Compatibility](#legacy-compatibility)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ## JIT User Provisioning
 

@@ -31,6 +31,69 @@ function parseFrontmatter(content) {
   );
 }
 
+const PI_RUNTIME_REPLACEMENTS = [
+  ['mcp__graphify__god_nodes(top_n=50)', 'graphify_query("top 50 most-connected nodes / god nodes")'],
+  ['mcp__graphify__god_nodes(top_n=20)', 'graphify_query("top 20 most-connected nodes / god nodes")'],
+  ['mcp__graphify__god_nodes(top_k=20)', 'graphify_query("top 20 most-connected nodes / god nodes")'],
+  ['mcp__graphify__get_neighbors(<concept-or-symbol>)', 'graphify_explain(<concept-or-symbol>)'],
+  ['mcp__graphify__get_node(<symbol>)', 'graphify_explain(<symbol>)'],
+  ['mcp__graphify__shortest_path', 'graphify_path'],
+  ['mcp__graphify__query_graph', 'graphify_query'],
+  ['mcp__graphify__get_neighbors', 'graphify_explain'],
+  ['mcp__graphify__get_node', 'graphify_explain'],
+  ['mcp__graphify__get_community', 'graphify_explain'],
+  ['mcp__graphify__god_nodes', 'graphify_query'],
+  ['mcp__graphify__graph_stats', 'graphify_query'],
+  ['mcp__graphify__*', 'Pi graphify tools'],
+  ['mcp__context-mode__ctx_batch_execute', 'ctx_batch_execute'],
+  ['mcp__context-mode__ctx_execute_file', 'ctx_execute_file'],
+  ['mcp__context-mode__ctx_execute', 'ctx_execute'],
+  ['mcp__context-mode__ctx_search', 'ctx_search'],
+  ['mcp__context-mode__ctx_fetch_and_index', 'ctx_fetch_and_index'],
+  ['Claude Code: `EnterPlanMode`', 'Pi: use the `Plan` agent'],
+  ['`EnterPlanMode`', 'the Pi `Plan` agent'],
+  ['Task(subagent_type', 'subagent(subagent_type'],
+  ['Task tool', 'subagent tool'],
+  ['Agent tool', 'subagent tool'],
+  ['Agent call', 'subagent call'],
+  ['Claude Code', 'Pi'],
+];
+
+const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use only tools exposed by the current agent. Report-only reviewers use Bash; root sessions may use Bash/Read/Grep/Find/Edit/Write. Do not assume context-mode \`ctx_*\` tools exist.\n- Root sessions may use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. Report-only reviewers inspect repository artifacts through Bash and do not invoke Graphify tools.\n- Root sessions use Pi's \`subagent\` tool for delegation and the \`Plan\` agent for Plan Mode. Report-only reviewers never launch subagents or mutate files.\n`;
+
+const SDD_SKILLS = new Set([
+  'doc-enforce', 'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth',
+  'spec-enforce', 'spec-enforce-ac', 'spec-enforce-truth', 'tdd-enforce',
+]);
+
+function compactPiSkillDescription(content) {
+  return content.replace(/^description:\s*(.+)$/m, (_match, rawDescription) => {
+    let description = rawDescription.trim();
+    if (description.startsWith('"') && description.endsWith('"')) {
+      try { description = JSON.parse(description); } catch { /* Preserve the raw YAML scalar. */ }
+    }
+    if (description.length <= 80) return `description: ${JSON.stringify(description)}`;
+    const prefix = description.slice(0, 77).replace(/\s+\S*$/, '').trimEnd();
+    return `description: ${JSON.stringify(`${prefix}…`)}`;
+  });
+}
+
+function expectedCanonicalSkill(skillName) {
+  let content = readFileSync(
+    join(repoRoot, 'preseed/agents/claude/skills', skillName, 'SKILL.md'),
+    'utf8',
+  ).replaceAll('~/.claude/', '~/.pi/agent/');
+  for (const [from, to] of PI_RUNTIME_REPLACEMENTS) content = content.replaceAll(from, to);
+  content = compactPiSkillDescription(content);
+  content = content.replace(
+    /^---\n([\s\S]*?)\n---\n/,
+    (_match, frontmatter) => `---\n${frontmatter}\ndisable-model-invocation: true\n---\n`,
+  );
+  return SDD_SKILLS.has(skillName)
+    ? `${content.trimEnd()}\n${PI_SDD_COMPATIBILITY_NOTE}`
+    : content;
+}
+
 function expectedPiContent(relativePath) {
   const source = readFileSync(join(repoRoot, 'preseed/agents/pi', relativePath), 'utf8');
   return source.replace(/^<!-- @include-skill ([a-z0-9-]+) -->$/gm, (_directive, skillName) => {
@@ -90,6 +153,12 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       assert.deepEqual(embeddedNames, skillNames);
       assert.equal(parseFrontmatter(reviewerDocument.content).skills, undefined);
       assert.equal(reviewerDocument.content, expectedPiContent(`agents/${reviewer}.md`));
+      for (const skillName of skillNames.filter((name) => name !== 'review-scope')) {
+        const embedded = reviewerDocument.content.match(
+          new RegExp(`<embedded-skill name="${skillName}">\\n([\\s\\S]*?)</embedded-skill>`),
+        )?.[1];
+        assert.equal(embedded, expectedCanonicalSkill(skillName), `${reviewer} drifted from ${skillName}`);
+      }
     }
   });
 });

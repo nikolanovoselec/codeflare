@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionStart hook (matcher: "startup") - inject knowledge-graph
-# context from prior sessions. Implements REQ-AGENT-024 AC1.
+# context from prior sessions. Implements REQ-AGENT-091 AC1.
 #
 # Three tiers of injection, cheapest first:
 #

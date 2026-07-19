@@ -49,6 +49,9 @@ type PlannedReviewEnforcement = {
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void;
+  getActiveTools(): string[];
+  getAllTools(): Array<{ name: string; description: string }>;
+  setActiveTools(names: string[]): void;
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
@@ -168,6 +171,28 @@ function userMessage(content: string): Record<string, unknown> {
   };
 }
 
+function assistantText(content: string): Record<string, unknown> {
+  return {
+    type: 'message',
+    id: nextId('assistant'),
+    parentId: null,
+    timestamp: '2026-07-12T12:03:00.000Z',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: content }],
+      provider: 'anthropic',
+      model: 'fixture',
+      usage: {},
+      stopReason: 'stop',
+      timestamp: Date.parse('2026-07-12T12:03:00.000Z'),
+    },
+  };
+}
+
+function triageMessage(): Record<string, unknown> {
+  return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|');
+}
+
 function notification(toolUseId: string, status = 'Done'): Record<string, unknown> {
   return {
     type: 'custom_message',
@@ -230,13 +255,28 @@ function makeHarness(repo: string, sessionFile: string): {
   pi: TestPi;
   ctx: TestContext;
   sent: SentMessage[];
+  operations: string[];
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
   const sent: SentMessage[] = [];
+  const operations: string[] = [];
+  let activeTools = ['read', 'bash'];
+  const allTools = [
+    { name: 'read', description: 'Read files' },
+    { name: 'bash', description: 'Run shell commands' },
+    { name: 'subagent', description: 'Launch a background specialist' },
+  ];
   const pi: TestPi = {
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
+    getActiveTools: () => [...activeTools],
+    getAllTools: () => allTools.map((tool) => ({ ...tool })),
+    setActiveTools: (names) => {
+      activeTools = [...names];
+      operations.push(`activate:${names.join(',')}`);
+    },
     sendMessage: (message, options) => {
+      operations.push(`send:${message.customType}`);
       sent.push({ message, options });
       appendSession(sessionFile, {
         type: 'custom_message',
@@ -258,6 +298,7 @@ function makeHarness(repo: string, sessionFile: string): {
     pi,
     ctx,
     sent,
+    operations,
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
@@ -309,6 +350,10 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent());
+    expect(harness.operations.slice(0, 2)).toEqual([
+      'activate:read,bash,subagent',
+      'send:pr-boundary-launch-plan',
+    ]);
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
@@ -330,9 +375,15 @@ describe('Pi review reminder and settled enforcement', () => {
       '## PR boundary — review + CI',
       '### 1. Start reviewers together',
       '### 2. Start CI immediately',
-      '### 3. Triage before fixing',
+      '### 3. Triage and acknowledge before fixing',
     ]);
-    expect(markdownValue(plan, '**Order:** ')).toBe('REVIEWERS → CI → TRIAGE → FIX');
+    expect(markdownValue(plan, '**Order:** ')).toBe('REVIEWERS → CI → TRIAGE + ACK → FIX');
+    expect(markdownValue(plan, '**Triage turn:** ')).toBe(
+      'publish the triage table; make no mutations; end the turn',
+    );
+    expect(markdownValue(plan, '**Fix delivery:** ')).toBe(
+      'next-turn follow-up after acknowledgement',
+    );
     expect(markdownValue(plan, '- Agents: ')).toBe('`code-reviewer`, `spec-reviewer`, `doc-updater`');
     expect(markdownValue(plan, '- `inherit_context`: ')).toBe('`false`');
     expect(markdownValue(plan, '- Prompt scope: ')).toBe(
@@ -369,7 +420,7 @@ describe('Pi review reminder and settled enforcement', () => {
       '## PR boundary follow-up — missing work',
       '### 1. Start reviewers together',
       '### 2. Start CI immediately',
-      '### 3. Triage before fixing',
+      '### 3. Triage and acknowledge before fixing',
     ]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
@@ -762,6 +813,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-1'),
       notification('spec-1'),
       notification('doc-1'),
+      triageMessage(),
     );
 
     await harness.emit('agent_settled');
@@ -990,7 +1042,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(markdownHeadings(followUp)).toEqual([
       '## PR boundary follow-up — missing work',
       '### 1. Start reviewers together',
-      '### 2. Triage before fixing',
+      '### 2. Triage and acknowledge before fixing',
     ]);
     expect(followUp).toMatch(/\*\*Recovery rule:\*\*[\s\S]+Do not duplicate unmatched calls/);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
@@ -1029,7 +1081,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
-  it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only the reminder head after all lanes terminate', async () => {
+  it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -1053,7 +1105,24 @@ describe('Pi review reminder and settled enforcement', () => {
 
     appendSession(fixture.sessionFile, notification('spec-1'));
     await harness.emit('agent_settled');
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(harness.sent).toEqual([]);
+
+    appendSession(fixture.sessionFile, triageMessage());
+    await harness.emit('agent_settled');
     expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-fix-follow-up',
+        display: true,
+        details: {
+          head: fixture.head,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+    expect(markdownValue(harness.sent[0]?.message.content, '**Phase:** ')).toBe('FIX');
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
     expect(existsSync(join(fixture.repo, '.git/codeflare-review-jobs'))).toBe(false);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-results'))).toBe(false);
@@ -1110,11 +1179,26 @@ describe('Pi review reminder and settled enforcement', () => {
     git(fixture.repo, 'commit', '-m', 'unpublished follow-up');
 
     const reloadedHarness = await registerFixture(fixture);
-    appendSession(fixture.sessionFile, notification('spec-1'));
+    appendSession(fixture.sessionFile, notification('spec-1'), triageMessage());
     await reloadedHarness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
-    expect(reloadedHarness.sent).toEqual([]);
+    expect(reloadedHarness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-fix-follow-up',
+        display: true,
+        details: {
+          head: fixture.head,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+
+    const postAckHarness = await registerFixture(fixture);
+    await postAckHarness.emit('agent_settled');
+    expect(postAckHarness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
   it('REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head', async () => {

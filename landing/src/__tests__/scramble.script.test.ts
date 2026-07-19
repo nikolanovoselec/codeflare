@@ -18,7 +18,11 @@
  * setInterval, each test MUST: build the DOM, mock matchMedia and
  * document.fonts BEFORE importing the module.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+const globalCss = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8');
 
 // From the script: one interval tick is TICK_MS=50ms.
 // hold: frame>60 (60 ticks * 50ms = 3000ms min)
@@ -221,7 +225,7 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(liveDeviated).toBe(true); // the overlay actually animated
   });
 
-  it('REQ-LANDING-006: the hover-decode sign-in CTA holds a resting-width ghost box per word so the header never reflows', async () => {
+  it('REQ-LANDING-006: the hover-decode sign-in CTA paints churn on a centered overlay above a fixed-width box', async () => {
     const el = document.createElement('a');
     el.setAttribute('data-scramble-hover', '');
     el.textContent = 'Enter The Matrix';
@@ -233,9 +237,14 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     await Promise.resolve();
     vi.runAllTicks();
 
-    // "Enter" + "The" + "Matrix" -> three centered ghost/overlay boxes. The in-flow
-    // ghost IS the footprint (no measured pixel lock exists to be captured while the
-    // nav is hidden and go stale), so churn can never resize the button.
+    const style = document.createElement('style');
+    style.textContent = globalCss;
+    document.head.appendChild(style);
+
+    // "Enter" + "The" + "Matrix" -> three centered overlay boxes. The ghost
+    // (in flow) fixes each box's width, so the button never changes size and
+    // adjacent nav links never move; the live churn paints on an absolute,
+    // centered overlay whose over-wide frames spill symmetrically past the box.
     const boxes = el.querySelectorAll<HTMLElement>('.scramble-box');
     expect(boxes.length).toBe(3);
     const labels: string[] = [];
@@ -246,6 +255,9 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
       expect(ghost).not.toBeNull();
       expect(live).not.toBeNull();
       expect(live!.style.width).toBe(''); // no stale inline pixel lock
+      expect(getComputedStyle(box).display).toBe('inline-block');
+      expect(getComputedStyle(live!).position).toBe('absolute');
+      expect(getComputedStyle(live!).textAlign).toBe('center');
       expect(live!.textContent).toBe(ghost!.textContent);
       labels.push(ghost!.textContent ?? '');
     }
@@ -267,6 +279,7 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     // After the full decode pass the overlay settles back to the exact label.
     vi.advanceTimersByTime(30 * 50);
     expect(live.textContent).toBe('Enter');
+    style.remove();
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {

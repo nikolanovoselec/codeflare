@@ -49,6 +49,7 @@ vi.mock('../../stores/terminal', () => ({ terminalStore: { disposeAll: vi.fn() }
 import App from '../../App';
 
 let originalLocation: Location;
+let replaceLocationMock: ReturnType<typeof vi.fn>;
 
 const authenticatedUser = {
   email: 'u@x', authenticated: true, bucketName: 'b', role: 'user',
@@ -57,10 +58,11 @@ const authenticatedUser = {
 } as const;
 
 function stubLocation(pathname: string) {
+  replaceLocationMock = vi.fn();
   const stub: Record<string, unknown> = {
     pathname, search: '', hash: '', origin: 'http://localhost',
     host: 'localhost', hostname: 'localhost', protocol: 'http:', port: '',
-    assign: () => {}, replace: () => {}, reload: () => {}, toString: () => `http://localhost${pathname}`,
+    assign: () => {}, replace: replaceLocationMock, reload: () => {}, toString: () => `http://localhost${pathname}`,
   };
   Object.defineProperty(stub, 'href', { get: () => `http://localhost${pathname}`, set: () => {} });
   Object.defineProperty(window, 'location', { configurable: true, writable: true, value: stub });
@@ -94,10 +96,11 @@ describe('REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not
     expect(screen.queryByTestId('layout')).toBeNull();
   });
 
-  it('treats a plain 401 (no authRedirect flag) as a redirecting state too', async () => {
+  it('treats a plain 401 as a redirecting state and starts top-level sign-in', async () => {
     getUserMock.mockRejectedValue(new ApiError('unauthorized', 401, 'Unauthorized'));
     render(() => <App />);
     await waitFor(() => expect(screen.getByTestId('auth-redirecting')).toBeInTheDocument());
+    expect(replaceLocationMock).toHaveBeenCalledWith('/');
   });
 });
 

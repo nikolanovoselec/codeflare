@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { recallActiveRepo, rememberActiveRepoFromToolResult } from "./active-repo-memory";
+import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import {
   classifyReviewBoundaryCommand,
+  REVIEW_TRIAGE_DIVIDER,
+  REVIEW_TRIAGE_HEADER,
   isReviewTransitionSuspended,
   requiredReviewLanes,
   reviewRange,
@@ -40,7 +43,7 @@ type ReviewContext = {
   };
 };
 
-type ReviewPi = {
+type ReviewPi = ToolActivationPi & {
   on(event: "tool_result" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
@@ -288,6 +291,7 @@ function reviewerPromptScope(pr: PrState, range: string | undefined): string {
 }
 
 function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
+  activateRegisteredTools(pi, ["subagent"]);
   const sections: string[] = [];
   const order: string[] = [];
   if (input.reviewers.length > 0) {
@@ -325,14 +329,18 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     ].join("\n"));
   }
   if (input.reviewers.length > 0) {
-    order.push("TRIAGE", "FIX");
+    order.push("TRIAGE + ACK", "FIX");
     sections.push([
-      `### ${sections.length + 1}. Triage before fixing`,
+      `### ${sections.length + 1}. Triage and acknowledge before fixing`,
       "",
-      "Wait for every required reviewer result. **Before any file change**, publish one table:",
+      "**Triage turn:** publish the triage table; make no mutations; end the turn",
       "",
-      "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |",
-      "|---|---|---|---|---|",
+      "**Fix delivery:** next-turn follow-up after acknowledgement",
+      "",
+      "Wait for every required reviewer result, then publish one table:",
+      "",
+      REVIEW_TRIAGE_HEADER,
+      REVIEW_TRIAGE_DIVIDER,
       "",
       "For every finding:",
       "",
@@ -341,7 +349,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "- reject unsupported or overengineered proposals",
       "- prefer the smallest correction that reuses existing machinery",
       "",
-      "Only after publishing the table, apply accepted minimal fixes unless the user explicitly requested approval.",
+      "After publishing the table, make no file or Git changes and end the turn immediately. Settled enforcement acknowledges the reviewed head and starts the FIX phase in a separate follow-up turn.",
     ].join("\n"));
   }
   const title = input.phase === "follow-up"
@@ -386,6 +394,25 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     content,
     display: true,
     details,
+  }, { deliverAs: "followUp", triggerTurn: true });
+}
+
+function sendFixFollowUp(pi: ReviewPi, pr: PrState, range: string | undefined): void {
+  pi.sendMessage({
+    customType: "pr-boundary-fix-follow-up",
+    content: [
+      "## PR boundary — apply accepted fixes",
+      "",
+      "**Phase:** FIX",
+      "",
+      `- Head: \`${pr.headRefOid}\``,
+      `- Scope: ${scopeSummary(pr, range)}`,
+      "- Review acknowledgement: written",
+      "",
+      "Apply only the accepted minimal decisions from the preceding triage. The reviewed head is now acknowledged, so fixes may begin without relaunching review or CI for that head.",
+    ].join("\n"),
+    display: true,
+    details: { head: pr.headRefOid, reviewRange: range },
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
@@ -463,8 +490,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
       if (reviewedFacts.reviewHead === reviewedHead
         && reviewedFacts.reviewRange === reviewedRange
-        && allReviewedLanesTerminal) {
+        && allReviewedLanesTerminal
+        && reviewedFacts.triageComplete) {
         acknowledge(context.repo, reviewedHead);
+        sendFixFollowUp(pi, reviewedPr, reviewedRange);
       }
     }
 
@@ -532,7 +561,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     const allReviewersTerminal = requiredLanes.length > 0
       && requiredLanes.every((lane) => facts.lanes[lane].state === "terminal");
-    if (allReviewersTerminal) acknowledge(review.repo, review.pr.headRefOid);
 
     const missingLanes = allReviewersTerminal || !shouldReview
       ? []
