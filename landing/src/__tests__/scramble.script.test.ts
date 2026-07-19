@@ -225,8 +225,9 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(liveDeviated).toBe(true); // the overlay actually animated
   });
 
-  it('REQ-LANDING-006: the hover-decode sign-in CTA paints churn on a centered overlay above a fixed-width box', async () => {
+  it('REQ-LANDING-006: the hover-decode CTA hands its chrome to an out-of-flow shell that shrink-wraps the churn while an in-flow ghost holds the layout box', async () => {
     const el = document.createElement('a');
+    el.className = 'btn btn-ghost btn-sm';
     el.setAttribute('data-scramble-hover', '');
     el.textContent = 'Enter The Matrix';
     document.body.appendChild(el);
@@ -241,44 +242,50 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     style.textContent = globalCss;
     document.head.appendChild(style);
 
-    // "Enter" + "The" + "Matrix" -> three centered overlay boxes. The ghost
-    // (in flow) fixes each box's width, so the button never changes size and
-    // adjacent nav links never move; the live churn paints on an absolute,
-    // centered overlay whose over-wide frames spill symmetrically past the box.
-    const boxes = el.querySelectorAll<HTMLElement>('.scramble-box');
-    expect(boxes.length).toBe(3);
-    const labels: string[] = [];
-    for (const box of Array.from(boxes)) {
-      expect(box.classList.contains('scramble-box--center')).toBe(true);
-      const ghost = box.querySelector<HTMLElement>('.scramble-ghost');
-      const live = box.querySelector<HTMLElement>('.scramble-word');
-      expect(ghost).not.toBeNull();
-      expect(live).not.toBeNull();
-      expect(live!.style.width).toBe(''); // no stale inline pixel lock
-      expect(getComputedStyle(box).display).toBe('inline-block');
-      expect(getComputedStyle(live!).position).toBe('absolute');
-      expect(getComputedStyle(live!).textAlign).toBe('center');
-      expect(live!.textContent).toBe(ghost!.textContent);
-      labels.push(ghost!.textContent ?? '');
+    // The host is upgraded: one in-flow full-label ghost holds the layout box,
+    // and the visible chrome moves to the absolutely-positioned shell that
+    // mirrors the host's .btn classes and holds the churning words IN FLOW —
+    // that in-flow placement is what makes the visible border grow with a wide
+    // churn frame while the host's layout box (and header siblings) stay put.
+    expect(el.classList.contains('scramble-host')).toBe(true);
+    const ghost = el.querySelector<HTMLElement>('.scramble-ghost')!;
+    const shell = el.querySelector<HTMLElement>('.scramble-shell')!;
+    expect(ghost).not.toBeNull();
+    expect(shell).not.toBeNull();
+    expect(ghost.parentElement).toBe(el);
+    expect(shell.parentElement).toBe(el);
+    expect(ghost.textContent).toBe('Enter The Matrix');
+    // happy-dom resolves only explicitly-set properties ('' otherwise), so the
+    // in-flow contract is asserted as "never absolutely positioned" rather than
+    // as the resolved 'static' default.
+    expect(getComputedStyle(ghost).position).not.toBe('absolute'); // in flow: holds the layout box
+    expect(getComputedStyle(ghost).visibility).toBe('hidden'); // invisible reservation, not painted text
+    expect(getComputedStyle(shell).position).toBe('absolute'); // out of flow: growth cannot displace siblings
+    for (const cls of ['btn', 'btn-ghost', 'btn-sm']) {
+      expect(shell.classList.contains(cls)).toBe(true); // chrome mirrored from the host, not duplicated in CSS
     }
-    expect(labels).toEqual(['Enter', 'The', 'Matrix']);
+    const lives = [...shell.querySelectorAll<HTMLElement>('.scramble-word')];
+    expect(lives.map((w) => w.textContent)).toEqual(['Enter', 'The', 'Matrix']);
+    expect(shell.textContent).toBe('Enter The Matrix'); // whitespace preserved between in-flow words
+    for (const live of lives) {
+      expect(getComputedStyle(live).position).not.toBe('absolute'); // in flow inside the shell, so the shell sizes to the churn
+      expect(live.style.width).toBe(''); // no stale inline pixel lock
+    }
 
-    // The decode animates the overlay only; the ghost (the layout box) never mutates.
+    // The decode animates the shell words only; the ghost (the layout box) never mutates.
     el.dispatchEvent(new Event('mouseenter'));
-    const live = boxes[0].querySelector<HTMLElement>('.scramble-word')!;
-    const ghost = boxes[0].querySelector<HTMLElement>('.scramble-ghost')!;
     // Sample several early frames (settle probability is 0 before frame 8): the
-    // overlay must actually churn away from the label, or the decode is a no-op.
+    // shell words must actually churn away from the label, or the decode is a no-op.
     let liveDeviated = false;
     for (let tick = 0; tick < 6; tick++) {
       vi.advanceTimersByTime(50);
-      if (live.textContent !== 'Enter') liveDeviated = true;
-      expect(ghost.textContent).toBe('Enter'); // the layout box never mutates
+      if (lives[0].textContent !== 'Enter') liveDeviated = true;
+      expect(ghost.textContent).toBe('Enter The Matrix'); // the layout box never mutates
     }
     expect(liveDeviated).toBe(true);
-    // After the full decode pass the overlay settles back to the exact label.
+    // After the full decode pass the shell settles back to the exact label.
     vi.advanceTimersByTime(30 * 50);
-    expect(live.textContent).toBe('Enter');
+    expect(lives[0].textContent).toBe('Enter');
     style.remove();
   });
 
