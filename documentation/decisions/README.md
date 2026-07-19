@@ -2742,6 +2742,7 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 <!-- @impl: web-ui/src/lib/terminal-frames.ts::createFrameAssembler -->
 <!-- @impl: web-ui/src/stores/terminal.ts::scheduleWrite -->
 <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/stores/terminal.ts::handleWebSocketClose -->
 <!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferToBottom -->
 
 **Related REQ:** [REQ-TERM-021](../../sdd/spec/terminal.md#req-term-021-synchronized-output-frame-atomicity), [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops).
