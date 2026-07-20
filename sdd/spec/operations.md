@@ -543,11 +543,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. A zizmor security audit runs on every pull request or push touching workflow files. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 2. The audit's findings upload as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/zizmor.yml::actionlint --> <!-- @manual -->
-4. Both checks are informational: merges are gated by the `test` status context, not by this workflow. <!-- @manual -->
+4. The audit is merge-blocking: it runs inside the required status context and fails on any surviving finding, while a separate workflow records the same audit as SARIF for alert history. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
 
 **Constraints:**
 
 - The zizmor audit runs offline; its online known-vulnerable-actions audit fails fatally on advisory-API outages.
+- Findings that are correct as written carry an inline suppression stating the reason, so they stop masking new findings; the auditor's own version is pinned rather than tracking latest.
 - actionlint's shellcheck and pyflakes integrations stay disabled — script hygiene is zizmor's concern.
 - The actionlint version and checksum are a shadow pin: Dependabot cannot see them, so [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation) bumps them weekly.
 
