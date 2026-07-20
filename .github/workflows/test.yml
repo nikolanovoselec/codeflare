@@ -342,6 +342,64 @@ jobs:
       - name: Check against the budget
         run: node scripts/ci/check-bundle-size.mjs /tmp/wrangler-dry-run.log
 
+  coverage:
+    name: Coverage (${{ matrix.slug }})
+    needs: changes
+    # Deliberately NOT on pull_request. v8 coverage is per-process, so a sharded
+    # run gives each shard a view of only its own slice; enforcing thresholds
+    # needs the whole suite in one process, which costs minutes. Deploy is gated
+    # on the main-branch PR Checks run, so enforcing here still stops a coverage
+    # regression from reaching production — it just reports after merge rather
+    # than before, which is the right trade for a slow-moving regression guard.
+    #
+    # Until this existed the thresholds in both vitest configs were decoration:
+    # declared, never executed. Same class as a test that cannot fail.
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: backend
+            directory: .
+            key-prefix: root
+          - slug: frontend
+            directory: web-ui
+            key-prefix: webui
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: ${{ matrix.directory }}
+          key-prefix: ${{ matrix.key-prefix }}
+
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        run: mkdir -p web-ui/dist
+
+      - name: Run the suite with coverage
+        # Unsharded and unmerged: vitest applies the thresholds from the suite's
+        # own config, so the enforcement lives with the numbers instead of being
+        # restated here.
+        working-directory: ${{ matrix.directory }}
+        env:
+          NO_COLOR: '1'
+        run: npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log
+
+      - name: Publish the coverage table
+        if: always()
+        run: node scripts/ci/render-coverage-summary.mjs /tmp/coverage.log "${{ matrix.slug }}" >> "$GITHUB_STEP_SUMMARY"
+
   frontend-tests:
     name: Frontend tests (${{ matrix.slug }})
     needs: changes
@@ -498,6 +556,7 @@ jobs:
       - quality
       - typecheck
       - bundle-size
+      - coverage
       - backend-tests
       - frontend-tests
       - landing-tests
