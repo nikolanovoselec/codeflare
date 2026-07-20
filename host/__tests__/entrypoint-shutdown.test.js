@@ -82,12 +82,26 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     // the nested walk_kill helper begins with `[ -z "$root" ] && return 0`
     // inside that window — so it stayed green through the exact
     // `trap shutdown_handler SIGTERM SIGINT EXIT` revert it was written to catch.
-    const trapped = trap[1];
-    assert.notEqual(
-      trapped,
-      'shutdown_handler',
-      'the handler is trapped directly on both a signal and EXIT, so it runs twice; trap a guarded wrapper instead'
+    // Every top-level trap, not just the first. A non-global match binds to the
+    // first `trap` line only, so a SECOND registration added later — e.g.
+    // `trap shutdown_handler EXIT` — would overwrite the EXIT slot with the
+    // unguarded function and reintroduce the double-run, while every assertion
+    // here still passed against the first line.
+    const allTraps = [...entrypoint.matchAll(/^trap (\S+) (.*)$/gm)];
+    assert.equal(
+      allTraps.length,
+      1,
+      `entrypoint.sh registers ${allTraps.length} top-level traps; a second one can silently overwrite the guarded slot`
     );
+    for (const [, fn] of allTraps) {
+      assert.notEqual(
+        fn,
+        'shutdown_handler',
+        'the handler is trapped directly on both a signal and EXIT, so it runs twice; trap a guarded wrapper instead'
+      );
+    }
+
+    const trapped = trap[1];
 
     const wrapper = entrypoint.match(new RegExp(`^${trapped}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'));
     assert.ok(wrapper, `${trapped} must be defined at the top level`);
@@ -95,8 +109,15 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     const sentinel = wrapper[0].match(/if \[ "\$([A-Z_]+)" = "1" \]/);
     assert.ok(sentinel, `${trapped} must short-circuit on a sentinel variable`);
 
-    const setIdx = wrapper[0].indexOf(`${sentinel[1]}=1`);
-    const callIdx = wrapper[0].indexOf('shutdown_handler');
+    // Strip comments before locating the call: a plain substring scan finds
+    // `shutdown_handler` inside a comment too, which produced a confidently
+    // wrong "sets the sentinel after invoking the handler" failure.
+    const wrapperCode = wrapper[0]
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .join('\n');
+    const setIdx = wrapperCode.indexOf(`${sentinel[1]}=1`);
+    const callIdx = wrapperCode.search(/^\s*shutdown_handler\s*$/m);
     assert.ok(setIdx !== -1, `${trapped} must set ${sentinel[1]}=1`);
     assert.ok(callIdx !== -1, `${trapped} must call shutdown_handler`);
     assert.ok(

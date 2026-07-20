@@ -605,15 +605,6 @@ jobs:
             exit 1
           fi
 
-          # A threshold miss is the verdict this lane exists for: always fatal,
-          # never masked by the crash tolerance below. Matched loosely enough to
-          # survive a future per-glob threshold, whose message reads
-          # `does not meet "src/lib/**" threshold` rather than `global`.
-          if grep -qE 'does not meet .*threshold' /tmp/coverage.log; then
-            echo "::error::coverage thresholds not met (see the table above)"
-            exit 1
-          fi
-
           # A real test failure is fatal, and must be detected on its own. The
           # workerd teardown crash fires after EVERY passing backend run
           # (vitest.config.ts), so its fingerprint is present essentially always
@@ -622,6 +613,15 @@ jobs:
           # of this block did.
           if grep -qE '^ *Tests +.*failed' /tmp/coverage.log; then
             echo "::error::tests failed during the coverage run"
+            exit 1
+          fi
+
+          # A threshold miss is the verdict this lane exists for: always fatal,
+          # never masked by the crash tolerance below. Matched loosely enough to
+          # survive a future per-glob threshold, whose message reads
+          # `does not meet "src/lib/**" threshold` rather than `global`.
+          if grep -qE 'does not meet .*threshold' /tmp/coverage.log; then
+            echo "::error::coverage thresholds not met (see the table above)"
             exit 1
           fi
 

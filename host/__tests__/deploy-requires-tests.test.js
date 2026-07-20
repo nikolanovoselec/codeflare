@@ -21,16 +21,19 @@ const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 
 // Jobs that check out a ref, build, or deploy. Every one of them must be
 // unreachable unless the code was verified.
-// `outcome` belongs here too. It was added later with a bare `always()`, and
-// because this list did not name it, the assertions below — including the one
-// that forbids always() — structurally could not see it. A gate list that is
-// hand-maintained alongside the thing it guards drifts exactly this way.
+//
 // Derived from deploy.yml, not hand-listed. A hand-maintained list drifts the
 // moment a job is added — which is exactly how `outcome` shipped ungated and
 // unnoticed. `verify` is excluded because it IS the gate; anything else new
 // fails these assertions until someone classifies it deliberately.
 const UNGATED_JOBS = new Set(['verify']);
-const GATED_JOBS = [...deployYml.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)]
+// Scoped to the `jobs:` section and admitting the full GitHub job-id charset.
+// A `[a-z][a-z0-9-]*` pattern silently DROPS an underscore-named job — rename
+// `container` to `container_scan` and it vanishes from this list unchecked,
+// which is the same silent drift the derivation replaced. Unscoped, it also
+// picked up `on:`'s children as phantom jobs.
+const jobsSection = deployYml.slice(deployYml.indexOf('\njobs:'));
+const GATED_JOBS = [...jobsSection.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gm)]
   .map((m) => m[1])
   .filter((name) => !UNGATED_JOBS.has(name));
 
@@ -111,6 +114,17 @@ describe('manual deploys cannot skip tests', () => {
       // the expression — `… || github.event_name == 'workflow_dispatch'` with
       // nothing after it — satisfied every assertion here while giving manual
       // dispatch an ungated path to deploy.
+      //
+      // Splitting on `||` assumes `&&` binds tighter, which only holds while no
+      // `||` sits inside parentheses. Assert that precondition rather than
+      // assume it: `(dispatch && (verify == 'success' || inputs.force))` keeps
+      // both tokens in the first chunk and passes, while shipping an ungated
+      // manual-deploy path.
+      assert.doesNotMatch(
+        gate.replace(/^!cancelled\(\) && \(|\)$/g, ''),
+        /\([^()]*\|\|[^()]*\)/,
+        `job "${name}" nests an || inside parentheses, so the clause split below cannot see through it`
+      );
       for (const clause of gate.split('||')) {
         if (!clause.includes("github.event_name == 'workflow_dispatch'")) continue;
         assert.match(
