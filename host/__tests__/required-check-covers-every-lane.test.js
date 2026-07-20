@@ -20,9 +20,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/test.yml'), 'utf8');
 
 /** Top-level job ids: two-space indented `key:` inside the `jobs:` block. */
+// Job ids admit underscores; a `[a-z][a-z0-9-]*` pattern silently DROPS one,
+// so a lane renamed to `workflow_audit` would vanish from this check and could
+// then be missing from summary.needs while the merge button stayed green -
+// exactly the hole this file exists to close. The sibling guard in
+// deploy-requires-tests.test.js was widened for the same reason.
 function jobIds() {
   const jobs = workflow.slice(workflow.indexOf('\njobs:'));
-  return [...jobs.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]);
+  return [...jobs.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gm)].map((m) => m[1]);
 }
 
 /** The `needs:` list of the summary job. */
@@ -30,9 +35,9 @@ function summaryNeeds() {
   const start = workflow.indexOf('\n  summary:');
   assert.ok(start > 0, 'test.yml must declare a `summary` job');
   const block = workflow.slice(start);
-  const needs = block.match(/\n {4}needs:\n((?: {6}- [a-z0-9-]+\n)+)/);
+  const needs = block.match(/\n {4}needs:\n((?: {6}- [A-Za-z0-9_-]+\n)+)/);
   assert.ok(needs, 'the summary job must declare a `needs:` list');
-  return [...needs[1].matchAll(/- ([a-z0-9-]+)/g)].map((m) => m[1]);
+  return [...needs[1].matchAll(/- ([A-Za-z0-9_-]+)/g)].map((m) => m[1]);
 }
 
 describe('required status context covers every lane (test.yml summary job)', () => {

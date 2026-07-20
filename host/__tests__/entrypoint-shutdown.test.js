@@ -111,6 +111,19 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
       );
     }
 
+    // Positional exclusion answers "which traps are installed at top level",
+    // but a helper that registers the trap and is then CALLED at top level
+    // installs it just the same while sitting inside a function range. The
+    // handler must never be trapped from anywhere, so assert that globally
+    // rather than only over the top-level set.
+    for (const [, fn] of entrypoint.matchAll(/^[ \t]*trap\s+(\S+)\s+(.*)$/gm)) {
+      assert.notEqual(
+        fn,
+        'shutdown_handler',
+        'shutdown_handler is trapped somewhere in entrypoint.sh; only the guarded wrapper may be trapped, or the handler runs twice'
+      );
+    }
+
     const allTraps = [...entrypoint.matchAll(/^[ \t]*trap\s+(\S+)\s+(.*)$/gm)].filter(
       (m) => !functionRanges.some(([open, close]) => m.index > open && m.index < close)
     );

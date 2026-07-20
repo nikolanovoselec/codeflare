@@ -31,7 +31,14 @@ function gateVersion() {
 
 function sarifVersion() {
   const job = read('zizmor.yml');
-  const match = job.match(/zizmorcore\/zizmor-action@[\s\S]*?^\s*version:\s*'([^']+)'/m);
+  // Bounded to the action's own step. An unbounded `[\s\S]*?` scan walks past
+  // the step if it ever loses its `version:` input and binds to the next
+  // `version:` anywhere in the file — the lockstep assertion would then compare
+  // test.yml's pin against an unrelated key and pass while the action floated
+  // to `latest`, which is the one thing this file exists to prevent.
+  const step = job.match(/zizmorcore\/zizmor-action@[^\n]*\n(?: {8,}[^\n]*\n|\s*\n)*/);
+  assert.ok(step, 'zizmor.yml no longer uses zizmor-action');
+  const match = step[0].match(/^\s*version:\s*'([^']+)'/m);
   assert.ok(match, 'zizmor.yml no longer pins a zizmor version — the action would float to `latest`');
   return match[1];
 }
