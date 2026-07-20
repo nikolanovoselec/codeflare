@@ -203,12 +203,9 @@ Report a vulnerability via [SECURITY.md](SECURITY.md).
 npm test                     # Backend tests
 cd web-ui && npm test        # Frontend tests
 cd host && npm test          # Host tests (prewarm, activity tracker)
-npm run test:e2e:api         # E2E API (requires a deployed worker)
-npm run test:e2e:ui          # E2E UI desktop (requires a deployed worker)
-npm run test:e2e:ui-mobile   # E2E UI mobile
 ```
 
-E2E tests require a deployed worker and service credentials (CF Access service tokens). See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite and [E2E setup](documentation/lanes/authentication.md#e2e-testing-auth).
+See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite.
 
 ---
 
@@ -216,9 +213,10 @@ E2E tests require a deployed worker and service credentials (CF Access service t
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `deploy.yml` | Push to `main` / manual | Tests + Docker build + Trivy scan + deploy |
-| `test.yml` | Pull requests | Lint, tests, typecheck, security audit, dependency review |
-| `e2e.yml` | Manual | E2E matrix: API, UI desktop, UI mobile |
+| `deploy.yml` | Green PR Checks on `main` / manual | Staged deploy: worker assets in parallel with the container image (reused when inputs unchanged), then deploy + health smoke |
+| `container-image.yml` | Called by `deploy.yml` | Reusable container build + Trivy scan + push (Cloudflare registry or Docker Hub bypass) |
+| `test.yml` | Pull requests, push to `main` | Parallel path-filtered lanes: lint, sharded backend tests, typecheck, audits, dependency review |
+| `zizmor.yml` | Workflow changes | Static security audit of the GitHub Actions workflows |
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
 | `scorecard.yml` | Push to `main`, weekly, manual | OSSF Scorecard |
 | `fuzz.yml` | PRs, weekly, manual | Property-based fuzzing (fast-check) |

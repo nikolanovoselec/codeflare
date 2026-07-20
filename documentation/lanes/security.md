@@ -513,7 +513,7 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 ### Container Image Scanning ([REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy))
 
-Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in `deploy.yml` and `deploy-dockerhub.yml`). The scan runs with `ignore-unfixed: true`, so the deploy fails only on a HIGH/CRITICAL CVE that has an **available fix** and is not suppressed. Unfixed CVEs (blank Fixed Version — no upstream patch) cannot be remediated by rebuilding and are not gated; this stops the recurring breakage where a newly-published, unfixable base-image CVE would block every deploy until manually suppressed.
+Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in the reusable `container-image.yml` invoked by every deploy; identical-input deploys reuse the already-scanned image, and a weekly hash salt bounds that reuse at seven days). The scan runs with `ignore-unfixed: true`, so the deploy fails only on a HIGH/CRITICAL CVE that has an **available fix** and is not suppressed. Unfixed CVEs (blank Fixed Version — no upstream patch) cannot be remediated by rebuilding and are not gated; this stops the recurring breakage where a newly-published, unfixable base-image CVE would block every deploy until manually suppressed.
 
 **Suppression policy (`.trivyignore`):** With `ignore-unfixed`, the allowlist is now for **fixable** CVEs that are consciously accepted — a fix exists but cannot be applied yet (typically a vendored CLI such as rclone/lazygit/an npm CLI, or a vendored binary such as OpenVSCode Server, fixed upstream but not yet rebuilt). A CVE is added only when both of:
 

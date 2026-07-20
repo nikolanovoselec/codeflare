@@ -1,0 +1,41 @@
+name: Zizmor
+# Static security audit of the GitHub Actions workflows themselves
+# (template injection, pwn-request vectors, unpinned actions, credential
+# leaks). Findings upload as SARIF to code scanning — same surface as
+# CodeQL/Scorecard. Not a required check: it informs, the summary gate
+# in test.yml decides merges.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+
+permissions: {}
+
+concurrency:
+  group: zizmor-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Audit workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      security-events: write # SARIF upload
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Reproduce locally with: zizmor .github/workflows
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
