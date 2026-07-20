@@ -216,8 +216,12 @@ app.use('/api/*', async (c, next) => {
   return bodyLimit({ maxSize: 64 * 1024 })(c, next);
 });
 
-// Health check
-app.get('/health', (c) => c.json({ status: 'ok' }));
+// Health check. There is no unauthenticated `/health`: the only consumer was a
+// post-deploy smoke that could not detect the failure it existed for (a 200
+// proves some version is serving, not that the deployed one is live), and
+// keeping it reachable meant carving a permanent hole through edge bot
+// mitigation. The container's own /health (host/src/server.ts) is unrelated and
+// still load-bearing for collectMetrics and the warming-up gate.
 app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Static assets are served by Cloudflare Workers Assets at /
@@ -377,7 +381,7 @@ export default {
 
     // Only route API and health requests through Hono
     // Non-API routes fall through to static assets (SPA)
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/public/') || url.pathname === '/health') {
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/public/')) {
       return app.fetch(request, env, ctx);
     }
 

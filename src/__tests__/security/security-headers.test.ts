@@ -56,10 +56,14 @@ describe('REQ-SEC-008: Security headers on every worker response', () => {
     vi.clearAllMocks();
   });
 
-  // Use GET /health — a public endpoint that always returns 200 without auth
+  // Any always-200 response works here — these assertions are about headers
+  // present on every response, not about this route. /api/health replaces the
+  // removed unauthenticated /health: it returns a constant 200 with no KV state
+  // (see index.test.ts "does NOT redirect GET /api/health"), so it cannot make
+  // these tests fail for a reason unrelated to headers.
   async function fetchHealth() {
     const { env, ctx } = createBaseEnv();
-    return worker.fetch(new Request('https://example.com/health'), env, ctx);
+    return worker.fetch(new Request('https://example.com/api/health'), env, ctx);
   }
 
   it('REQ-SEC-008 AC1: Strict-Transport-Security is present on all responses', async () => {

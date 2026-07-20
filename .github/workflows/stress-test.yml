@@ -103,11 +103,14 @@ jobs:
         run: |
           BASE="$E2E_BASE_URL"
 
-          # Health check (no auth needed)
-          HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/health" || true)
-          echo "Health: $HEALTH"
+          # Reachability check (no auth needed). Uses the public provider-discovery
+          # route rather than a dedicated health endpoint: it needs no special
+          # edge exemption and, unlike a constant "ok", exercises real worker
+          # logic, so a 200 means something is actually working.
+          HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/public/auth/providers" || true)
+          echo "Reachability: $HEALTH"
           if [ "$HEALTH" != "200" ]; then
-            echo "::error::Health check failed ($HEALTH)"
+            echo "::error::Reachability check failed ($HEALTH)"
             exit 1
           fi
 

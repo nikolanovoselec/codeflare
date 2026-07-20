@@ -55,7 +55,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
-API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*", "/assets/*"]` in the `[assets]` section of `wrangler.toml` (a missing control-plane path is served as the static SPA at the edge; `/login` missing breaks the onboarding rewrite, `/api/*` missing breaks setup/auth, and `/assets/*` missing bypasses the immutable Vite-asset policy).
+API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/landing/*", "/assets/*"]` in the `[assets]` section of `wrangler.toml` (a missing control-plane path is served as the static SPA at the edge; `/login` missing breaks the onboarding rewrite, `/api/*` missing breaks setup/auth, and `/assets/*` missing bypasses the immutable Vite-asset policy).
 
 ### `/setup` Shows "Access Denied"
 
