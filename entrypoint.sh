@@ -14,7 +14,12 @@ echo "[entrypoint] Date: $(date)"
 echo "[entrypoint] PWD: $(pwd)"
 
 # Initialize PID placeholders
-TERMINAL_PID=0
+# Empty, not 0. `kill 0` is POSIX for "signal every process in my process
+# group", and the guard below is `[ -n "$TERMINAL_PID" ]`, which "0" satisfies.
+# The trap is installed long before this is assigned, so any early shutdown ran
+# `kill 0` and SIGTERMed the whole container group — including PID 1, which has
+# the same trap. The sibling placeholder (SYNC_DAEMON_PID="") is the right idiom.
+TERMINAL_PID=""
 
 echo "[entrypoint] pwd: $(pwd)"
 echo "[entrypoint] HOME: $HOME"
@@ -1401,8 +1406,27 @@ shutdown_handler() {
     exit 0
 }
 
-# Set up shutdown trap
-trap shutdown_handler SIGTERM SIGINT EXIT
+# Set up shutdown trap.
+#
+# Registering one function for a signal trap AND for EXIT runs it TWICE: bash's
+# re-entry guard is per-trap, so the `exit 0` at the end of the handler fires the
+# EXIT trap, which is the same function. That is not cosmetic here. Pass 1 runs
+# the final bisync under the 108s+12s watchdog; if it hits the watchdog, rclone
+# is SIGKILLed leaving a stale lock, and pass 2 — seeing /tmp/.bisync-initialized
+# still present and no running rclone — clears the lock and starts a FRESH
+# bisync at t=120s. The DO SIGKILLs at t=135s, i.e. mid-write to R2, which is
+# precisely the state the 120/135 budget exists to prevent.
+#
+# The guard makes the second entry a no-op regardless of which trap fires first.
+SHUTDOWN_RAN=0
+shutdown_once() {
+    if [ "$SHUTDOWN_RAN" = "1" ]; then
+        return 0
+    fi
+    SHUTDOWN_RAN=1
+    shutdown_handler
+}
+trap shutdown_once SIGTERM SIGINT EXIT
 
 # ============================================================================
 # Helper function to update sync status file (read by health server)

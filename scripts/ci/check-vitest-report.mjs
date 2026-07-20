@@ -73,7 +73,23 @@ if (failedTests > 0 || failedSuites > 0) {
 // A test file that contributes ZERO tests is a collection casualty (workerd
 // dies loading the file; the old grep guard silently accepted this — 7 files
 // were dead for weeks while runs stayed green). Zero-test files fail loudly.
-const results = Array.isArray(report.testResults) ? report.testResults : [];
+// NOT `Array.isArray(...) ? ... : []`. That turned a report with no per-file
+// data into "no zero-assertion files found" and passed: {"numTotalTests":5,
+// "numFailedTests":0,"numFailedTestSuites":0} with no testResults key cleared
+// the gate whose entire premise is that the exit code is untrustworthy so the
+// report must be believed. The downstream reconciler already fails closed on
+// this exact shape; the per-run gate should not be the weaker of the two.
+if (!Array.isArray(report.testResults)) {
+  fail("report has no testResults array, so no per-file evidence exists to check");
+}
+const results = report.testResults;
+// The summary counts and the per-file detail must agree. A report that claims
+// N tests while carrying assertions for fewer is not a report we can gate on.
+const asserted = results.reduce(
+  (n, f) => n + (Array.isArray(f.assertionResults) ? f.assertionResults.length : 0), 0);
+if (asserted !== total) {
+  fail(`report claims ${total} tests but carries ${asserted} assertion result(s) — the summary and the per-file detail disagree`);
+}
 const empty = results.filter((r) => (r.assertionResults ?? []).length === 0);
 if (empty.length > 0) {
   const names = empty.map((r) => r.name ?? '?').join('\n  ');

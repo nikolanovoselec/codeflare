@@ -59,6 +59,15 @@ if (process.env.GITHUB_STEP_SUMMARY) {
 }
 console.log(summary);
 
+// `=== null` only recognises the literal sentinel. A deleted or misspelled
+// budgetKiB is undefined, which falls through to `gzipKiB > undefined` — NaN
+// comparison, always false — so the gate passed a bundle of any size while
+// printing "within the undefined KiB budget". Anything that is not a positive
+// number is a misconfiguration, not a licence to skip the check.
+if (budgetKiB !== null && !(typeof budgetKiB === 'number' && Number.isFinite(budgetKiB) && budgetKiB > 0)) {
+  fail(`budgetKiB for ${label} is ${JSON.stringify(budgetKiB)}; expected a positive number or null to opt out`);
+}
+
 if (budgetKiB === null) {
   console.log(
     `::notice title=bundle size::${label} is ${gzipKiB.toFixed(1)} KiB gzipped (${pctOfLimit}% of the ${limitKiB} KiB platform limit). No budget set yet — set budgetKiB in scripts/ci/size-budgets.mjs to start enforcing.`,

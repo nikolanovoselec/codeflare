@@ -228,6 +228,39 @@ RUN npm install -g \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
+# Assert the pin took, and that the pruning above did not break what it pruned.
+#
+# Two gaps this closes. First, the prune is blind: `if [ -d prebuilds ]` yields 0
+# when the directory is absent and `rm -rf` yields 0 on paths that do not exist,
+# so a release that relocates its native binaries prunes nothing (or, worse, has
+# something it now needs removed) and every layer below still builds green.
+# codex, opencode and copilot were never invoked at build time — the two
+# --version warm-ups that would have covered them are commented out below — so
+# the first thing to notice would have been a user's session.
+#
+# Second, `npm install -g "pkg@"` with an empty ARG resolves to latest, silently
+# unpinning the most privileged packages in the image. Comparing the installed
+# version against the ARG is what makes the pin load-bearing rather than
+# decorative. The Pi prewarm block below already asserts exactly this; these four
+# were the exception.
+RUN set -eu; \
+    check() { \
+      installed=$(node -p "require('/usr/local/lib/node_modules/$1/package.json').version" 2>/dev/null || true); \
+      if [ "$installed" != "$2" ]; then \
+        echo "ERROR: $1 installed as '${installed:-<missing>}' but the pin says '$2'" >&2; exit 1; \
+      fi; \
+      echo "  $1 == $2"; \
+    }; \
+    check "@anthropic-ai/claude-code" "${CLAUDE_CODE_VERSION}"; \
+    check "@openai/codex" "${CODEX_VERSION}"; \
+    check "opencode-ai" "${OPENCODE_VERSION}"; \
+    check "@github/copilot" "${COPILOT_VERSION}"; \
+    check "@earendil-works/pi-coding-agent" "${PI_CODING_AGENT_VERSION}"; \
+    for b in codex opencode copilot; do \
+      command -v "$b" >/dev/null || { echo "ERROR: $b is not on PATH after install+prune" >&2; exit 1; }; \
+    done; \
+    echo "agent CLIs: pins verified, binaries present"
+
 # Antigravity (Go-native binary, curl installer, not npm). Fatal on failure (no fallback).
 #
 # The installer itself is pinned by sha256; previously this was a bare

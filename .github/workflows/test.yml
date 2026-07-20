@@ -175,6 +175,34 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Shell syntax check
+        # Nothing in this repository has ever parsed entrypoint.sh — 3181 lines
+        # running as PID 1 in every session container, with `set -euo pipefail`.
+        # It is in exactly the position container-image.yml was in when an
+        # unparseable run: block shipped and CI stayed green: built on the deploy
+        # path, never executed by any lane. shellcheck was enabled for .github/**
+        # after that; this covers the rest of the tree.
+        #
+        # `bash -n` only, not shellcheck: a syntax error is unambiguously a bug,
+        # so the gate has no false positives and needs no severity policy. It
+        # would have caught the class that motivated it.
+        run: |
+          set -euo pipefail
+          mapfile -t SCRIPTS < <(git ls-files '*.sh')
+          if [ ${#SCRIPTS[@]} -eq 0 ]; then
+            echo "::error::No shell scripts found — this check is looking in the wrong place."
+            exit 1
+          fi
+          failed=0
+          for f in "${SCRIPTS[@]}"; do
+            if ! bash -n "$f" 2>/tmp/shellsyntax.err; then
+              echo "::error file=${f}::$(head -1 /tmp/shellsyntax.err)"
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ] && echo "Parsed ${#SCRIPTS[@]} shell script(s), all valid."
+          exit $failed
+
       - name: Agent seed generator drift guard
         # The committed src/lib/agent-seed.generated.ts must equal a fresh generation
         # from preseed/. `pretest` regenerates it during `npm test`, so a stale committed

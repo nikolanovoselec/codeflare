@@ -67,6 +67,14 @@ const artifactDirs = (() => {
 })();
 
 for (const suite of SUITES) {
+  // `laneResults[missing]` is undefined, and undefined !== 'success' takes the
+  // "lane was skipped, nothing to reconcile" branch — so adding a suite to
+  // suites.mjs without adding its lane to the LANES env in test.yml silently
+  // disarms the reconciler for that suite, which is the opposite of what
+  // suites.mjs promises. A JSON scalar or '{}' disarms all of them at once.
+  if (!Object.prototype.hasOwnProperty.call(laneResults, suite.lane)) {
+    fail(`${suite.name}: no lane result was passed for "${suite.lane}" — the reconciler cannot tell a skipped lane from a missing one. Add it to the LANES argument in test.yml.`);
+  }
   const laneResult = laneResults[suite.lane];
   const dirs = artifactDirs.filter((d) => suite.artifacts.some((a) => d.startsWith(a)));
   const reports = dirs.flatMap((d) => collect(join(root, d), (e) => e.endsWith('.json')));
