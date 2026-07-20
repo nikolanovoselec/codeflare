@@ -543,6 +543,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Post-deploy smoke (health)
+        id: smoke
         # /health is public (run_worker_first in wrangler.toml), so this needs
         # no auth. E2E_BASE_URL is the environment-scoped deployed base URL;
         # environments without it skip the smoke with a notice.
@@ -597,3 +598,22 @@ jobs:
         run: |
           export REGISTRY_URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${WORKER_NAME}-container:${IMAGE_TAG}"
           node scripts/ci/prune-registry.mjs
+
+      - name: Deploy summary
+        if: always()
+        env:
+          ENV_NAME: ${{ needs.prepare.outputs.env_name }}
+          IMAGE_TAG: ${{ needs.container.outputs.image_tag }}
+          REUSED: ${{ needs.container.outputs.reused }}
+          SMOKE: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "## Deploy summary"
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Environment | ${ENV_NAME} |"
+            echo "| Worker | ${WORKER_NAME} |"
+            echo "| Image tag | ${IMAGE_TAG} |"
+            echo "| Image reused (build/scan skipped) | ${REUSED} |"
+            echo "| Health smoke | ${SMOKE} |"
+          } >> "$GITHUB_STEP_SUMMARY"

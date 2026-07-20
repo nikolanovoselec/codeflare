@@ -28,8 +28,8 @@ Dependabot runs weekly against the `develop` branch for four npm package directo
 |----------|---------|-------------|
 | `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub) | Staged pipeline `prepare` → (`build-worker` ∥ `container` via `container-image.yml`) → `deploy`: applies config, deploys, sets secrets in bulk, smoke-checks `/health`, and prunes the registry. |
 | `container-image.yml` | `workflow_call` (from `deploy.yml`) | Reusable container build → Trivy scan → push, parameterized by registry (Cloudflare managed registry, or Docker Hub as connection-drop bypass). Tags images `in-<input-hash>` and **reuses the existing already-scanned image when inputs are unchanged**, skipping the multi-GB build+scan; a weekly hash salt bounds reuse at seven days. |
-| `test.yml` | PRs to `main` or `develop`, push to `main` + `workflow_dispatch` | Parallel path-filtered lanes: quality (lint/knip/audit/seed-drift), typecheck, backend tests (two vitest shards with the fail-closed gate), frontend, landing, host, dependency-review. The `summary` job (check name `test`, the required branch-protection context) fails on any failed/cancelled lane and passes skipped (unaffected) lanes. |
-| `zizmor.yml` | PRs and pushes touching `.github/**` + `workflow_dispatch` | Static security audit of the workflows themselves (template injection, pwn-request vectors, unpinned actions); SARIF to code scanning. Informational, not a required check. |
+| `test.yml` | PRs to `main` or `develop`, push to `main`, `workflow_dispatch` + nightly schedule (all lanes) | Parallel path-filtered lanes: quality (lint/knip/audit/seed-drift), typecheck, backend tests (two vitest shards with the fail-closed gate), frontend, landing, host, dependency-review. The `summary` job (check name `test`, the required branch-protection context) fails on any failed/cancelled lane and passes skipped (unaffected) lanes. |
+| `zizmor.yml` | PRs and pushes touching `.github/**` + `workflow_dispatch` | Static security audit of the workflows (template injection, pwn-request vectors, unpinned actions) via zizmor SARIF, plus a checksum-pinned `actionlint` job catching workflow-file errors GitHub reports only as jobless validation failures. Informational, not a required check. |
 | `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF. Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
 | `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
@@ -94,7 +94,7 @@ Tests are not re-run anywhere in this workflow — the `workflow_run` gate alrea
 
 ### Test Workflow Detail
 
-Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `workflow_dispatch`):
+Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `workflow_dispatch` and the nightly schedule):
 
 - **changes** — `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`; pipeline files (`test.yml`, `.github/actions/**`, `scripts/ci/**`, root package manifests) are in every filter so pipeline changes re-run everything.
 - **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --audit-level=high --omit=dev` (both).
@@ -102,7 +102,7 @@ Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `wor
 - **backend-tests** — two `vitest --shard` jobs through the composite action `.github/actions/backend-tests` (see [Backend Tests](#backend-tests) for the fail-closed gate). Shards halve the wall-clock of the suite that `maxWorkers: 1` forces serial. Shard 1 also carries the unsharded Pi-extension Node suite (`vitest.node.config.ts`) under the same JSON gate.
 - **frontend-tests** — web-ui build + vitest. **landing-tests** — Container-API render + unit tests. **host-tests** — `node --test` with the container-only exclusion list read from `host/__tests__/ci-excluded.txt`; installs rclone for the sync-filter behavioral tests.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
-- **summary** — check name `test` (the required branch-protection context). Fails when any needed lane failed or was cancelled; passes skipped lanes (their area was untouched).
+- **summary** — check name `test` (the required branch-protection context). Fails when any needed lane failed or was cancelled; passes skipped lanes (their area was untouched). Publishes a backend test-result table (`scripts/ci/render-test-summary.mjs`) to the run summary.
 
 ### PR Exact-Head Monitoring
 

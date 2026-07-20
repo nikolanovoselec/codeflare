@@ -92,7 +92,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The PR-check workflow triggers on every pull request to the main branch and on manual dispatch. <!-- @manual -->
+1. The PR-check workflow triggers on every pull request to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
 2. The workflow runs lint on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- @manual -->
 3. The workflow builds the frontend. <!-- @manual -->
 4. The workflow runs the backend suite (two vitest shards), frontend, landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
@@ -105,7 +105,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
-- Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
+- Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch and on the nightly schedule); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
 
 **Priority:** P0
 
