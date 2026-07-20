@@ -240,6 +240,8 @@ jobs:
     permissions:
       contents: read
       actions: write # type=gha buildx cache writes to the Actions cache service
+      id-token: write # the callee signs a build-provenance attestation
+      attestations: write # ...and stores it on this repository
     # zizmor: ignore[secrets-inherit] the callee binds inputs.environment, and
     # enterprise deploys rely on environment-scoped secret overrides. Explicit
     # pass-through is evaluated in THIS job's env-less context, so it would

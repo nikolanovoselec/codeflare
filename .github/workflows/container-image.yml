@@ -71,6 +71,8 @@ jobs:
     permissions:
       contents: read
       actions: write # type=gha buildx cache writes to the Actions cache service
+      id-token: write # OIDC identity the provenance attestation is signed against
+      attestations: write # store the attestation on this repository
     timeout-minutes: 30
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -132,9 +134,6 @@ jobs:
               line = ""
             }
           ' Dockerfile)
-                   | awk 'toupper($1) == "COPY" || toupper($1) == "ADD" {
-                            for (i = 2; i < NF; i++) if ($i !~ /^--/) print $i
-                          }')
 
           # --verify + explicit failure: without it, `git rev-parse HEAD:missing`
           # prints "HEAD:missing" to STDOUT and exits 128, and set -e does not
@@ -388,3 +387,38 @@ jobs:
             fi
           fi
           echo "Registry URI: ${REGISTRY_URI}"
+
+          # The manifest digest is what `gh attestation verify` resolves an image
+          # to, and it is only obtainable on the Docker Hub path: `docker push`
+          # populates RepoDigests, whereas `wrangler containers push` prints only
+          # "Pushed image: <uri>" and leaves the docker daemon unauthenticated
+          # against registry.cloudflare.com, so nothing here can read the manifest
+          # back. Attesting a config digest instead would produce an attestation
+          # the standard tooling cannot verify — theatre, not provenance.
+          if [ "${REGISTRY}" = "dockerhub" ]; then
+            DIGEST=$(docker image inspect "${REGISTRY_URI}" --format '{{index .RepoDigests 0}}' | cut -d@ -f2)
+            if [ -z "${DIGEST}" ]; then
+              echo "::error::Pushed to Docker Hub but could not read back the manifest digest"
+              exit 1
+            fi
+            echo "Manifest digest: ${DIGEST}"
+            echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Attest build provenance
+        # Only on the Docker Hub path: that is the one registry this pipeline
+        # pushes to that a third party can pull from, and the one where the
+        # manifest digest is available (see the push step). subject-name is the
+        # bare image name, never the registry URI — the URI embeds the Docker Hub
+        # username, which is a secret, and an attestation is public.
+        # push-to-registry stays false for the same reason plus the extra write
+        # scope it would need; `gh attestation verify` resolves by digest against
+        # this repository, so the attestation is still verifiable:
+        #   gh attestation verify oci://docker.io/<user>/<image>:<tag> \
+        #     --repo nikolanovoselec/codeflare
+        if: inputs.registry == 'dockerhub' && steps.reuse.outputs.reused != 'true'
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: false
