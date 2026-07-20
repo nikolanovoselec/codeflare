@@ -717,11 +717,16 @@ jobs:
           echo "Running $COUNT host tests ($(grep -c . ci-excluded.txt) excluded)."
 
       - name: Run host hook tests (node:test)
-        # host/__tests__/ci-excluded.txt lists exact filenames of tests that need
-        # graphify CLI, python3 graphify module, rclone state, or gh-in-PR-context
-        # that only exist inside the codeflare container. They run during
-        # development, not in CI. The file list comes from the reconcile step
-        # above so the selection is computed once and audited.
+        # host/__tests__/ci-excluded.txt lists tests that genuinely cannot run
+        # here. It used to hold 14 entries on the rationale that they need the
+        # graphify CLI, the python3 graphify module, rclone state or
+        # gh-in-PR-context — accurate for two of them and inherited by proximity
+        # for the other twelve, which between them carry ~167 assertions that
+        # were not running anywhere. Those twelve need at most bash, jq and
+        # rclone, all present on the runner (rclone is installed above), so they
+        # are back in the lane. The two that remain shell out to the graphify
+        # binary and its python module, which only exist inside the image.
+        # The file list comes from the selection step above, so it is audited.
         run: |
           set -euo pipefail
           xargs -a "$RUNNER_TEMP/host-tests.txt" \

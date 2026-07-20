@@ -1,14 +1,2 @@
-entrypoint-bisync-behavior.test.js
-entrypoint-context-mode.test.js
-entrypoint-graphify-bisync.test.js
 entrypoint-graphify-mcp.test.js
-entrypoint-hooks-merge.test.js
-entrypoint-shutdown.test.js
-enforce-review-spawn.test.js
-graphify-clone-prompt.test.js
 graphify-session-start.test.js
-lane-classifier.test.js
-memory-context-inject.test.js
-memory-prompt-iso-ts-assertions.test.js
-preseed-graphify-discipline.test.js
-skill-sdd-init-contract.test.js
