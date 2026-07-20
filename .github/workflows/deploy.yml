@@ -545,9 +545,14 @@ jobs:
       - name: Post-deploy smoke (health)
         # /health is public (run_worker_first in wrangler.toml), so this needs
         # no auth. E2E_BASE_URL is the environment-scoped deployed base URL;
-        # environments without it skip the smoke with a notice.
+        # environments without it skip the smoke with a notice. The browser
+        # user-agent matters: zone-level bot mitigation 403s curl's default UA
+        # from runner IPs before the request ever reaches the worker (seen on
+        # run 29713266135 while the same endpoint served 200 elsewhere) — a
+        # dead worker still fails this probe with any UA, so it stays honest.
         env:
           BASE: ${{ vars.E2E_BASE_URL }}
+          UA: 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'
         run: |
           if [ -z "$BASE" ]; then
             echo "::notice::No E2E_BASE_URL var for this environment — skipping post-deploy smoke"
@@ -555,7 +560,7 @@ jobs:
           fi
           CODE=000
           for i in 1 2 3 4 5; do
-            CODE=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/health" || echo 000)
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' -A "$UA" "$BASE/health" || echo 000)
             echo "Attempt $i: $BASE/health -> $CODE"
             if [ "$CODE" = "200" ]; then
               echo "Deployment healthy"
