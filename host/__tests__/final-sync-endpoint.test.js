@@ -108,9 +108,26 @@ const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
 // that goes stale (and silently re-inverts) if the budget is later raised.
 const containerMetrics = readFileSync(resolve(repoRoot, 'src/container/container-metrics.ts'), 'utf8');
 
+// Scope structural assertions to the real block rather than a fixed byte
+// window. A window is a proximity check: it silently truncates when the code
+// grows (this handler is already longer than the 2000 bytes that used to be
+// sliced) and it silently widens to swallow neighbouring code, so the assertion
+// stops meaning what it says in both directions.
+function routeBlock(name) {
+  const start = server.indexOf(`'${name}'`);
+  if (start === -1) return '';
+  const next = server.slice(start + 1).search(/pathname === '\/[^']+'/);
+  return next === -1 ? server.slice(start) : server.slice(start, start + 1 + next);
+}
+function shellFunctionBody(name) {
+  const start = entrypoint.indexOf(`${name}()`);
+  if (start === -1) return '';
+  const end = entrypoint.indexOf('\n}', start);
+  return entrypoint.slice(start, end === -1 ? undefined : end);
+}
+
 describe('REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)', () => {
-  const idx = server.indexOf("'/internal/final-sync'");
-  const block = server.slice(idx, idx + 2000);
+  const block = routeBlock('/internal/final-sync');
 
   it('exposes POST /internal/final-sync', () => {
     assert.ok(/pathname === '\/internal\/final-sync' && method === 'POST'/.test(server));
@@ -145,14 +162,14 @@ describe('REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)', () => {
 
 describe('REQ-SESSION-011 AC3: entrypoint completion signal (structural)', () => {
   it('update_sync_status stamps a monotonic epoch-ms ts', () => {
-    const i = entrypoint.indexOf('update_sync_status()');
-    assert.ok(i !== -1);
-    assert.ok(/ts:\s*\(now \* 1000 \| floor\)/.test(entrypoint.slice(i, i + 1200)));
+    const body = shellFunctionBody('update_sync_status');
+    assert.ok(body, 'update_sync_status must be defined in entrypoint.sh');
+    assert.ok(/ts:\s*\(now \* 1000 \| floor\)/.test(body));
   });
 
   it('the daemon emits syncing immediately before each bisync run', () => {
-    const i = entrypoint.indexOf('Starting background bisync daemon');
-    assert.ok(i !== -1);
-    assert.ok(/update_sync_status "syncing"/.test(entrypoint.slice(i, i + 4000)));
+    const body = shellFunctionBody('start_sync_daemon');
+    assert.ok(body, 'start_sync_daemon must be defined in entrypoint.sh');
+    assert.ok(/update_sync_status "syncing"/.test(body));
   });
 });

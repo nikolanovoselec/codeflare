@@ -71,11 +71,16 @@ jobs:
     permissions:
       contents: read
       actions: write # type=gha buildx cache writes to the Actions cache service
+      id-token: write # OIDC identity the provenance attestation is signed against
+      attestations: write # store the attestation on this repository
     timeout-minutes: 30
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+      # Registry credentials are deliberately NOT job-level. At job scope they
+      # sit in process.env for every third-party action in this job —
+      # docker/login-action, setup-buildx, trivy-action, actions/cache,
+      # attest-build-provenance — none of which need them, so one compromised
+      # release of any of them reads a production Cloudflare deploy token. Only
+      # the two steps that talk to a registry declare them.
       IMAGE_NAME: ${{ inputs.worker-name }}-container
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     outputs:
@@ -94,7 +99,12 @@ jobs:
           # Every path the Dockerfile COPYs, plus the Dockerfile itself. The
           # weekly salt forces at most one rebuild+rescan per ISO week even
           # with unchanged inputs (fresh @latest agents, fresh CVE verdict).
-          HASHED_PATHS="Dockerfile entrypoint.sh host preseed scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs src/lib/agent-seed.generated.ts"
+          # .dockerignore decides what the COPYs actually include and
+          # .trivyignore decides which CVEs the scan tolerates. Neither was
+          # hashed, so deleting a suppression left the tag identical, the reuse
+          # probe hit, and build+scan+push were skipped — the image shipped with
+          # the CVE and the scan that would now fail never ran.
+          HASHED_PATHS="Dockerfile .dockerignore .trivyignore entrypoint.sh host preseed scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs src/lib/agent-seed.generated.ts"
 
           # Guard: every COPY source in the Dockerfile must be covered by
           # HASHED_PATHS — otherwise the reuse gate could serve a stale image
@@ -109,8 +119,47 @@ jobs:
                 NO_REUSE=1
                 ;;
             esac
-          done < <(awk '$1 == "COPY" && $2 !~ /^--from/ { for (i = 2; i < NF; i++) print $i }' Dockerfile)
+          # Join line continuations, then match COPY *and* ADD case-insensitively
+          # and drop flag words. The previous form matched only uppercase COPY,
+          # never saw ADD, and read just the first line of a `COPY a \\`
+          # continuation — every one of those is a content-injecting instruction
+          # the reuse gate would not have seen, so an image could be reused
+          # without the new content ever being built or scanned.
+          # `--from=` instructions copy from an earlier build stage, not from the
+          # repo, so they are skipped whole (emitting their paths would trip the
+          # unknown-source branch and disable reuse on every build).
+          done < <(awk '
+            {
+              line = line $0
+              if (sub(/\\[ \t]*$/, " ", line)) next
+              # sub() first: split() on an EXPLICIT separator does not strip
+              # leading whitespace the way the default FS does, so an indented
+              # COPY would land "" in f[1] and the instruction would go unseen —
+              # silently reintroducing the blind spot this rewrite closed.
+              sub(/^[ \t]+/, "", line)
+              n = split(line, f, /[ \t]+/)
+              inst = toupper(f[1])
+              if (inst == "COPY" || inst == "ADD") {
+                from_stage = 0
+                for (i = 2; i <= n; i++) if (f[i] ~ /^--from/) from_stage = 1
+                if (!from_stage) for (i = 2; i < n; i++) if (f[i] !~ /^--/) print f[i]
+              }
+              line = ""
+            }
+          ' Dockerfile)
 
+          # --verify + explicit failure: without it, `git rev-parse HEAD:missing`
+          # prints "HEAD:missing" to STDOUT and exits 128, and set -e does not
+          # fire inside this loop. A renamed path or a typo in HASHED_PATHS would
+          # then contribute a constant literal instead of that file's content
+          # hash — silently, permanently, and with a normal-looking tag — so the
+          # image would stop tracking one of its own build inputs.
+          for p in $HASHED_PATHS; do
+            git rev-parse --verify --quiet "HEAD:$p" >/dev/null || {
+              echo "::error::HASHED_PATHS entry '$p' does not resolve at HEAD — the image input hash would silently stop tracking it. Fix the path in container-image.yml."
+              exit 1
+            }
+          done
           HASH=$( { for p in $HASHED_PATHS; do git rev-parse "HEAD:$p"; done; echo "week=$(date -u +%G-W%V)"; } | sha256sum | cut -c1-16 )
           echo "tag=in-${HASH}" >> "$GITHUB_OUTPUT"
           echo "no_reuse=${NO_REUSE}" >> "$GITHUB_OUTPUT"
@@ -130,6 +179,9 @@ jobs:
         env:
           TAG: ${{ steps.hash.outputs.tag }}
           REGISTRY: ${{ inputs.registry }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           if [ "${REGISTRY}" = "dockerhub" ]; then
             URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
@@ -149,7 +201,12 @@ jobs:
               echo "::warning::could not mint registry credentials — building fresh"
               exit 0
             fi
+            # Mask the minted credential before it can reach a log. It is a live
+            # registry password with a 10-minute window; without this any later
+            # `set -x`, jq error, or debug dump prints it verbatim.
+            echo "::add-mask::$(printf '%s' "$CRED" | jq -r .result.password)"
             AUTH=$(printf '%s:%s' "$(printf '%s' "$CRED" | jq -r .result.username)" "$(printf '%s' "$CRED" | jq -r .result.password)" | base64 -w0)
+            echo "::add-mask::${AUTH}"
             ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
             CODE=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
               "https://registry.cloudflare.com/v2/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}/manifests/${TAG}" || echo 000)
@@ -206,10 +263,12 @@ jobs:
         # Self-hosted runners instead accumulate tagged images from prior
         # deploys in /var/lib/docker, so prior *-container images and dangling
         # layers are dropped too — everything except the image we scan next.
+        env:
+          # Through the environment, never interpolated into the script body.
+          KEEP: ${{ steps.docker-build.outputs.local_ref }}
         run: |
           sudo mkdir -p /mnt/trivy-tmp /mnt/trivy-cache
           sudo chmod 1777 /mnt/trivy-tmp /mnt/trivy-cache
-          KEEP="${{ steps.docker-build.outputs.local_ref }}"
           # Guard: an empty KEEP would make grep -vxF match nothing and delete
           # the scan target too.
           if [ -n "$KEEP" ]; then
@@ -254,10 +313,46 @@ jobs:
           trivyignores: .trivyignore
           timeout: 15m
 
+      - name: Generate an SBOM for the image
+        if: steps.reuse.outputs.reused != 'true'
+        # The Trivy scan answers "are there known CVEs today". It does not answer
+        # "what is actually in this image", which is the question asked after a
+        # new CVE lands — and answering it by re-scanning assumes the image is
+        # still pullable and still the one that shipped. A CycloneDX SBOM
+        # recorded at build time answers it from the artifact itself.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TMPDIR: /mnt/trivy-tmp
+          TRIVY_CACHE_DIR: /mnt/trivy-cache
+        with:
+          image-ref: ${{ steps.docker-build.outputs.local_ref }}
+          scan-type: image
+          format: cyclonedx
+          output: /tmp/sbom.cdx.json
+          # An SBOM is an inventory, not a gate — findings are the scan's job.
+          exit-code: 0
+          timeout: 15m
+
+      - name: Upload the SBOM
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ inputs.registry }}-${{ steps.hash.outputs.tag }}
+          path: /tmp/sbom.cdx.json
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Install wrangler (pinned to the repo's devDependency version)
         if: steps.reuse.outputs.reused != 'true' && inputs.registry == 'cloudflare'
         # This job never runs `npm ci` (nothing else here needs node_modules),
         # so wrangler is installed globally at the exact pinned version.
+        #
+        # zizmor: ignore[adhoc-packages] the version is not ad-hoc: it is read
+        # out of this repo's own package.json devDependency, so it moves only
+        # when the lockfile-managed pin moves. Installing from the lockfile
+        # instead would mean an `npm ci` of the full tree in a job that
+        # otherwise needs no node_modules. Residual gap: a global install
+        # verifies no integrity hash, unlike a lockfile install.
         run: npm install -g "wrangler@$(node -p "require('./package.json').devDependencies.wrangler")"
 
       - name: Push image
@@ -266,6 +361,9 @@ jobs:
         env:
           TAG: ${{ steps.hash.outputs.tag }}
           REGISTRY: ${{ inputs.registry }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           if [ "${REGISTRY}" = "dockerhub" ]; then
             REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
@@ -305,7 +403,12 @@ jobs:
               sleep 30
             done
             # Extract the registry URI from the "Pushed image:" line (includes tag)
-            REGISTRY_URI=$(grep -oP '(?<=Pushed image: )registry\.cloudflare\.com/\S+' /tmp/push-output.txt | head -1)
+            # `|| true` so the diagnostic below is actually reachable: steps run
+            # under `bash -eo pipefail`, and VAR=$(failing pipeline) trips set -e
+            # at the assignment, so the `cat` that dumps the push output — the
+            # only thing that tells you WHY extraction failed — never ran. `head`
+            # can also take SIGPIPE and return 141 under pipefail.
+            REGISTRY_URI=$(grep -oP '(?<=Pushed image: )registry\.cloudflare\.com/\S+' /tmp/push-output.txt | head -1 || true)
             if [ -z "$REGISTRY_URI" ]; then
               echo "::error::Failed to extract registry URI from wrangler containers push output"
               cat /tmp/push-output.txt
@@ -313,3 +416,70 @@ jobs:
             fi
           fi
           echo "Registry URI: ${REGISTRY_URI}"
+
+          # Provenance is keyed on the digest the REGISTRY assigned, because that
+          # is what `gh attestation verify` resolves an image reference to. A
+          # config digest would produce an attestation the standard tooling
+          # cannot check, so both paths read the real manifest digest back or
+          # fail — an unverifiable attestation is worse than none.
+          if [ "${REGISTRY}" = "dockerhub" ]; then
+            # Guard the empty case in the template, not after the fact: steps run
+            # as `bash -e`, and `index` on an empty RepoDigests slice fails the
+            # command, aborting the step before the check below could report why.
+            DIGEST=$(docker image inspect "${REGISTRY_URI}" \
+              --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' | cut -d@ -s -f2)
+          else
+            # `wrangler containers push` prints no digest and leaves the docker
+            # daemon unauthenticated against registry.cloudflare.com — but the
+            # reuse gate above proves the manifest is readable anyway: mint the
+            # same short-lived pull credential and take Docker-Content-Digest off
+            # the response. Same Accept set as the reuse probe, so the digest
+            # returned is for the same representation.
+            CRED=$(curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/containers/registries/registry.cloudflare.com/credentials" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' \
+              --data '{"expiration_minutes":10,"permissions":["pull"]}')
+            if [ "$(printf '%s' "$CRED" | jq -r .success)" != "true" ]; then
+              echo "::error::Could not mint registry credentials to read back the pushed manifest digest"
+              exit 1
+            fi
+            # Mask the minted credential before it can reach a log. It is a live
+            # registry password with a 10-minute window; without this any later
+            # `set -x`, jq error, or debug dump prints it verbatim.
+            echo "::add-mask::$(printf '%s' "$CRED" | jq -r .result.password)"
+            AUTH=$(printf '%s:%s' "$(printf '%s' "$CRED" | jq -r .result.username)" "$(printf '%s' "$CRED" | jq -r .result.password)" | base64 -w0)
+            echo "::add-mask::${AUTH}"
+            ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
+            DIGEST=$(curl -sS -o /dev/null -D - -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
+              "https://registry.cloudflare.com/v2/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}/manifests/${TAG}" \
+              | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }')
+          fi
+
+          case "${DIGEST}" in
+            sha256:*) ;;
+            *)
+              echo "::error::Pushed to ${REGISTRY} but could not read back a manifest digest (got '${DIGEST}') — refusing to attest an unverifiable subject"
+              exit 1
+              ;;
+          esac
+          echo "Manifest digest: ${DIGEST}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        # Runs on BOTH registries, so the production path is covered rather than
+        # only the emergency bypass. Skipped when the image was reused: no new
+        # artifact was produced, and the identical-input image already carries
+        # the attestation from the build that created it.
+        #
+        # subject-name is the bare image name, never the registry URI — the URI
+        # embeds the account id / Docker Hub username, and an attestation is
+        # PUBLIC. push-to-registry stays false for the same reason plus the extra
+        # write scope it would need; `gh attestation verify` resolves by digest
+        # against this repository, so the attestation is still verifiable:
+        #   gh attestation verify oci://<registry>/<path>:<tag> \
+        #     --repo nikolanovoselec/codeflare
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: false

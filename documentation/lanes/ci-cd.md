@@ -20,30 +20,30 @@ Workflows covering deploy, testing, fuzzing, penetration testing, stress testing
 
 ### Dependabot Configuration
 
-Dependabot runs weekly against the `develop` branch for four npm package directories (`/`, `/web-ui`, `/host`, `/landing`), Docker images, and GitHub Actions. The stress workflow installs Wrangler from the root `package.json` devDependency, so the root npm Dependabot lane owns the Wrangler version rather than a second workflow-local pin.
+Dependabot runs weekly against the `develop` branch for four npm package directories (`/`, `/web-ui`, `/host`, `/landing`), Docker images, and GitHub Actions. Every ecosystem declares a `cooldown` (7 days default, 30 for majors — 7 is zizmor's floor for `default-days`): the npm compromise pattern is publish-malicious-version and wait for automation to pull it within hours, so a waiting period lets the ecosystem revoke a bad release before a bot proposes it. The stress workflow installs Wrangler from the root `package.json` devDependency, so the root npm Dependabot lane owns the Wrangler version rather than a second workflow-local pin.
 
 **Node Docker image major updates are ignored.** The `docker.io/library/node` and `public.ecr.aws/docker/library/node` images are pinned to suppress semver-major proposals. Dependabot would otherwise propose Node Current (odd, non-LTS) releases such as Node 25. Node major upgrades are handled manually when a new LTS version is released (even major: 22, 24, 26, ...).
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
-| `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub) | Staged pipeline `prepare` → (`build-worker` ∥ `container` via `container-image.yml`) → `deploy`: applies config, deploys, sets secrets in bulk, smoke-checks `/health`, and prunes the registry. |
+| `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub) | Staged pipeline `prepare` → (`build-worker` ∥ `container` via `container-image.yml`) → `deploy`: applies config, deploys, sets secrets in bulk, and prunes the registry. |
 | `container-image.yml` | `workflow_call` (from `deploy.yml`) | Reusable container build → Trivy scan → push, parameterized by registry (Cloudflare managed registry, or Docker Hub as connection-drop bypass). Tags images `in-<input-hash>` and **reuses the existing already-scanned image when inputs are unchanged**, skipping the multi-GB build+scan; a weekly hash salt bounds reuse at seven days. |
-| `test.yml` | PRs to `main` or `develop`, push to `main`, `workflow_dispatch` + nightly schedule (all lanes) | Parallel path-filtered lanes: quality (lint/knip/audit/seed-drift), typecheck, backend tests (two vitest shards with the fail-closed gate), frontend, landing, host, dependency-review. The `summary` job (check name `test`, the required branch-protection context) fails on any failed/cancelled lane and passes skipped (unaffected) lanes. |
-| `zizmor.yml` | PRs and pushes touching `.github/**` + `workflow_dispatch` | Static security audit of the workflows (template injection, pwn-request vectors, unpinned actions) via zizmor SARIF, plus a checksum-pinned `actionlint` job catching workflow-file errors GitHub reports only as jobless validation failures. Informational, not a required check. |
+| `test.yml` | PRs to `main` or `develop`, push to `main`, `merge_group`, `workflow_dispatch` + nightly schedule (all lanes) | Parallel path-filtered lanes: quality (lint/knip/audit/seed-drift), typecheck, workflow audit, bundle size, coverage, every vitest suite through one fail-closed action (four backend shards, a Node leg, three frontend shards, landing), host, dependency-review. The `summary` job (check name `test`, the required branch-protection context) fails on any failed/cancelled lane and passes skipped (unaffected) lanes. |
+| `zizmor.yml` | PRs and pushes touching `.github/**` + `workflow_dispatch` | Records the workflow security audit as SARIF in code scanning, so the alert history is preserved. It only records — the blocking check is the `workflow-audit` lane in `test.yml`. Its zizmor version is pinned (the action defaults to `latest`, which floats the auditor). |
 | `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF. Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
 | `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
 | `stress-test.yml` | `workflow_dispatch` | k6 stress tests from `stress/` (API throughput, session lifecycle, storage operations, rate-limit validation) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
-| `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, the `chrome-devtools-mcp` Dockerfile baked-cache pin, every Pi preseed npm pin, and the vendored Impeccable skill bundle for Claude Code + Pi. |
+| `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, the `chrome-devtools-mcp` Dockerfile baked-cache pin, every Pi preseed npm pin, the vendored Impeccable skill bundle for Claude Code + Pi, and the `actionlint` + `zizmor` versions pinned in `test.yml` / `zizmor.yml`. |
 
 Additional details:
 
 **Docker Hub bypass (`registry: dockerhub`):** the former `deploy-dockerhub.yml` near-copy is replaced by a `registry` dispatch input on `deploy.yml`; `container-image.yml` pushes to Docker Hub instead of `registry.cloudflare.com` when the managed registry drops connections mid-upload. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets and (after first push) flipping the auto-created Docker Hub repo to Public so the Cloudflare container runtime can pull without auth. Before the Trivy scan the workflow frees runner disk — removes prior images (keeping the scan target) and prunes dangling layers — so the image export does not exhaust the Docker data root on a persistent self-hosted runner (the `RUNNER` Actions variable; defaults to `ubuntu-latest`).
 
-**`bump-shadow-pins.yml`:** Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, the `chrome-devtools-mcp` Dockerfile baked-cache pin, every Pi preseed npm pin, and the vendored Impeccable skill bundle for Claude Code + Pi. Opens one PR per bump and regenerates matching lockfiles/agent seed when duplicated literals change. Pi lockfile-only regeneration goes through `scripts/regenerate-pi-preseed-lock.mjs`, which suppresses lifecycle scripts because the committed payload layout differs deliberately from the flattened runtime npm layout. SHA256 checksums are invalidated on Dockerfile-binary bumps.
+**`bump-shadow-pins.yml`:** Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, the `chrome-devtools-mcp` Dockerfile baked-cache pin, every Pi preseed npm pin, the vendored Impeccable skill bundle for Claude Code + Pi, and the `actionlint` + `zizmor` versions pinned in `test.yml` / `zizmor.yml`. Opens one PR per bump and regenerates matching lockfiles/agent seed when duplicated literals change. Pi lockfile-only regeneration goes through `scripts/regenerate-pi-preseed-lock.mjs`, which suppresses lifecycle scripts because the committed payload layout differs deliberately from the flattened runtime npm layout. SHA256 checksums are invalidated on Dockerfile-binary bumps; the `actionlint` job is the exception - upstream publishes a `checksums.txt`, so the job resolves the new hash, re-verifies it against the downloaded artifact, and commits a merge-ready pin.
 
-**`bump-shadow-pins.yml` permissions:** top-level is `contents: read`; each job that pushes a bump branch and opens a PR elevates itself to `contents: write` + `pull-requests: write`, while `pi-extensions-discover` stays read-only (it only lists package names).
+**`bump-shadow-pins.yml` permissions:** top-level is `contents: read`; each job that pushes a bump branch and opens a PR elevates itself to `contents: write` + `pull-requests: write`, while `pi-extensions-discover` stays read-only (it only lists package names). No job persists checkout credentials — the default would leave the token in `.git/config` for every later step, including the install scripts `npm ci` runs in the lockfile-regenerating jobs — so checkouts set `persist-credentials: false` and the push authenticates explicitly instead (zizmor `artipacked`). Branch-existence probes use unauthenticated `ls-remote`, which works because the repository is public.
 
 The OpenVSCode job validates upstream release tags against a strict version pattern before creating outputs. Its write-enabled shell steps receive the validated version and derived branch through quoted environment variables, so release metadata is never parsed as shell source ([REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation)).
 
@@ -57,6 +57,19 @@ The `pi-extensions` bump is data-driven: the `pi-extensions-discover` job lists 
 | `integration` | `deploy.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
 
 The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
+
+`production` is restricted to `main` by a deployment branch policy, mirroring the in-workflow branch guard in `deploy.yml` so a dispatch from any other ref cannot reach it. It carries no required-reviewer rule: a green PR Checks run is the gate, and the reviewer approval it replaced was self-approval by the sole maintainer, which paused three separate jobs without adding assurance.
+
+### Branch protection
+
+| Branch | Required checks | Bypass |
+|--------|-----------------|--------|
+| `main` | `test`, `CodeQL`, `Property-based fuzzing` | none |
+| `develop` | `test` | repository admin |
+
+Required status checks apply to direct pushes, not merges alone. `test.yml` has no `push` trigger for `develop`, so a locally authored commit cannot acquire the `test` check and a direct push to `develop` is rejected — the admin bypass exists so an emergency push is still possible. The release-time `git push -f origin main:develop` reset is unaffected, because that SHA already carries a green `test` from `main`.
+
+Workflow references are SHA-pinned repository-wide (`sha_pinning_required`); a `uses:` on a tag or branch is rejected at the Actions level rather than caught in review.
 
 ### GitHub Secrets and Variables
 
@@ -73,7 +86,7 @@ Non-default mode credentials, optional deployment variables, environment overrid
 
 **Workflow permissions:** top-level is `contents: read` (read-only default); the `container` job adds `actions: write` (required only for `type=gha` BuildKit cache writes). Code-scanning least-privilege hardening (#56).
 
-Job graph: `prepare` → (`build-worker` ∥ `container`) → `deploy`. The pwn-request gate (workflow_run must be a same-repo `push` event that concluded green) is repeated on every job because a job skipped via `if:` counts as success for `needs:` resolution.
+Job graph: `verify` → `prepare` → (`build-worker` ∥ `container`) → `deploy` → `outcome`. `verify` runs PR Checks inline on manual dispatch (skipped on `workflow_run`, where the trigger already guarantees a green run for the same SHA); `outcome` fails a run in which nothing was deployed, so a green Deploy means a deploy happened. The pwn-request gate (workflow_run must be a same-repo `push` event that concluded green) is repeated on every job because a job skipped via `if:` counts as success for `needs:` resolution.
 
 1. **prepare** — blocks production dispatches from non-main branches; resolves the environment name, checkout ref (the exact SHA whose PR Checks ended green), worker name, and cache-bust flag once for all downstream jobs.
 2. **build-worker** — builds frontend, then landing (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), uploads `web-ui/dist` as a 1-day artifact.
@@ -83,15 +96,16 @@ Job graph: `prepare` → (`build-worker` ∥ `container`) → `deploy`. The pwn-
    - Otherwise buildx builds with a `type=gha` layer cache; the base image comes from `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits).
    - Trivy scans HIGH/CRITICAL with `ignore-unfixed: true` and `.trivyignore` for consciously accepted fixable CVEs (daily-cached vuln DB) — see [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011).
    - Push runs in a bounded retry loop (30 attempts, 30s apart); a COPY-coverage guard disables reuse if a Dockerfile COPY source ever falls outside the hashed path set.
+   - The hashed path set also covers `.dockerignore` and `.trivyignore`: a deleted CVE suppression previously left the reuse tag unchanged, so the image was reused and the scan that would now fail never ran.
+   - Registry credentials are step-scoped rather than job-level, so the third-party build and scan actions sharing the job never see them in their environment. The minted registry password and the Basic-auth token derived from it are `::add-mask::`ed before first use, since a 10-minute credential still leaks through any later `set -x` or error dump.
 4. **deploy** — deploys the worker off the pre-built artifacts:
    - Downloads the dist artifact, resolves/creates the KV namespace, and patches `wrangler.toml`.
    - Applies worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB; all tiers default to 10 max instances, `MAX_INSTANCES` overrides) and points `image` at the pre-pushed registry URI.
    - Runs `npx wrangler deploy` with `--var` runtime config inside the same bounded retry loop (30×30s — a transient CF control-plane error such as 100146 "Worker version not found" never wastes the completed build).
    - Uploads all worker secrets in **one `wrangler secret bulk` call** (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, mode-gated Resend/Stripe/OAuth/AIG secrets, optional `ENCRYPTION_KEY`); seeds the service user in KV when a service-auth secret is configured.
-   - **Smoke-checks `GET /health`** (public route, 5 attempts) against the environment's `E2E_BASE_URL` variable; anything but 200 fails the deploy, except a zone-edge bot-mitigation 403 (impossible from the worker on this public route), which passes with a warning.
    - Finally prunes old registry images via `scripts/ci/prune-registry.mjs` — best-effort, digest-alias-protected; keeps the 10 newest tags, the deployed tag, and any tag whose creation time failed to resolve.
    - The unresolved-creation-time hold is fail-closed — a flaked config-blob fetch never deletes a potentially recent image; such tags become prunable again once a later run resolves them.
-   - Always (even on failure) publishes a **Deploy summary** table (environment, worker, image tag, whether the image was reused, health-smoke outcome) to the run summary.
+   - Always (even on failure) publishes a **Deploy summary** table (environment, worker, image tag, whether the image was reused) to the run summary.
 
 Tests are not re-run anywhere in this workflow — the `workflow_run` gate already proved a green PR Checks run for the exact deployed SHA.
 
@@ -99,13 +113,27 @@ Tests are not re-run anywhere in this workflow — the `workflow_run` gate alrea
 
 Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `workflow_dispatch` and the nightly schedule):
 
-- **changes** — `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`; pipeline files (`test.yml`, `.github/actions/**`, `scripts/ci/**`, root package manifests) are in every filter so pipeline changes re-run everything.
-- **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --audit-level=high --omit=dev` (both).
+- **changes** — `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `workflows`. `changes.outputs.full` (the filter step's own `skipped` outcome) is the single flag meaning "no diff was filtered, run everything".
+- **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --audit-level=high --omit=dev` (both), and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
-- **backend-tests** — two `vitest --shard` jobs via `.github/actions/backend-tests` ([Backend Tests](#backend-tests) has the fail-closed gate). Shards halve the wall-clock of the `maxWorkers: 1`-forced suite; Shard 1 also carries the unsharded Pi-extension Node suite (`vitest.node.config.ts`) under the same JSON gate.
-- **frontend-tests** — web-ui build + vitest. **landing-tests** — Container-API render + unit tests. **host-tests** — `node --test` with the container-only exclusion list read from `host/__tests__/ci-excluded.txt`; installs rclone for the sync-filter behavioral tests.
+- **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
+- **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
+- **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
+- **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
-- **summary** — check name `test` (the required branch-protection context). Fails when any needed lane failed or was cancelled; passes skipped lanes (their area was untouched). Publishes a backend test-result table (`scripts/ci/render-test-summary.mjs`) to the run summary.
+- **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
+- **bundle-size** — `wrangler deploy --dry-run` against a patched config, gated on `scripts/ci/check-bundle-size.mjs` ([REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy)).
+- **summary** — check name `test` (the required branch-protection context). Fails when any needed lane failed or was cancelled; passes skipped lanes (their area was untouched).
+
+**Why the filters are broad:** the shared anchor — pipeline files, root manifests, the Dockerfile and its ignore/suppression lists, both vitest node-suite files, the lint and dead-code rulesets — sits in every filter, so anything that can change what a lane MEANS re-runs every lane. `host` additionally takes all of `.github/**`, because its tests assert on the structure of other workflows.
+
+**Why shard count is the lever:** each backend shard runs its Workers pool across several workers (`maxWorkers` in `vitest.config.ts`, capped at 4 because every worker is a full workerd + miniflare instance). Most of a shard's wall clock is per-file transform and isolate setup, roughly half of it in the main process where extra workers cannot help — and that half divides across shards.
+
+**Why workflow-audit runs its own binary:** zizmor exits 12 on any finding, so a template-injection or credential-persistence defect fails the merge rather than surfacing later as an alert nobody reads (this repo carried 60 such alerts before they were swept). `zizmor-action`'s failure semantics depend on whether it is uploading SARIF, and a gate must be unambiguous about when it fires. Findings that are correct-as-written carry an inline `# zizmor: ignore[rule]` with the reason, on the finding's own line.
+
+**Why bundle-size patches the config:** Cloudflare rejects an oversized Worker at deploy time, so without this the discovery point is a failed production deploy. The patch repoints `[[containers]].image` away from `./Dockerfile`, because otherwise the dry run *builds the container image* that `container-image.yml` already builds and content-addresses — roughly three minutes of duplicated work for a number printed before the build starts.
+
+**What summary reconciles:** every suite's coverage via `scripts/ci/check-suite-completeness.mjs` (see [Backend Tests](#backend-tests)), publishing a test-result table through `scripts/ci/render-test-summary.mjs` to the run summary.
 
 ### PR Exact-Head Monitoring
 
@@ -130,11 +158,21 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 ### Backend Tests
 
-**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
+**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** istanbul provider — the v8 provider profiles through the Node host's V8 inspector, which cannot see inside workerd isolates and reports a flat 0% for this suite. Thresholds live in each suite's own vitest config and are enforced by the `coverage` lane on PRs, pushes, the nightly schedule and manual dispatch. It runs per-PR so a regression fails before merge: gated post-merge only, a dip turned `test` red on `main` after the fact and `deploy.yml` then silently declined to deploy an already-merged commit ([REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)).
 
-**CI workerd crash guard (fail-closed):** `@cloudflare/vitest-pool-workers` crashes `workerd` at pool teardown after all tests pass — a known upstream limitation of WebSockets + Durable Objects under per-file storage isolation, still present on 0.18.x/vitest 4 (the documented alternative `--max-workers=1 --no-isolate` crashes this suite at collection).
+Measured 2026-07-20 on the first run that ever executed them: backend 90.2% statements / 82.7% branches, web-ui 77.4% / 66.0%. Thresholds sit ~2 points under those, because the previous 53/43 and 32/27 sat 37 and 45 points below actual and would have passed a suite with most of its tests deleted.
 
-The composite action `.github/actions/backend-tests` runs `npm test` (optionally with `--shard`) with `--reporter=dot --reporter=json`, then gates via `scripts/ci/check-backend-test-report.mjs` on the **machine-readable JSON report**, never on reporter prose: a zero exit still requires a parsed report with >0 tests and 0 failures (catches silently-empty runs); a non-zero exit is accepted only when the report parses with >0 tests, 0 failed tests, 0 failed suites, AND the log carries the exact fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.`. A missing or corrupt report, an unknown error, or any failed test fails the job. Deploy does not re-run tests, so the guard lives only here.
+**CI workerd crash guard (fail-closed):** `@cloudflare/vitest-pool-workers` crashes `workerd` at pool teardown after all tests pass — a known upstream limitation of WebSockets + Durable Objects under per-file storage isolation, still present on 0.18.x/vitest 4 (the documented alternative `--max-workers=1 --no-isolate` crashes this suite at collection). Serializing the pool never fixed it — the crash is at teardown, not a concurrency race — so the pool runs parallel and the gate, not serialization, is what makes the result trustworthy. The coverage lane tolerates that fingerprint only after it has confirmed a coverage table was produced, no test failed, and no threshold was missed ([REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)).
+
+The composite action `.github/actions/vitest-suite` is how **every** suite runs — backend shards, the Node leg, frontend shards, landing. It invokes the suite's npm script (optionally with `--shard`) with `--reporter=dot --reporter=json`, then gates via `scripts/ci/check-vitest-report.mjs` on the **machine-readable JSON report**, never on reporter prose: a zero exit still requires a parsed report with >0 tests and 0 failures (catches silently-empty runs).
+
+A non-zero exit is accepted only when the report parses with >0 tests, 0 failed tests, 0 failed suites, AND the log carries the exact fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.`. A missing or corrupt report, an unknown error, or any failed test fails the job. Crash tolerance is opt-in per suite (`tolerate-pool-crash`), because only the Workers pool has that bug ([REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports)) — a non-zero exit from the jsdom or Node suites stays fatal. Deploy does not re-run tests, so the guard lives only here.
+
+**Dependency installs** go through `.github/actions/install-deps` (lockfile-keyed cache, `npm ci --prefer-offline --no-audit --no-fund` only on a miss, each attempt wrapped in `timeout` so a *hung* registry connection is retried rather than waited on forever, plus `NODE_COMPILE_CACHE` for the V8 bytecode cache Node 22+ shares between processes). Every lane used to copy-paste that pair and they drifted; one action means one cache-key convention.
+
+**Cross-suite completeness gate (fail-closed):** a per-run gate can only vouch for files it was handed, so `scripts/ci/check-suite-completeness.mjs` runs in the `summary` job and reconciles the union of every report against the test files actually in the tree, for each suite registered in `scripts/ci/suites.mjs` ([REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports)).
+
+A file lost to a mis-shard, a stale exclude, or a worker dying mid-run fails the required context instead of passing as a smaller-but-green run. It also fails when a lane reported success yet uploaded no reports (a flaked artifact download cannot silently disarm the gate), and when two shards both claim the same file — a split disagreement, whose mirror image is a file nobody ran. `vitest.node-suite.mjs` is the single list of Node-runtime backend tests, shared by both vitest configs and this gate.
 
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
 
@@ -190,7 +228,10 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 - [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) - PR checks run lint, test, typecheck, and security audit
 - [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) - Weekly fuzz testing
 - [REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation) - Shadow-pin version bump automation
-- [REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis) - Workflow-file static analysis (zizmor + actionlint, informational)
+- [REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis) - Workflow-file static analysis (zizmor + actionlint)
+- [REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) - Coverage-threshold gate fails closed on missing evidence
+- [REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports) - Suite results are gated on machine-readable reports
+- [REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy) - Worker bundle size is gated before it can fail a deploy
 
 ---
 

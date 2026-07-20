@@ -2,7 +2,23 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-21
+
+- **The Worker bundle-size gate has a REQ** ([REQ-OPS-024](operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy), new; Implemented). Existing CI behaviour, previously unspecified: the size comes from wrangler's own dry-run output, an over-budget bundle fails the PR rather than the next production deploy, and a missing, multiple or malformed measurement fails rather than guessing.
+
+- **Suite report-gating is its own REQ** ([REQ-OPS-023](operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports), new; [REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) stays Implemented). No behaviour change: REQ-OPS-003 AC4 bundled the report gate with the teardown-crash carve-out in one criterion, and AC5 carried the cross-suite reconciliation. All three move to a REQ about how a lane reaches its verdict, leaving REQ-OPS-003 about which checks run.
+
+- **The coverage-threshold gate has a REQ** ([REQ-OPS-022](operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence); Implemented). Existing CI behaviour, previously unspecified: the lane proves a coverage table was produced before judging anything, treats a threshold miss or a test failure as fatal, and tolerates the Workers-pool teardown-crash fingerprint only after all three checks pass.
+
 ## 2026-07-20
+
+- **Every test suite runs sharded through one gated action** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); Implemented). The frontend suite is sharded and gated on its JSON report like the backend already was, instead of being one unshielded `npm test`, and the completeness reconciliation now covers every suite rather than the backend alone.
+
+- **The backend suite runs in parallel and shard coverage is reconciled** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); Implemented). The Workers pool no longer runs one test file at a time, and the aggregate job now fails when a backend test file present in the tree ran in no shard — the hole that serialization was never actually closing.
+
+- **actionlint's version pin is bumped automatically** ([REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-021](operations.md#req-ops-021-workflow-file-static-analysis); Implemented). The checksum-pinned actionlint binary is a shadow pin Dependabot cannot see; its weekly bump PR resolves and re-verifies the new checksum, so it needs no manual checksum step.
+
+- **The workflow static-analysis audit now blocks merges** ([REQ-OPS-021](operations.md#req-ops-021-workflow-file-static-analysis); Implemented). zizmor and actionlint findings against workflow files fail the required `test` status context instead of only being recorded as advisory SARIF alerts, so a workflow defect can no longer merge on the strength of an alert nobody read.
 
 - **CI checks run as parallel lanes and deploys reuse unchanged container images** ([REQ-OPS-001](operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-013](operations.md#req-ops-013-deploy-command-and-post-deploy-hooks), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy); all stay Implemented). PR checks run as parallel path-filtered lanes with a fail-closed backend test gate instead of one serial job, and deploys reuse the already-scanned container image when nothing it depends on changed, cutting typical pipeline time (per [AD112](../../documentation/decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images)).
 

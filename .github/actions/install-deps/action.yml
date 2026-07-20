@@ -1,0 +1,49 @@
+name: 'Install dependencies (cached)'
+description: >-
+  Restores a package directory's node_modules from cache keyed on its lockfile
+  and runs `npm ci` only on a miss. Every lane needs this; without one action
+  the same five-line cache/install pair is copy-pasted into each of them and
+  drifts (different keys, forgotten flags, stale paths).
+inputs:
+  directory:
+    description: 'Package directory containing package-lock.json (repo root by default).'
+    required: false
+    default: '.'
+  key-prefix:
+    description: 'Cache key prefix. Must be unique per directory — a shared prefix serves one directory the wrong node_modules.'
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Restore ${{ inputs.key-prefix }} node_modules
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      id: cache
+      with:
+        path: ${{ inputs.directory }}/node_modules
+        # runner.os/arch in the key because node_modules here holds platform-specific
+        # binaries (workerd, esbuild). Lanes run on ${{ vars.RUNNER || 'ubuntu-latest' }},
+        # so without this a self-hosted runner and a hosted one share one key.
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.key-prefix }}-${{ hashFiles(format('{0}/package-lock.json', inputs.directory)) }}
+
+    - name: Install ${{ inputs.key-prefix }} dependencies
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.directory }}
+      env:
+        # Read through the environment, never interpolated into the script: an
+        # action input expanded inline is code, not data (zizmor template-injection).
+        DIR: ${{ inputs.directory }}
+      # --prefer-offline reuses the runner's npm cache; --no-audit/--no-fund drop
+      # two network round trips that produce output nothing here reads.
+      #
+      # `timeout` matters more than the retry: a registry connection that HANGS
+      # never exits non-zero, so a bare retry loop waits forever instead of
+      # firing. Bounding each attempt is what makes the retry reachable.
+      run: |
+        for attempt in 1 2 3; do
+          if timeout 600 npm ci --prefer-offline --no-audit --no-fund; then exit 0; fi
+          echo "::warning::npm ci attempt $attempt failed or hung in $DIR; retrying"
+          sleep $((attempt * 5))
+        done
+        echo "::error::npm ci failed or hung three times in $DIR"
+        exit 1

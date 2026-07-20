@@ -8,19 +8,27 @@ name: Deploy
 # deploy can be re-run manually, and so integration deploys from
 # develop (or any other branch) can still be triggered on demand.
 #
-# Topology (staged jobs, no test re-run — the workflow_run gate already
-# guarantees a green PR Checks run for this exact SHA):
-#   prepare ──┬── build-worker (frontend + landing dist artifact)   ──┬── deploy
-#             └── container (reusable container-image.yml:            │
-#                 input-hash reuse gate → build → scan → push)      ──┘
+# Topology:
+#   verify ── prepare ──┬── build-worker (frontend + landing dist artifact) ──┬── deploy
+#                       └── container (reusable container-image.yml:          │
+#                           input-hash reuse gate → build → scan → push)    ──┘
+# verify runs PR Checks only on manual dispatch; on workflow_run it is skipped
+# because that gate already guarantees a green PR Checks run for this exact SHA.
 # deploy = wrangler config mutations + wrangler deploy + bulk secrets +
-# post-deploy health smoke + registry prune.
+# registry prune.
 #
 # The `registry: dockerhub` input replaces the former deploy-dockerhub.yml
 # copy of this file — same pipeline, image pushed to docker.io instead
 # (bypass for CF managed-registry connection drops; needs
 # DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets and a public Docker Hub repo).
-on:
+# zizmor: ignore[dangerous-triggers] workflow_run is the trigger this pipeline
+# needs — deploy must fire only after PR Checks went green for the same SHA —
+# and its pwn-request vector is closed by the three guards repeated on EVERY
+# job below: conclusion == 'success', event == 'push', and
+# head_repository.full_name == github.repository. Repeated per job rather than
+# centralised because a job skipped via `if:` still satisfies `needs:`. Added
+# after the Scorecard DangerousWorkflowID audit; see the header comment.
+on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: ['PR Checks']
     types: [completed]
@@ -52,8 +60,16 @@ permissions:
   contents: read
 
 # On workflow_run: only deploy when PR Checks ended green.
-# On workflow_dispatch (manual): always run; the production-only-from-main
-# guard step still rejects bad input.
+# On workflow_dispatch (manual): only deploy when the inline `verify` job — the
+# same PR Checks, run against the dispatched SHA — ended green. The
+# production-only-from-main guard step additionally rejects bad input.
+#
+# Every gate is written as `!cancelled() && (...)` with explicit
+# `needs.<job>.result` comparisons rather than relying on implicit needs
+# resolution, because the two implicit behaviours differ (a failed need skips
+# dependents; a need skipped by its own `if:` does not) and this file cannot
+# afford to be subtly wrong about which one applies. `!cancelled()` rather than
+# `always()` so cancelling a deploy actually stops it.
 #
 # The gate `if:` is repeated on EVERY job (not centralized on prepare with
 # plain `needs:` chaining) because GitHub Actions treats a job skipped via
@@ -72,14 +88,30 @@ permissions:
 #   head_repository.full_name == github.repository -- and only from this repo, never a fork
 
 jobs:
+  # A workflow_run deploy is by definition gated on a green PR Checks for the
+  # same SHA. A manual dispatch was not: it shipped whatever the branch tip was,
+  # untested. Running PR Checks inline is what makes the two paths equal — and
+  # it beats looking for an earlier green run, because PR Checks does not fire
+  # on pushes to develop at all, so most integration deploys would have had no
+  # run to find. Skipped on workflow_run (the gate already ran); every
+  # downstream job requires `verify.result == 'skipped'` on that path, so a skip
+  # can never be mistaken for a pass.
+  verify:
+    name: PR Checks
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/test.yml
+
   prepare:
     name: Resolve deploy target
+    needs: verify
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
       (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
+       && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # production is locked to main (the guard step below rejects it elsewhere);
@@ -89,11 +121,12 @@ jobs:
     environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
     outputs:
       env_name: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
-      # On workflow_run: pin to the SHA whose PR Checks just ended green.
-      # Without this, actions/checkout falls back to default-branch HEAD at
-      # job start time, which can drift if a second push lands on main
-      # between the green check and the deploy.
-      ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+      # Pin to the exact commit that was verified: on workflow_run the SHA whose
+      # PR Checks just ended green, on dispatch the SHA the `verify` job above
+      # tested. Neither may be a branch name — actions/checkout resolves that at
+      # job start, which drifts if a push lands in between and would deploy a
+      # commit nothing tested.
+      ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       worker_name: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
       cache_bust: ${{ vars.CLAUDE_CODE_CACHE_BUSTER == 'active' && github.sha || '' }}
       registry: ${{ inputs.registry || 'cloudflare' }}
@@ -111,7 +144,7 @@ jobs:
       - name: Log resolved parameters
         env:
           ENV_NAME: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
-          REF: ${{ github.event.workflow_run.head_sha || github.ref }}
+          REF: ${{ github.event.workflow_run.head_sha || github.sha }}
           WORKER: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
           REGISTRY: ${{ inputs.registry || 'cloudflare' }}
         run: |
@@ -122,13 +155,16 @@ jobs:
 
   build-worker:
     name: Build worker assets
-    needs: prepare
+    needs: [verify, prepare]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
       (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
+       && github.event.workflow_run.head_repository.full_name == github.repository))
+      && needs.prepare.result == 'success'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
@@ -145,31 +181,21 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache web-ui node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-webui
+      # One action rather than a hand-rolled cache+install pair per directory:
+      # these copies had already drifted from .github/actions/install-deps —
+      # they used restore-keys (a prefix hit leaves cache-hit false, so npm ci
+      # runs anyway and wipes node_modules, making the fallback inert) and had
+      # no timeout around npm ci, which is the one thing that makes its retry
+      # reachable when a registry connection hangs instead of failing.
+      - uses: ./.github/actions/install-deps
         with:
-          path: web-ui/node_modules
-          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
-          restore-keys: webui-
+          directory: web-ui
+          key-prefix: webui
 
-      - name: Cache landing node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-landing
+      - uses: ./.github/actions/install-deps
         with:
-          path: landing/node_modules
-          key: landing-${{ hashFiles('landing/package-lock.json') }}
-          restore-keys: landing-
-
-      - name: Install web-ui dependencies
-        if: steps.cache-webui.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: web-ui
-
-      - name: Install landing dependencies
-        if: steps.cache-landing.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: landing
+          directory: landing
+          key-prefix: landing
 
       - name: Build frontend
         run: npm run build
@@ -191,20 +217,28 @@ jobs:
 
   container:
     name: Container image
-    needs: prepare
+    needs: [verify, prepare]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
       (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
+       && github.event.workflow_run.head_repository.full_name == github.repository))
+      && needs.prepare.result == 'success'
     permissions:
       contents: read
       actions: write # type=gha buildx cache writes to the Actions cache service
-    # secrets: inherit is deliberate (zizmor secrets-inherit): the callee job
-    # binds inputs.environment, and enterprise deploys rely on environment-
-    # scoped secret overrides that explicit pass-through (evaluated in THIS
-    # job's env-less context) would not see.
+      id-token: write # the callee signs a build-provenance attestation
+      attestations: write # ...and stores it on this repository
+    # zizmor: ignore[secrets-inherit] the callee binds inputs.environment, and
+    # enterprise deploys rely on environment-scoped secret overrides. Explicit
+    # pass-through is evaluated in THIS job's env-less context, so it would
+    # resolve the base repo secret and hand enterprise deploys the wrong
+    # credentials — silently. Inheriting is the correct behaviour here, not a
+    # convenience; the callee only reads CLOUDFLARE_{API_TOKEN,ACCOUNT_ID} and
+    # DOCKERHUB_{USERNAME,TOKEN}.
     uses: ./.github/workflows/container-image.yml
     with:
       registry: ${{ needs.prepare.outputs.registry }}
@@ -213,17 +247,22 @@ jobs:
       worker-name: ${{ needs.prepare.outputs.worker_name }}
       cache-bust: ${{ needs.prepare.outputs.cache_bust }}
       runner: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    secrets: inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
 
   deploy:
     name: Deploy worker
-    needs: [prepare, build-worker, container]
+    needs: [verify, prepare, build-worker, container]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
       (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
+       && github.event.workflow_run.head_repository.full_name == github.repository))
+      && needs.prepare.result == 'success'
+      && needs.build-worker.result == 'success'
+      && needs.container.result == 'success'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     environment: ${{ needs.prepare.outputs.env_name }}
     timeout-minutes: 20
@@ -240,17 +279,9 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
+      - uses: ./.github/actions/install-deps
         with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
-          restore-keys: root-
-
-      - name: Install root dependencies
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
+          key-prefix: root
 
       - name: Download built assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -260,10 +291,24 @@ jobs:
 
       - name: Resolve KV namespace
         run: |
+          set -o pipefail
           KV_TITLE="${WORKER_NAME}-kv"
 
-          # Check if namespace already exists
-          KV_ID=$(npx wrangler kv namespace list 2>/dev/null \
+          # `2>/dev/null` used to hide the ONE error that must not be hidden.
+          # If `kv namespace list` fails transiently — CF 5xx, rate limit, token
+          # still propagating — stderr was discarded and `set -e` does not fire
+          # for a command substitution wrapping a pipeline in an assignment, so
+          # KV_ID came out empty. Empty was then read as "the namespace does not
+          # exist", a SECOND namespace with the same title was created, and
+          # wrangler.toml was pointed at the new empty one: the deploy reports
+          # success while every user record, preference and setup value vanishes
+          # from the worker's view. "I could not ask" and "it is not there" are
+          # different answers and must not share a code path.
+          if ! LIST=$(npx wrangler kv namespace list 2>&1); then
+            echo "::error::Could not list KV namespaces — refusing to guess. Output: ${LIST}"
+            exit 1
+          fi
+          KV_ID=$(printf '%s' "$LIST" \
             | sed -n '/^\[/,/^\]/p' \
             | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
             | head -1)
@@ -542,50 +587,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Post-deploy smoke (health)
-        id: smoke
-        # /health is public (run_worker_first in wrangler.toml), so this needs
-        # no auth. E2E_BASE_URL is the environment-scoped deployed base URL;
-        # environments without it skip the smoke with a notice.
-        #
-        # 403 carve-out: the worker cannot return 403 on this route — it is
-        # public, registered before any auth middleware, and served
-        # run_worker_first. A 403 here is zone-edge bot mitigation rejecting
-        # datacenter runner IPs before the request reaches the worker (runs
-        # 29713266135 / 29713556409 got 403 on every attempt, browser UA
-        # included, while the same endpoint served 200 from other vantage
-        # points). Real deploy failures surface as 000/404/5xx/redirects and
-        # still hard-fail. Proper fix is a zone WAF skip for /health; drop
-        # this carve-out once that exists.
-        env:
-          BASE: ${{ vars.E2E_BASE_URL }}
-          UA: 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'
-        run: |
-          if [ -z "$BASE" ]; then
-            echo "::notice::No E2E_BASE_URL var for this environment — skipping post-deploy smoke"
-            echo "result=skipped" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          CODE=000
-          for i in 1 2 3 4 5; do
-            CODE=$(curl -sS -o /dev/null -w '%{http_code}' -A "$UA" "$BASE/health" || echo 000)
-            echo "Attempt $i: $BASE/health -> $CODE"
-            if [ "$CODE" = "200" ]; then
-              echo "Deployment healthy"
-              echo "result=healthy" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            sleep 10
-          done
-          if [ "$CODE" = "403" ]; then
-            echo "::warning::smoke inconclusive: $BASE/health returned 403 on all attempts — zone-edge bot mitigation blocks runner traffic; the public run_worker_first route cannot emit 403 from the worker. Add a zone WAF skip for /health to restore a hard gate."
-            echo "result=edge-403-inconclusive" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "result=failed-${CODE}" >> "$GITHUB_OUTPUT"
-          echo "::error::post-deploy smoke failed: $BASE/health returned $CODE"
-          exit 1
-
       # Prune old container images from the CF registry (scripts/ci/prune-registry.mjs;
       # CF-registry-only — Docker Hub manages its own storage). Non-fatal: cleanup
       # is best-effort, any error is a warning and the deploy stays green.
@@ -609,9 +610,6 @@ jobs:
           ENV_NAME: ${{ needs.prepare.outputs.env_name }}
           IMAGE_TAG: ${{ needs.container.outputs.image_tag }}
           REUSED: ${{ needs.container.outputs.reused }}
-          # The step's own result output distinguishes skipped/healthy/
-          # inconclusive; outcome alone reads "success" even for a no-op.
-          SMOKE: ${{ steps.smoke.outputs.result || steps.smoke.outcome }}
         run: |
           {
             echo "## Deploy summary"
@@ -621,5 +619,70 @@ jobs:
             echo "| Worker | ${WORKER_NAME} |"
             echo "| Image tag | ${IMAGE_TAG} |"
             echo "| Image reused (build/scan skipped) | ${REUSED} |"
-            echo "| Health smoke | ${SMOKE} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # A Deploy run in which every gated job declines to run reports `success`,
+  # because a skipped job is not a failed one. `gh run list --workflow=deploy.yml`
+  # then shows a green Deploy against a SHA that was never deployed — which is
+  # exactly the reading someone does when asking "did that ship?". test.yml has a
+  # `summary` job that refuses to let skipped lanes masquerade as passed ones;
+  # this is the same idea for the deploy side: a green Deploy must mean a deploy
+  # happened.
+  outcome:
+    name: Deploy outcome
+    needs: [verify, prepare, build-worker, container, deploy]
+    # Carries the same gate as every other job, for the same reason. With a bare
+    # `always()` this fired on workflow_run completions where PR Checks went RED:
+    # the five gated jobs correctly skipped, and this job then failed the run
+    # with "the gate was not satisfied" — but the gate WAS satisfied, it declined
+    # on purpose. Every failed post-merge PR Checks would have produced a second,
+    # misleading red Deploy. `!cancelled()` rather than `always()` for the reason
+    # stated in the header: cancelling a deploy must actually stop it.
+    #
+    # `verify.result == 'cancelled'` is listed too, and only here. verify calls
+    # test.yml as a reusable workflow, and a called workflow inherits the
+    # CALLER's context — so two manual dispatches of the same ref land in one
+    # concurrency group and the second cancels the first's verify. 'cancelled'
+    # satisfies neither branch below, so without this the first run skipped every
+    # job INCLUDING this backstop and a dispatched deploy silently did nothing.
+    # `!cancelled()` does not cover it: that tests the run's own state, not a
+    # dependency's.
+    if: >-
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'cancelled') ||
+      (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
+       && github.event.workflow_run.conclusion == 'success'
+       && github.event.workflow_run.event == 'push'
+       && github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert the run did what its name says
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          DEPLOY=$(echo "$RESULTS" | jq -r '.deploy.result')
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+
+          if [ "$DEPLOY" = "success" ]; then
+            echo "Worker deployed."
+            exit 0
+          fi
+
+          {
+            echo "## No deploy happened"
+            echo ""
+            echo '```'
+            echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$DEPLOY" = "skipped" ]; then
+            echo "::error::Nothing was deployed — the gate was not satisfied (see the job results above). Failing so this run is not mistaken for a successful deploy."
+          else
+            echo "::error::The deploy job ended '$DEPLOY'."
+          fi
+          exit 1

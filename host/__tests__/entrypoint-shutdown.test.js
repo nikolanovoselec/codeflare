@@ -24,6 +24,22 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
 
 const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
+
+/**
+ * The body of shutdown_handler, bounded by the function's own closing brace.
+ *
+ * Both assertions below used to slice a fixed 2000/3000 characters from the
+ * definition. That window silently stops covering the tail as the handler
+ * grows: adding the background-init kill and its rationale pushed
+ * `kill "$TERMINAL_PID"` past 3000 characters, and the test failed while the
+ * behaviour it checks was intact. A byte count is not a scope.
+ */
+function shutdownHandlerBody() {
+  const start = entrypoint.indexOf('shutdown_handler()');
+  if (start === -1) return '';
+  const end = entrypoint.indexOf('\n}', start);
+  return entrypoint.slice(start, end === -1 ? undefined : end);
+}
 const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
 
 // ---------------------------------------------------------------------------
@@ -41,14 +57,22 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
   });
 
   it('REQ-OPS-010 AC2: the container entrypoint trap handler catches SIGINT/SIGTERM signals', () => {
-    assert.ok(
-      entrypoint.includes('trap shutdown_handler SIGTERM SIGINT EXIT'),
-      'entrypoint.sh must register shutdown_handler for SIGTERM, SIGINT, and EXIT'
+    // Registering ONE function for a signal trap and for EXIT runs it twice per
+    // shutdown: bash's re-entry guard is per-trap and the handler ends in
+    // `exit 0`. The second pass could clear the bisync lock left by the first
+    // pass's SIGKILLed rclone and start a fresh R2 sync inside the last seconds
+    // of the budget. So the trap must name a guarded wrapper, not the handler.
+    const trap = entrypoint.match(/^trap (\S+) (.*)$/m);
+    assert.ok(trap, 'entrypoint.sh must register a shutdown trap');
+    for (const sig of ['SIGTERM', 'SIGINT', 'EXIT']) {
+      assert.ok(trap[2].includes(sig), `the shutdown trap must cover ${sig}`);
+    }
+    assert.notEqual(
+      trap[1],
+      'shutdown_handler',
+      'the handler is trapped directly on both a signal and EXIT, so it runs twice; trap a guarded wrapper instead'
     );
-    assert.ok(
-      entrypoint.includes('shutdown_handler()'),
-      'entrypoint.sh must define a shutdown_handler function'
-    );
+    assert.ok(entrypoint.includes('shutdown_handler()'), 'entrypoint.sh must define a shutdown_handler function');
   });
 
   it('REQ-OPS-010 AC3: trap handler kills the sync daemon via PID file at /tmp/sync-daemon.pid', () => {
@@ -58,9 +82,8 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
       'entrypoint.sh shutdown_handler must reference /tmp/sync-daemon.pid as the sync daemon PID file'
     );
     // kill_pidfile_subtree (or equivalent) must be called with this PID file inside shutdown_handler
-    const handlerIdx = entrypoint.indexOf('shutdown_handler()');
-    assert.ok(handlerIdx !== -1, 'shutdown_handler must be defined');
-    const handlerBlock = entrypoint.slice(handlerIdx, handlerIdx + 2000);
+    assert.notEqual(entrypoint.indexOf('shutdown_handler()'), -1, 'shutdown_handler must be defined');
+    const handlerBlock = shutdownHandlerBody();
     assert.ok(
       handlerBlock.includes('/tmp/sync-daemon.pid'),
       'shutdown_handler body must reference /tmp/sync-daemon.pid to kill the sync daemon'
@@ -78,12 +101,14 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
       entrypoint.includes('--max-delete 100'),
       'entrypoint.sh must pass --max-delete 100 to rclone bisync'
     );
-    // The shutdown handler must actually invoke a bisync (not just the daemon)
-    const handlerIdx = entrypoint.indexOf('shutdown_handler()');
-    const handlerBlock = entrypoint.slice(handlerIdx, handlerIdx + 3000);
+    // The shutdown handler must actually invoke a bisync (not just the daemon).
+    // Matches the CALL, not the substring 'bisync': the handler also mentions
+    // bisync in comments and greps for a running `rclone bisync`, so a loose
+    // match stayed green with the final-sync call deleted.
+    const handlerBlock = shutdownHandlerBody();
     assert.ok(
-      handlerBlock.includes('bisync') || handlerBlock.includes('bisync_with_r2'),
-      'shutdown_handler must invoke bisync/bisync_with_r2 for the final sync to R2'
+      /^\s*\(?\s*bisync_with_r2\b/m.test(handlerBlock),
+      'shutdown_handler must invoke bisync_with_r2 for the final sync to R2'
     );
   });
 
@@ -94,20 +119,39 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
       allTouches.length >= 2,
       'entrypoint.sh must touch /tmp/.bisync-initialized on both the success path and the timeout/error path'
     );
-    // The shutdown_handler must gate the final bisync on this flag existing
-    const handlerIdx = entrypoint.indexOf('shutdown_handler()');
-    const handlerBlock = entrypoint.slice(handlerIdx, handlerIdx + 3000);
+    // The shutdown_handler must gate the final bisync on this flag existing.
+    // Scoped to the actual function body, not a fixed byte window: a 3000-byte
+    // slice made this assertion a proximity check, so adding a dozen lines
+    // anywhere earlier in the handler failed it while the gate was untouched.
+    const handlerBlock = shutdownHandlerBody();
     assert.ok(
       handlerBlock.includes('/tmp/.bisync-initialized'),
       'shutdown_handler must check /tmp/.bisync-initialized before running the final bisync'
     );
   });
 
+  it('REQ-OPS-010 AC5: the final sync waits for the daemon rclone to exit before it starts', () => {
+    // Regression guard for a silent data-loss path: walk_kill only sends TERM,
+    // so without this wait bisync_with_r2 could start while the daemon's rclone
+    // was still alive, see a live `rclone bisync` in its stale-lock check,
+    // leave the .lck in place and fast-fail — dropping the final sync and up to
+    // one full cadence of user work. The wait must come BEFORE the sync, so
+    // this asserts the ordering, not merely that both strings are present.
+    const body = shutdownHandlerBody();
+    const waitIdx = body.search(/pgrep -f "rclone bisync"/);
+    const syncIdx = body.search(/^\s*\(?\s*bisync_with_r2\b/m);
+    assert.notEqual(waitIdx, -1, 'shutdown_handler must wait for the daemon rclone bisync to exit');
+    assert.notEqual(syncIdx, -1, 'shutdown_handler must invoke bisync_with_r2');
+    assert.ok(
+      waitIdx < syncIdx,
+      'the reap-wait must precede the final bisync; after it, the stale-lock guard has already lost the race'
+    );
+  });
+
   it('REQ-OPS-010 AC6: terminal server is killed after the final sync completes', () => {
     // TERMINAL_PID must be killed inside shutdown_handler (after bisync)
-    const handlerIdx = entrypoint.indexOf('shutdown_handler()');
-    assert.ok(handlerIdx !== -1, 'shutdown_handler must be defined');
-    const handlerBlock = entrypoint.slice(handlerIdx, handlerIdx + 3000);
+    assert.notEqual(entrypoint.indexOf('shutdown_handler()'), -1, 'shutdown_handler must be defined');
+    const handlerBlock = shutdownHandlerBody();
     assert.ok(
       handlerBlock.includes('TERMINAL_PID'),
       'shutdown_handler must reference TERMINAL_PID to kill the terminal server after the final sync'

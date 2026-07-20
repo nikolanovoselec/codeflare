@@ -1,0 +1,60 @@
+name: Resolve an npm version past a cooldown
+description: Newest published release of a package older than N days, for shadow-pin bumps
+
+# dependabot.yml spends 40 lines justifying a 7/30-day cooldown, because the npm
+# compromise pattern is publish-malicious-version then wait for automation to
+# pull it within hours. bump-shadow-pins.yml then took `npm view <pkg> version`
+# — whatever was published seconds ago — and opened a merge-ready chore(deps) PR
+# with a green test plan. A package taken over on Sunday night was a
+# ready-to-merge PR on Monday morning, for precisely the pins Dependabot cannot
+# see and therefore cannot apply its own cooldown to.
+#
+# One action rather than seven copies of the jq expression: the cooldown is a
+# policy, and a policy implemented seven times is a policy with seven versions.
+#
+# Callers must treat an empty `version` output as "nothing eligible, skip" — it
+# is the normal state for a package whose only releases are recent.
+
+inputs:
+  package:
+    description: npm package name
+    required: true
+  cooldown-days:
+    description: Minimum age in days of an eligible release
+    required: false
+    default: '7'
+
+outputs:
+  version:
+    description: Newest release older than cooldown-days, or empty when none qualifies
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        PKG: ${{ inputs.package }}
+        COOLDOWN_DAYS: ${{ inputs.cooldown-days }}
+      run: |
+        set -euo pipefail
+        # `[.]` rather than an escaped dot: the pattern crosses YAML and the
+        # shell before jq sees it, and one layer mishandling the backslash
+        # yields a regex that silently matches nothing.
+        #
+        # npm's `time` map carries `created`/`modified` alongside the versions
+        # (filtered out by the semver test) and its timestamps have fractional
+        # seconds, which fromdateiso8601 rejects outright.
+        VERSION=$(npm view "$PKG" time --json \
+          | jq -r --argjson d "$COOLDOWN_DAYS" '
+              to_entries
+              | map(select(.key | test("^[0-9]+[.][0-9]+[.][0-9]+$")))
+              | map(select((now - (.value | sub("[.][0-9]+Z$"; "Z") | fromdateiso8601)) > ($d * 86400)))
+              | sort_by(.value) | last | .key // empty')
+        if [ -z "$VERSION" ]; then
+          echo "No release of $PKG is older than ${COOLDOWN_DAYS} days — nothing eligible."
+        else
+          echo "$PKG: newest release past the ${COOLDOWN_DAYS}-day cooldown is $VERSION"
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"

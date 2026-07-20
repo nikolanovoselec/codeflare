@@ -36,7 +36,10 @@ describe('wrangler run_worker_first control-plane routes (REQ-AUTH-020 AC1)', ()
 
   it('keeps the other control-plane routes that must hit the Worker before the SPA fallback', () => {
     const routes = runWorkerFirst();
-    for (const r of ['/', '/auth/*', '/api/*', '/health', '/landing/*']) {
+    // No '/health': the unauthenticated route was removed, so requiring it in
+    // run_worker_first would pin config to a route that no longer exists.
+    // '/api/*' still covers /api/health.
+    for (const r of ['/', '/auth/*', '/api/*', '/landing/*']) {
       assert.ok(routes.includes(r), `run_worker_first must include ${r}; got ${JSON.stringify(routes)}`);
     }
   });

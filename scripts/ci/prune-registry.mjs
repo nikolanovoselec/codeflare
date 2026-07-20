@@ -19,6 +19,19 @@
   const TOKEN = process.env.CLOUDFLARE_API_TOKEN;
   const URI = process.env.REGISTRY_URI || "";
   const KEEP_N = parseInt(process.env.KEEP_N || "10", 10);
+  // A non-numeric KEEP_N is not a no-op, it is a wipe: `tags.length <= NaN + 1`
+  // is false so the early return does not fire, and `dated.slice(0, NaN)` is []
+  // so the keep set collapses to the deployed tag alone and every other
+  // manifest — the entire rollback history this script exists to preserve — is
+  // deleted in one run, while the log cheerfully prints "Keeping 1 tags".
+  if (!Number.isInteger(KEEP_N) || KEEP_N < 1) {
+    // Warning + skip, not exit 1: the file header promises every internal error
+    // degrades that way, and a misconfigured KEEP_N must not fail a deploy that
+    // has already shipped the worker. Skipping is the safe direction anyway —
+    // nothing is deleted.
+    console.log("::warning::KEEP_N must be a positive integer, got " + JSON.stringify(process.env.KEEP_N) + "; skipping prune");
+    return;
+  }
   // URI shape: registry.cloudflare.com/<acct>/<repo>:<tag>
   const m = URI.match(/^registry\.cloudflare\.com\/([^/]+)\/([^:]+):(.+)$/);
   if (!m) { console.log("::warning::could not parse REGISTRY_URI=" + URI + "; skipping prune"); return; }
@@ -46,27 +59,73 @@
   // creation time" selection toward whichever lexical slice we did
   // see, and the digest-protection invariant below cannot protect
   // tags we never knew existed.
-  const tags = [];
+  //
+  // Termination is handled inside the loop; see the note on the Link header.
+  const tagSet = new Set();
   let last = "";
   let complete = true;
+  let sawNextLink = false;
   for (let p = 0; p < 200; p++) {
     const url = base + "/tags/list?n=500" + (last ? "&last=" + encodeURIComponent(last) : "");
     const r = await fetch(url, { headers: { Authorization: auth } });
     if (!r.ok) { console.log("::warning::tags/list HTTP " + r.status); complete = false; break; }
     const j = await r.json();
-    const page = j.tags || [];
-    if (!page.length) break;
-    tags.push(...page);
-    if (page.length < 500) break;
+    const page = Array.isArray(j.tags) ? j.tags : null;
+    if (page === null) { console.log("::warning::tags/list returned no tags array"); complete = false; break; }
+
+    // An empty page is the only unambiguous end-of-list: there is nothing after
+    // the cursor. Reached here (rather than via `added === 0` below) so that a
+    // registry which paginates without Link ends cleanly instead of warning.
+    if (page.length === 0) break;
+
+    const before = tagSet.size;
+    for (const t of page) tagSet.add(t);
+    const added = tagSet.size - before;
+
+    // `Link: rel=next` is a SHOULD in the distribution spec, so its absence
+    // means "done" only from a registry that has demonstrated it emits the
+    // header at all — otherwise page 1 would end the enumeration. One that
+    // paginates by `last=` without Link is walked until it returns empty.
+    //
+    // `page.length < n` is deliberately NOT used as a termination signal: `n` is
+    // a maximum the server may undercut, so a registry capping pages below the
+    // requested 500 would end enumeration on its first response with `complete`
+    // still true, and the prune would then run against a lexical prefix of the
+    // repository — exactly the partial enumeration this must refuse. An earlier
+    // version of this loop did that while its own comment said not to.
+    const link = r.headers.get("link") || "";
+    const hasNext = /rel="?next"?/.test(link);
+    if (hasNext) sawNextLink = true;
+    if (sawNextLink && !hasNext) break;
+
+    // A "next" link that yields nothing new means the cursor is not advancing
+    // (an inclusive `last`, or a server ignoring it). Continuing would spin to
+    // the page cap accumulating duplicates, and duplicates consume keep slots:
+    // slice(0, KEEP_N) over a list of repeats keeps ONE distinct tag and
+    // deletes the rest.
+    if (added === 0) { console.log("::warning::tags/list pagination did not advance"); complete = false; break; }
     last = page[page.length - 1];
+    if (p === 199) { console.log("::warning::tags/list exceeded the page cap"); complete = false; }
   }
+  const tags = [...tagSet];
   if (!complete) { console.log("::warning::incomplete tag listing; skipping prune to avoid deleting a kept manifest"); return; }
   console.log("Found " + tags.length + " tags");
   if (tags.length <= KEEP_N + 1) { console.log("Below threshold; nothing to prune."); return; }
 
   // Fetch manifest digest + creation time per tag, concurrency-bounded
   async function info(tag) {
-    const r = await fetch(base + "/manifests/" + tag, { headers: { Authorization: auth, Accept: accept } });
+    // Retry before giving up. Failing closed on an unresolvable manifest is
+    // right, but without a retry a single 429 among 16-way concurrent fetches
+    // aborts the entire prune — and every aborted prune leaves more tags, which
+    // means more fetches next run, which raises the flake probability again. The
+    // ratchet ends at a registry so full that `wrangler containers push` drops
+    // connections mid-upload, i.e. exactly what this script exists to prevent.
+    let r;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await new Promise((res) => setTimeout(res, 500 * attempt));
+      r = await fetch(base + "/manifests/" + tag, { headers: { Authorization: auth, Accept: accept } });
+      if (r.ok) break;
+    }
     if (!r.ok) return null;
     const digest = r.headers.get("docker-content-digest");
     const body = await r.json();
@@ -88,6 +147,20 @@
     while (true) { const i = idx++; if (i >= tags.length) return; results[i] = await info(tags[i]); }
   }));
 
+  // A tag whose manifest request flaked used to be dropped here silently. That
+  // is the worst of both worlds: it loses its claim on a keep slot (so `top`
+  // slides deeper into older tags) AND its digest leaves `keepDigests`, so an
+  // older tag aliasing the same manifest becomes deletable — and deleting a
+  // digest removes the image for every tag pointing at it, including the newest
+  // one we failed to resolve. The undated branch below already reasons this way
+  // for config-blob failures; a manifest failure is strictly more serious.
+  const unresolved = tags.filter((_, i) => !results[i]);
+  if (unresolved.length) {
+    console.log("::warning::could not resolve " + unresolved.length + " tag(s) (" +
+      unresolved.slice(0, 5).join(", ") + (unresolved.length > 5 ? ", …" : "") +
+      "); skipping prune rather than deleting a digest one of them may alias");
+    return;
+  }
   const ok = results.filter(Boolean);
   // Fail closed if we could not resolve a digest for the just-deployed
   // tag. Without its digest in keepDigests, the alias-protection
@@ -99,12 +172,20 @@
     console.log("::warning::could not resolve digest for deployed tag " + deployedTag + "; skipping prune");
     return;
   }
-  const dated = ok.filter(x => x.created).sort((a,b) => b.created.localeCompare(a.created));
+  // Sort on parsed instants, not raw strings. localeCompare ranks
+  // "…T12:00:00+02:00" above "…T11:00:00Z" (it is an hour OLDER), and ranks a
+  // fractional-second stamp below the identical whole second — either way the
+  // "newest KEEP_N" window admits the wrong tags and a recent image lands in
+  // the delete list. Anything unparseable is demoted to undated, which is
+  // protected rather than pruned.
+  const instant = (x) => Date.parse(x.created);
+  const dated = ok.filter(x => x.created && Number.isFinite(instant(x)))
+                  .sort((a, b) => instant(b) - instant(a));
   const top = dated.slice(0, KEEP_N).map(x => x.tag);
   // Fail closed on unresolved creation times: a tag whose config-blob fetch
   // flaked might be one of the newest, so keep it — that also protects any
   // digest it aliases. It becomes prunable again once a later run resolves it.
-  const undated = ok.filter(x => !x.created);
+  const undated = ok.filter(x => !x.created || !Number.isFinite(instant(x)));
   if (undated.length) console.log("::warning::" + undated.length + " tag(s) lack a resolved creation time; protecting them this run");
   const keepTags = new Set([...top, deployedTag, ...undated.map(x => x.tag)]);
   // DELETE on a registry v2 manifest removes the manifest globally -

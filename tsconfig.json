@@ -9,6 +9,11 @@
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
+    // vitest.node-suite.mjs is the one list of Node-runtime backend tests, shared
+    // by both vitest configs and the CI completeness gate. The gate is plain Node,
+    // so the list has to stay .mjs; allowJs lets the TS tests import it. checkJs
+    // stays off — the file is data, not typed source.
+    "allowJs": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true

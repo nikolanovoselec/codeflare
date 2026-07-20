@@ -1,5 +1,7 @@
+import { availableParallelism } from 'node:os';
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { NODE_SUITE_FILES } from './vitest.node-suite.mjs';
 
 export default defineConfig({
   plugins: [
@@ -40,41 +42,56 @@ export default defineConfig({
       'web-ui/**',
       // Pi-extension tests need node:child_process/node:fs and kill workerd at
       // collection — they run under plain Node via vitest.node.config.ts.
-      'src/__tests__/lib/agent-seed-multi-agent.test.ts',
-      'src/__tests__/lib/local-statusline-repo.test.ts',
-      'src/__tests__/lib/pi-memory-vault-delivery.test.ts',
-      'src/__tests__/lib/review-enforcement.test.ts',
-      'src/__tests__/lib/pi-review-scope.test.ts',
-      'src/__tests__/lib/review-helpers.test.ts',
-      'src/__tests__/lib/vault-manifest-detection.test.ts',
+      ...NODE_SUITE_FILES,
     ],
-    // Serialize the Workers pool to one worker. @cloudflare/vitest-pool-workers
+    // Run the Workers pool across several workers. @cloudflare/vitest-pool-workers
     // crashes workerd at pool teardown ("Worker exited unexpectedly") AFTER every
     // test passes — the documented WebSockets + Durable Objects under per-file
-    // storage-isolation limitation (known-issues#websockets). Cloudflare's only
-    // documented fix (--max-workers=1 --no-isolate) is NOT usable here: isolate:false
+    // storage-isolation limitation (known-issues#websockets). Serializing to one
+    // worker never fixed that (the crash is a teardown, not a concurrency, bug);
+    // it only cost wall clock, so the pool is parallel again and the crash stays
+    // tolerated by the fingerprinted guard in scripts/ci/check-vitest-report.mjs
+    // (which still fails on any real failure, and on any file collecting zero tests).
+    // Cloudflare's other documented knob, --no-isolate, remains unusable: isolate:false
     // crashes workerd during *collection* (0 tests run) on pool-workers 0.16.14 AND
-    // 0.16.16 — both verified in CI 2026-06-16. So per-file isolation stays and the
-    // benign post-pass teardown crash is tolerated by the fingerprinted guard in
-    // .github/workflows/test.yml + deploy.yml (which still fails on any real failure).
-    maxWorkers: 1,
+    // 0.16.16 — both verified in CI 2026-06-16 — so per-file isolation stays.
+    //
+    // Each worker is a full workerd + miniflare instance, so memory rather than
+    // core count is the binding constraint: cap at 4 however large the runner is.
+    maxWorkers: Math.max(1, Math.min(4, availableParallelism() - 1)),
 
     // Compact per-test output in CI (dots + summary); full reporter locally.
     // The deploy/test guards grep only the summary + pool-crash lines, which
     // the dot reporter still prints.
     reporters: process.env.CI ? ['dot'] : ['default'],
 
-    // v8 coverage configuration (FIX-54)
     coverage: {
-      provider: 'v8',
+      // istanbul, not v8. The v8 provider collects coverage through the V8
+      // inspector in the Node host, which cannot see inside workerd isolates —
+      // running this suite under the Workers pool with provider 'v8' reports a
+      // flat 0% for every file and fails every threshold. istanbul instruments
+      // the source at transform time, so it is runtime-agnostic and reports real
+      // numbers from inside the pool.
+      provider: 'istanbul',
+      // Emit the report even when tests fail. Vitest skips report generation on
+      // failure by default, so the coverage lane's "was a table produced?" check
+      // fired first and blamed a missing report for what was actually a failing
+      // test - and its explicit test-failure branch never ran.
+      reportOnFailure: true,
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/__tests__/**', 'src/**/*.test.ts', 'src/**/*.generated.ts'],
+      // Measured 2026-07-20 (run 29725141008), the first run that ever executed
+      // them: 90.21 statements / 82.68 branches / 91.01 functions / 91.6 lines.
+      // The old 53/43 were never run, so nobody knew the suite was 37 points
+      // above them — a floor that far below actual cannot catch a regression.
+      // Set ~2 points under measured: tight enough to fail when coverage really
+      // drops, loose enough not to trip on ordinary churn.
       thresholds: {
-        statements: 53,
-        branches: 43,
-        functions: 53,
-        lines: 53,
+        statements: 88,
+        branches: 80,
+        functions: 89,
+        lines: 89,
       },
     },
   },

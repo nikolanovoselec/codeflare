@@ -213,7 +213,7 @@ See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite.
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `deploy.yml` | Green PR Checks on `main` / manual | Staged deploy: worker assets in parallel with the container image (reused when inputs unchanged), then deploy + health smoke |
+| `deploy.yml` | Green PR Checks on `main` / manual | Staged deploy: worker assets in parallel with the container image (reused when inputs unchanged), then deploy |
 | `container-image.yml` | Called by `deploy.yml` | Reusable container build + Trivy scan + push (Cloudflare registry or Docker Hub bypass) |
 | `test.yml` | Pull requests, push to `main` | Parallel path-filtered lanes: lint, sharded backend tests, typecheck, audits, dependency review |
 | `zizmor.yml` | Workflow changes | Static security audit of the GitHub Actions workflows |

@@ -22,15 +22,33 @@ name: PR Checks
 # PARALLEL, each gated on its filter (all lanes run on workflow_dispatch).
 # The `summary` job — check name "test", the required branch-protection
 # context — aggregates: failure/cancelled in any needed lane fails it,
-# skipped lanes (nothing relevant changed) pass it. Backend tests are
-# sharded 2-way because @cloudflare/vitest-pool-workers forces
-# maxWorkers=1 (see vitest.config.ts); the shards halve the longest lane.
+# skipped lanes (nothing relevant changed) pass it, and it reconciles the
+# shard reports against the tree so no suite can go missing quietly.
+#
+# Every suite — backend shards, the Node-runtime leg, frontend shards,
+# landing — runs through .github/actions/vitest-suite, so all of them get
+# the same JSON-report gate rather than the backend alone.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main, develop]
+  # Merge queue: the queue builds its own ref and needs this same required
+  # context to report against it, or every queued PR stalls waiting for a
+  # check that never runs.
+  #
+  # This alone does NOT make the queue usable, and turning it on while only this
+  # workflow handles merge_group would hang every queued PR forever: `main`'s
+  # ruleset also requires `Property-based fuzzing` and CodeQL, and neither
+  # fuzz.yml nor codeql.yml has a merge_group trigger. Add it there first.
+  merge_group:
   workflow_dispatch:
+  # Called by deploy.yml on manual dispatch. A manual deploy is the one path
+  # that does not arrive through the workflow_run gate, so it runs these checks
+  # inline against the exact commit it is about to ship rather than trusting
+  # that some earlier run covered it. Reusable workflows inherit the caller's
+  # github context, so the diff filter is skipped and every lane executes.
+  workflow_call:
   schedule:
     # Nightly full-matrix sweep: every lane runs regardless of diff, catching
     # flaky tests and dependency/audit drift between pushes.
@@ -40,11 +58,26 @@ concurrency:
   # github.ref is the per-PR merge ref for pull_request events, so two PRs
   # sharing one head branch never cancel each other (each tests its own merge
   # result) while superseded pushes of the same PR still cancel.
-  group: test-${{ github.ref }}
+  #
+  # github.workflow is in the key because deploy.yml calls this workflow: a
+  # called workflow inherits the CALLER's context, so a manual production deploy
+  # from main would otherwise land in the same group as the ordinary
+  # push-to-main run and one would cancel the other — turning verify.result into
+  # 'cancelled' and silently skipping the whole deploy. Here github.workflow is
+  # "Deploy" for the inline run and "PR Checks" for the real one.
+  group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+
+env:
+  # Node 22+ shares a V8 bytecode cache between processes; these lanes spawn node
+  # hundreds of times (vitest workers, gate scripts, generators). Declared here
+  # rather than written to GITHUB_ENV from a composite action — a workflow-level
+  # literal is inert, whereas anything that writes GITHUB_ENV is a code-execution
+  # surface the moment its value stops being a constant (zizmor github-env).
+  NODE_COMPILE_CACHE: /tmp/node-compile-cache
 
 jobs:
   changes:
@@ -52,10 +85,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      # Single source of truth for "the diff filter did not run, so every lane
+      # must run". Derived from the filter step's own outcome rather than a
+      # hand-listed set of event names: those two lists were duplicated and
+      # drifted, which is exactly how merge_group ended up skipping every lane
+      # while the required check still reported green. Any future trigger the
+      # filter does not handle now defaults to running everything.
+      full: ${{ steps.filter.outcome == 'skipped' }}
       backend: ${{ steps.filter.outputs.backend }}
       webui: ${{ steps.filter.outputs.webui }}
       landing: ${{ steps.filter.outputs.landing }}
       host: ${{ steps.filter.outputs.host }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -67,9 +108,20 @@ jobs:
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         with:
-          # `shared` is an anchor, not a lane: pipeline changes re-run every lane.
-          # Root package.json/lock are shared because the root toolchain (vitest,
-          # oxlint, knip, wrangler) gates every lane's behavior.
+          # `shared` is an anchor, not a lane: anything that can change what ANY
+          # lane means re-runs every lane.
+          #
+          # The rule is deliberately broad, because the failure mode is silent:
+          # a file in no filter means a PR touching only that file runs zero
+          # lanes, gets a green required check, and — since push-to-main then
+          # produces another all-skipped green run — satisfies the deploy gate
+          # and ships. Every entry below was previously uncovered, including the
+          # Dockerfile, entrypoint.sh, the lint/dead-code rulesets, the CVE
+          # suppression list, and the file that decides which backend tests run
+          # under Node instead of workerd.
+          #
+          # Docs and licence files stay uncovered on purpose: a docs-only change
+          # legitimately runs nothing.
           filters: |
             shared: &shared
               - '.github/workflows/test.yml'
@@ -77,6 +129,15 @@ jobs:
               - 'scripts/ci/**'
               - 'package.json'
               - 'package-lock.json'
+              - 'vitest.node-suite.mjs'
+              - 'vitest.node.config.ts'
+              - '.oxlintrc.json'
+              - 'knip.json'
+              - 'Dockerfile'
+              - 'entrypoint.sh'
+              - '.dockerignore'
+              - '.trivyignore'
+              - '.cache-bust'
             backend:
               - *shared
               - 'src/**'
@@ -93,17 +154,35 @@ jobs:
               - 'landing/**'
             host:
               - *shared
+              # host/__tests__ asserts on the STRUCTURE of workflows other than
+              # test.yml: deploy-requires-tests.test.js and
+              # workflow-deploy-max-instances.test.js read deploy.yml,
+              # zizmor-version-lockstep.test.js reads zizmor.yml,
+              # workflow-stress-test.test.js reads stress-test.yml. Without
+              # '.github/**' here, a PR editing only deploy.yml skips this lane,
+              # so the guard written specifically to make that edit visible never
+              # runs. A test that can be disarmed by editing the file it guards
+              # is not a guard.
+              - '.github/**'
               - 'host/**'
               - 'preseed/**'
+            workflows:
+              - '.github/**'
 
   quality:
     name: Quality (lint / knip / audit)
     needs: changes
+    # `host` is in this list because the bash -n syntax gate below covers every
+    # tracked *.sh, and the `host` filter is the only one matching a change that
+    # touches host/** or .github/** alone — those PRs previously ran the host
+    # lane but not this one, so the syntax check never saw them. (preseed/** is
+    # already in the `backend` filter, so preseed-only PRs were always covered;
+    # an earlier version of this comment claimed otherwise and was wrong.)
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
-      needs.changes.outputs.webui == 'true'
+      needs.changes.outputs.webui == 'true' ||
+      needs.changes.outputs.host == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -114,6 +193,34 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
+
+      - name: Shell syntax check
+        # Nothing in this repository has ever parsed entrypoint.sh — 3181 lines
+        # running as PID 1 in every session container, with `set -euo pipefail`.
+        # It is in exactly the position container-image.yml was in when an
+        # unparseable run: block shipped and CI stayed green: built on the deploy
+        # path, never executed by any lane. shellcheck was enabled for .github/**
+        # after that; this covers the rest of the tree.
+        #
+        # `bash -n` only, not shellcheck: a syntax error is unambiguously a bug,
+        # so the gate has no false positives and needs no severity policy. It
+        # would have caught the class that motivated it.
+        run: |
+          set -euo pipefail
+          mapfile -t SCRIPTS < <(git ls-files '*.sh')
+          if [ ${#SCRIPTS[@]} -eq 0 ]; then
+            echo "::error::No shell scripts found — this check is looking in the wrong place."
+            exit 1
+          fi
+          failed=0
+          for f in "${SCRIPTS[@]}"; do
+            if ! bash -n "$f" 2>/tmp/shellsyntax.err; then
+              echo "::error file=${f}::$(head -1 /tmp/shellsyntax.err)"
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ] && echo "Parsed ${#SCRIPTS[@]} shell script(s), all valid."
+          exit $failed
 
       - name: Agent seed generator drift guard
         # The committed src/lib/agent-seed.generated.ts must equal a fresh generation
@@ -126,28 +233,14 @@ jobs:
           git diff --exit-code src/lib/agent-seed.generated.ts \
             || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
+      - uses: ./.github/actions/install-deps
         with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
+          key-prefix: root
 
-      - name: Cache web-ui node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-webui
+      - uses: ./.github/actions/install-deps
         with:
-          path: web-ui/node_modules
-          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
-
-      - name: Install root dependencies
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
-
-      - name: Install web-ui dependencies
-        if: steps.cache-webui.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: web-ui
+          directory: web-ui
+          key-prefix: webui
 
       - name: Lint backend
         run: npm run lint
@@ -174,8 +267,7 @@ jobs:
     name: Typecheck
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
@@ -189,28 +281,14 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
+      - uses: ./.github/actions/install-deps
         with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
+          key-prefix: root
 
-      - name: Cache web-ui node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-webui
+      - uses: ./.github/actions/install-deps
         with:
-          path: web-ui/node_modules
-          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
-
-      - name: Install root dependencies
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
-
-      - name: Install web-ui dependencies
-        if: steps.cache-webui.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: web-ui
+          directory: web-ui
+          key-prefix: webui
 
       - name: Generate Workers runtime types
         run: npx wrangler types
@@ -225,22 +303,55 @@ jobs:
         timeout-minutes: 5
 
   backend-tests:
-    name: Backend tests (shard ${{ matrix.shard }})
+    name: Backend tests (${{ matrix.slug }})
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
+        # Four shards, not two. Roughly 85% of a shard's wall clock is per-file
+        # Vite transform and workerd isolate setup rather than test execution
+        # (measured: 18s of assertions inside 81s), and about half of that
+        # overhead sits in the main process where extra pool workers cannot
+        # reach it. It is per-process, though, so it divides cleanly across
+        # shards — each of which is its own runner.
+        #
+        # The Node-runtime suite is not shardable, so it gets its own leg rather
+        # than riding one shard and making it the straggler (it cost shard 1 an
+        # extra ~35s while its siblings idled).
         include:
-          - shard: '1/2'
+          - shard: '1/4'
             slug: shard-1
-          - shard: '2/2'
+            script: test
+            tolerate-pool-crash: 'true'
+            pre-run: ''
+          - shard: '2/4'
             slug: shard-2
+            script: test
+            tolerate-pool-crash: 'true'
+            pre-run: ''
+          - shard: '3/4'
+            slug: shard-3
+            script: test
+            tolerate-pool-crash: 'true'
+            pre-run: ''
+          - shard: '4/4'
+            slug: shard-4
+            script: test
+            tolerate-pool-crash: 'true'
+            pre-run: ''
+          - shard: ''
+            slug: node
+            script: 'test:node'
+            # Plain Node, no workerd — a non-zero exit here is always a failure.
+            tolerate-pool-crash: 'false'
+            # `pretest` hooks `npm test`, not `npm run test:node`, and these
+            # tests read the generated seeds.
+            pre-run: 'npm run pretest'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -250,35 +361,117 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
+      - uses: ./.github/actions/install-deps
         with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
-
-      - name: Install root dependencies
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
+          key-prefix: root
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         run: mkdir -p web-ui/dist
 
-      - name: Run backend tests (fail-closed gate)
-        uses: ./.github/actions/backend-tests
+      - name: Run suite (fail-closed gate)
+        uses: ./.github/actions/vitest-suite
         with:
           shard: ${{ matrix.shard }}
-          artifact-suffix: ${{ matrix.slug }}
-          # The Node suite is not sharded — running it in every shard is pure
-          # duplication, so only shard 1 carries it.
-          node-suite: ${{ matrix.slug == 'shard-1' }}
+          script: ${{ matrix.script }}
+          artifact-name: backend-${{ matrix.slug }}
+          pre-run: ${{ matrix.pre-run }}
+          tolerate-pool-crash: ${{ matrix.tolerate-pool-crash }}
 
-  frontend-tests:
-    name: Frontend tests
+  workflow-audit:
+    name: Workflow audit
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.workflows == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor (checksum-pinned binary)
+        # zizmor.yml uploads SARIF to code scanning and is informational by
+        # design — findings there notify, they do not block. This step is the
+        # gate: it is part of the required `test` context, and zizmor exits 12
+        # when any finding survives (verified; 0 when clean), so a new workflow
+        # vulnerability fails the merge instead of landing and being noticed
+        # later in an alert list.
+        #
+        # Own binary rather than the action: the action's failure semantics
+        # depend on whether it is uploading SARIF, and a gate must not be
+        # ambiguous about when it fires. Upstream publishes no checksum file,
+        # so this SHA256 was computed from the release artifact and pinned here.
+        env:
+          ZIZMOR_VERSION: '1.27.0'
+          ZIZMOR_SHA256: '277f2bd8fd37cf60c42ab7afca6faa884e65440fa31e02b44bdaae60f62a358f'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o /tmp/zizmor.tar.gz \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ZIZMOR_SHA256}  /tmp/zizmor.tar.gz" | sha256sum -c -
+          # The checksum above is self-certified: the bump job hashed the same
+          # download it then committed as the trusted pin, so it only protects
+          # against tampering AFTER the bump. Compromise the release on bump day
+          # and your hash gets pinned — after which your binary gates every PR
+          # for workflow vulnerabilities and can report clean. zizmor publishes
+          # SLSA provenance for its release artifacts, which is an INDEPENDENT
+          # signal: it attests the artifact was built by zizmorcore's own
+          # workflow, which a substituted binary cannot forge.
+          # Bounded retry: this is the one call here with no offline mode, and
+          # it feeds the required `test` context. An attestation API blip must
+          # not fail a merge on infrastructure rather than on findings — the
+          # same reasoning that made the zizmor audit itself offline.
+          for attempt in 1 2 3; do
+            if gh attestation verify /tmp/zizmor.tar.gz --repo zizmorcore/zizmor; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::attestation verification failed after 3 attempts"
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+          tar -xzf /tmp/zizmor.tar.gz -C /tmp zizmor
+          # Offline for the same reason zizmor.yml is: the online audit dies
+          # fatally when the advisory API blips, which would fail merges on
+          # infrastructure rather than on findings.
+          /tmp/zizmor --no-online-audits --format plain .github/
+
+      - name: Run actionlint (checksum-pinned binary)
+        # Catches workflow-file errors GitHub only surfaces as jobless
+        # "completed/failure" validation runs (duplicate mapping keys, invalid
+        # expressions) before they cost a push round.
+        #
+        # shellcheck used to be off entirely, on the theory that zizmor owned
+        # script hygiene and shellcheck's style findings would fail the lane on
+        # nits. That also switched off SYNTAX checking, and a `run:` block in
+        # container-image.yml shipped with an unbalanced pipeline that made the
+        # script unparseable. Nothing caught it: that file only executes during a
+        # deploy, so the branch was green while the container build was dead.
+        # It is now on at --severity=error, which keeps every style and warning
+        # nit out of the gate while still failing on the class of defect that
+        # cannot be anything but a bug. pyflakes stays off (no python in these
+        # workflows).
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+          SHELLCHECK_OPTS: '--severity=error'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o /tmp/actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint -color -pyflakes=
+
+  bundle-size:
+    name: Bundle size
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.backend == 'true' ||
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
@@ -291,32 +484,221 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache web-ui node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-webui
+      - uses: ./.github/actions/install-deps
         with:
-          path: web-ui/node_modules
-          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
+          key-prefix: root
 
-      - name: Install web-ui dependencies
-        if: steps.cache-webui.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: web-ui
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        # The bundle being measured is the Worker script; the assets directory
+        # only has to exist for wrangler to resolve its config.
+        run: mkdir -p web-ui/dist
+
+      - name: Measure the Worker bundle
+        # --dry-run needs no credentials and no network: it bundles exactly what
+        # a real deploy would upload and prints the size Cloudflare enforces.
+        #
+        # But `image = "./Dockerfile"` makes wrangler BUILD the container image
+        # as part of the dry run — pulling a 50MB base layer and burning ~3
+        # minutes to produce something container-image.yml already builds, scans,
+        # and content-addresses. The size line is printed before that starts and
+        # does not depend on it, so point the image at a registry reference for
+        # the measurement. The config lives in the repo root because wrangler
+        # resolves `main` and the assets dir relative to the config file.
+        run: |
+          set -euo pipefail
+          sed 's|^image = "\./Dockerfile"$|image = "registry.example.invalid/size-check:latest"|' \
+            wrangler.toml > wrangler.size-check.toml
+          if ! grep -q 'registry.example.invalid/size-check' wrangler.size-check.toml; then
+            echo "::error::the containers image line in wrangler.toml no longer matches the size-check patch — it would rebuild the image (slow) instead of measuring. Update the sed in test.yml."
+            exit 1
+          fi
+          npx wrangler deploy --dry-run --outdir /tmp/worker-bundle \
+            --config wrangler.size-check.toml 2>&1 | tee /tmp/wrangler-dry-run.log
+        env:
+          NO_COLOR: '1'
+
+      - name: Check against the budget
+        run: node scripts/ci/check-bundle-size.mjs /tmp/wrangler-dry-run.log
+
+  coverage:
+    name: Coverage (${{ matrix.slug }})
+    needs: changes
+    # Coverage is per-process, so a sharded run gives each shard a view of only
+    # its own slice; enforcing thresholds needs the whole suite in one process.
+    # That is why this lane is keyed on event name rather than the `full` flag.
+    #
+    # It DOES run on pull_request. It originally did not, on the theory that the
+    # push-to-main run enforced it before deploy so a regression could not reach
+    # production. True, but it made the failure worse: `coverage` is in
+    # `summary.needs`, so a dip turns `test` red on main AFTER the merge, and
+    # deploy.yml gates on that conclusion — production then silently does not
+    # deploy, with the commit already merged. A gate that can only fire once the
+    # change is unrevertable-in-place is not a gate, it is an outage. Measured
+    # cost of running it here is ~2 min wall clock in parallel with lanes that
+    # already take ~1 min, at roughly one PR a day.
+    #
+    # Still NOT on merge_group: nothing requires it there, and the queue is off.
+    #
+    # Until this existed the thresholds in both vitest configs were decoration:
+    # declared, never executed. Same class as a test that cannot fail.
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: backend
+            directory: .
+            key-prefix: root
+          - slug: frontend
+            directory: web-ui
+            key-prefix: webui
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: ${{ matrix.directory }}
+          key-prefix: ${{ matrix.key-prefix }}
+
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        run: mkdir -p web-ui/dist
+
+      - name: Run the suite with coverage
+        # Unsharded and unmerged: vitest applies the thresholds from the suite's
+        # own config, so the enforcement lives with the numbers instead of being
+        # restated here.
+        working-directory: ${{ matrix.directory }}
+        env:
+          NO_COLOR: '1'
+        run: |
+          # GitHub runs steps as `bash -e {0}` — NO pipefail. Without this line
+          # `vitest | tee` reports tee's exit status, so a failed threshold check
+          # passes the step: the first version of this lane reported success while
+          # printing "Coverage for lines (0%) does not meet global threshold (53%)".
+          set -o pipefail
+          status=0
+          npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
+
+          # POSITIVE proof the coverage reporter ran. Every check below this point
+          # decides on the ABSENCE of a failure string, so without this a run that
+          # died before emitting coverage — an istanbul provider error, a config
+          # fault, the teardown crash racing the report — would satisfy all of
+          # them and go green having enforced nothing. That is the exact
+          # "declared, never executed" state this lane was written to end, so it
+          # is asserted rather than assumed. Both matrix entries emit istanbul's
+          # / v8's `text` table, whose first body row starts with "All files". Same
+          # tolerance as render-coverage-summary.mjs uses for the same line.
+          if ! grep -qE '^[[:space:]]*All files[[:space:]]*\|' /tmp/coverage.log; then
+            echo "::error::no coverage table was produced — thresholds were never evaluated"
+            exit 1
+          fi
+
+          # A real test failure is fatal, and must be detected on its own. The
+          # workerd teardown crash fires after EVERY passing backend run
+          # (vitest.config.ts), so its fingerprint is present essentially always
+          # — tolerating a non-zero status merely because the fingerprint is
+          # there would tolerate every failure, which is what the first version
+          # of this block did.
+          if grep -qE '^ *Tests +.*failed' /tmp/coverage.log; then
+            echo "::error::tests failed during the coverage run"
+            exit 1
+          fi
+
+          # A threshold miss is the verdict this lane exists for: always fatal,
+          # never masked by the crash tolerance below. Matched loosely enough to
+          # survive a future per-glob threshold, whose message reads
+          # `does not meet "src/lib/**" threshold` rather than `global`.
+          if grep -qE 'does not meet .*threshold' /tmp/coverage.log; then
+            echo "::error::coverage thresholds not met (see the table above)"
+            exit 1
+          fi
+
+          # Only now is the poisoned exit status safe to forgive: the table was
+          # produced, no test failed, and thresholds were evaluated. Listed in
+          # execution order — the test-failure check runs first because with
+          # reportOnFailure on, failing tests depress coverage, so a threshold
+          # miss reported ahead of them names the symptom instead of the cause.
+          if [ "$status" -ne 0 ]; then
+            if grep -qF '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/coverage.log; then
+              echo "::warning::tolerating the known workerd teardown crash (coverage table and thresholds both verified above)"
+            else
+              echo "::error::coverage run failed with status $status and no known-crash fingerprint"
+              exit "$status"
+            fi
+          fi
+
+      - name: Publish the coverage table
+        if: always()
+        env:
+          SLUG: ${{ matrix.slug }}
+        run: node scripts/ci/render-coverage-summary.mjs /tmp/coverage.log "$SLUG" >> "$GITHUB_STEP_SUMMARY"
+
+  frontend-tests:
+    name: Frontend tests (${{ matrix.slug }})
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.webui == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      # 129 jsdom test files took 76s in one job — the longest lane in the run
+      # once the backend was sharded. Same reasoning as the backend split: the
+      # cost is per-file and per-process, so it divides across runners.
+      matrix:
+        include:
+          - shard: '1/3'
+            slug: shard-1
+          - shard: '2/3'
+            slug: shard-2
+          - shard: '3/3'
+            slug: shard-3
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: web-ui
+          key-prefix: webui
 
       - name: Build frontend
+        # Not a test dependency — it is here so a broken production build fails
+        # a PR. Only one shard needs to pay for it.
+        if: matrix.slug == 'shard-1'
         run: npm run build
         working-directory: web-ui
 
-      - name: Run frontend tests
-        run: npm test
-        working-directory: web-ui
+      - name: Run suite (fail-closed gate)
+        uses: ./.github/actions/vitest-suite
+        with:
+          working-directory: web-ui
+          shard: ${{ matrix.shard }}
+          artifact-name: frontend-${{ matrix.slug }}
 
   landing-tests:
     name: Landing tests
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.landing == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
@@ -329,29 +711,33 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache landing node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-landing
+      - uses: ./.github/actions/install-deps
         with:
-          path: landing/node_modules
-          key: landing-${{ hashFiles('landing/package-lock.json') }}
+          directory: landing
+          key-prefix: landing
 
-      - name: Install landing dependencies
-        if: steps.cache-landing.outputs.cache-hit != 'true'
-        run: npm ci
+      - name: Build landing
+        # Same reason the web-ui shard builds (see frontend-tests): landing's
+        # vitest uses getViteConfig for Container-API component rendering, which
+        # does not exercise astro routing, content collections or adapter output.
+        # Without this, a change that breaks `astro build` passes PR Checks green
+        # and only surfaces in deploy.yml's build-worker job — after the gate that
+        # was supposed to catch it already approved the merge.
+        run: npm run build
         working-directory: landing
 
-      - name: Run landing tests
+      - name: Run suite (fail-closed gate)
         # Container-API render tests + pure-logic unit tests (landing/README.md)
-        run: npm test
-        working-directory: landing
+        uses: ./.github/actions/vitest-suite
+        with:
+          working-directory: landing
+          artifact-name: landing
 
   host-tests:
     name: Host tests
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.host == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
@@ -364,30 +750,16 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
-        with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
-
-      - name: Cache host node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-host
-        with:
-          path: host/node_modules
-          key: host-${{ hashFiles('host/package-lock.json') }}
-
-      - name: Install root dependencies
+      - uses: ./.github/actions/install-deps
         # wrangler-static-assets.test.js imports 'wrangler' from the ROOT
         # node_modules (module lookup walks up from host/__tests__).
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
+        with:
+          key-prefix: root
 
-      - name: Install host dependencies
-        if: steps.cache-host.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: host
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: host
+          key-prefix: host
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
@@ -404,16 +776,73 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rclone
 
-      - name: Run host hook tests (node:test)
-        # host/__tests__/ci-excluded.txt lists exact filenames of tests that need
-        # graphify CLI, python3 graphify module, rclone state, or gh-in-PR-context
-        # that only exist inside the codeflare container. They run during
-        # development, not in CI. Whole-line match (-x) so an entry can never
-        # swallow a similarly named test and a stray blank line excludes nothing.
+      - name: Select host tests
+        # The exclusion list and the *.test.js glob are the two ways a host test
+        # can silently stop running, so the selection is computed once, here, and
+        # its invariants are asserted by host/__tests__/host-test-inventory.test.js
+        # (which runs inside this very selection). This step is the backstop that
+        # test cannot be: if the selection came out empty, no test ran at all and
+        # a green lane would mean nothing.
+        working-directory: host/__tests__
         run: |
-          node --experimental-test-module-mocks --test --test-timeout=60000 \
-            $(ls host/__tests__/*.test.js \
-              | grep -vxFf <(sed 's|^|host/__tests__/|' host/__tests__/ci-excluded.txt))
+          set -euo pipefail
+          # Whole-line match (-x) so an entry can never swallow a similarly named
+          # test and a stray blank line excludes nothing.
+          # Strip comments and blanks first: the exclusion file documents WHY each
+          # entry is excluded, and a `#` line handed to grep -vxF would be a
+          # filename that matches nothing (harmless) while the inventory test
+          # would reject it as naming no test.
+          #
+          # Trim before filtering, because host-test-inventory.test.js trims too.
+          # Without this the two disagree on ` foo.test.js`: the test accepts it
+          # as an exclusion and asserts the file exists, while -vxF here matches
+          # nothing and the lane runs it anyway.
+          sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' ci-excluded.txt \
+            | grep -vE '^(#|$)' > "$RUNNER_TEMP/excluded.txt"
+          SELECTED=$(printf '%s\n' *.test.js | sort | grep -vxFf "$RUNNER_TEMP/excluded.txt" || true)
+          COUNT=$(printf '%s\n' "$SELECTED" | grep -c . || true)
+          if [ "$COUNT" -lt 1 ]; then
+            echo "::error::Host test selection is empty — the lane would pass having run nothing."
+            exit 1
+          fi
+          printf '%s\n' "$SELECTED" | sed 's|^|host/__tests__/|' > "$RUNNER_TEMP/host-tests.txt"
+          echo "Running $COUNT host tests ($(grep -c . "$RUNNER_TEMP/excluded.txt") excluded)."
+
+      - name: Run host hook tests (node:test)
+        # host/__tests__/ci-excluded.txt lists tests that genuinely cannot run
+        # here. It used to hold 14 entries under one blanket rationale (graphify
+        # CLI, python3 graphify module, rclone state, gh-in-PR-context) that was
+        # accurate for a couple of them and inherited by proximity for the rest.
+        # Six are back in the lane; each of the seven that remain now carries
+        # its own reason in the file, so the list is auditable rather than
+        # inherited. An eighth, skill-sdd-init-contract.test.js, was excluded
+        # because it FAILED — it pinned SKILL.md prose that had since been
+        # reworded, so it went red against its own staleness while the skill
+        # behaviour it claimed to cover was intact. Deleted rather than repaired;
+        # a red test parked behind an exclusion list is what this lane exists to
+        # prevent. The file list comes from the selection step above, so it is
+        # audited.
+        run: |
+          set -euo pipefail
+          xargs -a "$RUNNER_TEMP/host-tests.txt" \
+            node --experimental-test-module-mocks --test --test-timeout=60000 \
+              --test-reporter=spec --test-reporter-destination=stdout \
+              --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report.xml"
+
+          # node --test exits 0 when the files it was handed define no tests at
+          # all, so "the selection was non-empty" is not the same as "assertions
+          # ran". This is the host-lane equivalent of check-vitest-report.mjs's
+          # zero-collected-tests gate.
+          # Count <testcase> elements, not the first tests="N" attribute: node's
+          # junit reporter emits one <testsuite> per file, so `head -1` reported
+          # the first FILE's count (13) rather than the run's (hundreds) — and
+          # would have fired a false alarm had that file happened to be empty.
+          COUNT=$(grep -c '<testcase' "$RUNNER_TEMP/host-report.xml" || true)
+          if [ "${COUNT:-0}" -lt 1 ]; then
+            echo "::error::The host lane executed 0 tests. It ran the files it selected and none of them asserted anything."
+            exit 1
+          fi
+          echo "Host lane executed ${COUNT} tests."
         timeout-minutes: 5
 
   dependency-review:
@@ -435,6 +864,9 @@ jobs:
       - changes
       - quality
       - typecheck
+      - workflow-audit
+      - bundle-size
+      - coverage
       - backend-tests
       - frontend-tests
       - landing-tests
@@ -447,12 +879,33 @@ jobs:
       - name: Aggregate lane results
         env:
           RESULTS: ${{ toJSON(needs) }}
+          FULL: ${{ needs.changes.outputs.full }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
           BAD=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
           if [ -n "$BAD" ]; then
             echo "::error::Failed lanes: $(echo "$BAD" | tr '\n' ' ')"
             exit 1
+          fi
+
+          # `skipped` counts as a pass ONLY when the diff filter actually ran and
+          # decided the lane was unaffected. When it did not run (FULL=true:
+          # merge_group, schedule, dispatch) every lane was supposed to execute,
+          # so a skip means a gating expression is wrong — and silently passing
+          # it is how a merge queue ends up green having run nothing. The two
+          # lanes below opt out by design.
+          if [ "$FULL" = "true" ]; then
+            EXPECTED_SKIPS='coverage dependency-review'
+            SKIPPED=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "skipped") | .key')
+            for lane in $SKIPPED; do
+              case " $EXPECTED_SKIPS " in
+                *" $lane "*) ;;
+                *)
+                  echo "::error::Lane '$lane' was skipped on a full run (no diff filter ran, so every lane should have executed). Its if: condition is wrong — a skipped lane cannot be allowed to pass here."
+                  exit 1
+                  ;;
+              esac
+            done
           fi
           echo "All lanes green (skipped = not affected by this change)"
 
@@ -461,13 +914,27 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download backend test reports
+      - name: Download suite reports
         if: always()
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: backend-tests-*
+          pattern: '{backend-*,frontend-*,landing}'
           path: /tmp/test-artifacts
+
+      - name: Reconcile suite coverage against the tree
+        # Fail-closed: every test file in every suite's tree must appear in some
+        # report. A per-run gate can only vouch for files it was handed, so a file
+        # lost to a mis-shard or a worker dying mid-run would otherwise pass
+        # silently. Lane results distinguish "path filter skipped this suite" from
+        # "the suite ran and its reports vanished". No `always()` — if a lane
+        # already failed above, this job is done deciding.
+        env:
+          LANES: >-
+            {"backend":"${{ needs.backend-tests.result }}",
+             "frontend":"${{ needs.frontend-tests.result }}",
+             "landing":"${{ needs.landing-tests.result }}"}
+        run: node scripts/ci/check-suite-completeness.mjs /tmp/test-artifacts "$LANES"
 
       - name: Publish test-result table
         # Reporting only — the aggregate step above already decided the
