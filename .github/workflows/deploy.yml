@@ -638,9 +638,19 @@ jobs:
     # on purpose. Every failed post-merge PR Checks would have produced a second,
     # misleading red Deploy. `!cancelled()` rather than `always()` for the reason
     # stated in the header: cancelling a deploy must actually stop it.
+    #
+    # `verify.result == 'cancelled'` is listed too, and only here. verify calls
+    # test.yml as a reusable workflow, and a called workflow inherits the
+    # CALLER's context — so two manual dispatches of the same ref land in one
+    # concurrency group and the second cancels the first's verify. 'cancelled'
+    # satisfies neither branch below, so without this the first run skipped every
+    # job INCLUDING this backstop and a dispatched deploy silently did nothing.
+    # `!cancelled()` does not cover it: that tests the run's own state, not a
+    # dependency's.
     if: >-
       !cancelled() && (
       (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'cancelled') ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'

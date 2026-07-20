@@ -406,7 +406,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/zizmor.tar.gz \
+          curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o /tmp/zizmor.tar.gz \
             "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
           echo "${ZIZMOR_SHA256}  /tmp/zizmor.tar.gz" | sha256sum -c -
           # The checksum above is self-certified: the bump job hashed the same
@@ -417,7 +417,20 @@ jobs:
           # SLSA provenance for its release artifacts, which is an INDEPENDENT
           # signal: it attests the artifact was built by zizmorcore's own
           # workflow, which a substituted binary cannot forge.
-          gh attestation verify /tmp/zizmor.tar.gz --repo zizmorcore/zizmor
+          # Bounded retry: this is the one call here with no offline mode, and
+          # it feeds the required `test` context. An attestation API blip must
+          # not fail a merge on infrastructure rather than on findings — the
+          # same reasoning that made the zizmor audit itself offline.
+          for attempt in 1 2 3; do
+            if gh attestation verify /tmp/zizmor.tar.gz --repo zizmorcore/zizmor; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::attestation verification failed after 3 attempts"
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
           tar -xzf /tmp/zizmor.tar.gz -C /tmp zizmor
           # Offline for the same reason zizmor.yml is: the online audit dies
           # fatally when the advisory API blips, which would fail merges on
@@ -445,7 +458,7 @@ jobs:
           SHELLCHECK_OPTS: '--severity=error'
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/actionlint.tar.gz \
+          curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o /tmp/actionlint.tar.gz \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
           tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
