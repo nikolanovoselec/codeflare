@@ -73,6 +73,11 @@ export default defineConfig({
       // the source at transform time, so it is runtime-agnostic and reports real
       // numbers from inside the pool.
       provider: 'istanbul',
+      // Emit the report even when tests fail. Vitest skips report generation on
+      // failure by default, so the coverage lane's "was a table produced?" check
+      // fired first and blamed a missing report for what was actually a failing
+      // test - and its explicit test-failure branch never ran.
+      reportOnFailure: true,
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/__tests__/**', 'src/**/*.test.ts', 'src/**/*.generated.ts'],

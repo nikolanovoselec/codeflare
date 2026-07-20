@@ -25,7 +25,14 @@ const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 // because this list did not name it, the assertions below — including the one
 // that forbids always() — structurally could not see it. A gate list that is
 // hand-maintained alongside the thing it guards drifts exactly this way.
-const GATED_JOBS = ['prepare', 'build-worker', 'container', 'deploy', 'outcome'];
+// Derived from deploy.yml, not hand-listed. A hand-maintained list drifts the
+// moment a job is added — which is exactly how `outcome` shipped ungated and
+// unnoticed. `verify` is excluded because it IS the gate; anything else new
+// fails these assertions until someone classifies it deliberately.
+const UNGATED_JOBS = new Set(['verify']);
+const GATED_JOBS = [...deployYml.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)]
+  .map((m) => m[1])
+  .filter((name) => !UNGATED_JOBS.has(name));
 
 /** Returns the raw YAML block for a top-level job, comments and all. */
 function jobBlock(name) {
@@ -33,7 +40,12 @@ function jobBlock(name) {
   const start = lines.findIndex((line) => line === `  ${name}:`);
   assert.notEqual(start, -1, `deploy.yml has no top-level job "${name}"`);
   const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^ {2}\S/.test(line));
+  // Terminate on the next JOB KEY, not on any 2-space-indented non-space line:
+  // `/^ {2}\S/` also matches `  # comment`, and deploy.yml already carries a
+  // block comment at that indentation between two jobs. One placed inside a job
+  // body would truncate the block before its if:/needs: lines and silently
+  // disarm every assertion below.
+  const end = rest.findIndex((line) => /^ {2}[A-Za-z0-9_-]+:\s*$/.test(line));
   return rest.slice(0, end === -1 ? undefined : end).join('\n');
 }
 
@@ -92,12 +104,21 @@ describe('manual deploys cannot skip tests', () => {
         /needs\.verify\.result == 'skipped'/,
         `job "${name}" must require verify to be skipped on the workflow_run path, not merely absent`
       );
-      // A bare event check ORed at the top level re-opens the bypass.
-      assert.doesNotMatch(
-        gate,
-        /github\.event_name == 'workflow_dispatch' \)? *\|\|/,
-        `job "${name}" allows workflow_dispatch without any verify condition`
-      );
+      // Every workflow_dispatch clause must carry a verify condition. Asserted
+      // positively over the clauses rather than by blocklisting one spelling:
+      // the previous `doesNotMatch(/…workflow_dispatch' \)? *\|\|/)` required
+      // the `||` to FOLLOW the event check, so a bypass appended at the end of
+      // the expression — `… || github.event_name == 'workflow_dispatch'` with
+      // nothing after it — satisfied every assertion here while giving manual
+      // dispatch an ungated path to deploy.
+      for (const clause of gate.split('||')) {
+        if (!clause.includes("github.event_name == 'workflow_dispatch'")) continue;
+        assert.match(
+          clause,
+          /needs\.verify\.result == '(success|skipped|cancelled)'/,
+          `job "${name}" has a workflow_dispatch clause with no verify condition, which is an ungated manual-deploy path`
+        );
+      }
       // always() would run these jobs through a cancellation.
       assert.doesNotMatch(gate, /\balways\(\)/, `job "${name}" uses always(), so cancelling a deploy would not stop it`);
 

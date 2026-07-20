@@ -17,6 +17,11 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
+      // Emit the report even when tests fail. Vitest skips report generation on
+      // failure by default, so the coverage lane's "was a table produced?" check
+      // fired first and blamed a missing report for what was actually a failing
+      // test - and its explicit test-failure branch never ran.
+      reportOnFailure: true,
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/__tests__/**', 'src/index.tsx'],
       // Measured 2026-07-20 (run 29725141008), the first run that ever executed

@@ -598,8 +598,9 @@ jobs:
           # them and go green having enforced nothing. That is the exact
           # "declared, never executed" state this lane was written to end, so it
           # is asserted rather than assumed. Both matrix entries emit istanbul's
-          # / v8's `text` table, whose last row starts with "All files".
-          if ! grep -q '^All files' /tmp/coverage.log; then
+          # / v8's `text` table, whose first body row starts with "All files". Same
+          # tolerance as render-coverage-summary.mjs uses for the same line.
+          if ! grep -qE '^[[:space:]]*All files[[:space:]]*\|' /tmp/coverage.log; then
             echo "::error::no coverage table was produced — thresholds were never evaluated"
             exit 1
           fi

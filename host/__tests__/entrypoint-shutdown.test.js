@@ -76,16 +76,32 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
       'entrypoint.sh must define a shutdown_handler function'
     );
 
-    // The trapped function must not be able to run its body twice. Either it is
-    // a guarded wrapper, or the guard lives in the handler itself.
+    // The trapped function must not be able to run its body twice. This asserts
+    // the STRUCTURE of the guard, not the presence of a token: the previous
+    // version scanned 600 characters for /SHUTDOWN_RAN|already|return 0/, and
+    // the nested walk_kill helper begins with `[ -z "$root" ] && return 0`
+    // inside that window — so it stayed green through the exact
+    // `trap shutdown_handler SIGTERM SIGINT EXIT` revert it was written to catch.
     const trapped = trap[1];
-    const guardSource = trapped === 'shutdown_handler'
-      ? entrypoint.slice(entrypoint.indexOf('shutdown_handler()'))
-      : entrypoint.slice(entrypoint.indexOf(`${trapped}()`));
-    assert.match(
-      guardSource.slice(0, 600),
-      /SHUTDOWN_RAN|already|return 0/,
-      `${trapped} is trapped on both a signal and EXIT, so it must guard against running twice`
+    assert.notEqual(
+      trapped,
+      'shutdown_handler',
+      'the handler is trapped directly on both a signal and EXIT, so it runs twice; trap a guarded wrapper instead'
+    );
+
+    const wrapper = entrypoint.match(new RegExp(`^${trapped}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'));
+    assert.ok(wrapper, `${trapped} must be defined at the top level`);
+
+    const sentinel = wrapper[0].match(/if \[ "\$([A-Z_]+)" = "1" \]/);
+    assert.ok(sentinel, `${trapped} must short-circuit on a sentinel variable`);
+
+    const setIdx = wrapper[0].indexOf(`${sentinel[1]}=1`);
+    const callIdx = wrapper[0].indexOf('shutdown_handler');
+    assert.ok(setIdx !== -1, `${trapped} must set ${sentinel[1]}=1`);
+    assert.ok(callIdx !== -1, `${trapped} must call shutdown_handler`);
+    assert.ok(
+      setIdx < callIdx,
+      `${trapped} sets ${sentinel[1]} after invoking the handler, so a second signal re-enters before the guard is armed`
     );
   });
 
@@ -183,7 +199,18 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     const grace = body.match(/kill_subtree TERM[\s\S]*?sleep (\d+)/);
     assert.ok(grace, 'the watchdog must sleep between SIGTERM and SIGKILL');
 
-    const total = maxQuiesceSecs + (Number(watchdog[1]) - maxQuiesceSecs) + Number(grace[1]);
+    // The bound has to be load-bearing on its own. Writing the sum as
+    // quiesce + (watchdog - quiesce) + grace cancels the quiesce term
+    // algebraically, so widening the loop to e.g. 1200 deciseconds would still
+    // total 120 while `sleep $((108 - 120))` errored out at runtime, skipping
+    // both kill_subtree calls and letting the final bisync run unbounded into
+    // the DO's hard kill — the failure AD57's budget exists to prevent.
+    assert.ok(
+      maxQuiesceSecs < Number(watchdog[1]),
+      `the quiesce bound is ${maxQuiesceSecs}s but the watchdog is ${watchdog[1]}s; sleep $(( ${watchdog[1]} - QUIESCE_SECS )) would go negative and the watchdog would never fire`
+    );
+
+    const total = Number(watchdog[1]) + Number(grace[1]);
     assert.equal(
       total,
       120,
