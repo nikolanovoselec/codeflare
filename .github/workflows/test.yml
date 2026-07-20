@@ -36,6 +36,11 @@ on:
   # Merge queue: the queue builds its own ref and needs this same required
   # context to report against it, or every queued PR stalls waiting for a
   # check that never runs.
+  #
+  # This alone does NOT make the queue usable, and turning it on while only this
+  # workflow handles merge_group would hang every queued PR forever: `main`'s
+  # ruleset also requires `Property-based fuzzing` and CodeQL, and neither
+  # fuzz.yml nor codeql.yml has a merge_group trigger. Add it there first.
   merge_group:
   workflow_dispatch:
   # Called by deploy.yml on manual dispatch. A manual deploy is the one path
@@ -498,19 +503,26 @@ jobs:
   coverage:
     name: Coverage (${{ matrix.slug }})
     needs: changes
-    # Deliberately NOT on pull_request, and deliberately NOT on merge_group.
     # Coverage is per-process, so a sharded run gives each shard a view of only
-    # its own slice; enforcing thresholds needs the whole suite in one process,
-    # which costs minutes. Putting that in a merge queue would tax every merge.
-    # The push-to-main run still enforces it before deploy, so a coverage
-    # regression cannot reach production — it just reports after merge rather
-    # than before, which is the right trade for a slow-moving regression guard.
-    # This is the one lane intentionally keyed on event name instead of the
-    # `full` flag; every other lane must run whenever the diff filter did not.
+    # its own slice; enforcing thresholds needs the whole suite in one process.
+    # That is why this lane is keyed on event name rather than the `full` flag.
+    #
+    # It DOES run on pull_request. It originally did not, on the theory that the
+    # push-to-main run enforced it before deploy so a regression could not reach
+    # production. True, but it made the failure worse: `coverage` is in
+    # `summary.needs`, so a dip turns `test` red on main AFTER the merge, and
+    # deploy.yml gates on that conclusion — production then silently does not
+    # deploy, with the commit already merged. A gate that can only fire once the
+    # change is unrevertable-in-place is not a gate, it is an outage. Measured
+    # cost of running it here is ~2 min wall clock in parallel with lanes that
+    # already take ~1 min, at roughly one PR a day.
+    #
+    # Still NOT on merge_group: nothing requires it there, and the queue is off.
     #
     # Until this existed the thresholds in both vitest configs were decoration:
     # declared, never executed. Same class as a test that cannot fail.
     if: >-
+      github.event_name == 'pull_request' ||
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
@@ -711,7 +723,13 @@ jobs:
           # entry is excluded, and a `#` line handed to grep -vxF would be a
           # filename that matches nothing (harmless) while the inventory test
           # would reject it as naming no test.
-          grep -vE '^\s*(#|$)' ci-excluded.txt > "$RUNNER_TEMP/excluded.txt"
+          #
+          # Trim before filtering, because host-test-inventory.test.js trims too.
+          # Without this the two disagree on ` foo.test.js`: the test accepts it
+          # as an exclusion and asserts the file exists, while -vxF here matches
+          # nothing and the lane runs it anyway.
+          sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' ci-excluded.txt \
+            | grep -vE '^(#|$)' > "$RUNNER_TEMP/excluded.txt"
           SELECTED=$(printf '%s\n' *.test.js | sort | grep -vxFf "$RUNNER_TEMP/excluded.txt" || true)
           COUNT=$(printf '%s\n' "$SELECTED" | grep -c . || true)
           if [ "$COUNT" -lt 1 ]; then
@@ -723,15 +741,18 @@ jobs:
 
       - name: Run host hook tests (node:test)
         # host/__tests__/ci-excluded.txt lists tests that genuinely cannot run
-        # here. It used to hold 14 entries on the rationale that they need the
-        # graphify CLI, the python3 graphify module, rclone state or
-        # gh-in-PR-context — accurate for two of them and inherited by proximity
-        # for the other twelve, which between them carry ~167 assertions that
-        # were not running anywhere. Those twelve need at most bash, jq and
-        # rclone, all present on the runner (rclone is installed above), so they
-        # are back in the lane. The two that remain shell out to the graphify
-        # binary and its python module, which only exist inside the image.
-        # The file list comes from the selection step above, so it is audited.
+        # here. It used to hold 14 entries under one blanket rationale (graphify
+        # CLI, python3 graphify module, rclone state, gh-in-PR-context) that was
+        # accurate for a couple of them and inherited by proximity for the rest.
+        # Seven are back in the lane; each of the seven that remain now carries
+        # its own reason in the file, so the list is auditable rather than
+        # inherited. An eighth, skill-sdd-init-contract.test.js, was excluded
+        # because it FAILED — it pinned SKILL.md prose that had since been
+        # reworded, so it went red against its own staleness while the skill
+        # behaviour it claimed to cover was intact. Deleted rather than repaired;
+        # a red test parked behind an exclusion list is what this lane exists to
+        # prevent. The file list comes from the selection step above, so it is
+        # audited.
         run: |
           set -euo pipefail
           xargs -a "$RUNNER_TEMP/host-tests.txt" \

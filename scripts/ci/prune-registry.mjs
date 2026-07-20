@@ -60,17 +60,11 @@
   // see, and the digest-protection invariant below cannot protect
   // tags we never knew existed.
   //
-  // End of list is the ABSENCE of a `Link: <...>; rel="next"` header. `n` is a
-  // maximum the server may undercut, so `page.length < 500` is not a
-  // termination signal: a registry that caps pages below the requested n would
-  // end enumeration on its first response with `complete` still true, and the
-  // prune would then run against a lexical prefix of the repository — exactly
-  // the partial enumeration the comment above says it must refuse. Whether any
-  // registry this talks to actually caps is not known; the point is that the
-  // code must not depend on it not doing so.
+  // Termination is handled inside the loop; see the note on the Link header.
   const tagSet = new Set();
   let last = "";
   let complete = true;
+  let sawNextLink = false;
   for (let p = 0; p < 200; p++) {
     const url = base + "/tags/list?n=500" + (last ? "&last=" + encodeURIComponent(last) : "");
     const r = await fetch(url, { headers: { Authorization: auth } });
@@ -79,20 +73,30 @@
     const page = Array.isArray(j.tags) ? j.tags : null;
     if (page === null) { console.log("::warning::tags/list returned no tags array"); complete = false; break; }
 
+    // An empty page is the only unambiguous end-of-list: there is nothing after
+    // the cursor. Reached here (rather than via `added === 0` below) so that a
+    // registry which paginates without Link ends cleanly instead of warning.
+    if (page.length === 0) break;
+
     const before = tagSet.size;
     for (const t of page) tagSet.add(t);
     const added = tagSet.size - before;
 
-    // Require BOTH signals before declaring the list complete. `Link: rel=next`
-    // is a SHOULD in the distribution spec, so a registry that paginates via
-    // `last=` without emitting it would end enumeration after one page — and a
-    // full page is positive evidence that more exist. Neither signal alone is
-    // safe: page size can be undercut by the server, and Link can be absent.
-    // Whether the Cloudflare registry emits Link has not been measured, so this
-    // deliberately does not depend on knowing.
+    // `Link: rel=next` is a SHOULD in the distribution spec, so its absence
+    // means "done" only from a registry that has demonstrated it emits the
+    // header at all — otherwise page 1 would end the enumeration. One that
+    // paginates by `last=` without Link is walked until it returns empty.
+    //
+    // `page.length < n` is deliberately NOT used as a termination signal: `n` is
+    // a maximum the server may undercut, so a registry capping pages below the
+    // requested 500 would end enumeration on its first response with `complete`
+    // still true, and the prune would then run against a lexical prefix of the
+    // repository — exactly the partial enumeration this must refuse. An earlier
+    // version of this loop did that while its own comment said not to.
     const link = r.headers.get("link") || "";
     const hasNext = /rel="?next"?/.test(link);
-    if (!hasNext && page.length < 500) break;
+    if (hasNext) sawNextLink = true;
+    if (sawNextLink && !hasNext) break;
 
     // A "next" link that yields nothing new means the cursor is not advancing
     // (an inclusive `last`, or a server ignoring it). Continuing would spin to
