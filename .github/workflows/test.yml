@@ -236,11 +236,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Four shards, not two. Roughly 85% of a shard's wall clock is per-file
+        # Vite transform and workerd isolate setup rather than test execution
+        # (measured: 18s of assertions inside 81s), and about half of that
+        # overhead sits in the main process where extra pool workers cannot
+        # reach it. It is per-process, though, so it divides cleanly across
+        # shards — each of which is its own runner.
         include:
-          - shard: '1/2'
+          - shard: '1/4'
             slug: shard-1
-          - shard: '2/2'
+          - shard: '2/4'
             slug: shard-2
+          - shard: '3/4'
+            slug: shard-3
+          - shard: '4/4'
+            slug: shard-4
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
