@@ -1,0 +1,31 @@
+name: 'Install dependencies (cached)'
+description: >-
+  Restores a package directory's node_modules from cache keyed on its lockfile
+  and runs `npm ci` only on a miss. Every lane needs this; without one action
+  the same five-line cache/install pair is copy-pasted into each of them and
+  drifts (different keys, forgotten flags, stale paths).
+inputs:
+  directory:
+    description: 'Package directory containing package-lock.json (repo root by default).'
+    required: false
+    default: '.'
+  key-prefix:
+    description: 'Cache key prefix. Must be unique per directory — a shared prefix serves one directory the wrong node_modules.'
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Restore ${{ inputs.key-prefix }} node_modules
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      id: cache
+      with:
+        path: ${{ inputs.directory }}/node_modules
+        key: ${{ inputs.key-prefix }}-${{ hashFiles(format('{0}/package-lock.json', inputs.directory)) }}
+
+    - name: Install ${{ inputs.key-prefix }} dependencies
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.directory }}
+      # --prefer-offline reuses the runner's npm cache; --no-audit/--no-fund drop
+      # two network round trips that produce output nothing here reads.
+      run: npm ci --prefer-offline --no-audit --no-fund

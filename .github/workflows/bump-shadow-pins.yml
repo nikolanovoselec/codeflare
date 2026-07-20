@@ -74,9 +74,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/context-mode-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/context-mode-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -90,7 +92,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -168,8 +170,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump context-mode $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -177,6 +180,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -203,7 +207,7 @@ jobs:
           )
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump context-mode $CUR -> $LAT" \
             --body "$BODY"
 
@@ -241,9 +245,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/graphify-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/graphify-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -257,7 +263,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -287,8 +293,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump graphify $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -296,6 +303,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -318,7 +326,7 @@ jobs:
           )
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump graphify $CUR -> $LAT" \
             --body "$BODY"
 
@@ -354,9 +362,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/zoxide-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/zoxide-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -370,7 +380,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -387,8 +397,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump zoxide $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -396,6 +407,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -403,7 +415,7 @@ jobs:
           set -euo pipefail
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump zoxide $CUR -> $LAT" \
             --body "$(cat <<EOF
           Auto-generated bump of \`zoxide\` from \`$CUR\` to \`$LAT\`.
@@ -453,9 +465,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/yazi-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/yazi-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -469,7 +483,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -486,8 +500,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump yazi $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -495,6 +510,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -502,7 +518,7 @@ jobs:
           set -euo pipefail
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump yazi $CUR -> $LAT" \
             --body "$(cat <<EOF
           Auto-generated bump of \`yazi\` from \`$CUR\` to \`$LAT\`.
@@ -552,9 +568,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/lazygit-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/lazygit-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -568,7 +586,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -585,8 +603,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump lazygit $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -594,6 +613,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -601,7 +621,7 @@ jobs:
           set -euo pipefail
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump lazygit $CUR -> $LAT" \
             --body "$(cat <<EOF
           Auto-generated bump of \`lazygit\` from \`$CUR\` to \`$LAT\`.
@@ -651,9 +671,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/silverbullet-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/silverbullet-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -667,7 +689,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -684,8 +706,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump silverbullet $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -693,6 +716,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -700,7 +724,7 @@ jobs:
           set -euo pipefail
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump silverbullet $CUR -> $LAT" \
             --body "$(cat <<EOF
           Auto-generated bump of \`silverbullet\` from \`$CUR\` to \`$LAT\`.
@@ -863,9 +887,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/bun-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/bun-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -876,13 +902,16 @@ jobs:
       - name: Apply bump
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          CUR: ${{ steps.ver.outputs.current }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
-          CUR='${{ steps.ver.outputs.current }}' LAT='${{ steps.ver.outputs.latest }}' node <<'NODE'
+          git checkout -B "$BRANCH"
+          CUR='$CUR' LAT='$LAT' node <<'NODE'
           const fs = require('node:fs');
           const cur = process.env.CUR;
           const lat = process.env.LAT;
@@ -897,12 +926,13 @@ jobs:
             echo "Nothing changed - aborting."
             exit 1
           fi
-          git commit -m "chore(deps): bump bun ${{ steps.ver.outputs.current }} -> ${{ steps.ver.outputs.latest }}"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git commit -m "chore(deps): bump bun $CUR -> $LAT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
 
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -923,7 +953,7 @@ jobs:
           )
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump bun $CUR -> $LAT" \
             --body "$BODY"
 
@@ -1131,9 +1161,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/impeccable-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/impeccable-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -1144,12 +1176,15 @@ jobs:
       - name: Apply bump
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          CUR: ${{ steps.ver.outputs.current }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
           node scripts/update-impeccable-skill.mjs
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
@@ -1158,12 +1193,13 @@ jobs:
             echo "Nothing changed - aborting."
             exit 1
           fi
-          git commit -m "chore(deps): bump impeccable ${{ steps.ver.outputs.current }} -> ${{ steps.ver.outputs.latest }}"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git commit -m "chore(deps): bump impeccable $CUR -> $LAT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
 
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -1187,7 +1223,7 @@ jobs:
           )
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump impeccable $CUR -> $LAT" \
             --body "$BODY"
 
@@ -1229,9 +1265,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/consult-llm-mcp-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/consult-llm-mcp-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -1245,7 +1283,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -1263,8 +1301,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump consult-llm-mcp $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -1272,6 +1311,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -1292,7 +1332,7 @@ jobs:
           )
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump consult-llm-mcp $CUR -> $LAT" \
             --body "$BODY"
 
@@ -1333,9 +1373,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/chrome-devtools-mcp-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/chrome-devtools-mcp-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -1349,7 +1391,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -1367,8 +1409,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump chrome-devtools-mcp $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -1376,6 +1419,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -1396,7 +1440,7 @@ jobs:
           )
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump chrome-devtools-mcp $CUR -> $LAT" \
             --body "$BODY"
 
@@ -1438,9 +1482,11 @@ jobs:
 
       - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/browser-run-mcp-sdk-${{ steps.ver.outputs.latest }}"
+          BRANCH="bump/browser-run-mcp-sdk-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -1454,7 +1500,7 @@ jobs:
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "${{ steps.branch.outputs.branch }}"
+          git checkout -B "$BRANCH"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -1472,8 +1518,9 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump @modelcontextprotocol/sdk (browser-run-mcp) $CUR -> $LAT"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${{ steps.branch.outputs.branch }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -1481,6 +1528,7 @@ jobs:
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -1501,7 +1549,7 @@ jobs:
           )
           gh pr create \
             --base develop \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "$BRANCH" \
             --title "chore(deps): bump @modelcontextprotocol/sdk (browser-run-mcp) $CUR -> $LAT" \
             --body "$BODY"
 

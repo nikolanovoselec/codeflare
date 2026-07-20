@@ -1,6 +1,6 @@
-// Behavioral tests for the two fail-closed CI gates that decide whether a
-// backend test run counts as green. They run under plain Node (they spawn the
-// gate scripts as subprocesses and build temp trees), so they are listed in
+// Behavioral tests for the two fail-closed CI gates that decide whether a test
+// run counts as green. They run under plain Node (they spawn the gate scripts as
+// subprocesses and build temp trees), so they are listed in
 // vitest.node-suite.mjs rather than the Workers pool.
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
@@ -15,7 +15,7 @@ import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
-const REPORT_GATE = join(REPO, 'scripts/ci/check-backend-test-report.mjs');
+const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
 
 let work: string;
 
@@ -41,92 +41,118 @@ function tree(files: string[]) {
 }
 
 /** A vitest JSON report naming `files` as collected, each with one assertion. */
-function report(dir: string, name: string, files: string[], treeRoot = '/checkout') {
-  const p = join(work, dir);
+function report(artifactDir: string, name: string, files: string[]) {
+  const p = join(work, 'artifacts', artifactDir);
   mkdirSync(p, { recursive: true });
-  const body = {
-    numTotalTests: files.length,
-    numFailedTests: 0,
-    numFailedTestSuites: 0,
-    testResults: files.map((f) => ({
-      name: `${treeRoot}/${f}`,
-      startTime: 0,
-      endTime: 10,
-      assertionResults: [{ status: 'passed' }],
-    })),
-  };
-  writeFileSync(join(p, name), JSON.stringify(body));
+  writeFileSync(
+    join(p, name),
+    JSON.stringify({
+      numTotalTests: files.length,
+      numFailedTests: 0,
+      numFailedTestSuites: 0,
+      testResults: files.map((f) => ({
+        name: `/checkout/${f}`,
+        startTime: 0,
+        endTime: 10,
+        assertionResults: [{ status: 'passed' }],
+      })),
+    }),
+  );
 }
 
-function runCompleteness(artifactRoot: string, lane: string, cwd: string) {
-  return spawnSync(process.execPath, [COMPLETENESS, artifactRoot, lane], {
+function runCompleteness(lanes: Record<string, string>, cwd: string, artifactRoot = 'artifacts') {
+  return spawnSync(process.execPath, [COMPLETENESS, join(work, artifactRoot), JSON.stringify(lanes)], {
     cwd,
     encoding: 'utf8',
   });
 }
 
-describe('REQ-OPS-003 AC5: cross-shard completeness gate', () => {
-  it('passes when every backend test file in the tree appears in some shard report', () => {
+describe('REQ-OPS-003 AC5: cross-suite completeness gate', () => {
+  it('passes when every backend test file in the tree appears in some report', () => {
     const files = ['src/a.test.ts', 'src/nested/b.test.ts'];
     const cwd = tree(files);
-    report('artifacts/shard-1', 'backend-tests.json', [files[0]]);
-    report('artifacts/shard-2', 'backend-tests.json', [files[1]]);
-    report('artifacts/shard-1', 'node-tests.json', NODE_SUITE_FILES);
+    report('backend-shard-1', 'backend-shard-1.json', [files[0]]);
+    report('backend-shard-2', 'backend-shard-2.json', [files[1]]);
+    report('backend-node', 'backend-node.json', NODE_SUITE_FILES);
 
-    const r = runCompleteness(join(work, 'artifacts'), 'success', cwd);
+    const r = runCompleteness({ backend: 'success' }, cwd);
     expect(r.status).toBe(0);
   });
 
   it('fails when a file present in the tree ran in no shard', () => {
     const files = ['src/a.test.ts', 'src/nested/b.test.ts'];
     const cwd = tree(files);
-    report('artifacts/shard-1', 'backend-tests.json', [files[0]]);
-    report('artifacts/shard-1', 'node-tests.json', NODE_SUITE_FILES);
+    report('backend-shard-1', 'backend-shard-1.json', [files[0]]);
+    report('backend-node', 'backend-node.json', NODE_SUITE_FILES);
 
-    const r = runCompleteness(join(work, 'artifacts'), 'success', cwd);
+    const r = runCompleteness({ backend: 'success' }, cwd);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('src/nested/b.test.ts');
   });
 
   it('fails when a report names a file that is not in the tree', () => {
     const cwd = tree(['src/a.test.ts']);
-    report('artifacts/shard-1', 'backend-tests.json', ['src/a.test.ts', 'src/ghost.test.ts']);
-    report('artifacts/shard-1', 'node-tests.json', NODE_SUITE_FILES);
+    report('backend-shard-1', 'backend-shard-1.json', ['src/a.test.ts', 'src/ghost.test.ts']);
+    report('backend-node', 'backend-node.json', NODE_SUITE_FILES);
 
-    const r = runCompleteness(join(work, 'artifacts'), 'success', cwd);
+    const r = runCompleteness({ backend: 'success' }, cwd);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('src/ghost.test.ts');
   });
 
-  it('fails on a corrupt shard report rather than skipping it', () => {
+  it('fails on a corrupt report rather than skipping it', () => {
     const cwd = tree(['src/a.test.ts']);
-    const dir = join(work, 'artifacts/shard-1');
+    const dir = join(work, 'artifacts', 'backend-shard-1');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'backend-tests.json'), '{ not json');
+    writeFileSync(join(dir, 'backend-shard-1.json'), '{ not json');
 
-    const r = runCompleteness(join(work, 'artifacts'), 'success', cwd);
-    expect(r.status).toBe(1);
+    expect(runCompleteness({ backend: 'success' }, cwd).status).toBe(1);
   });
 
-  it('fails when the lane reported success but uploaded no reports', () => {
+  it('fails when a lane reported success but uploaded no reports', () => {
     const cwd = tree(['src/a.test.ts']);
-    const r = runCompleteness(join(work, 'missing'), 'success', cwd);
-    expect(r.status).toBe(1);
+    expect(runCompleteness({ backend: 'success' }, cwd, 'missing').status).toBe(1);
   });
 
-  it('passes when the lane was skipped by the path filter', () => {
+  it('passes when a lane was skipped by the path filter', () => {
     const cwd = tree(['src/a.test.ts']);
-    const r = runCompleteness(join(work, 'missing'), 'skipped', cwd);
-    expect(r.status).toBe(0);
+    expect(runCompleteness({ backend: 'skipped' }, cwd, 'missing').status).toBe(0);
+  });
+
+  it('reconciles each suite against its own tree, not just the backend', () => {
+    const cwd = tree(['src/a.test.ts']);
+    touch(cwd, 'web-ui/src/__tests__/one.test.tsx');
+    touch(cwd, 'web-ui/src/__tests__/two.test.tsx');
+    report('backend-shard-1', 'backend-shard-1.json', ['src/a.test.ts']);
+    report('backend-node', 'backend-node.json', NODE_SUITE_FILES);
+    // Only one of the two frontend files is reported.
+    report('frontend-shard-1', 'frontend-shard-1.json', ['web-ui/src/__tests__/one.test.tsx']);
+
+    const r = runCompleteness({ backend: 'success', frontend: 'success' }, cwd);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('web-ui/src/__tests__/two.test.tsx');
+  });
+
+  it('does not let one suite pass vacuously when another has no reports', () => {
+    const cwd = tree(['src/a.test.ts']);
+    report('backend-shard-1', 'backend-shard-1.json', ['src/a.test.ts']);
+    report('backend-node', 'backend-node.json', NODE_SUITE_FILES);
+
+    // Backend fully reconciles, but the frontend lane claims success with nothing.
+    const r = runCompleteness({ backend: 'success', frontend: 'success' }, cwd);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('frontend');
   });
 });
 
-function runReportGate(status: number, reportBody: unknown, log: string) {
+function runReportGate(status: number, reportBody: unknown, log: string, tolerate = 'true') {
   const rp = join(work, 'report.json');
   const lp = join(work, 'run.log');
   writeFileSync(rp, typeof reportBody === 'string' ? reportBody : JSON.stringify(reportBody));
   writeFileSync(lp, log);
-  return spawnSync(process.execPath, [REPORT_GATE, String(status), rp, lp], { encoding: 'utf8' });
+  return spawnSync(process.execPath, [REPORT_GATE, String(status), rp, lp, tolerate], {
+    encoding: 'utf8',
+  });
 }
 
 const TEARDOWN_CRASH = 'stack\n[vitest-pool]: Worker cloudflare-pool emitted error.\nmore';
@@ -141,13 +167,17 @@ const passing = (files = 2) => ({
   })),
 });
 
-describe('REQ-OPS-003 AC4: backend test report gate', () => {
+describe('REQ-OPS-003 AC4: vitest report gate', () => {
   it('accepts a clean run', () => {
     expect(runReportGate(0, passing(), '').status).toBe(0);
   });
 
   it('accepts a non-zero exit carrying the known workerd teardown fingerprint', () => {
     expect(runReportGate(1, passing(), TEARDOWN_CRASH).status).toBe(0);
+  });
+
+  it('rejects that same crash for a suite that did not opt into tolerance', () => {
+    expect(runReportGate(1, passing(), TEARDOWN_CRASH, 'false').status).toBe(1);
   });
 
   it('rejects a non-zero exit without that fingerprint', () => {

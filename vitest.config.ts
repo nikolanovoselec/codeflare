@@ -50,7 +50,7 @@ export default defineConfig({
     // storage-isolation limitation (known-issues#websockets). Serializing to one
     // worker never fixed that (the crash is a teardown, not a concurrency, bug);
     // it only cost wall clock, so the pool is parallel again and the crash stays
-    // tolerated by the fingerprinted guard in scripts/ci/check-backend-test-report.mjs
+    // tolerated by the fingerprinted guard in scripts/ci/check-vitest-report.mjs
     // (which still fails on any real failure, and on any file collecting zero tests).
     // Cloudflare's other documented knob, --no-isolate, remains unusable: isolate:false
     // crashes workerd during *collection* (0 tests run) on pool-workers 0.16.14 AND

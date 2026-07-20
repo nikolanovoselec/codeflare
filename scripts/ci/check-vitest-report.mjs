@@ -1,4 +1,6 @@
-// Fail-closed gate for the backend vitest run (Cloudflare Workers pool).
+// Fail-closed gate for a vitest run. Every suite in this repo — backend shards,
+// the Node-runtime leg, frontend shards, landing — goes through it, so none can
+// rot green in a way another one would have caught.
 //
 // @cloudflare/vitest-pool-workers crashes workerd at pool teardown AFTER all
 // tests pass (known-issues#websockets: WebSockets + Durable Objects under
@@ -11,19 +13,24 @@
 //
 //   exit 0    -> still require a parseable report with >0 tests and 0 failures
 //                (catches a mis-sharded or silently-empty run)
-//   exit != 0 -> accept ONLY when the report parses, shows >0 tests and 0
-//                failed tests/suites, AND the log carries the exact pool-crash
-//                fingerprint. Anything else — missing/corrupt report, unknown
-//                error text, zero collected tests — fails.
+//   exit != 0 -> fails, UNLESS the caller opted into pool-crash tolerance AND
+//                the report parses with >0 tests and 0 failed tests/suites AND
+//                the log carries the exact fingerprint. Anything else — missing
+//                or corrupt report, unknown error text, zero collected tests —
+//                fails.
 //
-// Usage: node scripts/ci/check-backend-test-report.mjs <exit-status> <report.json> <run.log>
+// Tolerance is opt-in per suite, not global: only the Workers pool has this
+// bug, so a non-zero exit from the jsdom or Node suites must stay fatal.
+//
+// Usage: node scripts/ci/check-vitest-report.mjs <exit-status> <report.json> <run.log> [tolerate-pool-crash]
 import { readFileSync } from 'node:fs';
 
-const [, , exitStatus, reportPath, logPath] = process.argv;
+const [, , exitStatus, reportPath, logPath, tolerate] = process.argv;
 const status = Number(exitStatus);
+const tolerantOfPoolCrash = tolerate === 'true';
 
 function fail(msg) {
-  console.error(`::error::backend-test gate: ${msg}`);
+  console.error(`::error::vitest gate: ${msg}`);
   process.exit(1);
 }
 
@@ -60,8 +67,12 @@ if (empty.length > 0) {
 }
 
 if (status === 0) {
-  console.log(`backend-test gate: ${total} tests, 0 failures`);
+  console.log(`vitest gate: ${total} tests, 0 failures`);
   process.exit(0);
+}
+
+if (!tolerantOfPoolCrash) {
+  fail(`non-zero exit (${status}); this suite does not tolerate pool crashes`);
 }
 
 const FINGERPRINT = '[vitest-pool]: Worker cloudflare-pool emitted error.';
@@ -75,5 +86,5 @@ if (!log.includes(FINGERPRINT)) {
   fail(`non-zero exit (${status}) without the known workerd teardown fingerprint`);
 }
 console.log(
-  `backend-test gate: ${total} tests, 0 failures; non-zero exit (${status}) matches the known workerd teardown crash — accepting`,
+  `vitest gate: ${total} tests, 0 failures; non-zero exit (${status}) matches the known workerd teardown crash — accepting`,
 );

@@ -22,14 +22,21 @@ name: PR Checks
 # PARALLEL, each gated on its filter (all lanes run on workflow_dispatch).
 # The `summary` job — check name "test", the required branch-protection
 # context — aggregates: failure/cancelled in any needed lane fails it,
-# skipped lanes (nothing relevant changed) pass it. Backend tests are
-# sharded 2-way because @cloudflare/vitest-pool-workers forces
-# maxWorkers=1 (see vitest.config.ts); the shards halve the longest lane.
+# skipped lanes (nothing relevant changed) pass it, and it reconciles the
+# shard reports against the tree so no suite can go missing quietly.
+#
+# Every suite — backend shards, the Node-runtime leg, frontend shards,
+# landing — runs through .github/actions/vitest-suite, so all of them get
+# the same JSON-report gate rather than the backend alone.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main, develop]
+  # Merge queue: the queue builds its own ref and needs this same required
+  # context to report against it, or every queued PR stalls waiting for a
+  # check that never runs.
+  merge_group:
   workflow_dispatch:
   schedule:
     # Nightly full-matrix sweep: every lane runs regardless of diff, catching
@@ -126,28 +133,14 @@ jobs:
           git diff --exit-code src/lib/agent-seed.generated.ts \
             || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
+      - uses: ./.github/actions/install-deps
         with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
+          key-prefix: root
 
-      - name: Cache web-ui node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-webui
+      - uses: ./.github/actions/install-deps
         with:
-          path: web-ui/node_modules
-          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
-
-      - name: Install root dependencies
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
-
-      - name: Install web-ui dependencies
-        if: steps.cache-webui.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: web-ui
+          directory: web-ui
+          key-prefix: webui
 
       - name: Lint backend
         run: npm run lint
@@ -189,28 +182,14 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
+      - uses: ./.github/actions/install-deps
         with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
+          key-prefix: root
 
-      - name: Cache web-ui node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-webui
+      - uses: ./.github/actions/install-deps
         with:
-          path: web-ui/node_modules
-          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
-
-      - name: Install root dependencies
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
-
-      - name: Install web-ui dependencies
-        if: steps.cache-webui.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: web-ui
+          directory: web-ui
+          key-prefix: webui
 
       - name: Generate Workers runtime types
         run: npx wrangler types
@@ -249,24 +228,32 @@ jobs:
         include:
           - shard: '1/4'
             slug: shard-1
-            workers: 'true'
-            node: 'false'
+            script: test
+            tolerate-pool-crash: 'true'
+            pre-run: ''
           - shard: '2/4'
             slug: shard-2
-            workers: 'true'
-            node: 'false'
+            script: test
+            tolerate-pool-crash: 'true'
+            pre-run: ''
           - shard: '3/4'
             slug: shard-3
-            workers: 'true'
-            node: 'false'
+            script: test
+            tolerate-pool-crash: 'true'
+            pre-run: ''
           - shard: '4/4'
             slug: shard-4
-            workers: 'true'
-            node: 'false'
+            script: test
+            tolerate-pool-crash: 'true'
+            pre-run: ''
           - shard: ''
             slug: node
-            workers: 'false'
-            node: 'true'
+            script: 'test:node'
+            # Plain Node, no workerd — a non-zero exit here is always a failure.
+            tolerate-pool-crash: 'false'
+            # `pretest` hooks `npm test`, not `npm run test:node`, and these
+            # tests read the generated seeds.
+            pre-run: 'npm run pretest'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -276,30 +263,24 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
+      - uses: ./.github/actions/install-deps
         with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
-
-      - name: Install root dependencies
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
+          key-prefix: root
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         run: mkdir -p web-ui/dist
 
-      - name: Run backend tests (fail-closed gate)
-        uses: ./.github/actions/backend-tests
+      - name: Run suite (fail-closed gate)
+        uses: ./.github/actions/vitest-suite
         with:
           shard: ${{ matrix.shard }}
-          artifact-suffix: ${{ matrix.slug }}
-          workers-suite: ${{ matrix.workers }}
-          node-suite: ${{ matrix.node }}
+          script: ${{ matrix.script }}
+          artifact-name: backend-${{ matrix.slug }}
+          pre-run: ${{ matrix.pre-run }}
+          tolerate-pool-crash: ${{ matrix.tolerate-pool-crash }}
 
   frontend-tests:
-    name: Frontend tests
+    name: Frontend tests (${{ matrix.slug }})
     needs: changes
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -307,6 +288,19 @@ jobs:
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      # 129 jsdom test files took 76s in one job — the longest lane in the run
+      # once the backend was sharded. Same reasoning as the backend split: the
+      # cost is per-file and per-process, so it divides across runners.
+      matrix:
+        include:
+          - shard: '1/3'
+            slug: shard-1
+          - shard: '2/3'
+            slug: shard-2
+          - shard: '3/3'
+            slug: shard-3
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -316,25 +310,24 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache web-ui node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-webui
+      - uses: ./.github/actions/install-deps
         with:
-          path: web-ui/node_modules
-          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
-
-      - name: Install web-ui dependencies
-        if: steps.cache-webui.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: web-ui
+          directory: web-ui
+          key-prefix: webui
 
       - name: Build frontend
+        # Not a test dependency — it is here so a broken production build fails
+        # a PR. Only one shard needs to pay for it.
+        if: matrix.slug == 'shard-1'
         run: npm run build
         working-directory: web-ui
 
-      - name: Run frontend tests
-        run: npm test
-        working-directory: web-ui
+      - name: Run suite (fail-closed gate)
+        uses: ./.github/actions/vitest-suite
+        with:
+          working-directory: web-ui
+          shard: ${{ matrix.shard }}
+          artifact-name: frontend-${{ matrix.slug }}
 
   landing-tests:
     name: Landing tests
@@ -354,22 +347,17 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache landing node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-landing
+      - uses: ./.github/actions/install-deps
         with:
-          path: landing/node_modules
-          key: landing-${{ hashFiles('landing/package-lock.json') }}
+          directory: landing
+          key-prefix: landing
 
-      - name: Install landing dependencies
-        if: steps.cache-landing.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: landing
-
-      - name: Run landing tests
+      - name: Run suite (fail-closed gate)
         # Container-API render tests + pure-logic unit tests (landing/README.md)
-        run: npm test
-        working-directory: landing
+        uses: ./.github/actions/vitest-suite
+        with:
+          working-directory: landing
+          artifact-name: landing
 
   host-tests:
     name: Host tests
@@ -389,30 +377,16 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
-        with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
-
-      - name: Cache host node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-host
-        with:
-          path: host/node_modules
-          key: host-${{ hashFiles('host/package-lock.json') }}
-
-      - name: Install root dependencies
+      - uses: ./.github/actions/install-deps
         # wrangler-static-assets.test.js imports 'wrangler' from the ROOT
         # node_modules (module lookup walks up from host/__tests__).
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
+        with:
+          key-prefix: root
 
-      - name: Install host dependencies
-        if: steps.cache-host.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: host
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: host
+          key-prefix: host
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
@@ -486,23 +460,27 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download backend test reports
+      - name: Download suite reports
         if: always()
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: backend-tests-*
+          pattern: '{backend-*,frontend-*,landing}'
           path: /tmp/test-artifacts
 
-      - name: Reconcile shard coverage against the tree
-        # Fail-closed: every src/**/*.test.ts file must appear in some shard's
-        # report. The per-shard gate can only vouch for files it was handed, so a
-        # file lost to a mis-shard or a worker dying mid-run would otherwise pass
-        # silently. No `always()` — if a lane already failed above, this job is
-        # done deciding.
+      - name: Reconcile suite coverage against the tree
+        # Fail-closed: every test file in every suite's tree must appear in some
+        # report. A per-run gate can only vouch for files it was handed, so a file
+        # lost to a mis-shard or a worker dying mid-run would otherwise pass
+        # silently. Lane results distinguish "path filter skipped this suite" from
+        # "the suite ran and its reports vanished". No `always()` — if a lane
+        # already failed above, this job is done deciding.
         env:
-          LANE: ${{ needs.backend-tests.result }}
-        run: node scripts/ci/check-suite-completeness.mjs /tmp/test-artifacts "$LANE"
+          LANES: >-
+            {"backend":"${{ needs.backend-tests.result }}",
+             "frontend":"${{ needs.frontend-tests.result }}",
+             "landing":"${{ needs.landing-tests.result }}"}
+        run: node scripts/ci/check-suite-completeness.mjs /tmp/test-artifacts "$LANES"
 
       - name: Publish test-result table
         # Reporting only — the aggregate step above already decided the

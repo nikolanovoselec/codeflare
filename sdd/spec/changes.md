@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-20
 
+- **Every test suite runs sharded through one gated action** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); Implemented). The frontend suite is sharded and gated on its JSON report like the backend already was, instead of being one unshielded `npm test`, and the completeness reconciliation now covers every suite rather than the backend alone.
+
 - **The backend suite runs in parallel and shard coverage is reconciled** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); Implemented). The Workers pool no longer runs one test file at a time, and the aggregate job now fails when a backend test file present in the tree ran in no shard — the hole that serialization was never actually closing.
 
 - **actionlint's version pin is bumped automatically** ([REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-021](operations.md#req-ops-021-workflow-file-static-analysis); Implemented). The checksum-pinned actionlint binary is a shadow pin Dependabot cannot see; its weekly bump PR resolves and re-verifies the new checksum, so it needs no manual checksum step.

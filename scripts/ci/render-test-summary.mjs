@@ -1,7 +1,7 @@
-// Render the vitest JSON reports uploaded by the backend shards as a
-// markdown table on the workflow run summary. Reporting only: exits 0 with
-// a note when no reports exist (backend lane skipped) and skips malformed
-// reports — the fail-closed gate already ran inside the shard jobs.
+// Render every suite's vitest JSON report as a markdown table on the workflow
+// run summary. Reporting only: exits 0 with a note when no reports exist (all
+// lanes skipped) and skips malformed reports — the fail-closed gates already ran
+// inside the suite jobs and in the reconciliation step.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -34,20 +34,26 @@ for (const p of reports.sort()) {
   let r;
   try { r = JSON.parse(readFileSync(p, 'utf8')); } catch { continue; }
   if (!Array.isArray(r.testResults)) continue;
-  const label = relative(root, p).replaceAll('backend-tests-', '').replace(/\.json$/, '').replaceAll('/', ' · ');
+  // Artifact dir and report file share the suite name, so show it once.
+  const rel = relative(root, p).replace(/\.json$/, '');
+  const parts = rel.split('/');
+  const label = parts[parts.length - 1] === parts[0] ? parts[0] : parts.join(' · ');
   const starts = r.testResults.map((t) => t.startTime).filter(Number.isFinite);
   const ends = r.testResults.map((t) => t.endTime).filter(Number.isFinite);
   const wall = starts.length && ends.length ? Math.max(...ends) - Math.min(...starts) : 0;
   rows.push(`| ${label} | ${r.testResults.length} | ${r.numTotalTests ?? '?'} | ${r.numFailedTests ?? '?'} | ${fmt(wall)} |`);
   for (const t of r.testResults) {
     if (Number.isFinite(t.startTime) && Number.isFinite(t.endTime)) {
-      slow.push({ name: (t.name || '').replace(/^.*?(src|host)\//, '$1/'), ms: t.endTime - t.startTime });
+      slow.push({
+        name: (t.name || '').replace(/^.*?((?:web-ui\/|landing\/)?(?:src|host)\/)/, '$1'),
+        ms: t.endTime - t.startTime,
+      });
     }
   }
 }
 
-console.log('## Backend test results\n');
-console.log('| Report | Files | Tests | Failed | Wall clock |');
+console.log('## Test results\n');
+console.log('| Suite | Files | Tests | Failed | Wall clock |');
 console.log('|---|---|---|---|---|');
 for (const row of rows) console.log(row);
 const top = slow.sort((a, b) => b.ms - a.ms).slice(0, 5);
