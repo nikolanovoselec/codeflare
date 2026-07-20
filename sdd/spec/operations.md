@@ -93,11 +93,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The PR-check workflow triggers on every pull request to the main or develop branch, on push to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
-2. The workflow runs lint on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- @manual -->
-3. The workflow runs the backend suite (two vitest shards), frontend (build + tests), landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
-4. The backend gate accepts a non-zero test-run exit only when the machine-readable vitest JSON report parses with more than zero tests, zero failures, and no zero-test files, and the log carries the exact Workers-pool teardown-crash fingerprint; a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-backend-test-report.mjs --> <!-- @manual -->
-5. The workflow runs both backend and frontend typechecks. <!-- @manual -->
-6. The workflow runs a dead-code check on the codebase. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
+3. The workflow runs the backend suite (two vitest shards, each pool parallel), frontend (build + tests), landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
+4. The backend gate accepts a non-zero test-run exit only when the machine-readable vitest JSON report parses with more than zero tests, zero failures, and no zero-test files, and the log carries the exact Workers-pool teardown-crash fingerprint; a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-backend-test-report.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC4: backend test report gate) -->
+5. The aggregate job reconciles the shard reports against the backend test files in the tree and fails when any file ran in no shard, or when the lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC5: cross-shard completeness gate) -->
+6. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
 
 **Constraints:**
@@ -106,12 +106,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - The CI runner label is configurable across all workflows.
 - Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
 - All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
+- The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the gates in AC4 and AC5 — not serialization — are what keep the result trustworthy.
 
 **Priority:** P0
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
 
@@ -503,7 +504,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-020: Shadow-pin version bump automation
 
-**Intent:** Pinned binary versions in Dockerfile and npm packages outside package.json are invisible to Dependabot. A weekly workflow checks upstream releases and opens one PR per tool when a newer version is available, with SHA256 intentionally invalidated to force manual checksum verification before merge.
+**Intent:** Pinned versions living outside package.json — Dockerfile binaries, globally installed npm packages, and workflow-embedded tool pins — are invisible to Dependabot. A weekly workflow checks upstream releases and opens one PR per tool when a newer version is available, with SHA256 intentionally invalidated to force manual checksum verification before merge.
 
 **Applies To:** Operator
 
@@ -511,8 +512,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver --> <!-- @manual -->
 2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
-3. Each remaining non-Dependabot pin (bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable, the Graphify plugin, and each Pi extension) bumps in its own PR via a dedicated job or matrix leg. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
-4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
+3. Each remaining non-Dependabot pin (bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable, the Graphify plugin, actionlint, and each Pi extension) bumps in its own PR via a dedicated job or matrix leg. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
+4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, failing the build until the operator verifies it; the actionlint job instead resolves the checksum from the release manifest and re-verifies it against the downloaded artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::sum --> <!-- @manual -->
 5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch --> <!-- @manual -->
 6. The context-mode and pi-extensions jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
 7. The same jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
@@ -548,6 +549,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - The zizmor audit runs offline; its online known-vulnerable-actions audit fails fatally on advisory-API outages.
 - actionlint's shellcheck and pyflakes integrations stay disabled — script hygiene is zizmor's concern.
+- The actionlint version and checksum are a shadow pin: Dependabot cannot see them, so [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation) bumps them weekly.
 
 **Priority:** P2
 

@@ -469,6 +469,16 @@ jobs:
           pattern: backend-tests-*
           path: /tmp/test-artifacts
 
+      - name: Reconcile shard coverage against the tree
+        # Fail-closed: every src/**/*.test.ts file must appear in some shard's
+        # report. The per-shard gate can only vouch for files it was handed, so a
+        # file lost to a mis-shard or a worker dying mid-run would otherwise pass
+        # silently. No `always()` — if a lane already failed above, this job is
+        # done deciding.
+        env:
+          LANE: ${{ needs.backend-tests.result }}
+        run: node scripts/ci/check-suite-completeness.mjs /tmp/test-artifacts "$LANE"
+
       - name: Publish test-result table
         # Reporting only — the aggregate step above already decided the
         # outcome, so a render hiccup must never flip the required context.
