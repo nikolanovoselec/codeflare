@@ -255,6 +255,9 @@ jobs:
         with:
           shard: ${{ matrix.shard }}
           artifact-suffix: ${{ matrix.slug }}
+          # The Node suite is not sharded — running it in every shard is pure
+          # duplication, so only shard 1 carries it.
+          node-suite: ${{ matrix.slug == 'shard-1' }}
 
   frontend-tests:
     name: Frontend tests
@@ -385,12 +388,15 @@ jobs:
           sudo apt-get install -y rclone
 
       - name: Run host hook tests (node:test)
-        # host/__tests__/ci-excluded.txt lists tests that need graphify CLI,
-        # python3 graphify module, rclone, or gh-in-PR-context that only exist
-        # inside the codeflare container. They run during development, not in CI.
+        # host/__tests__/ci-excluded.txt lists exact filenames of tests that need
+        # graphify CLI, python3 graphify module, rclone state, or gh-in-PR-context
+        # that only exist inside the codeflare container. They run during
+        # development, not in CI. Whole-line match (-x) so an entry can never
+        # swallow a similarly named test and a stray blank line excludes nothing.
         run: |
           node --experimental-test-module-mocks --test --test-timeout=60000 \
-            $(ls host/__tests__/*.test.js | grep -vFf host/__tests__/ci-excluded.txt)
+            $(ls host/__tests__/*.test.js \
+              | grep -vxFf <(sed 's|^|host/__tests__/|' host/__tests__/ci-excluded.txt))
         timeout-minutes: 5
 
   dependency-review:

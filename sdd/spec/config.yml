@@ -31,7 +31,7 @@ mode: auto
 # Historical context: codeflare predates the SDD overhaul. The
 # Implemented REQs were authored before the `REQ-X-NNN: ...` test-name
 # convention, and the spec lacked @impl anchors entirely. Codeflare
-# HAS heavy test coverage (1620 backend + 1529 frontend + 140 E2E
+# HAS heavy test coverage (1620 backend + 1529 frontend
 # tests) — the gap was annotation, not behaviour. The /sdd clean run
 # closes the annotation gap mechanically; the residual is the true
 # coverage gap and gets triaged manually.

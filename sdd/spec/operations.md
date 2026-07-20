@@ -95,10 +95,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The PR-check workflow triggers on every pull request to the main branch and on manual dispatch. <!-- @manual -->
 2. The workflow runs lint on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- @manual -->
 3. The workflow builds the frontend. <!-- @manual -->
-4. The workflow runs the backend suite (two vitest shards), frontend, landing, and host suites as parallel jobs; the backend gate accepts a non-zero `npm test` exit only when the machine-readable vitest JSON report parses with more than zero tests and zero failures AND the log carries the exact Workers-pool teardown-crash fingerprint — a missing or corrupt report fails closed. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @impl: scripts/ci/check-backend-test-report.mjs --> <!-- @manual -->
-5. The workflow runs both backend and frontend typechecks. <!-- @manual -->
-6. The workflow runs a dead-code check on the codebase. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
-7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
+4. The workflow runs the backend suite (two vitest shards), frontend, landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
+5. The backend gate accepts a non-zero test-run exit only when the machine-readable vitest JSON report parses with more than zero tests, zero failures, and no zero-test files, and the log carries the exact Workers-pool teardown-crash fingerprint; a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-backend-test-report.mjs --> <!-- @manual -->
+6. The workflow runs both backend and frontend typechecks. <!-- @manual -->
+7. The workflow runs a dead-code check on the codebase. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+8. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
 
 **Constraints:**
 

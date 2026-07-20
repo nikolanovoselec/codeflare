@@ -14,6 +14,10 @@ inputs:
     description: 'Suffix for the uploaded report/log artifact name (artifact names cannot contain "/").'
     required: false
     default: 'all'
+  node-suite:
+    description: 'Run the Pi-extension Node suite ("true"/"false"). It is not sharded — enable in exactly one shard.'
+    required: false
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -35,14 +39,23 @@ runs:
         node scripts/ci/check-backend-test-report.mjs "$status" /tmp/backend-tests.json /tmp/backend-tests.log
 
     - name: Run Pi-extension tests (Node environment)
-      # Plain Node vitest project (vitest.node.config.ts): no workerd, so the
-      # ordinary exit code is already fail-closed — no gate needed. Runs after
-      # `npm test` so the pretest seed regeneration has already happened.
+      # Plain Node vitest project (vitest.node.config.ts): no workerd, but the
+      # same JSON gate closes the zero-test hole — a file that loads yet collects
+      # nothing fails loudly instead of rotting green. Runs after `npm test` so
+      # the pretest seed regeneration has already happened.
+      if: inputs.node-suite == 'true'
       shell: bash
       env:
         NO_COLOR: '1'
         FORCE_COLOR: '0'
-      run: npm run test:node
+      run: |
+        set +e
+        npm run test:node -- \
+          --reporter=dot --reporter=json --outputFile.json=/tmp/node-tests.json \
+          2>&1 | tee /tmp/node-tests.log
+        status=${PIPESTATUS[0]}
+        set -e
+        node scripts/ci/check-backend-test-report.mjs "$status" /tmp/node-tests.json /tmp/node-tests.log
 
     - name: Upload test report and log
       if: always()
@@ -52,5 +65,7 @@ runs:
         path: |
           /tmp/backend-tests.json
           /tmp/backend-tests.log
+          /tmp/node-tests.json
+          /tmp/node-tests.log
         retention-days: 5
         if-no-files-found: ignore

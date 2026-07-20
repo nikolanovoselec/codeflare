@@ -9,6 +9,7 @@ GitHub Actions workflows, test suites, and deployment pipeline.
 - [CI/CD (GitHub Actions)](#cicd-github-actions)
 - [Testing](#testing)
 - [Specification Coverage](#specification-coverage)
+- [Related Decisions](#related-decisions)
 - [Related Documentation](#related-documentation)
 
 ---
@@ -25,7 +26,7 @@ Dependabot runs weekly against the `develop` branch for four npm package directo
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
-| `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub) | Staged pipeline: `prepare` resolves the target, `build-worker` (frontend + landing dist artifact) and `container` (via `container-image.yml`) run in parallel, `deploy` applies config, deploys, sets secrets in bulk, smoke-checks `/health`, and prunes the registry. Tests are NOT re-run — the workflow_run gate already proved a green PR Checks run for the exact SHA. |
+| `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub) | Staged pipeline `prepare` → (`build-worker` ∥ `container` via `container-image.yml`) → `deploy`: applies config, deploys, sets secrets in bulk, smoke-checks `/health`, and prunes the registry. |
 | `container-image.yml` | `workflow_call` (from `deploy.yml`) | Reusable container build → Trivy scan → push, parameterized by registry (Cloudflare managed registry, or Docker Hub as connection-drop bypass). Tags images `in-<input-hash>` and **reuses the existing already-scanned image when inputs are unchanged**, skipping the multi-GB build+scan; a weekly hash salt bounds reuse at seven days. |
 | `test.yml` | PRs to `main` or `develop`, push to `main` + `workflow_dispatch` | Parallel path-filtered lanes: quality (lint/knip/audit/seed-drift), typecheck, backend tests (two vitest shards with the fail-closed gate), frontend, landing, host, dependency-review. The `summary` job (check name `test`, the required branch-protection context) fails on any failed/cancelled lane and passes skipped (unaffected) lanes. |
 | `zizmor.yml` | PRs and pushes touching `.github/**` + `workflow_dispatch` | Static security audit of the workflows themselves (template injection, pwn-request vectors, unpinned actions); SARIF to code scanning. Informational, not a required check. |
@@ -77,6 +78,8 @@ Job graph: `prepare` → (`build-worker` ∥ `container`) → `deploy`. The pwn-
 3. **container** — calls `container-image.yml`: computes the image input hash over every Dockerfile COPY source (`Dockerfile`, `entrypoint.sh`, `host/`, `preseed/`, seed scripts, `src/lib/agent-seed.generated.ts`) plus an ISO-week salt; if `in-<hash>` already exists in the target registry the already-scanned image is reused and build/scan/push are skipped. Otherwise: buildx with `type=gha` layer cache (base image pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` — AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits), Trivy scan (HIGH/CRITICAL, `ignore-unfixed: true`, `.trivyignore` for consciously accepted fixable CVEs — see [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011), daily-cached vuln DB), push with a bounded retry loop (30 attempts, 30s apart). A COPY-coverage guard disables reuse if a Dockerfile COPY source ever falls outside the hashed path set.
 4. **deploy** — downloads the dist artifact; resolves/creates the KV namespace and patches `wrangler.toml`; applies worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB; all tiers default to 10 max instances, `MAX_INSTANCES` overrides); points `image` at the pre-pushed registry URI; runs `npx wrangler deploy` with `--var` runtime config inside the same bounded retry loop (30×30s — a transient CF control-plane error such as 100146 "Worker version not found" never wastes the completed build); uploads all worker secrets in **one `wrangler secret bulk` call** (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, mode-gated Resend/Stripe/OAuth/AIG secrets, optional `ENCRYPTION_KEY`); seeds the service user in KV when a service-auth secret is configured; **smoke-checks `GET /health`** (public route, 5 attempts) against the environment's `E2E_BASE_URL` variable and fails the deploy if it never returns 200; finally prunes old registry images via `scripts/ci/prune-registry.mjs` (best-effort, digest-alias-protected, keeps the 10 newest tags plus the deployed tag).
 
+Tests are not re-run anywhere in this workflow — the `workflow_run` gate already proved a green PR Checks run for the exact deployed SHA.
+
 ### Test Workflow Detail
 
 Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `workflow_dispatch`):
@@ -84,7 +87,7 @@ Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `wor
 - **changes** — `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`; pipeline files (`test.yml`, `.github/actions/**`, `scripts/ci/**`, root package manifests) are in every filter so pipeline changes re-run everything.
 - **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --audit-level=high --omit=dev` (both).
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
-- **backend-tests** — two `vitest --shard` jobs through the composite action `.github/actions/backend-tests` (see [Backend Tests](#backend-tests) for the fail-closed gate). Shards halve the wall-clock of the suite that `maxWorkers: 1` forces serial.
+- **backend-tests** — two `vitest --shard` jobs through the composite action `.github/actions/backend-tests` (see [Backend Tests](#backend-tests) for the fail-closed gate). Shards halve the wall-clock of the suite that `maxWorkers: 1` forces serial. Shard 1 also carries the unsharded Pi-extension Node suite (`vitest.node.config.ts`) under the same JSON gate.
 - **frontend-tests** — web-ui build + vitest. **landing-tests** — Container-API render + unit tests. **host-tests** — `node --test` with the container-only exclusion list read from `host/__tests__/ci-excluded.txt`; installs rclone for the sync-filter behavioral tests.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
 - **summary** — check name `test` (the required branch-protection context). Fails when any needed lane failed or was cancelled; passes skipped lanes (their area was untouched).
@@ -172,6 +175,12 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 - [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) - PR checks run lint, test, typecheck, and security audit
 - [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) - Weekly fuzz testing
 - [REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation) - Shadow-pin version bump automation
+
+---
+
+## Related Decisions
+
+- [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) - Parallel path-filtered CI lanes, fail-closed JSON test gate, staged deploy with content-addressed container reuse, scripted e2e removal
 
 ---
 

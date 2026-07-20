@@ -1152,6 +1152,6 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-02-22
 - Initial specification
-- Core domains: session-lifecycle ([REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type) through [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start)), authentication ([REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-004](authentication.md#req-auth-004-service-token-authentication-for-e2e-testing)), terminal ([REQ-TERM-001](terminal.md#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty))
+- Core domains: session-lifecycle ([REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type) through [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start)), authentication ([REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-004](authentication.md#req-auth-004-service-token-authentication-for-service-automation)), terminal ([REQ-TERM-001](terminal.md#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty))
 - Constraints established: Cloudflare Workers, Hono, SolidJS, xterm.js, KV, R2, Containers, Durable Objects
 - Principles: isolation per session, files persist, zero setup, scale to zero, stateless dashboard

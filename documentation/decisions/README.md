@@ -1487,7 +1487,7 @@ The bypass is active whenever `SERVICE_AUTH_SECRET` is present and carries no en
 the bypass is now defense-in-depth (env scoping at deploy time PLUS a runtime guard in the auth path), aligning the service-token surface with the trust model the rest of the auth chain already enforces.
 - Until [codeflare#130](https://github.com/nikolanovoselec/codeflare/issues/130) lands, the current behavior stands and the residual risk is mitigated only by GitHub Actions environment scoping of the secret (same posture as [AD26](#ad26-stress-test-rate-limit-bypass-integration-only)).
 
-**Related REQ:** [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing) (service-token authentication), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order) (authentication resolution order).
+**Related REQ:** [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation) (service-token authentication), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order) (authentication resolution order).
 
 ---
 
@@ -2770,10 +2770,14 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Decision:**
 
-- PR Checks split into parallel lanes gated by a `dorny/paths-filter` `changes` job (quality, typecheck, two `vitest --shard` backend jobs, frontend, landing, host, dependency-review), aggregated by a `summary` job that keeps the required `test` status context; skipped lanes pass, failed/cancelled lanes fail.
-- The teardown-crash guard becomes one composite action (`.github/actions/backend-tests`) gated by the vitest JSON report (`scripts/ci/check-backend-test-report.mjs`): non-zero exits are accepted only with a parsed report showing >0 tests, 0 failures, and the exact crash fingerprint — missing/corrupt reports fail closed. Reporter-prose grepping is gone.
+- PR Checks split into parallel lanes gated by a `dorny/paths-filter` `changes` job: quality, typecheck, two `vitest --shard` backend jobs, frontend, landing, host, and dependency-review.
+- A `summary` job keeps the required `test` status context; skipped lanes pass, failed or cancelled lanes fail.
+- The teardown-crash guard becomes one composite action (`.github/actions/backend-tests`) gated by the vitest JSON report (`scripts/ci/check-backend-test-report.mjs`); reporter-prose grepping is gone.
+- Non-zero exits are accepted only with a parsed report showing >0 tests, 0 failures, and the exact crash fingerprint — missing or corrupt reports fail closed.
 - Deploy stages into `prepare` → (`build-worker` ∥ `container`) → `deploy`, drops the in-deploy test re-run, uploads secrets via one `wrangler secret bulk` call, smoke-checks `/health` before declaring success, and prunes the registry via `scripts/ci/prune-registry.mjs`.
-- Container build/scan/push moves to the reusable `container-image.yml`, parameterized by registry (`registry: dockerhub` dispatch input replaces `deploy-dockerhub.yml`). Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned image. A COPY-coverage guard disables reuse when the hash list goes stale; the weekly salt bounds agent-`@latest` and CVE-verdict staleness at seven days.
+- Container build/scan/push moves to the reusable `container-image.yml`, parameterized by registry (`registry: dockerhub` dispatch input replaces `deploy-dockerhub.yml`).
+- Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned image.
+- A COPY-coverage guard disables reuse when the hash list goes stale; the weekly salt bounds agent-`@latest` and CVE-verdict staleness at seven days.
 - The scripted e2e suite is deleted rather than repaired; the k6 stress suites move to `stress/` and keep the deploy-time service-auth secret + KV service-user seeding. `zizmor.yml` audits the workflows themselves (SARIF, informational).
 
 **Consequences:** PR wall-clock drops to the slowest lane (sharded backend tests) and docs-only changes skip every lane; deploys skip the multi-GB build+scan on unchanged container inputs and fail on an unhealthy `/health` instead of reporting green. The guard can no longer pass on reporter-format drift or empty runs. Trade-offs accepted: shared test scaffolding is replicated across split test files (vi.mock hoisting is per module), a reused image's CVE verdict may be up to seven days old, and there is no scripted browser e2e — deployed-UI verification is the agent-driven browser-e2e path plus the post-deploy smoke.
