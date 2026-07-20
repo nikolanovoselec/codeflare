@@ -364,12 +364,24 @@ jobs:
           sed -n '30,52p' wrangler.toml
 
       - name: Point wrangler.toml to pre-pushed image
+        # Only the secret-free image tag crosses the job boundary (a full URI
+        # output embeds the masked account id / registry username and the runner
+        # drops it: "Skip output ... since it may contain secret"). The URI is
+        # rebuilt here from secrets this job already holds.
         env:
-          REGISTRY_URI: ${{ needs.container.outputs.registry_uri }}
+          IMAGE_TAG: ${{ needs.container.outputs.image_tag }}
+          REGISTRY_KIND: ${{ needs.prepare.outputs.registry }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          if [ -z "$REGISTRY_URI" ]; then
-            echo "::error::container job produced no registry URI"
+          if [ -z "$IMAGE_TAG" ]; then
+            echo "::error::container job produced no image tag"
             exit 1
+          fi
+          if [ "$REGISTRY_KIND" = "dockerhub" ]; then
+            REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${WORKER_NAME}-container:${IMAGE_TAG}"
+          else
+            REGISTRY_URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${WORKER_NAME}-container:${IMAGE_TAG}"
           fi
           sed -i "s|image = \"./Dockerfile\"|image = \"${REGISTRY_URI}\"|" wrangler.toml
           echo "--- Verifying image config ---"
@@ -563,6 +575,10 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          REGISTRY_URI: ${{ needs.container.outputs.registry_uri }}
+          IMAGE_TAG: ${{ needs.container.outputs.image_tag }}
           KEEP_N: '10'
-        run: node scripts/ci/prune-registry.mjs
+        # Same secret-masking constraint as the image step: rebuild the URI
+        # locally from the tag instead of consuming a dropped job output.
+        run: |
+          export REGISTRY_URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${WORKER_NAME}-container:${IMAGE_TAG}"
+          node scripts/ci/prune-registry.mjs

@@ -47,9 +47,15 @@ on:
         type: string
         default: 'ubuntu-latest'
     outputs:
-      registry_uri:
-        description: 'Full image URI (registry/repo:tag) to point wrangler.toml at'
-        value: ${{ jobs.image.outputs.registry_uri }}
+      image_tag:
+        # The full registry URI must NOT be an output: it embeds the account id
+        # (or Docker Hub username), which is a masked secret, and the runner
+        # silently drops any job output that may contain a secret ("Skip output
+        # ... since it may contain secret"). Only the secret-free content-address
+        # tag crosses the job boundary; callers rebuild the URI with their own
+        # secrets in env.
+        description: 'Content-address image tag (in-<hash>); callers rebuild the full registry URI locally'
+        value: ${{ jobs.image.outputs.image_tag }}
       reused:
         description: '"true" when an identical-input image already existed and build+scan+push were skipped'
         value: ${{ jobs.image.outputs.reused }}
@@ -73,7 +79,8 @@ jobs:
       IMAGE_NAME: ${{ inputs.worker-name }}-container
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     outputs:
-      registry_uri: ${{ steps.reuse.outputs.registry_uri || steps.push.outputs.registry_uri }}
+      # Secret-free by construction (see workflow_call outputs comment above).
+      image_tag: ${{ steps.hash.outputs.tag }}
       reused: ${{ steps.reuse.outputs.reused || 'false' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -128,7 +135,6 @@ jobs:
             URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
             if docker manifest inspect "$URI" >/dev/null 2>&1; then
               echo "reused=true" >> "$GITHUB_OUTPUT"
-              echo "registry_uri=${URI}" >> "$GITHUB_OUTPUT"
               echo "Identical-input image already in registry: ${URI} — skipping build/scan/push"
             else
               echo "No existing image for tag ${TAG} — building"
@@ -150,7 +156,6 @@ jobs:
             if [ "$CODE" = "200" ]; then
               URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}:${TAG}"
               echo "reused=true" >> "$GITHUB_OUTPUT"
-              echo "registry_uri=${URI}" >> "$GITHUB_OUTPUT"
               echo "Identical-input image already in registry: ${URI} — skipping build/scan/push"
             else
               echo "No existing image for tag ${TAG} (HTTP ${CODE}) — building"
@@ -308,4 +313,3 @@ jobs:
             fi
           fi
           echo "Registry URI: ${REGISTRY_URI}"
-          echo "registry_uri=${REGISTRY_URI}" >> "$GITHUB_OUTPUT"
