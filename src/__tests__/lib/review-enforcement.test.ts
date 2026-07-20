@@ -1251,6 +1251,12 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+    // pr-create is a settled-processed boundary: the live tool_result honors
+    // the bypass (requiredLanes []) but leaves the sentinel for the settled
+    // reap, which consumes it exactly once.
+    expect(existsSync(REVIEW_BYPASS_FILE)).toBe(true);
+    harness.sent.splice(0);
+    await harness.emit('agent_settled');
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(false);
     harness.sent.splice(0);
 

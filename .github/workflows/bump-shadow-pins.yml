@@ -25,13 +25,17 @@ on:
     - cron: '0 6 * * 1'  # Mondays 06:00 UTC
   workflow_dispatch:
 
+# Baseline is read-only; every job that pushes a bump branch and opens a PR
+# elevates itself. pi-extensions-discover only lists package names.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   context-mode:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -194,6 +198,9 @@ jobs:
 
   graphify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -305,6 +312,9 @@ jobs:
 
   zoxide:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -400,6 +410,9 @@ jobs:
 
   yazi:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -495,6 +508,9 @@ jobs:
 
   lazygit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -590,6 +606,9 @@ jobs:
 
   silverbullet:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -685,6 +704,9 @@ jobs:
 
   openvscode-server:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -793,6 +815,9 @@ jobs:
     # autodetects it for faster ctx_execute/ctx_batch_execute subprocess starts.
     # The Dockerfile literal is invisible to Dependabot, so this job tracks it.
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -918,6 +943,9 @@ jobs:
       matrix:
         package: ${{ fromJson(needs.pi-extensions-discover.outputs.packages) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -1052,6 +1080,9 @@ jobs:
     # It is not an npm dependency; the canonical skill bundle version is exposed
     # by impeccable.style and must be copied into both runtimes together.
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -1145,6 +1176,9 @@ jobs:
     # with no per-session npx fetch). That Dockerfile literal is invisible to
     # Dependabot, so this job bumps it weekly.
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -1245,6 +1279,9 @@ jobs:
     # as an npx cache + stable bin path; the Dockerfile version env is invisible
     # to Dependabot, so this job bumps it weekly.
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -1345,6 +1382,9 @@ jobs:
     # lockfile and is not covered by Dependabot or the pi-extensions job (which only
     # reads the Pi package.json), so this job bumps it weekly.
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

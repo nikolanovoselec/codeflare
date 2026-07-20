@@ -70,8 +70,6 @@ npm run lint         # Lint backend (oxlint)
 npm run lint:fix     # Lint backend with auto-fix
 npm run typecheck    # Type check backend
 npm test             # Backend unit tests
-npm run test:e2e     # E2E API tests
-npm run test:e2e:ui  # E2E UI tests (Puppeteer)
 npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see CI/CD)
 cd web-ui && npm run dev   # Frontend dev server
 cd web-ui && npm run build # Frontend production build
@@ -82,7 +80,7 @@ cd web-ui && npm run build # Frontend production build
 ```
 codeflare/
 ├── src/               # Worker source (Hono router, routes, middleware, lib, Container DO)
-├── e2e/               # E2E tests: API + UI (Puppeteer)
+├── stress/            # k6 load test suites
 ├── host/              # Terminal server (TypeScript) - HTTP/WS, PTY, activity tracking
 ├── web-ui/            # SolidJS frontend - components, stores, styles
 ├── scripts/           # Code generation (tutorial-seed, agent-seed, sourcemap fix)
@@ -91,7 +89,6 @@ codeflare/
 ├── entrypoint.sh      # Container startup script (sync, agent config, hooks)
 ├── wrangler.toml      # Cloudflare Workers + Containers configuration
 ├── vitest.config.ts   # Backend test config
-└── vitest.e2e.config.ts # E2E test config
 ```
 
 For the current tree, run `tree -L 2 -I node_modules` from the repo root.

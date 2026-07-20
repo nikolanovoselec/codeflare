@@ -278,6 +278,12 @@ const PI_RUNTIME_REPLACEMENTS = [
   ['mcp__context-mode__ctx_execute', 'ctx_execute'],
   ['mcp__context-mode__ctx_search', 'ctx_search'],
   ['mcp__context-mode__ctx_fetch_and_index', 'ctx_fetch_and_index'],
+  // Pi markdown must not name Claude models (REQ-AGENT-007); the graphify
+  // extraction-spec pins Claude's subagent tier in prose, which the frontmatter
+  // model-pin removal cannot reach.
+  ['spawn with `model: "sonnet"`', 'spawn with the runtime default model'],
+  ['must include `model: "sonnet"`', 'must use the runtime default model'],
+  ['never escalate to Opus', 'never escalate to a larger model'],
   ['Claude Code: `EnterPlanMode`', 'Pi: use the `Plan` agent'],
   ['`EnterPlanMode`', 'the Pi `Plan` agent'],
   ['Task(subagent_type', 'subagent(subagent_type'],

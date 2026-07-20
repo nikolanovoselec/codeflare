@@ -58,16 +58,16 @@ describe('REQ-OPS-008: Stress testing validates rate limits and concurrency', ()
 
     // k6 script files must be referenced for each suite
     assert.ok(
-      workflow.includes('e2e/stress/api-throughput.js'),
-      'stress-test.yml must run e2e/stress/api-throughput.js'
+      workflow.includes('stress/api-throughput.js'),
+      'stress-test.yml must run stress/api-throughput.js'
     );
     assert.ok(
-      workflow.includes('e2e/stress/session-lifecycle.js'),
-      'stress-test.yml must run e2e/stress/session-lifecycle.js'
+      workflow.includes('stress/session-lifecycle.js'),
+      'stress-test.yml must run stress/session-lifecycle.js'
     );
     assert.ok(
-      workflow.includes('e2e/stress/storage-operations.js'),
-      'stress-test.yml must run e2e/stress/storage-operations.js'
+      workflow.includes('stress/storage-operations.js'),
+      'stress-test.yml must run stress/storage-operations.js'
     );
   });
 

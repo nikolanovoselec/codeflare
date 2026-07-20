@@ -334,15 +334,16 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the deploy workflow. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the reusable container-image workflow invoked by every deploy. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 2. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @manual -->
-3. The deploy pipeline fails if the scan finds a HIGH/CRITICAL vulnerability that has an available fix and is not suppressed in the project allowlist; unfixed CVEs (no upstream fix available) are excluded from the gate automatically. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-4. Scanning occurs after image build and before push to the container registry. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+3. The deploy pipeline fails if the scan finds a HIGH/CRITICAL vulnerability that has an available fix and is not suppressed in the project allowlist; unfixed CVEs (no upstream fix available) are excluded from the gate automatically. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+4. Scanning occurs after image build and before push to the container registry; a pushed image is therefore always scanned-green at push time. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 
 **Constraints:**
 
 - Image scanning is part of the deploy pipeline, not a runtime check.
 - The vulnerability-exception allowlist is reviewed periodically.
+- Identical-input deploys reuse the already-pushed (already-scanned) image without rescanning; the input-hash tag carries a weekly salt, so any reused image was scanned green within the past seven days.
 
 **Priority:** P1
 
