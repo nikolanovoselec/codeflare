@@ -80,12 +80,21 @@ jobs:
         with:
           node-version: 22
 
+      - name: Resolve the newest release past the cooldown
+        id: cooldown
+        uses: ./.github/actions/npm-cooldown-version
+        with:
+          package: context-mode
+
       - name: Diff current pin against npm latest
         id: ver
+        env:
+          COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
           CURRENT=$(jq -r .version preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json)
-          LATEST=$(npm view context-mode version)
+          LATEST="$COOLDOWN_VERSION"
+          if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           if [ "$CURRENT" = "$LATEST" ]; then
@@ -928,12 +937,21 @@ jobs:
         with:
           node-version: 22
 
+      - name: Resolve the newest release past the cooldown
+        id: cooldown
+        uses: ./.github/actions/npm-cooldown-version
+        with:
+          package: bun
+
       - name: Diff Dockerfile pin against npm latest
         id: ver
+        env:
+          COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
           CURRENT=$(grep -oP 'npm install -g bun@\K[0-9][0-9.]*' Dockerfile | head -n1)
-          LATEST=$(npm view bun version)
+          LATEST="$COOLDOWN_VERSION"
+          if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           if [ "$CURRENT" = "$LATEST" ]; then
@@ -1074,14 +1092,22 @@ jobs:
         with:
           node-version: 22
 
+      - name: Resolve the newest release past the cooldown
+        id: cooldown
+        uses: ./.github/actions/npm-cooldown-version
+        with:
+          package: ${{ matrix.package }}
+
       - name: Diff ${{ matrix.package }} against npm latest
         id: ver
         env:
+          COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
           PKG: ${{ matrix.package }}
         run: |
           set -euo pipefail
           CUR=$(node -e 'const p=require("./preseed/agents/pi/package.json");process.stdout.write(p.dependencies[process.env.PKG]||"")')
-          LAT=$(npm view "$PKG" version | tr -d '\r\n ')
+          LAT="$COOLDOWN_VERSION"
+          if [ -z "$LAT" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CUR" >> "$GITHUB_OUTPUT"
           echo "latest=$LAT" >> "$GITHUB_OUTPUT"
           if [ "$CUR" = "$LAT" ]; then
@@ -1326,12 +1352,21 @@ jobs:
         with:
           node-version: 22
 
+      - name: Resolve the newest release past the cooldown
+        id: cooldown
+        uses: ./.github/actions/npm-cooldown-version
+        with:
+          package: consult-llm-mcp
+
       - name: Diff Dockerfile pin against npm latest
         id: ver
+        env:
+          COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
           CURRENT=$(grep -oP 'consult-llm-mcp@\K[0-9][0-9.]*' Dockerfile | head -n1)
-          LATEST=$(npm view consult-llm-mcp version)
+          LATEST="$COOLDOWN_VERSION"
+          if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           if [ "$CURRENT" = "$LATEST" ]; then
@@ -1439,12 +1474,21 @@ jobs:
         with:
           node-version: 22
 
+      - name: Resolve the newest release past the cooldown
+        id: cooldown
+        uses: ./.github/actions/npm-cooldown-version
+        with:
+          package: chrome-devtools-mcp
+
       - name: Diff Dockerfile pin against npm latest
         id: ver
+        env:
+          COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
           CURRENT=$(grep -oP 'CHROME_DEVTOOLS_MCP_VERSION=\K[0-9][0-9.]*' Dockerfile | head -n1)
-          LATEST=$(npm view chrome-devtools-mcp version)
+          LATEST="$COOLDOWN_VERSION"
+          if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           if [ "$CURRENT" = "$LATEST" ]; then
@@ -1552,13 +1596,22 @@ jobs:
         with:
           node-version: 22
 
+      - name: Resolve the newest release past the cooldown
+        id: cooldown
+        uses: ./.github/actions/npm-cooldown-version
+        with:
+          package: '@modelcontextprotocol/sdk'
+
       - name: Diff @modelcontextprotocol/sdk pin against npm latest
         id: ver
+        env:
+          COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
           PKG=preseed/agents/claude/browser-run-mcp/package.json
           CURRENT=$(jq -r '.dependencies["@modelcontextprotocol/sdk"]' "$PKG")
-          LATEST=$(npm view @modelcontextprotocol/sdk version)
+          LATEST="$COOLDOWN_VERSION"
+          if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           if [ "$CURRENT" = "$LATEST" ]; then
@@ -1676,28 +1729,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Resolve the newest release past the cooldown
+        id: cooldown
+        uses: ./.github/actions/npm-cooldown-version
+        with:
+          package: ${{ matrix.pkg }}
+
       - name: Diff the Dockerfile pin against npm
         id: ver
         env:
+          COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
           PKG: ${{ matrix.pkg }}
           ARG_NAME: ${{ matrix.arg }}
         run: |
           set -euo pipefail
           CURRENT=$(grep -oP "^ARG ${ARG_NAME}=\\K.+" Dockerfile)
-          # Deliberately NOT `npm view <pkg> version`, which is whatever was
-          # published seconds ago. A version published less than COOLDOWN_DAYS
-          # ago is skipped, mirroring the dependabot.yml cooldown that exists
-          # because the npm compromise pattern is publish-then-wait-for-automation.
-          COOLDOWN_DAYS=7
-          LATEST=$(npm view "$PKG" time --json \
-            | jq -r --argjson d "$COOLDOWN_DAYS" '
-                to_entries
-                | map(select(.key | test("^[0-9]+[.][0-9]+[.][0-9]+$")))
-                | map(select((now - (.value | sub("[.][0-9]+Z$"; "Z") | fromdateiso8601)) > ($d * 86400)))
-                | sort_by(.value) | last | .key // empty')
+          LATEST="$COOLDOWN_VERSION"
           if [ -z "$LATEST" ]; then
-            echo "No release of $PKG is older than ${COOLDOWN_DAYS} days — nothing eligible."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Nothing past the cooldown."
             exit 0
           fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"

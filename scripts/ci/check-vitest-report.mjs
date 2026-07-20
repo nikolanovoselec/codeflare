@@ -51,14 +51,22 @@ const total = report.numTotalTests;
 if (![failedTests, failedSuites, total].every(Number.isInteger)) {
   fail('report is missing numFailedTests/numFailedTestSuites/numTotalTests');
 }
-if (total === 0) fail('report shows 0 collected tests');
+if (total < 1) fail(`report shows ${total} collected tests`);
 
 // Skipped tests still count toward numTotalTests and still populate
 // assertionResults, so a suite with every test `.skip`ped passes every other
 // check here while asserting nothing. vitest's own `allowOnly: !CI` default
 // already fails `.only` in CI; `.skip` has no such backstop, so it gets one.
-const pending = report.numPendingTests ?? 0;
-const todo = report.numTodoTests ?? 0;
+// Assert the fields exist rather than defaulting them to 0. With `?? 0`, a
+// vitest release that renames or drops them turns this gate into `0 > 0` —
+// permanently false, silently — and the `.skip` backstop it provides vanishes
+// with no signal. The three counts above are already integer-checked; these
+// deserve the same, since nothing downstream would notice their absence.
+if (!Number.isInteger(report.numPendingTests) || !Number.isInteger(report.numTodoTests)) {
+  fail('report is missing numPendingTests/numTodoTests — the skipped-test gate cannot run against this reporter output');
+}
+const pending = report.numPendingTests;
+const todo = report.numTodoTests;
 if (pending > 0 || todo > 0) {
   fail(
     `${pending} skipped and ${todo} todo test(s). A skipped test asserts nothing but still ` +

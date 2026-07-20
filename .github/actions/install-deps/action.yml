@@ -20,7 +20,10 @@ runs:
       id: cache
       with:
         path: ${{ inputs.directory }}/node_modules
-        key: ${{ inputs.key-prefix }}-${{ hashFiles(format('{0}/package-lock.json', inputs.directory)) }}
+        # runner.os/arch in the key because node_modules here holds platform-specific
+        # binaries (workerd, esbuild). Lanes run on ${{ vars.RUNNER || 'ubuntu-latest' }},
+        # so without this a self-hosted runner and a hosted one share one key.
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.key-prefix }}-${{ hashFiles(format('{0}/package-lock.json', inputs.directory)) }}
 
     - name: Install ${{ inputs.key-prefix }} dependencies
       if: steps.cache.outputs.cache-hit != 'true'

@@ -173,6 +173,15 @@ create_rclone_config() {
     # Create rclone config directory
     mkdir -p "$USER_HOME/.config/rclone"
 
+    # Create the file 0600 BEFORE anything is written to it. The chmod further
+    # down used to be the first thing narrowing the mode, so between the heredoc
+    # and that chmod the R2 access key, secret and the base64 ENCRYPTION_KEY sat
+    # in a world-readable file. Short window, single-tenant container — but the
+    # ordering costs nothing and the substitutions below are what fill it.
+    umask 077
+    : > "$USER_HOME/.config/rclone/rclone.conf"
+    chmod 600 "$USER_HOME/.config/rclone/rclone.conf"
+
     # Write rclone config (quoted heredoc to prevent shell expansion, then substitute)
     cat > "$USER_HOME/.config/rclone/rclone.conf" << 'RCLONE_EOF'
 [r2]
@@ -205,9 +214,15 @@ RCLONE_EOF
         return 1
     fi
 
-    sed -i "s|PLACEHOLDER_ACCESS_KEY|${R2_ACCESS_KEY_ID}|" "$USER_HOME/.config/rclone/rclone.conf"
-    sed -i "s|PLACEHOLDER_SECRET_KEY|${R2_SECRET_ACCESS_KEY}|" "$USER_HOME/.config/rclone/rclone.conf"
-    sed -i "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" "$USER_HOME/.config/rclone/rclone.conf"
+    # Substitutions go through a script on stdin, not through argv: `sed -i
+    # "s|X|$SECRET|"` puts the R2 secret in the process command line, readable
+    # from /proc/<pid>/cmdline by anything running in the container for as long
+    # as sed lives.
+    printf '%s\n' \
+        "s|PLACEHOLDER_ACCESS_KEY|${R2_ACCESS_KEY_ID}|" \
+        "s|PLACEHOLDER_SECRET_KEY|${R2_SECRET_ACCESS_KEY}|" \
+        "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" \
+        | sed -i -f - "$USER_HOME/.config/rclone/rclone.conf"
 
     # REQ-ENTERPRISE-018 / REQ-STOR-017 (Governed Mode): with R2 SSE-C disabled, objects
     # keep R2's default at-rest encryption, so their ETags are usable MD5 checksums again.
@@ -1319,6 +1334,17 @@ shutdown_handler() {
         [ -z "$pid" ] && return 0
         walk_kill TERM "$pid"
     }
+    # Kill the background init subshell FIRST. It wraps establish_bisync_baseline
+    # (up to 600s x 3 recovery attempts) plus every start_* call, and it is not a
+    # pidfile — so a shutdown landing between this sweep and start_silverbullet /
+    # start_openvscode used to find no pidfiles, then the surviving subshell
+    # started those supervisors AFTER the sweep and they ran until SIGKILL,
+    # competing with the final bisync for CPU and R2 bandwidth inside the 135s
+    # budget. Killing it first closes the window rather than racing it.
+    if [ -n "${BISYNC_INIT_PID:-}" ]; then
+        walk_kill TERM "$BISYNC_INIT_PID"
+    fi
+
     kill_pidfile_subtree /tmp/sync-daemon.pid
     kill_pidfile_subtree /tmp/vault-monitor.pid
     kill_pidfile_subtree /tmp/silverbullet.pid

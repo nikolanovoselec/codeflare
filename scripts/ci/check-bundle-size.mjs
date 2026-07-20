@@ -28,7 +28,16 @@ try {
 }
 
 // Wrangler colourises and may wrap; match the numbers, not the layout.
-const m = log.match(/Total Upload:\s*([\d.]+)\s*KiB\s*\/\s*gzip:\s*([\d.]+)\s*KiB/i);
+// matchAll, not match: a log carrying two measurements — a retried dry run, or
+// a multi-environment one — would otherwise gate on whichever printed FIRST
+// rather than on the largest, so a bundle that grew past budget on the second
+// pass could pass on the first pass's number. Ambiguity here is a
+// misconfiguration, so it fails rather than picking.
+const matches = [...log.matchAll(/Total Upload:\s*([\d.]+)\s*KiB\s*\/\s*gzip:\s*([\d.]+)\s*KiB/gi)];
+if (matches.length > 1) {
+  fail(`wrangler printed ${matches.length} "Total Upload" lines; refusing to guess which bundle this gate is measuring`);
+}
+const m = matches[0];
 if (!m) {
   fail(
     'wrangler printed no "Total Upload: … / gzip: …" line — the dry run did not produce a bundle, so its size is unverified',

@@ -15,7 +15,7 @@
 // failure when it reported success — otherwise a flaky artifact download would
 // silently disarm the gate.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { SUITES, NODE_SUITE_FILES } from './suites.mjs';
 
 const [, , root, laneJson] = process.argv;
@@ -99,9 +99,14 @@ for (const suite of SUITES) {
     continue;
   }
 
-  // Report names are absolute paths from the runner's checkout; anchor them at
-  // the suite's own directory so they compare against the tree-relative set.
-  const anchor = `/${suite.dir}/`;
+  // Report names are absolute paths from the runner's checkout. Make them
+  // tree-relative with `relative(cwd, …)`, which is exact, rather than by
+  // searching for `/<suite.dir>/` in the string: lastIndexOf mis-anchors when
+  // the directory name repeats INSIDE the repo (src/vendor/src/a.test.ts), and
+  // indexOf mis-anchors when it repeats in the CHECKOUT path
+  // (/home/runner/work/src/src/…). Both fail closed, but on legitimately green
+  // runs and with a message that names the same file as simultaneously missing
+  // from the reports and absent from the tree.
   const reported = new Set();
   const seenIn = new Map(); // file -> [report names]
   let malformed = false;
@@ -121,8 +126,7 @@ for (const suite of SUITES) {
     }
     for (const t of r.testResults) {
       const name = String(t.name ?? '').replaceAll('\\', '/');
-      const i = name.lastIndexOf(anchor);
-      const rel = i === -1 ? name : name.slice(i + 1);
+      const rel = (isAbsolute(name) ? relative(process.cwd(), name) : name).replaceAll('\\', '/');
       reported.add(rel);
       seenIn.set(rel, [...(seenIn.get(rel) ?? []), relative(root, p)]);
     }
