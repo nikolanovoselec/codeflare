@@ -563,6 +563,7 @@ jobs:
         run: |
           if [ -z "$BASE" ]; then
             echo "::notice::No E2E_BASE_URL var for this environment — skipping post-deploy smoke"
+            echo "result=skipped" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CODE=000
@@ -571,14 +572,17 @@ jobs:
             echo "Attempt $i: $BASE/health -> $CODE"
             if [ "$CODE" = "200" ]; then
               echo "Deployment healthy"
+              echo "result=healthy" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             sleep 10
           done
           if [ "$CODE" = "403" ]; then
             echo "::warning::smoke inconclusive: $BASE/health returned 403 on all attempts — zone-edge bot mitigation blocks runner traffic; the public run_worker_first route cannot emit 403 from the worker. Add a zone WAF skip for /health to restore a hard gate."
+            echo "result=edge-403-inconclusive" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "result=failed-${CODE}" >> "$GITHUB_OUTPUT"
           echo "::error::post-deploy smoke failed: $BASE/health returned $CODE"
           exit 1
 
@@ -605,7 +609,9 @@ jobs:
           ENV_NAME: ${{ needs.prepare.outputs.env_name }}
           IMAGE_TAG: ${{ needs.container.outputs.image_tag }}
           REUSED: ${{ needs.container.outputs.reused }}
-          SMOKE: ${{ steps.smoke.outcome }}
+          # The step's own result output distinguishes skipped/healthy/
+          # inconclusive; outcome alone reads "success" even for a no-op.
+          SMOKE: ${{ steps.smoke.outputs.result || steps.smoke.outcome }}
         run: |
           {
             echo "## Deploy summary"

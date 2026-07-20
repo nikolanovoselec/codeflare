@@ -92,7 +92,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The PR-check workflow triggers on every pull request to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
+1. The PR-check workflow triggers on every pull request to the main or develop branch, on push to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
 2. The workflow runs lint on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- @manual -->
 3. The workflow builds the frontend. <!-- @manual -->
 4. The workflow runs the backend suite (two vitest shards), frontend, landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
@@ -105,7 +105,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
-- Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch and on the nightly schedule); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
+- Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
+- All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
 
 **Priority:** P0
 
@@ -526,5 +527,32 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** None.
 
 **Verification:** [Automated test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-021: Workflow-file static analysis
+
+**Intent:** Defects in the CI workflows themselves — injection vectors, unpinned actions, invalid workflow files — are caught by automation instead of being discovered as failed or silently misbehaving runs.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A zizmor security audit runs on every pull request or push touching workflow files and uploads its findings as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
+2. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/zizmor.yml::actionlint --> <!-- @manual -->
+3. Both checks are informational: merges are gated by the `test` status context, not by this workflow. <!-- @manual -->
+
+**Constraints:**
+
+- The zizmor audit runs offline; its online known-vulnerable-actions audit fails fatally on advisory-API outages.
+- actionlint's shellcheck and pyflakes integrations stay disabled — script hygiene is zizmor's concern.
+
+**Priority:** P2
+
+**Dependencies:** None.
+
+**Verification:** Manual check
 
 **Status:** Implemented

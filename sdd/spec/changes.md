@@ -8,6 +8,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Scripted e2e suite removed** (REQ-OPS-004 and REQ-OPS-015 deleted from `operations.md`). The dispatch-only e2e layer could report green with zero executed tests and is replaced by the unit suites plus the k6 stress suites, which remain; [REQ-AUTH-004](authentication.md#req-auth-004-service-token-authentication-for-service-automation) is retitled from "E2E testing" to "service automation" to match its surviving consumers.
 
+- **PR checks also run nightly** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); Implemented). The full PR-check lane matrix now runs unconditionally once a night in addition to every pull request and manual dispatch, catching flaky tests and dependency drift between pushes.
+
+- **Workflow-file static analysis specced** ([REQ-OPS-021](operations.md#req-ops-021-workflow-file-static-analysis); new, Implemented). The zizmor security audit and a new checksum-pinned actionlint check now have REQ coverage; both are informational, with merges still gated by the `test` status context.
+
 ## 2026-07-19
 
 - **Synchronized-output frames now reach xterm atomically** ([REQ-TERM-021](terminal.md#req-term-021-synchronized-output-frame-atomicity), new; Implemented). A DEC 2026 frame split across terminal WebSocket messages is reassembled at ingest and delivered in exactly one write, so xterm's synchronized-output timeout can no longer paint a partially rebuilt transcript mid-replay — the "viewport walks through the entire scrollback" flash during Pi full redraws is gone, and the zero-delta bottom anchor now clears the stale post-`3J` scroll lock instead of no-opping. Per [AD111](../../documentation/decisions/README.md#ad111-synchronized-output-frames-are-delivered-atomically-at-the-write-boundary).

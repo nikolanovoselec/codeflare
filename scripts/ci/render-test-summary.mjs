@@ -34,7 +34,7 @@ for (const p of reports.sort()) {
   let r;
   try { r = JSON.parse(readFileSync(p, 'utf8')); } catch { continue; }
   if (!Array.isArray(r.testResults)) continue;
-  const label = relative(root, p).replace('backend-tests-', '').replace(/\.json$/, '').replace('/', ' · ');
+  const label = relative(root, p).replaceAll('backend-tests-', '').replace(/\.json$/, '').replaceAll('/', ' · ');
   const starts = r.testResults.map((t) => t.startTime).filter(Number.isFinite);
   const ends = r.testResults.map((t) => t.endTime).filter(Number.isFinite);
   const wall = starts.length && ends.length ? Math.max(...ends) - Math.min(...starts) : 0;
