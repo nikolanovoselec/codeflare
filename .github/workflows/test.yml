@@ -287,6 +287,46 @@ jobs:
           pre-run: ${{ matrix.pre-run }}
           tolerate-pool-crash: ${{ matrix.tolerate-pool-crash }}
 
+  bundle-size:
+    name: Bundle size
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      needs.changes.outputs.backend == 'true' ||
+      needs.changes.outputs.webui == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - uses: ./.github/actions/install-deps
+        with:
+          key-prefix: root
+
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        # The bundle being measured is the Worker script; the assets directory
+        # only has to exist for wrangler to resolve its config.
+        run: mkdir -p web-ui/dist
+
+      - name: Measure the Worker bundle
+        # --dry-run needs no credentials and no network: it bundles exactly what
+        # a real deploy would upload and prints the size Cloudflare enforces.
+        run: |
+          npx wrangler deploy --dry-run --outdir /tmp/worker-bundle 2>&1 \
+            | tee /tmp/wrangler-dry-run.log
+        env:
+          NO_COLOR: '1'
+
+      - name: Check against the budget
+        run: node scripts/ci/check-bundle-size.mjs /tmp/wrangler-dry-run.log
+
   frontend-tests:
     name: Frontend tests (${{ matrix.slug }})
     needs: changes
@@ -442,6 +482,7 @@ jobs:
       - changes
       - quality
       - typecheck
+      - bundle-size
       - backend-tests
       - frontend-tests
       - landing-tests

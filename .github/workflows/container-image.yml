@@ -254,6 +254,35 @@ jobs:
           trivyignores: .trivyignore
           timeout: 15m
 
+      - name: Generate an SBOM for the image
+        if: steps.reuse.outputs.reused != 'true'
+        # The Trivy scan answers "are there known CVEs today". It does not answer
+        # "what is actually in this image", which is the question asked after a
+        # new CVE lands — and answering it by re-scanning assumes the image is
+        # still pullable and still the one that shipped. A CycloneDX SBOM
+        # recorded at build time answers it from the artifact itself.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TMPDIR: /mnt/trivy-tmp
+          TRIVY_CACHE_DIR: /mnt/trivy-cache
+        with:
+          image-ref: ${{ steps.docker-build.outputs.local_ref }}
+          scan-type: image
+          format: cyclonedx
+          output: /tmp/sbom.cdx.json
+          # An SBOM is an inventory, not a gate — findings are the scan's job.
+          exit-code: 0
+          timeout: 15m
+
+      - name: Upload the SBOM
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ inputs.registry }}-${{ steps.hash.outputs.tag }}
+          path: /tmp/sbom.cdx.json
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Install wrangler (pinned to the repo's devDependency version)
         if: steps.reuse.outputs.reused != 'true' && inputs.registry == 'cloudflare'
         # This job never runs `npm ci` (nothing else here needs node_modules),
