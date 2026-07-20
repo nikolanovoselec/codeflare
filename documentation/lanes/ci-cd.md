@@ -86,7 +86,7 @@ Job graph: `prepare` → (`build-worker` ∥ `container`) → `deploy`. The pwn-
    - Applies worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB; all tiers default to 10 max instances, `MAX_INSTANCES` overrides) and points `image` at the pre-pushed registry URI.
    - Runs `npx wrangler deploy` with `--var` runtime config inside the same bounded retry loop (30×30s — a transient CF control-plane error such as 100146 "Worker version not found" never wastes the completed build).
    - Uploads all worker secrets in **one `wrangler secret bulk` call** (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, mode-gated Resend/Stripe/OAuth/AIG secrets, optional `ENCRYPTION_KEY`); seeds the service user in KV when a service-auth secret is configured.
-   - **Smoke-checks `GET /health`** (public route, 5 attempts) against the environment's `E2E_BASE_URL` variable and fails the deploy if it never returns 200.
+   - **Smoke-checks `GET /health`** (public route, 5 attempts) against the environment's `E2E_BASE_URL` variable; anything but 200 fails the deploy, except a zone-edge bot-mitigation 403 (impossible from the worker on this public route), which passes with a warning.
    - Finally prunes old registry images via `scripts/ci/prune-registry.mjs` — best-effort, digest-alias-protected; keeps the 10 newest tags, the deployed tag, and any tag whose creation time failed to resolve.
    - The unresolved-creation-time hold is fail-closed — a flaked config-blob fetch never deletes a potentially recent image; such tags become prunable again once a later run resolves them.
 
