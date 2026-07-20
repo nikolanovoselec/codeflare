@@ -1142,7 +1142,14 @@ The raw TCP-port fetch bypasses the DO's public `fetch()` override -- the only p
 
 **Alternative considered (originally rejected, ADOPTED 2026-06-04 -- see Revision above):** Block container destruction on an explicit "prepare-shutdown" RPC that runs the final bisync synchronously and only returns on completion. This was rejected in the original decision on the premise that "the existing trap-driven shutdown already runs the final bisync." That premise was wrong -- the trap is cut off by the ~3s platform SIGKILL -- so the awaited drain (`POST /internal/final-sync`) is now the primary mechanism and the trap is the backstop. Extending the budget alone never helped because the budget governs the DO's wait, not the container's lifetime after stop is signalled.
 
-**Related REQ:** [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) (AC4 + AC5 codify the new budget).
+**Revision (2026-07-20) -- two windows closed inside the existing 120s/135s budget, which is unchanged:**
+
+- `trap shutdown_handler SIGTERM SIGINT EXIT` registers one function on both a signal and `EXIT`, so it ran **twice**: the handler ends in `exit 0`, which fires the EXIT trap back into it. The second pass found the first pass's SIGKILLed rclone gone, cleared the `.lck` as stale, and started a *fresh* bisync at t≈120s that the DO's t=135s SIGKILL then cut mid-write to R2 -- the exact failure this ADR exists to prevent. A `shutdown_once`/`SHUTDOWN_RAN` guard makes the second entry a no-op.
+- `walk_kill` only sends TERM; it does not reap. If the sync daemon's `rclone bisync` had not exited when the final sync started, `bisync_with_r2`'s stale-lock clear saw a live process, left the `.lck` in place, and rclone fast-failed with "prior lock file found" -- losing the final sync and up to one full cadence (AD56) of user work. `shutdown_handler` now polls `pgrep -f "rclone bisync"` for up to 5s first, and the watchdog's SIGTERM sleep is shortened by however long that took (`sleep $(( 108 - QUIESCE_SECS ))`), so the wait is taken **out of** the budget rather than added to it and the 120s/135s totals hold. Exhausting the 5s logs a warning rather than falling through silently.
+
+Two related shutdown-correctness fixes in the same function: `TERMINAL_PID` initialises to `""` rather than `0`, because the kill site guards on `[ -n ]` -- which `"0"` passes -- so `kill "$TERMINAL_PID"` signalled the whole process group from PID 1; and the background init subshell (`BISYNC_INIT_PID`) is killed before the pidfile sweep, closing a race where it started supervisors *after* the sweep that then competed with the final bisync for CPU and R2 bandwidth inside the budget.
+
+**Related REQ:** [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) (AC4 + AC5 codify the new budget), [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) (Constraints codify the quiesce wait).
 
 ---
 
