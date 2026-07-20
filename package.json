@@ -15,6 +15,7 @@
     "types:generate": "wrangler types",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:node": "vitest run --config vitest.node.config.ts",
     "test:watch": "vitest",
     "postinstall": "node scripts/fix-broken-sourcemaps.js",
     "lint": "oxlint src/ stress/ --deny-warnings",

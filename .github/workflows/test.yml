@@ -330,12 +330,25 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Cache root node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-root
+        with:
+          path: node_modules
+          key: root-${{ hashFiles('package-lock.json') }}
+
       - name: Cache host node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-host
         with:
           path: host/node_modules
           key: host-${{ hashFiles('host/package-lock.json') }}
+
+      - name: Install root dependencies
+        # wrangler-static-assets.test.js imports 'wrangler' from the ROOT
+        # node_modules (module lookup walks up from host/__tests__).
+        if: steps.cache-root.outputs.cache-hit != 'true'
+        run: npm ci
 
       - name: Install host dependencies
         if: steps.cache-host.outputs.cache-hit != 'true'

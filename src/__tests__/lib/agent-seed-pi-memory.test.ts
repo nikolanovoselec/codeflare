@@ -12,15 +12,6 @@ import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isR
  * isn't available in the Workers vitest pool).
  */
 
-function frontmatter(content: string): Record<string, string> {
-  return Object.fromEntries(
-    (content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
-      .split('\n')
-      .map((line) => line.split(/:\s*/, 2))
-      .filter((parts) => parts.length === 2),
-  );
-}
-
 // REQ-AGENT-026: Knowledge-Graph Persistence via Git
 // REQ-AGENT-063: PR-Boundary Command Parsing
 // REQ-BROWSER-003: Pi Native Browser Run Wrapper
