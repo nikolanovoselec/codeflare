@@ -58,6 +58,19 @@ The `pi-extensions` bump is data-driven: the `pi-extensions-discover` job lists 
 
 The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
+`production` is restricted to `main` by a deployment branch policy, mirroring the in-workflow branch guard in `deploy.yml` so a dispatch from any other ref cannot reach it. It carries no required-reviewer rule: a green PR Checks run is the gate, and the reviewer approval it replaced was self-approval by the sole maintainer, which paused three separate jobs without adding assurance.
+
+### Branch protection
+
+| Branch | Required checks | Bypass |
+|--------|-----------------|--------|
+| `main` | `test`, `CodeQL`, `Property-based fuzzing` | none |
+| `develop` | `test` | repository admin |
+
+Required status checks apply to direct pushes, not merges alone. `test.yml` has no `push` trigger for `develop`, so a locally authored commit cannot acquire the `test` check and a direct push to `develop` is rejected — the admin bypass exists so an emergency push is still possible. The release-time `git push -f origin main:develop` reset is unaffected, because that SHA already carries a green `test` from `main`.
+
+Workflow references are SHA-pinned repository-wide (`sha_pinning_required`); a `uses:` on a tag or branch is rejected at the Actions level rather than caught in review.
+
 ### GitHub Secrets and Variables
 
 A default deployment requires only these repository secrets:
