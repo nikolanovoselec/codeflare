@@ -63,6 +63,7 @@ runs:
           "$status" "/tmp/${NAME}.json" "/tmp/${NAME}.log" "$TOLERATE"
 
     - name: Upload report and log
+      id: upload
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
@@ -72,3 +73,20 @@ runs:
           /tmp/${{ inputs.artifact-name }}.log
         retention-days: 5
         if-no-files-found: error
+
+    - name: Point at the report and the local repro
+      if: always()
+      shell: bash
+      env:
+        NAME: ${{ inputs.artifact-name }}
+        ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        DIR: ${{ inputs.working-directory }}
+        SCRIPT: ${{ inputs.script }}
+        SHARD: ${{ inputs.shard }}
+      run: |
+        # The run page shows a red X and 3,000 lines of dot-reporter output. Give
+        # the reader the artifact link and the exact command that reproduces this
+        # shard locally, so a failure is one paste away from a local repro.
+        REPRO="npm run $SCRIPT${SHARD:+ -- --shard=$SHARD}"
+        [ "$DIR" != "." ] && REPRO="(cd $DIR && $REPRO)"
+        echo "::notice title=$NAME::report: ${ARTIFACT_URL:-<upload failed>} — reproduce locally with: $REPRO"

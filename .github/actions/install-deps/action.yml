@@ -22,10 +22,28 @@ runs:
         path: ${{ inputs.directory }}/node_modules
         key: ${{ inputs.key-prefix }}-${{ hashFiles(format('{0}/package-lock.json', inputs.directory)) }}
 
+    - name: Enable the Node compile cache
+      shell: bash
+      # Node 22+ caches V8 bytecode between processes. Every lane spawns node
+      # hundreds of times (vitest workers, gate scripts, generators), so this is
+      # free time back for one env var.
+      run: echo "NODE_COMPILE_CACHE=$RUNNER_TEMP/node-compile-cache" >> "$GITHUB_ENV"
+
     - name: Install ${{ inputs.key-prefix }} dependencies
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       working-directory: ${{ inputs.directory }}
       # --prefer-offline reuses the runner's npm cache; --no-audit/--no-fund drop
       # two network round trips that produce output nothing here reads.
-      run: npm ci --prefer-offline --no-audit --no-fund
+      #
+      # `timeout` matters more than the retry: a registry connection that HANGS
+      # never exits non-zero, so a bare retry loop waits forever instead of
+      # firing. Bounding each attempt is what makes the retry reachable.
+      run: |
+        for attempt in 1 2 3; do
+          if timeout 600 npm ci --prefer-offline --no-audit --no-fund; then exit 0; fi
+          echo "::warning::npm ci attempt $attempt failed or hung; retrying"
+          sleep $((attempt * 5))
+        done
+        echo "::error::npm ci failed or hung three times in ${{ inputs.directory }}"
+        exit 1

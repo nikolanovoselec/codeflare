@@ -119,6 +119,20 @@ describe('REQ-OPS-003 AC5: cross-suite completeness gate', () => {
     expect(runCompleteness({ backend: 'skipped' }, cwd, 'missing').status).toBe(0);
   });
 
+  it('fails when two shards both claim the same file', () => {
+    const files = ['src/a.test.ts', 'src/nested/b.test.ts'];
+    const cwd = tree(files);
+    report('backend-shard-1', 'backend-shard-1.json', files);
+    // Shard 2 disagreed about the split and re-ran one of shard 1's files.
+    report('backend-shard-2', 'backend-shard-2.json', [files[1]]);
+    report('backend-node', 'backend-node.json', NODE_SUITE_FILES);
+
+    const r = runCompleteness({ backend: 'success' }, cwd);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('more than one report');
+    expect(r.stderr).toContain('src/nested/b.test.ts');
+  });
+
   it('reconciles each suite against its own tree, not just the backend', () => {
     const cwd = tree(['src/a.test.ts']);
     touch(cwd, 'web-ui/src/__tests__/one.test.tsx');

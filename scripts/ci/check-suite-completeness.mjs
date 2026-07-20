@@ -95,6 +95,7 @@ for (const suite of SUITES) {
   // the suite's own directory so they compare against the tree-relative set.
   const anchor = `/${suite.dir}/`;
   const reported = new Set();
+  const seenIn = new Map(); // file -> [report names]
   let malformed = false;
   for (const p of reports) {
     let r;
@@ -113,10 +114,25 @@ for (const suite of SUITES) {
     for (const t of r.testResults) {
       const name = String(t.name ?? '').replaceAll('\\', '/');
       const i = name.lastIndexOf(anchor);
-      reported.add(i === -1 ? name : name.slice(i + 1));
+      const rel = i === -1 ? name : name.slice(i + 1);
+      reported.add(rel);
+      seenIn.set(rel, [...(seenIn.get(rel) ?? []), relative(root, p)]);
     }
   }
   if (malformed) continue;
+
+  // A file claimed by two shards means the split disagreed — the shards ran
+  // different partitions of the same tree. It costs time, and the same
+  // disagreement in the other direction is a file nobody ran, so it is worth
+  // catching in its own right rather than only via the missing-file check.
+  const duplicated = [...seenIn.entries()].filter(([, where]) => where.length > 1);
+  if (duplicated.length) {
+    fail(
+      `${suite.name}: ${duplicated.length} file(s) ran in more than one report:\n  ${duplicated
+        .map(([f, where]) => `${f} → ${where.join(', ')}`)
+        .join('\n  ')}`,
+    );
+  }
 
   const missing = [...expected].filter((f) => !reported.has(f)).sort();
   if (missing.length) {
