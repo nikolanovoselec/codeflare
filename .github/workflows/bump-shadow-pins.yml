@@ -1559,6 +1559,159 @@ jobs:
             --title "chore(deps): bump @modelcontextprotocol/sdk (browser-run-mcp) $CUR -> $LAT" \
             --body "$BODY"
 
+  zizmor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare the zizmor pin against what the pinned action supports
+        id: ver
+        # NOT zizmor's newest release. zizmor-action resolves `version:` against
+        # a digest table baked into the action release, so naming a version the
+        # PINNED action does not know fails every run with "Unknown version"
+        # (v0.5.6 + 1.27.0 did exactly that). The ceiling is that table, and
+        # Dependabot raises it by bumping the action pin.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP "^\s+ZIZMOR_VERSION: '\K[^']+" .github/workflows/test.yml)
+          ACTION_SHA=$(grep -oP "zizmorcore/zizmor-action@\K[0-9a-f]{40}" .github/workflows/zizmor.yml)
+          LATEST=$(gh api "repos/zizmorcore/zizmor-action/contents/support/versions?ref=${ACTION_SHA}" \
+            --jq .content | base64 -d \
+            | awk '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { print $1 }' | sort -V | tail -1)
+          VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ ! "$CURRENT" =~ $VERSION_RE ]] || [[ ! "$LATEST" =~ $VERSION_RE ]]; then
+            echo "Invalid zizmor version: current=$CURRENT latest=$LATEST" >&2
+            exit 1
+          fi
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST (the highest version action $ACTION_SHA knows), nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        env:
+          LATEST: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BRANCH="bump/zizmor-$LATEST"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve the release checksum
+        # zizmor publishes no checksums.txt, so the hash is taken from the
+        # artifact itself. That is a trust-on-first-use pin, not a verification
+        # — but from this commit on, any change to the served bytes fails the
+        # workflow-audit lane's sha256sum check.
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        id: sum
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/zizmor.tar.gz \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${LAT}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          SHA=$(sha256sum /tmp/zizmor.tar.gz | cut -d' ' -f1)
+          if [[ ! "$SHA" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Could not hash the zizmor release artifact" >&2
+            exit 1
+          fi
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          SHA: ${{ steps.sum.outputs.sha256 }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "$BRANCH"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { LAT, SHA } = process.env;
+          // Both files or neither: the blocking lane and the SARIF upload must
+          // audit with the same zizmor, and a test asserts they match.
+          const edits = [
+            ['.github/workflows/test.yml', (t) => t
+              .replace(/ZIZMOR_VERSION: '[^']+'/, `ZIZMOR_VERSION: '${LAT}'`)
+              .replace(/ZIZMOR_SHA256: '[^']+'/, `ZIZMOR_SHA256: '${SHA}'`)],
+            ['.github/workflows/zizmor.yml', (t) => t
+              .replace(/^(\s+)version: '[^']+'/m, `$1version: '${LAT}'`)],
+          ];
+          for (const [f, edit] of edits) {
+            const before = fs.readFileSync(f, 'utf-8');
+            const after = edit(before);
+            if (before === after) {
+              console.error('Replacement matched nothing in ' + f);
+              process.exit(1);
+            }
+            fs.writeFileSync(f, after);
+          }
+          NODE
+
+          git add .github/workflows/test.yml .github/workflows/zizmor.yml
+          if git diff --cached --quiet; then
+            echo "Nothing changed - aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump zizmor $CUR -> $LAT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          Auto-generated bump of \`zizmor\` from \`$CUR\` to \`$LAT\`.
+
+          zizmor is pinned in two places that must stay equal - the blocking \`workflow-audit\` lane in \`.github/workflows/test.yml\` (a checksum-pinned release binary) and the SARIF upload in \`.github/workflows/zizmor.yml\` - so this PR moves both.
+
+          The ceiling is the digest table baked into the pinned \`zizmor-action\` release, not zizmor's newest tag: naming a version the pinned action does not know fails every run with \`Unknown version\`. Dependabot raises that ceiling when it bumps the action.
+
+          Files updated:
+          - \`.github/workflows/test.yml\` (\`ZIZMOR_VERSION\` + \`ZIZMOR_SHA256\`)
+          - \`.github/workflows/zizmor.yml\` (the \`version:\` input)
+
+          ## Test plan
+          - [ ] CI green (the \`workflow-audit\` lane verifies the checksum before running, and audits every workflow with the new binary)
+          - [ ] \`Zizmor\` workflow green (the action resolves the new version instead of erroring)
+          EOF
+          )
+          gh pr create \
+            --base develop \
+            --head "$BRANCH" \
+            --title "chore(deps): bump zizmor $CUR -> $LAT" \
+            --body "$BODY"
+
   actionlint:
     runs-on: ubuntu-latest
     permissions:

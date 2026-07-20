@@ -8,11 +8,12 @@ name: Deploy
 # deploy can be re-run manually, and so integration deploys from
 # develop (or any other branch) can still be triggered on demand.
 #
-# Topology (staged jobs, no test re-run — the workflow_run gate already
-# guarantees a green PR Checks run for this exact SHA):
-#   prepare ──┬── build-worker (frontend + landing dist artifact)   ──┬── deploy
-#             └── container (reusable container-image.yml:            │
-#                 input-hash reuse gate → build → scan → push)      ──┘
+# Topology:
+#   verify ── prepare ──┬── build-worker (frontend + landing dist artifact) ──┬── deploy
+#                       └── container (reusable container-image.yml:          │
+#                           input-hash reuse gate → build → scan → push)    ──┘
+# verify runs PR Checks only on manual dispatch; on workflow_run it is skipped
+# because that gate already guarantees a green PR Checks run for this exact SHA.
 # deploy = wrangler config mutations + wrangler deploy + bulk secrets +
 # registry prune.
 #
@@ -59,8 +60,16 @@ permissions:
   contents: read
 
 # On workflow_run: only deploy when PR Checks ended green.
-# On workflow_dispatch (manual): always run; the production-only-from-main
-# guard step still rejects bad input.
+# On workflow_dispatch (manual): only deploy when the inline `verify` job — the
+# same PR Checks, run against the dispatched SHA — ended green. The
+# production-only-from-main guard step additionally rejects bad input.
+#
+# Every gate is written as `!cancelled() && (...)` with explicit
+# `needs.<job>.result` comparisons rather than relying on implicit needs
+# resolution, because the two implicit behaviours differ (a failed need skips
+# dependents; a need skipped by its own `if:` does not) and this file cannot
+# afford to be subtly wrong about which one applies. `!cancelled()` rather than
+# `always()` so cancelling a deploy actually stops it.
 #
 # The gate `if:` is repeated on EVERY job (not centralized on prepare with
 # plain `needs:` chaining) because GitHub Actions treats a job skipped via
@@ -79,14 +88,30 @@ permissions:
 #   head_repository.full_name == github.repository -- and only from this repo, never a fork
 
 jobs:
+  # A workflow_run deploy is by definition gated on a green PR Checks for the
+  # same SHA. A manual dispatch was not: it shipped whatever the branch tip was,
+  # untested. Running PR Checks inline is what makes the two paths equal — and
+  # it beats looking for an earlier green run, because PR Checks does not fire
+  # on pushes to develop at all, so most integration deploys would have had no
+  # run to find. Skipped on workflow_run (the gate already ran); every
+  # downstream job requires `verify.result == 'skipped'` on that path, so a skip
+  # can never be mistaken for a pass.
+  verify:
+    name: PR Checks
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/test.yml
+
   prepare:
     name: Resolve deploy target
+    needs: verify
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
       (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
+       && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # production is locked to main (the guard step below rejects it elsewhere);
@@ -96,11 +121,12 @@ jobs:
     environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
     outputs:
       env_name: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
-      # On workflow_run: pin to the SHA whose PR Checks just ended green.
-      # Without this, actions/checkout falls back to default-branch HEAD at
-      # job start time, which can drift if a second push lands on main
-      # between the green check and the deploy.
-      ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+      # Pin to the exact commit that was verified: on workflow_run the SHA whose
+      # PR Checks just ended green, on dispatch the SHA the `verify` job above
+      # tested. Neither may be a branch name — actions/checkout resolves that at
+      # job start, which drifts if a push lands in between and would deploy a
+      # commit nothing tested.
+      ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       worker_name: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
       cache_bust: ${{ vars.CLAUDE_CODE_CACHE_BUSTER == 'active' && github.sha || '' }}
       registry: ${{ inputs.registry || 'cloudflare' }}
@@ -118,7 +144,7 @@ jobs:
       - name: Log resolved parameters
         env:
           ENV_NAME: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
-          REF: ${{ github.event.workflow_run.head_sha || github.ref }}
+          REF: ${{ github.event.workflow_run.head_sha || github.sha }}
           WORKER: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
           REGISTRY: ${{ inputs.registry || 'cloudflare' }}
         run: |
@@ -129,13 +155,16 @@ jobs:
 
   build-worker:
     name: Build worker assets
-    needs: prepare
+    needs: [verify, prepare]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
       (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
+       && github.event.workflow_run.head_repository.full_name == github.repository))
+      && needs.prepare.result == 'success'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
@@ -198,13 +227,16 @@ jobs:
 
   container:
     name: Container image
-    needs: prepare
+    needs: [verify, prepare]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
       (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
+       && github.event.workflow_run.head_repository.full_name == github.repository))
+      && needs.prepare.result == 'success'
     permissions:
       contents: read
       actions: write # type=gha buildx cache writes to the Actions cache service
@@ -227,13 +259,18 @@ jobs:
 
   deploy:
     name: Deploy worker
-    needs: [prepare, build-worker, container]
+    needs: [verify, prepare, build-worker, container]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
       (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
+       && github.event.workflow_run.head_repository.full_name == github.repository))
+      && needs.prepare.result == 'success'
+      && needs.build-worker.result == 'success'
+      && needs.container.result == 'success'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     environment: ${{ needs.prepare.outputs.env_name }}
     timeout-minutes: 20

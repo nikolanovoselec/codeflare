@@ -38,6 +38,12 @@ on:
   # check that never runs.
   merge_group:
   workflow_dispatch:
+  # Called by deploy.yml on manual dispatch. A manual deploy is the one path
+  # that does not arrive through the workflow_run gate, so it runs these checks
+  # inline against the exact commit it is about to ship rather than trusting
+  # that some earlier run covered it. Reusable workflows inherit the caller's
+  # github context, so the diff filter is skipped and every lane executes.
+  workflow_call:
   schedule:
     # Nightly full-matrix sweep: every lane runs regardless of diff, catching
     # flaky tests and dependency/audit drift between pushes.
