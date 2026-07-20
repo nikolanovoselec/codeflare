@@ -129,9 +129,19 @@ describe('REQ-GITHUB-004: buildCloneArgs (argv, never a shell string)', () => {
 const server = readFileSync(resolve(repoRoot, 'host/src/server.ts'), 'utf8');
 const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
 
+// Scope to the real block, not a fixed byte window. A window silently truncates
+// as the code grows — this route is 3710 bytes and was being sliced at 2600, so
+// the `!block.includes('shell: true')` guard below was passing vacuously over
+// the last third of the handler it claims to check.
+function routeBlock(name) {
+  const start = server.indexOf(`'${name}'`);
+  if (start === -1) return '';
+  const next = server.slice(start + 1).search(/pathname === '\/[^']+'/);
+  return next === -1 ? server.slice(start) : server.slice(start, start + 1 + next);
+}
+
 describe('REQ-GITHUB-004: git-clone endpoint wiring (structural)', () => {
-  const idx = server.indexOf("'/internal/git-clone'");
-  const block = server.slice(idx, idx + 2600);
+  const block = routeBlock('/internal/git-clone');
 
   it('exposes POST /internal/git-clone', () => {
     assert.ok(/pathname === '\/internal\/git-clone' && method === 'POST'/.test(server));
@@ -157,8 +167,12 @@ describe('REQ-GITHUB-004: git-clone endpoint wiring (structural)', () => {
 });
 
 describe('REQ-GITHUB-004: entrypoint clone step (structural)', () => {
+  // The clone step spans from its gate to the next startup step. Bounded by
+  // the configure_tab_autostart CALL rather than a byte count, which is the
+  // same boundary the ordering assertion below already relies on.
   const i = entrypoint.indexOf('GIT_CLONE_REPO');
-  const block = entrypoint.slice(i - 200, i + 1400);
+  const autostart = entrypoint.indexOf('\nconfigure_tab_autostart\n');
+  const block = entrypoint.slice(Math.max(0, i - 200), autostart === -1 ? undefined : autostart);
 
   it('gates the clone on GIT_CLONE_REPO and runs before configure_tab_autostart', () => {
     assert.ok(/if \[ -n "\$\{GIT_CLONE_REPO:-\}" \]/.test(entrypoint));
