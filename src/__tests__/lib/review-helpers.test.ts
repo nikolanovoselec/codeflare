@@ -238,6 +238,8 @@ describe('Claude-equivalent review boundary helpers', () => {
     const { requiredReviewLanes } = await plannedHelpers();
     const first = makeRepo();
     const sourceHead = commit(first.repo, 'src/original.ts', 'export {};\n', 'source');
+    // git mv does not create the destination directory.
+    mkdirSync(join(first.repo, 'documentation'), { recursive: true });
     git(first.repo, 'mv', 'src/original.ts', 'documentation/original.md');
     git(first.repo, 'commit', '-m', 'rename source to docs');
     expect(requiredReviewLanes({ repo: first.repo, ackHead: sourceHead, head: git(first.repo, 'rev-parse', 'HEAD') })).toEqual(ALL_LANES);

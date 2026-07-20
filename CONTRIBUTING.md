@@ -30,8 +30,7 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 | `src/routes/admin/` | Admin-only API routes (tier management) | TypeScript, Hono |
 | `web-ui/` | Frontend SPA | SolidJS, xterm.js, Vite |
 | `host/` | Container terminal server | Node.js, node-pty |
-| `e2e/` | End-to-end tests | Vitest, Puppeteer |
-| `e2e/stress/` | k6 load test suites | JavaScript, k6 |
+| `stress/` | k6 load test suites | JavaScript, k6 |
 | `preseed/tutorials/` | Tutorial content seeded into new workspaces | Markdown |
 | `scripts/` | Build and maintenance utilities | Node.js |
 | `.github/workflows/` | CI/CD pipelines | GitHub Actions |
@@ -58,13 +57,6 @@ cd web-ui && npm test
 
 # Host unit tests (Node.js test runner)
 cd host && npm test
-
-# E2E API tests (requires a deployed worker + auth credentials)
-npm run test:e2e:api
-
-# E2E UI tests (requires a deployed worker + Puppeteer)
-npm run test:e2e:ui                # Desktop
-npm run test:e2e:ui-mobile         # Mobile
 ```
 
 ### Rate Limit Tests

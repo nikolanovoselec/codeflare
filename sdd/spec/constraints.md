@@ -71,7 +71,7 @@ The GitHub interceptor resolves which user's token to inject solely from the per
 | Path traversal prevention | `decodeURIComponent` before `..` check; catches `%2E%2E` and double-encoded variants |
 | Supply chain | CodeQL, OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning |
 | Deploy gate | `deploy.yml` `workflow_run` trigger requires `event == 'push'` and `head_repository.full_name == github.repository` so a fork PR cannot trigger a deploy by naming its head branch `main` (defeats Scorecard DangerousWorkflowID pwn-request pattern). |
-| CI token scope | `actions: write` (Actions cache writes for buildx) is scoped to the deploy job only; top-level workflow permissions are `contents: read` (read-only), limiting blast radius on token compromise. |
+| CI token scope | `actions: write` (Actions cache writes for buildx) is scoped to the deploy job only; top-level workflow permissions are `contents: read` (read-only), limiting blast radius on token compromise. `bump-shadow-pins.yml` mirrors this: read-only baseline, with only the jobs that push bump branches and open PRs elevating to write. |
 | Penetration testing | Weekly automated external pentest (auth gate, headers, TLS, injection, info disclosure) |
 | Secret scanning | GitHub secret scanning with push protection enabled |
 | Credential masking | `maskSecret()` shows only last 4 chars in all API responses |

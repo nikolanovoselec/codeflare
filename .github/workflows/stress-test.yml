@@ -37,6 +37,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -47,13 +49,17 @@ jobs:
 
       - name: Resolve target
         id: target
+        env:
+          RAW_BASE: ${{ vars.E2E_BASE_URL }}
         run: |
-          RAW="${{ vars.E2E_BASE_URL }}"
+          RAW="$RAW_BASE"
           RAW="${RAW#http://}" && BASE="https://${RAW#https://}"
           echo "base_url=$BASE" >> "$GITHUB_OUTPUT"
           echo "Target: $BASE"
 
       - name: Ensure SERVICE_AUTH_SECRET is set on target worker
+        env:
+          WORKER_NAME_VAR: ${{ vars.CLOUDFLARE_WORKER_NAME }}
         run: |
           AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
           if [ -z "${AUTH_SECRET}" ]; then
@@ -61,7 +67,7 @@ jobs:
             exit 1
           fi
 
-          WORKER="${{ vars.CLOUDFLARE_WORKER_NAME }}"
+          WORKER="$WORKER_NAME_VAR"
           echo "Setting SERVICE_AUTH_SECRET on worker: $WORKER"
           printf '%s' "${AUTH_SECRET}" | wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
 
@@ -151,6 +157,8 @@ jobs:
       OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install k6
         run: |
@@ -161,7 +169,7 @@ jobs:
         env:
           STRESS_TEST_CONCURRENCY: ${{ vars.STRESS_TEST_CONCURRENCY || '0' }}
         run: |
-          k6 run e2e/stress/api-throughput.js \
+          k6 run stress/api-throughput.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
             --summary-export=api-throughput-results.json
 
@@ -187,6 +195,8 @@ jobs:
       OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install k6
         run: |
@@ -197,7 +207,7 @@ jobs:
         env:
           STRESS_TEST_CONCURRENCY: ${{ vars.STRESS_TEST_CONCURRENCY || '0' }}
         run: |
-          k6 run e2e/stress/session-lifecycle.js \
+          k6 run stress/session-lifecycle.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
             --summary-export=session-lifecycle-results.json
 
@@ -223,6 +233,8 @@ jobs:
       OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install k6
         run: |
@@ -233,7 +245,7 @@ jobs:
         env:
           STRESS_TEST_CONCURRENCY: ${{ vars.STRESS_TEST_CONCURRENCY || '0' }}
         run: |
-          k6 run e2e/stress/storage-operations.js \
+          k6 run stress/storage-operations.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
             --summary-export=storage-results.json
 
@@ -259,6 +271,8 @@ jobs:
       OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install k6
         run: |
@@ -267,7 +281,7 @@ jobs:
 
       - name: Validate rate limits are enforced
         run: |
-          k6 run e2e/stress/rate-limit-validation.js \
+          k6 run stress/rate-limit-validation.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
             --summary-export=rate-limit-results.json
 

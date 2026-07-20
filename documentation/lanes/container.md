@@ -315,7 +315,7 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 **Preseed rule:** `preseed/agents/claude/rules/deploy-credentials.md` - comprehensive capability reference telling agents what commands are available with each token.
 
-**Docker Hub fallback:** When the primary Cloudflare-managed registry drops connections mid-upload, `deploy-dockerhub.yml` provides a fallback deploy path via Docker Hub. See [CI/CD](ci-cd.md) for workflow details.
+**Docker Hub fallback:** When the primary Cloudflare-managed registry drops connections mid-upload, dispatching `deploy.yml` with `registry: dockerhub` pushes the image to Docker Hub instead. See [CI/CD](ci-cd.md) for workflow details.
 
 **Known gotchas:**
 - `printf '%s' "$SECRET" | gh secret set` can store empty values - use file redirect (`< tmpfile`) instead.

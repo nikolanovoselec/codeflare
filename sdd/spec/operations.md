@@ -2,13 +2,12 @@
 
 CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cost model.
 
-**Domain owner:** GitHub Actions workflows, deploy.yml, test.yml, e2e.yml, pentest.yml, fuzz.yml, stress-test.yml
+**Domain owner:** GitHub Actions workflows, deploy.yml, container-image.yml, test.yml, pentest.yml, fuzz.yml, stress-test.yml
 
 ### Key Concepts
 
-- **Deploy Pipeline** -- The `deploy.yml` workflow that runs on push to `main`: install, build, test, typecheck, Docker build, scan, push, deploy, set secrets. The single path from code to production.
+- **Deploy Pipeline** -- The `deploy.yml` workflow, gated on a green PR Checks run for the same SHA (workflow_run): prepare resolves the target, worker assets build in parallel with the container image (built, scanned, and pushed by the reusable `container-image.yml`, which reuses the existing image when its inputs are unchanged), then the deploy job applies config, runs `wrangler deploy`, sets secrets in bulk, and smoke-checks `/health`. The single path from code to production.
 - **CI/CD** -- Continuous integration via `test.yml` (PR checks), `codeql.yml` (static analysis), `scorecard.yml` (supply chain), and `fuzz.yml` (property-based testing). Continuous deployment via `deploy.yml`.
-- **E2E Testing** -- End-to-end test suite (`e2e.yml`) that runs against a deployed worker, covering API, desktop UI, and mobile UI flows. Authenticates via service token, not browser OAuth.
 - **Container Tier** -- Resource allocation profiles (`low`, `default`, `saas`, `high`) that control CPU, memory, and disk per container. Selected via the `RESSOURCE_TIER` GitHub Actions variable and applied by patching `wrangler.toml` at deploy time.
 
 ### Out of Scope
@@ -26,7 +25,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-001: Deploy workflow trigger and pre-deploy pipeline
 
-**Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback. The pre-deploy stage installs dependencies, builds, and runs tests before any artifact reaches Cloudflare.
+**Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback. Deploys are gated on a green PR Checks run for the exact SHA; the pipeline itself runs as staged jobs and does not re-run the test suite.
 
 **Applies To:** User
 
@@ -34,9 +33,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-3. The deploy pipeline runs end-to-end: install dependencies, build, test, typecheck, build the container image, scan it, push it, deploy, and set secrets. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+3. The deploy pipeline runs as staged jobs: prepare resolves the target, worker assets and the container image (build, scan, push) proceed in parallel, then the deploy job applies config, deploys, sets secrets, and smoke-checks health. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 4. Dependencies are cached between runs for faster pipeline execution. <!-- @manual -->
-5. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+5. Frontend and landing assets are built once and handed to the deploy job as an artifact; no deployment step runs unless the gating PR Checks run for the same SHA ended green (tests are not re-run in-deploy). <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @manual -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 
 **Constraints:**
@@ -57,21 +56,23 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-002: Docker image build, vulnerability scan, and registry push
 
-**Intent:** Every deploy builds a Docker image, scans it for HIGH/CRITICAL vulnerabilities with allowlisted exceptions, and pushes the resulting artifact to the Cloudflare container registry. The pipeline fails before push on any unexcepted finding.
+**Intent:** Every deploy resolves a container image whose build inputs are content-hashed into its tag. Changed inputs trigger a build, a HIGH/CRITICAL vulnerability scan with allowlisted exceptions, and a push to the target registry; unchanged inputs reuse the already-scanned image. The pipeline fails before push on any unexcepted finding.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The container image is built in the CI runner on every deploy. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/deploy.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
+1. The container image is built in the CI runner whenever its inputs (Dockerfile COPY sources, weekly salt, cache-bust) produce a tag not yet present in the target registry; otherwise the existing image is reused without rebuild or rescan. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
 3. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @manual -->
 4. If the scan finds unexcepted vulnerabilities, the pipeline fails before push. <!-- @manual -->
-5. The built image is pushed to the Cloudflare container registry; the resulting registry URI is captured for downstream binding. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+5. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 
 **Constraints:**
 
-- The container-binding and scaling steps consume the registry URI from this REQ; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
+- The container-binding and scaling steps rebuild the registry URI from the image tag this REQ produces — the URI itself is never a workflow output, since it would embed a masked secret and be silently dropped; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
+- The input hash covers every Dockerfile COPY source; a coverage guard disables reuse (forcing a fresh build) if a COPY source falls outside the hashed path set.
+- The weekly hash salt bounds reuse: an unchanged image is rebuilt and rescanned at least once per ISO week.
 
 **Priority:** P0
 
@@ -91,52 +92,27 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The PR-check workflow triggers on every pull request to the main branch and on manual dispatch. <!-- @manual -->
+1. The PR-check workflow triggers on every pull request to the main or develop branch, on push to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
 2. The workflow runs lint on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- @manual -->
 3. The workflow builds the frontend. <!-- @manual -->
-4. The workflow runs both backend and frontend test suites; the backend step may accept a non-zero `npm test` exit only when the log shows the Workers-pool teardown-crash fingerprint as the single error, at least one test passed, and no failed-test tokens are present. <!-- @impl: .github/workflows/test.yml::test --> <!-- @manual -->
-5. The workflow runs both backend and frontend typechecks. <!-- @manual -->
-6. The workflow runs a dead-code check on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
-7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
+4. The workflow runs the backend suite (two vitest shards), frontend, landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
+5. The backend gate accepts a non-zero test-run exit only when the machine-readable vitest JSON report parses with more than zero tests, zero failures, and no zero-test files, and the log carries the exact Workers-pool teardown-crash fingerprint; a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-backend-test-report.mjs --> <!-- @manual -->
+6. The workflow runs both backend and frontend typechecks. <!-- @manual -->
+7. The workflow runs a dead-code check on the codebase. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+8. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
 
 **Constraints:**
 
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
+- Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
+- All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
 
 **Priority:** P0
 
 **Dependencies:** None.
 
 **Verification:** Manual check
-
-**Status:** Implemented
-
----
-
-### REQ-OPS-004: E2E test workflow setup and job graph
-
-**Intent:** The e2e workflow runs end-to-end tests against a deployed environment. The setup stage primes the worker for service-token auth and the job graph sequences setup before the per-suite test jobs.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. The E2E workflow runs on manual dispatch with an environment selector (integration or production). <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-004 AC1: workflow triggers on workflow_dispatch with environment selection (integration or production)) --> <!-- @manual -->
-2. Jobs run as a four-stage chain: setup, API tests, desktop UI tests, mobile UI tests. <!-- @impl: .github/workflows/e2e.yml::target --> <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-015: E2E per-suite execution and artifact handling) -->
-3. The setup stage provisions the service-token secret on the target worker, seeds the E2E service user, and smoke-tests auth with a retry loop to absorb storage eventual-consistency lag. <!-- @impl: .github/workflows/e2e.yml::setup --> <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-004 AC3: setup job sets SERVICE_AUTH_SECRET, seeds E2E service user in KV, smoke-tests auth with retry loop) -->
-4. The target URL is configurable per environment so the same workflow can run against integration or production. <!-- @impl: .github/workflows/e2e.yml::target --> <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-004: E2E test workflow setup and job graph) -->
-
-**Constraints:**
-
-- E2E tests authenticate via the service-token header.
-- Per-suite test execution + artifact handling live in [REQ-OPS-015](#req-ops-015-e2e-per-suite-execution-and-artifact-handling).
-
-**Priority:** P1
-
-**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-012](security.md#req-sec-012-container-auth-token-per-do-lifecycle)
-
-**Verification:** [Automated test](../../host/__tests__/workflow-e2e.test.js)
 
 **Status:** Implemented
 
@@ -350,7 +326,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Operators can override the default concurrent-instance cap per deployment. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+1. Operators can override the default concurrent-instance cap per deployment. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
 2. The override is independent of resource tier. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012: Per-environment container concurrency limit) --> <!-- @manual -->
 3. The override must be a positive integer. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC3: MAX_INSTANCES must be a positive integer (enforced with regex validation)) --> <!-- @manual -->
 4. The override is applied at deploy time as part of the deployment configuration. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC4: MAX_INSTANCES is applied during deploy via wrangler.toml patching) --> <!-- @manual -->
@@ -369,7 +345,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-013: Deploy command and post-deploy hooks
 
-**Intent:** After the pre-deploy pipeline succeeds, the workflow applies the worker name, runs `wrangler deploy`, sets worker secrets, and seeds the E2E service user in KV so the deployed worker is fully configured and reachable.
+**Intent:** After the staged pipeline succeeds, the deploy job applies the worker name, runs `wrangler deploy`, sets worker secrets in one bulk call, and seeds the service user (stress-test identity) in KV so the deployed worker is fully configured and reachable.
 
 **Applies To:** User
 
@@ -378,7 +354,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The worker name is configurable per environment. <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) --> <!-- @manual -->
 2. The worker is deployed with runtime configuration variables applied. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 3. Required worker secrets are written after deployment. <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) --> <!-- @manual -->
-4. The E2E service user is seeded into the allowlist when the CF Access service-token secret is configured. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
+4. The service user (stress-test identity) is seeded into the allowlist when the CF Access service-token secret is configured. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 
 **Constraints:**
 
@@ -417,33 +393,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
 **Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
-
-**Status:** Implemented
-
----
-
-### REQ-OPS-015: E2E per-suite execution and artifact handling
-
-**Intent:** Each E2E suite (API, desktop UI, mobile UI) runs as its own job in the e2e workflow. Failed UI runs persist screenshots and HTML so the user can diagnose what the deployed worker actually rendered.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. The API test suite runs as its own job. <!-- @impl: .github/workflows/e2e.yml::e2e-api --> <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-015 AC1: e2e-api job runs the API test suite) -->
-2. The desktop UI test suite runs as its own job, in a Chromium browser. <!-- @impl: .github/workflows/e2e.yml::e2e-ui-desktop --> <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-015 AC2: e2e-ui-desktop job runs UI desktop tests with Puppeteer/Chrome) -->
-3. The mobile UI test suite runs as its own job, in mobile emulation mode. <!-- @impl: .github/workflows/e2e.yml::e2e-ui-mobile --> <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-015 AC3: e2e-ui-mobile job runs UI mobile tests with E2E_MOBILE=1) -->
-4. Failed UI test runs upload screenshots and HTML as artifacts with a five-day retention. <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-015 AC4: failed UI test runs upload screenshots and HTML as artifacts with 5-day retention) --> <!-- @manual -->
-
-**Constraints:**
-
-- UI tests require a Chromium browser and supporting system libraries in the runner environment.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-OPS-004](#req-ops-004-e2e-test-workflow-setup-and-job-graph)
-
-**Verification:** [Automated test](../../host/__tests__/workflow-e2e.test.js)
 
 **Status:** Implemented
 
@@ -578,5 +527,33 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** None.
 
 **Verification:** [Automated test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-021: Workflow-file static analysis
+
+**Intent:** Defects in the CI workflows themselves — injection vectors, unpinned actions, invalid workflow files — are caught by automation instead of being discovered as failed or silently misbehaving runs.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. A zizmor security audit runs on every pull request or push touching workflow files. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
+2. The audit's findings upload as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
+3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/zizmor.yml::actionlint --> <!-- @manual -->
+4. Both checks are informational: merges are gated by the `test` status context, not by this workflow. <!-- @manual -->
+
+**Constraints:**
+
+- The zizmor audit runs offline; its online known-vulnerable-actions audit fails fatally on advisory-API outages.
+- actionlint's shellcheck and pyflakes integrations stay disabled — script hygiene is zizmor's concern.
+
+**Priority:** P2
+
+**Dependencies:** None.
+
+**Verification:** Manual check
 
 **Status:** Implemented

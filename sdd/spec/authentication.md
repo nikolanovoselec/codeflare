@@ -114,9 +114,9 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
-### REQ-AUTH-004: Service token authentication for E2E testing
+### REQ-AUTH-004: Service token authentication for service automation
 
-**Intent:** Automated E2E tests can authenticate without a browser-based OAuth flow by presenting a service token header.
+**Intent:** Automated clients (stress suites and service automation) can authenticate without a browser-based OAuth flow by presenting a service token header.
 
 **Applies To:** User
 

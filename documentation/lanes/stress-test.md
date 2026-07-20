@@ -334,10 +334,10 @@ At 50 VUs with realistic think times, this represents approximately **1 000-5 00
 
 | File | Purpose |
 |------|---------|
-| `e2e/stress/api-throughput.js` | API endpoint throughput + spike test |
-| `e2e/stress/session-lifecycle.js` | Session CRUD churn test |
-| `e2e/stress/storage-operations.js` | R2 storage upload/download/delete cycle |
-| `e2e/stress/rate-limit-validation.js` | Rate limit enforcement validation |
+| `stress/api-throughput.js` | API endpoint throughput + spike test |
+| `stress/session-lifecycle.js` | Session CRUD churn test |
+| `stress/storage-operations.js` | R2 storage upload/download/delete cycle |
+| `stress/rate-limit-validation.js` | Rate limit enforcement validation |
 | `.github/workflows/stress-test.yml` | CI workflow orchestration |
 | `src/middleware/rate-limit.ts` | HTTP rate-limit middleware; `STRESS_TEST_MODE` bypass |
 | `src/routes/terminal.ts` | WebSocket auth + rate-limit; `STRESS_TEST_MODE` bypass |
@@ -379,7 +379,7 @@ The Timekeeper DO receives pings every 60 seconds from each active container ses
 - [Security Policy](../../SECURITY.md) - Vulnerability reporting
 - [pentest.md](pentest.md) - Security scan results
 - [Configuration - Worker Environment](configuration.md#worker-environment) - Environment variables
-- [CI/CD - E2E Infrastructure](ci-cd.md#e2e-infrastructure) - E2E test setup
+- [CI/CD & Testing](ci-cd.md#testing) - CI test suites
 
 ---
 

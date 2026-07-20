@@ -36,7 +36,18 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     include: ['src/**/*.test.ts'],
-    exclude: ['web-ui/**', 'e2e/**'],
+    exclude: [
+      'web-ui/**',
+      // Pi-extension tests need node:child_process/node:fs and kill workerd at
+      // collection — they run under plain Node via vitest.node.config.ts.
+      'src/__tests__/lib/agent-seed-multi-agent.test.ts',
+      'src/__tests__/lib/local-statusline-repo.test.ts',
+      'src/__tests__/lib/pi-memory-vault-delivery.test.ts',
+      'src/__tests__/lib/review-enforcement.test.ts',
+      'src/__tests__/lib/pi-review-scope.test.ts',
+      'src/__tests__/lib/review-helpers.test.ts',
+      'src/__tests__/lib/vault-manifest-detection.test.ts',
+    ],
     // Serialize the Workers pool to one worker. @cloudflare/vitest-pool-workers
     // crashes workerd at pool teardown ("Worker exited unexpectedly") AFTER every
     // test passes — the documented WebSockets + Durable Objects under per-file

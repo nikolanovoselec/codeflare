@@ -36,7 +36,7 @@ Codeflare supports two fundamentally different authentication flows:
 | **User management** | CF Access groups + email allowlists | Worker KV records, JIT provisioning |
 | **Setup wizard** | Creates CF Access app, groups, policies | No CF Access resources created |
 | **Cost** | Free for 50 users, $3/user/month after | Free for unlimited users |
-| **E2E auth** | `CF_ACCESS_CLIENT_SECRET` (CF Access + service headers) | `OAUTH_E2E_TEST_SECRET` (X-Service-Auth only) |
+| **Service automation auth** | `CF_ACCESS_CLIENT_SECRET` (CF Access + service headers) | `OAUTH_E2E_TEST_SECRET` (X-Service-Auth only) |
 | **Logout** | `/cdn-cgi/access/logout` (CF Access system endpoint) | `/auth/github/logout` (clears `codeflare_session` cookie) |
 
 `web-ui/src/components/Header.tsx` and `web-ui/src/components/Dashboard.tsx` always call `/auth/logout`; `src/routes/auth-redirects.ts` dispatches to the correct logout flow based on mode: any mode that issues a `codeflare_session` (SaaS or onboarding) takes the `/auth/github/logout` path, and only default/enterprise CF Access deployments use the CF Access system endpoint. Onboarding must not be sent to CF Access logout - it rejects the `returnTo` as an invalid redirect URL.
@@ -45,7 +45,7 @@ Codeflare supports two fundamentally different authentication flows:
 
 `getUserFromRequest()` in `src/lib/access.ts` checks auth methods in this order:
 
-1. **Service token** (`X-Service-Auth` header) - E2E testing, all modes. Constant-time comparison against `SERVICE_AUTH_SECRET`.
+1. **Service token** (`X-Service-Auth` header) - service automation (stress tests, CLI), all modes. Constant-time comparison against `SERVICE_AUTH_SECRET`.
 2. **Direct GitHub OAuth** (`codeflare_session` cookie) - only when (`SAAS_MODE=active` OR `ONBOARDING_LANDING_PAGE=active`) AND `OAUTH_CLIENT_ID` is set. HMAC-SHA256 JWT verified against `OAUTH_JWT_SECRET`. In this branch CF Access is never checked.
 3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) - all other modes. RS256 JWT verified against CF Access JWKS endpoint.
 4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) - trusted only before setup completes.
@@ -188,9 +188,9 @@ Mobile browsers can restore a live DOM from background or bfcache without rerunn
 
 Workers Static Assets normally serves browser assets with `Cache-Control: public, max-age=0, must-revalidate`. Vite's content-hashed `/assets/*` requests run through the Worker and receive `public, max-age=31536000, immutable` after a successful non-HTML response. This prevents a restored page from revalidating its CSS/JavaScript into Access login HTML after cookie expiry. HTML and missing-asset SPA fallbacks remain revalidating. ([REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page))
 
-### E2E Testing Auth
+### Service Automation Auth
 
-E2E tests authenticate via `X-Service-Auth` header in all modes. The secret comes from:
+Service automation (the k6 stress workflow, CLI probes) authenticates via `X-Service-Auth` header in all modes. The secret comes from:
 - **CF Access mode:** `CF_ACCESS_CLIENT_SECRET` environment secret
 - **Direct GitHub OAuth mode:** `OAUTH_E2E_TEST_SECRET` environment secret
 
@@ -319,7 +319,7 @@ The SaaS and onboarding activation flags, identity-provider settings, email cred
 
 5. **CSRF on state-changing requests:** Added `X-Requested-With` header check on POST/PUT/DELETE in `authenticateRequest()`.
 
-6. **Service token auth for e2e tests:** `X-Service-Auth` header with custom secret for CI/e2e tests that cannot go through CF Access.
+6. **Service token auth for automation:** `X-Service-Auth` header with custom secret for CI automation (stress tests) that cannot go through CF Access.
 
 ---
 
@@ -344,7 +344,7 @@ Implements [REQ-AUTH-016](../../sdd/spec/authentication.md#req-auth-016-header-u
 
 ## Specification Coverage
 
-- [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing) - Service token authentication for E2E testing
+- [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation) - Service token authentication for service automation
 - [REQ-AUTH-005](../../sdd/spec/authentication.md#req-auth-005-three-tier-authorization-middleware) - Three-tier authorization middleware
 - [REQ-AUTH-009](../../sdd/spec/authentication.md#req-auth-009-logout-dispatches-by-mode) - Logout dispatches by mode
 - [REQ-AUTH-010](../../sdd/spec/authentication.md#req-auth-010-auth-bypass-prevention) - Auth bypass prevention

@@ -44,7 +44,7 @@ The setup wizard skips CF Access provisioning entirely in Session-OIDC mode, mir
 
 The production `codeflare_session` cookie is always emitted with `HttpOnly`, `Secure`, and `SameSite=Lax` by `src/routes/github-auth.ts` and refreshed with the same attributes in `src/index.ts`. Browser JavaScript cannot read it; authentication is carried automatically by the browser. <!-- @impl: src/routes/github-auth.ts::Set-Cookie = HttpOnly; Secure; SameSite=Lax -->
 
-In SaaS mode specifically (not all session-OIDC deployments — the guard is `isSaasModeActive`, not `isSessionOidcMode`), the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) and [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order)); user-facing surfaces still require a session cookie.
+In SaaS mode specifically (not all session-OIDC deployments — the guard is `isSaasModeActive`, not `isSessionOidcMode`), the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) and [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order)); user-facing surfaces still require a session cookie.
 
 ### Admin elevation via Access group (enterprise)
 
@@ -513,7 +513,7 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 ### Container Image Scanning ([REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy))
 
-Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in `deploy.yml` and `deploy-dockerhub.yml`). The scan runs with `ignore-unfixed: true`, so the deploy fails only on a HIGH/CRITICAL CVE that has an **available fix** and is not suppressed. Unfixed CVEs (blank Fixed Version — no upstream patch) cannot be remediated by rebuilding and are not gated; this stops the recurring breakage where a newly-published, unfixable base-image CVE would block every deploy until manually suppressed.
+Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in the reusable `container-image.yml` invoked by every deploy; identical-input deploys reuse the already-scanned image, and a weekly hash salt bounds that reuse at seven days, per [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images)). The scan runs with `ignore-unfixed: true`, so the deploy fails only on a HIGH/CRITICAL CVE that has an **available fix** and is not suppressed. Unfixed CVEs (blank Fixed Version — no upstream patch) cannot be remediated by rebuilding and are not gated; this stops the recurring breakage where a newly-published, unfixable base-image CVE would block every deploy until manually suppressed.
 
 **Suppression policy (`.trivyignore`):** With `ignore-unfixed`, the allowlist is now for **fixable** CVEs that are consciously accepted — a fix exists but cannot be applied yet (typically a vendored CLI such as rclone/lazygit/an npm CLI, or a vendored binary such as OpenVSCode Server, fixed upstream but not yet rebuilt). A CVE is added only when both of:
 
@@ -534,7 +534,7 @@ Every entry carries an inline comment recording the affected package, the impact
 
 - [REQ-OPS-009](../../sdd/spec/operations.md#req-ops-009-supply-chain-security-monitoring) - Supply chain security monitoring
 - [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) - Security-posture scanning workflows
-- [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing) - Service token authentication scoped to automation, not user identity (AD68)
+- [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation) - Service token authentication scoped to automation, not user identity (AD68)
 - [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order) - Auth resolution order: service token resolves to admin automation ahead of SaaS/Access (AD68)
 - [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) - Onboarding `/login` landing shell
 - [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) - Onboarding access request is OAuth-gated (no Turnstile re-challenge); confirmation emails via Resend
