@@ -9,7 +9,10 @@ on:
     - cron: '0 6 * * 1'
 
 concurrency:
-  group: codeql-${{ github.head_ref || github.ref }}
+  # github.ref is the per-PR merge ref for pull_request events, so two PRs
+  # sharing one head branch never cancel each other while superseded pushes
+  # of the same PR still do.
+  group: codeql-${{ github.ref }}
   cancel-in-progress: true
 
 permissions: read-all

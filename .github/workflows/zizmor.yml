@@ -19,7 +19,10 @@ on:
 permissions: {}
 
 concurrency:
-  group: zizmor-${{ github.head_ref || github.ref }}
+  # github.ref is the per-PR merge ref for pull_request events, so two PRs
+  # sharing one head branch never cancel each other while superseded pushes
+  # of the same PR still do.
+  group: zizmor-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

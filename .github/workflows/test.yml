@@ -33,7 +33,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: test-${{ github.head_ref || github.ref }}
+  # github.ref is the per-PR merge ref for pull_request events, so two PRs
+  # sharing one head branch never cancel each other (each tests its own merge
+  # result) while superseded pushes of the same PR still cancel.
+  group: test-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

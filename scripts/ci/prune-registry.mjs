@@ -101,7 +101,12 @@
   }
   const dated = ok.filter(x => x.created).sort((a,b) => b.created.localeCompare(a.created));
   const top = dated.slice(0, KEEP_N).map(x => x.tag);
-  const keepTags = new Set([...top, deployedTag]);
+  // Fail closed on unresolved creation times: a tag whose config-blob fetch
+  // flaked might be one of the newest, so keep it — that also protects any
+  // digest it aliases. It becomes prunable again once a later run resolves it.
+  const undated = ok.filter(x => !x.created);
+  if (undated.length) console.log("::warning::" + undated.length + " tag(s) lack a resolved creation time; protecting them this run");
+  const keepTags = new Set([...top, deployedTag, ...undated.map(x => x.tag)]);
   // DELETE on a registry v2 manifest removes the manifest globally -
   // every tag that aliases that digest 404s afterward. If two tags
   // share a digest (identical Dockerfile + identical context across
