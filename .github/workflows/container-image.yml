@@ -396,7 +396,11 @@ jobs:
           # back. Attesting a config digest instead would produce an attestation
           # the standard tooling cannot verify — theatre, not provenance.
           if [ "${REGISTRY}" = "dockerhub" ]; then
-            DIGEST=$(docker image inspect "${REGISTRY_URI}" --format '{{index .RepoDigests 0}}' | cut -d@ -f2)
+            # Guard the empty case in the template, not after the fact: steps run
+            # as `bash -e`, and `index` on an empty RepoDigests slice fails the
+            # command, aborting the step before the check below could report why.
+            DIGEST=$(docker image inspect "${REGISTRY_URI}" \
+              --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' | cut -d@ -s -f2)
             if [ -z "${DIGEST}" ]; then
               echo "::error::Pushed to Docker Hub but could not read back the manifest digest"
               exit 1
