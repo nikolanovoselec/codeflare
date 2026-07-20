@@ -22,17 +22,14 @@ runs:
         path: ${{ inputs.directory }}/node_modules
         key: ${{ inputs.key-prefix }}-${{ hashFiles(format('{0}/package-lock.json', inputs.directory)) }}
 
-    - name: Enable the Node compile cache
-      shell: bash
-      # Node 22+ caches V8 bytecode between processes. Every lane spawns node
-      # hundreds of times (vitest workers, gate scripts, generators), so this is
-      # free time back for one env var.
-      run: echo "NODE_COMPILE_CACHE=$RUNNER_TEMP/node-compile-cache" >> "$GITHUB_ENV"
-
     - name: Install ${{ inputs.key-prefix }} dependencies
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       working-directory: ${{ inputs.directory }}
+      env:
+        # Read through the environment, never interpolated into the script: an
+        # action input expanded inline is code, not data (zizmor template-injection).
+        DIR: ${{ inputs.directory }}
       # --prefer-offline reuses the runner's npm cache; --no-audit/--no-fund drop
       # two network round trips that produce output nothing here reads.
       #
@@ -42,8 +39,8 @@ runs:
       run: |
         for attempt in 1 2 3; do
           if timeout 600 npm ci --prefer-offline --no-audit --no-fund; then exit 0; fi
-          echo "::warning::npm ci attempt $attempt failed or hung; retrying"
+          echo "::warning::npm ci attempt $attempt failed or hung in $DIR; retrying"
           sleep $((attempt * 5))
         done
-        echo "::error::npm ci failed or hung three times in ${{ inputs.directory }}"
+        echo "::error::npm ci failed or hung three times in $DIR"
         exit 1

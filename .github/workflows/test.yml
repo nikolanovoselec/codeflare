@@ -53,6 +53,14 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Node 22+ shares a V8 bytecode cache between processes; these lanes spawn node
+  # hundreds of times (vitest workers, gate scripts, generators). Declared here
+  # rather than written to GITHUB_ENV from a composite action — a workflow-level
+  # literal is inert, whereas anything that writes GITHUB_ENV is a code-execution
+  # surface the moment its value stops being a constant (zizmor github-env).
+  NODE_COMPILE_CACHE: /tmp/node-compile-cache
+
 jobs:
   changes:
     name: Detect changed areas
