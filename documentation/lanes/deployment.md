@@ -51,11 +51,10 @@ Cloudflare immediately creates a deployment that sends 100% of traffic to the se
 
 ```sh
 npx wrangler deployments status
-curl -fsS https://codeflare.ch/health
 curl -fsS https://codeflare.ch/public/auth/providers | jq -e '.providers | type == "array"'
 ```
 
-The status output names only the selected version at 100% traffic, `/health` succeeds, and provider discovery returns an array. Re-run the recorded failed step and confirm its expected result before closing the incident.
+The status output names only the selected version at 100% traffic and provider discovery returns an array. Re-run the recorded failed step and confirm its expected result before closing the incident.
 
 **Rollback:** If the selected version is incompatible with current bindings or stored data, revert the faulty source changes on a branch, open a pull request to `main`, wait for `PR Checks`, and merge it. The `.github/workflows/deploy.yml` workflow then rebuilds and deploys the reverted `main`; production dispatches from old SHAs are intentionally blocked. Worker rollback does not change connected resources or bindings. See [Cloudflare's rollback guidance](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
 

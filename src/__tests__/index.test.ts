@@ -322,18 +322,6 @@ describe('Edge-level setup redirect', () => {
     expect(mockKV.get).toHaveBeenCalledTimes(2);
   });
 
-  it('does NOT redirect GET /health', async () => {
-    const { env, mockKV } = createMockEnv();
-    mockKV.get.mockResolvedValue(null);
-
-    const request = new Request('https://example.com/health');
-    const response = await worker.fetch(request, env, createMockCtx());
-
-    // /health goes through Hono, not redirected
-    expect(response.status).not.toBe(302);
-    expect(response.status).toBe(200);
-  });
-
   it('redirects non-setup SPA paths when setup is not complete', async () => {
     const { env, mockKV } = createMockEnv();
     mockKV.get.mockResolvedValue(null);

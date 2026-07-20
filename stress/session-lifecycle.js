@@ -51,6 +51,21 @@ export const options = {
     session_create_duration: ['p(95)<5000'],
     session_delete_duration: ['p(95)<3000'],
     errors: ['rate<0.15'],
+    // Without these floors, every threshold above is satisfied by an EMPTY sink:
+    // k6's TrendSink.P() returns 0 for no samples and RateSink returns rate 0, so
+    // p(95)<5000 and rate<0.15 both pass having measured nothing. This suite
+    // `return`s on 429 before recording any custom metric, so at higher
+    // concurrency most iterations record nothing and the suite gets more vacuous
+    // as load rises — the opposite of what a load test is for.
+    //
+    // Deliberately NOT http_req_failed: k6 counts every 4xx as a failed request,
+    // so each 429 the limiter correctly returns would score as a test failure,
+    // and the harder this suite pushes the more certainly it fails. Counter
+    // floors prove the run measured something without penalising the limiter for
+    // working. They stay at >0 rather than a tuned N so the SCALE knob cannot
+    // turn a correct run red.
+    sessions_created: ['count>0'],
+    sessions_deleted: ['count>0'],
   },
 };
 

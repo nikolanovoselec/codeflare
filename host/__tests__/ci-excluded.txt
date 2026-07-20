@@ -1,14 +1,34 @@
-entrypoint-bisync-behavior.test.js
-entrypoint-context-mode.test.js
-entrypoint-graphify-bisync.test.js
+# Tests that cannot run on a GitHub runner, with the specific reason each.
+# Lines starting with # and blank lines are ignored by both the lane's selection
+# step and host-test-inventory.test.js. A blanket rationale is how twelve files
+# ended up excluded by proximity for months; a reason per file is auditable.
+
+# Shell out to the graphify binary and its python3 module, which exist only
+# inside the codeflare image.
 entrypoint-graphify-mcp.test.js
-entrypoint-hooks-merge.test.js
-entrypoint-shutdown.test.js
-enforce-review-spawn.test.js
-graphify-clone-prompt.test.js
 graphify-session-start.test.js
+
+# Drives the SDD review-spawn hook against real git upstream state (@{u}) and a
+# gh PR context. The runner checkout is a detached merge ref with no upstream,
+# so the PR-state branches resolve differently than in a session.
+enforce-review-spawn.test.js
+
+# Exercises the live bisync daemon loop end to end. Needs real rclone bisync
+# state transitions (lock files, resync fallback); exceeded the 60s per-file
+# timeout on the runner.
+entrypoint-bisync-behavior.test.js
+
+# Merges settings.json with jq against a fixture HOME and asserts the resulting
+# hook registrations and SYNC_MODE filter scope; depends on container-side
+# rclone filter state.
+entrypoint-hooks-merge.test.js
+
+# Compute review lanes from real git history: needs a branch with an upstream
+# and non-ancestor divergence, and `git diff --no-renames` over real renames.
+# The runner checkout is a detached merge ref, so those branches resolve
+# differently than in a session.
 lane-classifier.test.js
+
+# Asserts the memory hook exits silently when no graph exists, which depends on
+# ~/.graphify state the runner does not have.
 memory-context-inject.test.js
-memory-prompt-iso-ts-assertions.test.js
-preseed-graphify-discipline.test.js
-skill-sdd-init-contract.test.js

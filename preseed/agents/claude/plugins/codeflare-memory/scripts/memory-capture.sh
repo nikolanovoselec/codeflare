@@ -18,6 +18,16 @@ INPUT=$(cat)
 
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null) || true
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
+
+# Sanitize session_id before it is used to build any path. The sibling
+# memory-context-inject.sh has done this since it was written; these two never
+# did, and both interpolate it straight into /tmp paths — SESSION_ID='../../x'
+# escapes the counter directory. Same guard, verbatim, so the three hooks agree.
+case "$SESSION_ID" in
+  *..* | */* | *\\*) exit 0 ;;
+esac
+[[ "$SESSION_ID" =~ ^[a-zA-Z0-9_-]+$ ]] || exit 0
+
 TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 [[ -z "$TRANSCRIPT" || -z "$SESSION_ID" || ! -f "$TRANSCRIPT" ]] && exit 0
 

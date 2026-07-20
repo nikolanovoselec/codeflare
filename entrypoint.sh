@@ -14,7 +14,13 @@ echo "[entrypoint] Date: $(date)"
 echo "[entrypoint] PWD: $(pwd)"
 
 # Initialize PID placeholders
-TERMINAL_PID=0
+# Empty, not 0. `kill 0` is POSIX for "signal every process in my process
+# group", and the guard at the kill site is `[ -n "$TERMINAL_PID" ]`, which "0"
+# satisfies. The exposure window is from the trap being armed (~line 1429) until
+# the real PID is assigned (~line 1866): a shutdown landing in there ran `kill 0`
+# and SIGTERMed the whole container group, including PID 1, which carries the
+# same trap. The sibling placeholder (SYNC_DAEMON_PID="") is the right idiom.
+TERMINAL_PID=""
 
 echo "[entrypoint] pwd: $(pwd)"
 echo "[entrypoint] HOME: $HOME"
@@ -168,6 +174,20 @@ create_rclone_config() {
     # Create rclone config directory
     mkdir -p "$USER_HOME/.config/rclone"
 
+    # Create the file 0600 BEFORE anything is written to it. The chmod further
+    # down used to be the first thing narrowing the mode, so between the heredoc
+    # and that chmod the R2 access key, secret and the base64 ENCRYPTION_KEY sat
+    # in a world-readable file. Short window, single-tenant container — but the
+    # ordering costs nothing.
+    #
+    # NOT a bare `umask 077`: umask is per-PROCESS, not per-function, so setting
+    # it here would silently narrow the mode of every file this entrypoint
+    # creates afterwards. Creating this one file 0600 gives the same guarantee
+    # with no global side effect; `cat >`, `cat >>` and `sed -i` all preserve the
+    # mode, so the trailing chmod is now belt-and-braces rather than the gate.
+    : > "$USER_HOME/.config/rclone/rclone.conf"
+    chmod 600 "$USER_HOME/.config/rclone/rclone.conf"
+
     # Write rclone config (quoted heredoc to prevent shell expansion, then substitute)
     cat > "$USER_HOME/.config/rclone/rclone.conf" << 'RCLONE_EOF'
 [r2]
@@ -200,9 +220,15 @@ RCLONE_EOF
         return 1
     fi
 
-    sed -i "s|PLACEHOLDER_ACCESS_KEY|${R2_ACCESS_KEY_ID}|" "$USER_HOME/.config/rclone/rclone.conf"
-    sed -i "s|PLACEHOLDER_SECRET_KEY|${R2_SECRET_ACCESS_KEY}|" "$USER_HOME/.config/rclone/rclone.conf"
-    sed -i "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" "$USER_HOME/.config/rclone/rclone.conf"
+    # Substitutions go through a script on stdin, not through argv: `sed -i
+    # "s|X|$SECRET|"` puts the R2 secret in the process command line, readable
+    # from /proc/<pid>/cmdline by anything running in the container for as long
+    # as sed lives.
+    printf '%s\n' \
+        "s|PLACEHOLDER_ACCESS_KEY|${R2_ACCESS_KEY_ID}|" \
+        "s|PLACEHOLDER_SECRET_KEY|${R2_SECRET_ACCESS_KEY}|" \
+        "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" \
+        | sed -i -f - "$USER_HOME/.config/rclone/rclone.conf"
 
     # REQ-ENTERPRISE-018 / REQ-STOR-017 (Governed Mode): with R2 SSE-C disabled, objects
     # keep R2's default at-rest encryption, so their ETags are usable MD5 checksums again.
@@ -1314,10 +1340,32 @@ shutdown_handler() {
         [ -z "$pid" ] && return 0
         walk_kill TERM "$pid"
     }
+    # Kill the background init subshell FIRST. It wraps establish_bisync_baseline
+    # (up to 600s x 3 recovery attempts) plus every start_* call, and it is not a
+    # pidfile — so a shutdown landing between this sweep and start_silverbullet /
+    # start_openvscode used to find no pidfiles, then the surviving subshell
+    # started those supervisors AFTER the sweep and they ran until SIGKILL,
+    # competing with the final bisync for CPU and R2 bandwidth inside the 135s
+    # budget. Killing it first closes the window rather than racing it.
+    if [ -n "${BISYNC_INIT_PID:-}" ]; then
+        walk_kill TERM "$BISYNC_INIT_PID"
+    fi
+
     kill_pidfile_subtree /tmp/sync-daemon.pid
     kill_pidfile_subtree /tmp/vault-monitor.pid
     kill_pidfile_subtree /tmp/silverbullet.pid
     kill_pidfile_subtree /tmp/openvscode.pid
+
+    # walk_kill only sends TERM; it does not reap. If the daemon's rclone bisync
+    # is still alive when the final bisync starts, bisync_with_r2's stale-lock
+    # clear sees a live `rclone bisync` (pgrep), leaves the .lck in place, and
+    # rclone fast-fails with "prior lock file found" - losing the final sync and
+    # up to one full cadence (AD56) of user work. Wait for it to go quiet. 5s out
+    # of the 120s budget; the loop exits the moment the process is gone.
+    for _ in $(seq 1 50); do
+        pgrep -f "rclone bisync" >/dev/null 2>&1 || break
+        sleep 0.1
+    done
 
     # Perform final bisync to R2 (only if baseline was established).
     # Wrap in a 120s watchdog so the DO's destroy() SIGKILL budget (135s,
@@ -1401,8 +1449,27 @@ shutdown_handler() {
     exit 0
 }
 
-# Set up shutdown trap
-trap shutdown_handler SIGTERM SIGINT EXIT
+# Set up shutdown trap.
+#
+# Registering one function for a signal trap AND for EXIT runs it TWICE: bash's
+# re-entry guard is per-trap, so the `exit 0` at the end of the handler fires the
+# EXIT trap, which is the same function. That is not cosmetic here. Pass 1 runs
+# the final bisync under the 108s+12s watchdog; if it hits the watchdog, rclone
+# is SIGKILLed leaving a stale lock, and pass 2 — seeing /tmp/.bisync-initialized
+# still present and no running rclone — clears the lock and starts a FRESH
+# bisync at t=120s. The DO SIGKILLs at t=135s, i.e. mid-write to R2, which is
+# precisely the state the 120/135 budget exists to prevent.
+#
+# The guard makes the second entry a no-op regardless of which trap fires first.
+SHUTDOWN_RAN=0
+shutdown_once() {
+    if [ "$SHUTDOWN_RAN" = "1" ]; then
+        return 0
+    fi
+    SHUTDOWN_RAN=1
+    shutdown_handler
+}
+trap shutdown_once SIGTERM SIGINT EXIT
 
 # ============================================================================
 # Helper function to update sync status file (read by health server)

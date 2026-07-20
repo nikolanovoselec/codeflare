@@ -1,0 +1,100 @@
+name: 'Vitest suite (fail-closed)'
+description: >-
+  Runs one vitest project with a machine-readable JSON report, gates the result
+  via scripts/ci/check-vitest-report.mjs, and uploads the report for the summary
+  job to reconcile and render. Single source of truth for how ANY suite in this
+  repo is executed and judged — backend shards, the Node-runtime leg, frontend
+  shards, and landing all call this action, so no suite can quietly run without
+  the gate the others get.
+inputs:
+  working-directory:
+    description: 'Directory to run the suite from (repo root by default).'
+    required: false
+    default: '.'
+  script:
+    description: 'npm script that runs vitest (e.g. "test", "test:node").'
+    required: false
+    default: 'test'
+  shard:
+    description: 'Optional vitest --shard value (e.g. "1/4"). Empty runs the whole suite.'
+    required: false
+    default: ''
+  artifact-name:
+    description: >-
+      Artifact name for the report + log; also the report filename. Must be
+      unique per job and carry the suite prefix scripts/ci/suites.mjs expects.
+    required: true
+  pre-run:
+    description: 'Optional shell run before vitest, for suites whose npm lifecycle hooks do not cover them.'
+    required: false
+    default: ''
+  tolerate-pool-crash:
+    description: >-
+      "true" only for the Cloudflare Workers pool, which crashes workerd at
+      teardown after every test has already passed. Every other suite must fail
+      on a non-zero exit, so this stays "false" by default.
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Run suite (${{ inputs.artifact-name }})
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        # Plain-text output so the gate's fingerprint check reads stable bytes.
+        NO_COLOR: '1'
+        FORCE_COLOR: '0'
+        SHARD: ${{ inputs.shard }}
+        SCRIPT: ${{ inputs.script }}
+        NAME: ${{ inputs.artifact-name }}
+        PRE_RUN: ${{ inputs.pre-run }}
+        TOLERATE: ${{ inputs.tolerate-pool-crash }}
+      run: |
+        # Belt and braces with RUNNER_TEMP: if a report from a previous run
+        # survived, the gate would parse IT — >0 tests, 0 failures, and for the
+        # Workers shards the stale log even carries the teardown fingerprint that
+        # licenses a non-zero exit. Every layer would agree while the code under
+        # test never ran. Self-hosted runners (vars.RUNNER) are where fixed paths
+        # persist, so the removal is unconditional rather than a hosted-only
+        # assumption.
+        rm -f "$RUNNER_TEMP/${NAME}.json" "$RUNNER_TEMP/${NAME}.log"
+        if [ -n "$PRE_RUN" ]; then bash -c "$PRE_RUN"; fi
+        set +e
+        # CLI reporters replace the config ones: dot for humans, json for the gate.
+        npm run "$SCRIPT" -- ${SHARD:+--shard="$SHARD"} \
+          --reporter=dot --reporter=json --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
+          2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
+        status=${PIPESTATUS[0]}
+        set -e
+        node "$GITHUB_WORKSPACE/scripts/ci/check-vitest-report.mjs" \
+          "$status" "$RUNNER_TEMP/${NAME}.json" "$RUNNER_TEMP/${NAME}.log" "$TOLERATE"
+
+    - name: Upload report and log
+      id: upload
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ runner.temp }}/${{ inputs.artifact-name }}.json
+          ${{ runner.temp }}/${{ inputs.artifact-name }}.log
+        retention-days: 5
+        if-no-files-found: error
+
+    - name: Point at the report and the local repro
+      if: always()
+      shell: bash
+      env:
+        NAME: ${{ inputs.artifact-name }}
+        ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        DIR: ${{ inputs.working-directory }}
+        SCRIPT: ${{ inputs.script }}
+        SHARD: ${{ inputs.shard }}
+      run: |
+        # The run page shows a red X and 3,000 lines of dot-reporter output. Give
+        # the reader the artifact link and the exact command that reproduces this
+        # shard locally, so a failure is one paste away from a local repro.
+        REPRO="npm run $SCRIPT${SHARD:+ -- --shard=$SHARD}"
+        [ "$DIR" != "." ] && REPRO="(cd $DIR && $REPRO)"
+        echo "::notice title=$NAME::report: ${ARTIFACT_URL:-<upload failed>} — reproduce locally with: $REPRO"

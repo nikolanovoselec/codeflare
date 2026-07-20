@@ -45,7 +45,18 @@ jobs:
           node-version: '22'
 
       - name: Install wrangler
-        run: npm install -g "wrangler@$(node -p \"require('./package.json').devDependencies.wrangler\")"
+        # zizmor: ignore[adhoc-packages] the version is read out of this repo's
+        # own package.json devDependency, so it tracks the lockfile-managed pin
+        # rather than floating. Same trade as container-image.yml: a global
+        # install avoids an `npm ci` of the full tree in a job that needs no
+        # node_modules, at the cost of not verifying an integrity hash.
+        # No backslashes on the inner quotes. Inside $( ), `\"` is a literal
+        # quote, so node -p was handed a JS *string literal* and printed it
+        # verbatim — making the spec `wrangler@require('./package.json')...`,
+        # which npm rejects. This job therefore failed on every run and the
+        # whole stress workflow was dead. container-image.yml has the same line
+        # written correctly; this was a copy-paste regression.
+        run: npm install -g "wrangler@$(node -p "require('./package.json').devDependencies.wrangler")"
 
       - name: Resolve target
         id: target
@@ -98,11 +109,14 @@ jobs:
         run: |
           BASE="$E2E_BASE_URL"
 
-          # Health check (no auth needed)
-          HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/health" || true)
-          echo "Health: $HEALTH"
+          # Reachability check (no auth needed). Uses the public provider-discovery
+          # route rather than a dedicated health endpoint: it needs no special
+          # edge exemption and, unlike a constant "ok", exercises real worker
+          # logic, so a 200 means something is actually working.
+          HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/public/auth/providers" || true)
+          echo "Reachability: $HEALTH"
           if [ "$HEALTH" != "200" ]; then
-            echo "::error::Health check failed ($HEALTH)"
+            echo "::error::Reachability check failed ($HEALTH)"
             exit 1
           fi
 
@@ -160,10 +174,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+      - uses: ./.github/actions/install-k6
 
       - name: Run API throughput test
         env:
@@ -198,10 +209,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+      - uses: ./.github/actions/install-k6
 
       - name: Run session lifecycle test
         env:
@@ -236,10 +244,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+      - uses: ./.github/actions/install-k6
 
       - name: Run storage operations test
         env:
@@ -260,7 +265,10 @@ jobs:
   rate-limit-validation:
     name: Stress Test with Rate Limits
     needs: setup
-    if: inputs.suite == 'rate-limit-validation'
+    # 'all' used to exclude this suite, so the broadest option a user can pick
+    # ran three of the four and the summary reported green having never
+    # validated rate limits at all.
+    if: inputs.suite == 'all' || inputs.suite == 'rate-limit-validation'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     environment: integration
     timeout-minutes: 10
@@ -274,10 +282,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+      - uses: ./.github/actions/install-k6
 
       - name: Validate rate limits are enforced
         run: |
@@ -300,6 +305,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Fail if any suite did not succeed
+        # if: always() means this job runs even when a suite crashed. Without
+        # this step the Summary job reports green off whatever artifacts did
+        # arrive. A suite that is `skipped` was deselected by the `suite` input
+        # and is fine; `failure` and `cancelled` are not.
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          BAD=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key)=\(.value.result)"')
+          if [ -n "$BAD" ]; then
+            echo "::error::Stress suites did not succeed: $(echo "$BAD" | tr '\n' ' ')"
+            exit 1
+          fi
+
       - name: Download all results
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -327,17 +346,37 @@ jobs:
       - name: Check thresholds
         run: |
           failed=0
-          for f in *-results.json; do
-            if [ -f "$f" ]; then
-              # k6 summary export includes threshold pass/fail
-              if grep -q '"thresholds"' "$f" 2>/dev/null; then
-                if grep -q '"ok":false' "$f" 2>/dev/null; then
-                  echo "FAIL: Threshold breached in $f"
-                  failed=1
-                else
-                  echo "PASS: All thresholds met in $f"
-                fi
-              fi
+          # With no artifacts the glob stays literal, the -f guard is false, and
+          # the loop body never runs — so this step used to exit 0 having checked
+          # nothing. "No results" is a failure of the run, not a pass.
+          shopt -s nullglob
+          results=( *-results.json )
+          if [ ${#results[@]} -eq 0 ]; then
+            echo "::error::No k6 result files were downloaded — thresholds were never evaluated, so this run proves nothing."
+            exit 1
+          fi
+          for f in "${results[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f disappeared between the glob and the read"
+              failed=1
+            elif ! grep -q '"thresholds"' "$f" 2>/dev/null; then
+              # No else-branch here meant a summary export whose schema changed,
+              # or that k6 truncated, contributed nothing and could not fail the
+              # step — the file was present, unreadable as a verdict, and silently
+              # counted as fine.
+              echo "::error::$f has no \"thresholds\" key — the export schema is not what this gate parses, so no verdict was read from it"
+              failed=1
+            # k6's --summary-export goes through JSON.stringify(results, null, 4),
+            # so the file contains `"ok": false` WITH a space. Grepping for
+            # `"ok":false` matched nothing, the schema guard above passed on the
+            # bare `"thresholds"` key, and every run fell through to the success
+            # branch printing "All thresholds met". The one gate that exists to
+            # catch a breach asserted the opposite of the truth.
+            elif grep -qE '"ok"[[:space:]]*:[[:space:]]*false' "$f" 2>/dev/null; then
+              echo "FAIL: Threshold breached in $f"
+              failed=1
+            else
+              echo "PASS: All thresholds met in $f"
             fi
           done
           exit $failed

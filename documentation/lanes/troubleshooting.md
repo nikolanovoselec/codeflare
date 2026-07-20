@@ -55,7 +55,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
-API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*", "/assets/*"]` in the `[assets]` section of `wrangler.toml` (a missing control-plane path is served as the static SPA at the edge; `/login` missing breaks the onboarding rewrite, `/api/*` missing breaks setup/auth, and `/assets/*` missing bypasses the immutable Vite-asset policy).
+API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/landing/*", "/assets/*"]` in the `[assets]` section of `wrangler.toml` (a missing control-plane path is served as the static SPA at the edge; `/login` missing breaks the onboarding rewrite, `/api/*` missing breaks setup/auth, and `/assets/*` missing bypasses the immutable Vite-asset policy).
 
 ### `/setup` Shows "Access Denied"
 
@@ -83,7 +83,7 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 If a deployment somehow runs the callback without onboarding/SaaS being active at the access layer, `/app` rejects the session and the SPA bounces to the landing.
 
-**GitHub OAuth App callback domain mismatch (config).** The OAuth App's authorization callback URL must equal `https://<this-domain>/auth/github/callback`. If it points at a different domain (e.g. the production `codeflare.ch` app reused on the integration `codeflare.novoselec.ch` domain), GitHub bounces sign-in back to the *registered* domain.
+**GitHub OAuth App callback domain mismatch (config).** The OAuth App's authorization callback URL must equal `https://<this-domain>/auth/github/callback`. If it points at a different domain (e.g. a production App's credentials reused on a non-production deployment domain), GitHub bounces sign-in back to the *registered* domain.
 
 A classic OAuth App allows one callback URL, so each deployment domain needs its own App (see `OAUTH_CLIENT_ID` in [configuration.md](./configuration.md)).
 
@@ -115,7 +115,7 @@ Public visibility is permanent and cannot be reverted to private.
 
 Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-064 AC6).
 
-**Verify:** the connect flow completes and the per-user token persists in `deploy-keys:<bucket>` (source `'oauth'`), then `applyCloudflareOAuthToken` injects it into the container on session start (AC4). Confirmed working on both production (`codeflare.ch`) and integration (`codeflare.novoselec.ch`).
+**Verify:** the connect flow completes and the per-user token persists in `deploy-keys:<bucket>` (source `'oauth'`), then `applyCloudflareOAuthToken` injects it into the container on session start (AC4). Confirmed working on both production and integration deployments.
 
 ### SPA Shows a Blank/White Page on Return from Background (Mobile App-Switch)
 

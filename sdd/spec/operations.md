@@ -6,7 +6,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### Key Concepts
 
-- **Deploy Pipeline** -- The `deploy.yml` workflow, gated on a green PR Checks run for the same SHA (workflow_run): prepare resolves the target, worker assets build in parallel with the container image (built, scanned, and pushed by the reusable `container-image.yml`, which reuses the existing image when its inputs are unchanged), then the deploy job applies config, runs `wrangler deploy`, sets secrets in bulk, and smoke-checks `/health`. The single path from code to production.
+- **Deploy Pipeline** -- The `deploy.yml` workflow, gated on a green PR Checks run for the same SHA (workflow_run): prepare resolves the target, worker assets build in parallel with the container image (built, scanned, and pushed by the reusable `container-image.yml`, which reuses the existing image when its inputs are unchanged), then the deploy job applies config, runs `wrangler deploy`, and sets secrets in bulk. The single path from code to production.
 - **CI/CD** -- Continuous integration via `test.yml` (PR checks), `codeql.yml` (static analysis), `scorecard.yml` (supply chain), and `fuzz.yml` (property-based testing). Continuous deployment via `deploy.yml`.
 - **Container Tier** -- Resource allocation profiles (`low`, `default`, `saas`, `high`) that control CPU, memory, and disk per container. Selected via the `RESSOURCE_TIER` GitHub Actions variable and applied by patching `wrangler.toml` at deploy time.
 
@@ -33,7 +33,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-3. The deploy pipeline runs as staged jobs: prepare resolves the target, worker assets and the container image (build, scan, push) proceed in parallel, then the deploy job applies config, deploys, sets secrets, and smoke-checks health. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+3. The deploy pipeline runs as staged jobs: prepare resolves the target, worker assets and the container image (build, scan, push) proceed in parallel, then the deploy job applies config, deploys, and sets secrets. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 4. Dependencies are cached between runs for faster pipeline execution. <!-- @manual -->
 5. Frontend and landing assets are built once and handed to the deploy job as an artifact; no deployment step runs unless the gating PR Checks run for the same SHA ended green (tests are not re-run in-deploy). <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @manual -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
@@ -93,11 +93,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The PR-check workflow triggers on every pull request to the main or develop branch, on push to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
-2. The workflow runs lint on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- @manual -->
-3. The workflow runs the backend suite (two vitest shards), frontend (build + tests), landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
-4. The backend gate accepts a non-zero test-run exit only when the machine-readable vitest JSON report parses with more than zero tests, zero failures, and no zero-test files, and the log carries the exact Workers-pool teardown-crash fingerprint; a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-backend-test-report.mjs --> <!-- @manual -->
-5. The workflow runs both backend and frontend typechecks. <!-- @manual -->
-6. The workflow runs a dead-code check on the codebase. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
+3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml --> <!-- @manual -->
+4. Every suite is gated on its machine-readable vitest JSON report: more than zero tests, zero failures, no zero-test files. A non-zero exit is accepted only for the suite that opts into Workers-pool teardown-crash tolerance, and only with the exact fingerprint; missing or corrupt reports fail closed. <!-- @impl: scripts/ci/check-vitest-report.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC4: vitest report gate) -->
+5. The aggregate job reconciles every suite's reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs --> <!-- @impl: scripts/ci/suites.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC5: cross-suite completeness gate) -->
+6. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
 
 **Constraints:**
@@ -106,12 +106,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - The CI runner label is configurable across all workflows.
 - Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
 - All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
+- The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the gates in AC4 and AC5 — not serialization — are what keep the result trustworthy.
 
 **Priority:** P0
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
 
@@ -503,7 +504,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-020: Shadow-pin version bump automation
 
-**Intent:** Pinned binary versions in Dockerfile and npm packages outside package.json are invisible to Dependabot. A weekly workflow checks upstream releases and opens one PR per tool when a newer version is available, with SHA256 intentionally invalidated to force manual checksum verification before merge.
+**Intent:** Pinned versions living outside package.json — Dockerfile binaries, globally installed npm packages, and workflow-embedded tool pins — are invisible to Dependabot. A weekly workflow checks upstream releases and opens one PR per tool when a newer version is available, with SHA256 intentionally invalidated to force manual checksum verification before merge.
 
 **Applies To:** Operator
 
@@ -511,8 +512,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver --> <!-- @manual -->
 2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
-3. Each remaining non-Dependabot pin (bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable, the Graphify plugin, and each Pi extension) bumps in its own PR via a dedicated job or matrix leg. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
-4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
+3. Each remaining non-Dependabot pin (bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable, the Graphify plugin, actionlint, and each Pi extension) bumps in its own PR via a dedicated job or matrix leg. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
+4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, failing the build until the operator verifies it; the actionlint job instead resolves the checksum from the release manifest and re-verifies it against the downloaded artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::sum --> <!-- @manual -->
 5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch --> <!-- @manual -->
 6. The context-mode and pi-extensions jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
 7. The same jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
@@ -542,12 +543,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. A zizmor security audit runs on every pull request or push touching workflow files. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 2. The audit's findings upload as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/zizmor.yml::actionlint --> <!-- @manual -->
-4. Both checks are informational: merges are gated by the `test` status context, not by this workflow. <!-- @manual -->
+4. The audit is merge-blocking: it runs inside the required status context and fails on any surviving finding, while a separate workflow records the same audit as SARIF for alert history. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
 
 **Constraints:**
 
 - The zizmor audit runs offline; its online known-vulnerable-actions audit fails fatally on advisory-API outages.
+- Findings that are correct as written carry an inline suppression stating the reason, so they stop masking new findings; the auditor's own version is pinned rather than tracking latest.
 - actionlint's shellcheck and pyflakes integrations stay disabled — script hygiene is zizmor's concern.
+- The actionlint version and checksum are a shadow pin: Dependabot cannot see them, so [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation) bumps them weekly.
 
 **Priority:** P2
 

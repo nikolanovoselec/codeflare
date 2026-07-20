@@ -81,8 +81,13 @@ function authGet(path, metric) {
 
 export default function () {
   // Health check (no auth)
-  const healthRes = http.get(`${BASE_URL}/health`, {
-    tags: { endpoint: '/health' },
+  // /api/health, not /health. The public /health route was removed
+  // (src/index.ts), it is absent from run_worker_first in wrangler.toml, and
+  // not_found_handling = "single-page-application" serves index.html with 200 —
+  // so this check passed off the CDN's SPA fallback and health_duration timed
+  // static asset delivery. It stayed green with the worker fully offline.
+  const healthRes = http.get(`${BASE_URL}/api/health`, {
+    tags: { endpoint: '/api/health' },
   });
   check(healthRes, { 'health ok': (r) => r.status === 200 });
   healthDuration.add(healthRes.timings.duration);
