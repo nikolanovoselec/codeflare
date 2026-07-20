@@ -536,13 +536,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Intent:** Defects in the CI workflows themselves — injection vectors, unpinned actions, invalid workflow files — are caught by automation instead of being discovered as failed or silently misbehaving runs.
 
-**Applies To:** User
+**Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. A zizmor security audit runs on every pull request or push touching workflow files and uploads its findings as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
-2. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/zizmor.yml::actionlint --> <!-- @manual -->
-3. Both checks are informational: merges are gated by the `test` status context, not by this workflow. <!-- @manual -->
+1. A zizmor security audit runs on every pull request or push touching workflow files. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
+2. The audit's findings upload as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
+3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/zizmor.yml::actionlint --> <!-- @manual -->
+4. Both checks are informational: merges are gated by the `test` status context, not by this workflow. <!-- @manual -->
 
 **Constraints:**
 
