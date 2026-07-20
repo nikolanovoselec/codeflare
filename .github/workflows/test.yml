@@ -71,6 +71,7 @@ jobs:
       webui: ${{ steps.filter.outputs.webui }}
       landing: ${{ steps.filter.outputs.landing }}
       host: ${{ steps.filter.outputs.host }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -110,6 +111,8 @@ jobs:
               - *shared
               - 'host/**'
               - 'preseed/**'
+            workflows:
+              - '.github/**'
 
   quality:
     name: Quality (lint / knip / audit)
@@ -286,6 +289,63 @@ jobs:
           artifact-name: backend-${{ matrix.slug }}
           pre-run: ${{ matrix.pre-run }}
           tolerate-pool-crash: ${{ matrix.tolerate-pool-crash }}
+
+  workflow-audit:
+    name: Workflow audit
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      needs.changes.outputs.workflows == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor (checksum-pinned binary)
+        # zizmor.yml uploads SARIF to code scanning and is informational by
+        # design — findings there notify, they do not block. This step is the
+        # gate: it is part of the required `test` context, and zizmor exits 12
+        # when any finding survives (verified; 0 when clean), so a new workflow
+        # vulnerability fails the merge instead of landing and being noticed
+        # later in an alert list.
+        #
+        # Own binary rather than the action: the action's failure semantics
+        # depend on whether it is uploading SARIF, and a gate must not be
+        # ambiguous about when it fires. Upstream publishes no checksum file,
+        # so this SHA256 was computed from the release artifact and pinned here.
+        env:
+          ZIZMOR_VERSION: '1.27.0'
+          ZIZMOR_SHA256: '277f2bd8fd37cf60c42ab7afca6faa884e65440fa31e02b44bdaae60f62a358f'
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/zizmor.tar.gz \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ZIZMOR_SHA256}  /tmp/zizmor.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/zizmor.tar.gz -C /tmp zizmor
+          # Offline for the same reason zizmor.yml is: the online audit dies
+          # fatally when the advisory API blips, which would fail merges on
+          # infrastructure rather than on findings.
+          /tmp/zizmor --no-online-audits --format plain .github/
+
+      - name: Run actionlint (checksum-pinned binary)
+        # Catches workflow-file errors GitHub only surfaces as jobless
+        # "completed/failure" validation runs (duplicate mapping keys, invalid
+        # expressions) before they cost a push round. shellcheck/pyflakes stay
+        # off — zizmor owns script hygiene here and their style findings would
+        # fail the lane on nits.
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint -color -shellcheck= -pyflakes=
 
   bundle-size:
     name: Bundle size
@@ -561,6 +621,7 @@ jobs:
       - changes
       - quality
       - typecheck
+      - workflow-audit
       - bundle-size
       - coverage
       - backend-tests

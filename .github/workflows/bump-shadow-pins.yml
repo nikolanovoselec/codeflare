@@ -19,9 +19,11 @@ name: Bump Shadow Pins
 #   — each is also a literal install spec in entrypoint.sh + baked into the seed;
 #   context-mode is owned atomically by its dedicated job above
 # - impeccable skill bundle (vendored for Claude Code + Pi, checked via impeccable.style)
-# - actionlint (VERSION + SHA256 literals in .github/workflows/zizmor.yml; the job
+# - actionlint (VERSION + SHA256 literals in .github/workflows/test.yml; the job
 #   resolves the new checksum from the release's checksums.txt, so its PR is
 #   merge-ready with no manual checksum step)
+# - zizmor (pinned twice: the action's `version:` in zizmor.yml and the
+#   VERSION + SHA256 of the gating binary in test.yml)
 
 on:
   schedule:
@@ -1569,13 +1571,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Compare zizmor.yml pin against latest GitHub release
+      - name: Compare the actionlint pin against latest GitHub release
         id: ver
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP "^\s+VERSION: '\K[^']+" .github/workflows/zizmor.yml)
+          CURRENT=$(grep -oP "^\s+ACTIONLINT_VERSION: '\K[^']+" .github/workflows/test.yml)
           TAG=$(gh api repos/rhysd/actionlint/releases/latest --jq .tag_name)
           LATEST="${TAG#v}"
           VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
@@ -1648,11 +1650,11 @@ jobs:
 
           node <<'NODE'
           const fs = require('node:fs');
-          const f = '.github/workflows/zizmor.yml';
+          const f = '.github/workflows/test.yml';
           const before = fs.readFileSync(f, 'utf-8');
           const after = before
-            .replace(/VERSION: '[^']+'/, `VERSION: '${process.env.LAT}'`)
-            .replace(/SHA256: '[^']+'/, `SHA256: '${process.env.SHA}'`);
+            .replace(/ACTIONLINT_VERSION: '[^']+'/, `ACTIONLINT_VERSION: '${process.env.LAT}'`)
+            .replace(/ACTIONLINT_SHA256: '[^']+'/, `ACTIONLINT_SHA256: '${process.env.SHA}'`);
           if (before === after) {
             console.error('Replacement matched nothing in ' + f);
             process.exit(1);
@@ -1660,7 +1662,7 @@ jobs:
           fs.writeFileSync(f, after);
           NODE
 
-          git add .github/workflows/zizmor.yml
+          git add .github/workflows/test.yml
           if git diff --cached --quiet; then
             echo "Nothing changed - aborting."
             exit 1
@@ -1680,12 +1682,12 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`actionlint\` from \`$CUR\` to \`$LAT\`.
 
-          The version and its SHA256 are literals in \`.github/workflows/zizmor.yml\` (a checksum-pinned release binary, not a package.json entry), so Dependabot can't see them - \`bump-shadow-pins.yml\` opens this PR weekly.
+          The version and its SHA256 are literals in \`.github/workflows/test.yml\` (a checksum-pinned release binary, not a package.json entry), so Dependabot can't see them - \`bump-shadow-pins.yml\` opens this PR weekly.
 
           The new checksum is taken from the release's \`checksums.txt\` and re-verified against the downloaded artifact in this job, so no manual checksum step is required.
 
           Files updated:
-          - \`.github/workflows/zizmor.yml\` (\`VERSION\` + \`SHA256\` in the \`actionlint\` job)
+          - \`.github/workflows/test.yml\` (\`ACTIONLINT_VERSION\` + \`ACTIONLINT_SHA256\` in the \`workflow-audit\` lane)
 
           ## Test plan
           - [ ] CI green (the \`actionlint\` job verifies the checksum before running, and lints every workflow with the new binary)

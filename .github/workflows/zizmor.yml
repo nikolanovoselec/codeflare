@@ -2,8 +2,10 @@ name: Zizmor
 # Static security audit of the GitHub Actions workflows themselves
 # (template injection, pwn-request vectors, unpinned actions, credential
 # leaks). Findings upload as SARIF to code scanning — same surface as
-# CodeQL/Scorecard. Not a required check: it informs, the summary gate
-# in test.yml decides merges.
+# CodeQL/Scorecard. This workflow only RECORDS: the blocking check is the
+# `workflow-audit` lane in test.yml, which runs the same pinned zizmor and
+# fails the required `test` context on any finding. Splitting them keeps the
+# alert history in code scanning while making the gate unambiguous.
 on:
   workflow_dispatch:
   pull_request:
@@ -47,30 +49,8 @@ jobs:
           # ("no audit was performed") whenever the GitHub advisory API blips,
           # failing the whole lane on infrastructure rather than findings.
           online-audits: false
-
-  actionlint:
-    name: actionlint
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Run actionlint (checksum-pinned binary)
-        # Catches workflow-file errors GitHub only surfaces as jobless
-        # "completed/failure" validation runs (duplicate mapping keys, invalid
-        # expressions) before they cost a push round. shellcheck/pyflakes
-        # integrations stay off — zizmor owns script hygiene here and their
-        # style findings would fail the lane on nits.
-        env:
-          VERSION: '1.7.12'
-          SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
-        run: |
-          curl -fsSL -o /tmp/actionlint.tar.gz \
-            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
-          echo "${SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
-          /tmp/actionlint -color -shellcheck= -pyflakes=
+          # The action defaults to `latest`, which floats the security auditor
+          # itself — a new zizmor release silently changes what this repo
+          # considers acceptable, in either direction. Pinned and bumped by
+          # bump-shadow-pins.yml like every other non-Dependabot version.
+          version: '1.27.0'
