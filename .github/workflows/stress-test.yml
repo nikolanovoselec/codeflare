@@ -50,7 +50,13 @@ jobs:
         # rather than floating. Same trade as container-image.yml: a global
         # install avoids an `npm ci` of the full tree in a job that needs no
         # node_modules, at the cost of not verifying an integrity hash.
-        run: npm install -g "wrangler@$(node -p \"require('./package.json').devDependencies.wrangler\")"
+        # No backslashes on the inner quotes. Inside $( ), `\"` is a literal
+        # quote, so node -p was handed a JS *string literal* and printed it
+        # verbatim — making the spec `wrangler@require('./package.json')...`,
+        # which npm rejects. This job therefore failed on every run and the
+        # whole stress workflow was dead. container-image.yml has the same line
+        # written correctly; this was a copy-paste regression.
+        run: npm install -g "wrangler@$(node -p "require('./package.json').devDependencies.wrangler")"
 
       - name: Resolve target
         id: target

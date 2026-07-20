@@ -52,6 +52,20 @@ if (![failedTests, failedSuites, total].every(Number.isInteger)) {
   fail('report is missing numFailedTests/numFailedTestSuites/numTotalTests');
 }
 if (total === 0) fail('report shows 0 collected tests');
+
+// Skipped tests still count toward numTotalTests and still populate
+// assertionResults, so a suite with every test `.skip`ped passes every other
+// check here while asserting nothing. vitest's own `allowOnly: !CI` default
+// already fails `.only` in CI; `.skip` has no such backstop, so it gets one.
+const pending = report.numPendingTests ?? 0;
+const todo = report.numTodoTests ?? 0;
+if (pending > 0 || todo > 0) {
+  fail(
+    `${pending} skipped and ${todo} todo test(s). A skipped test asserts nothing but still ` +
+      `counts as collected, so it cannot be allowed to satisfy this gate. Remove the skip, ` +
+      `or delete the test if it is not meant to run.`,
+  );
+}
 if (failedTests > 0 || failedSuites > 0) {
   fail(`${failedTests} failed test(s) / ${failedSuites} failed suite(s)`);
 }

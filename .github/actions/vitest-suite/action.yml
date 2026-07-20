@@ -51,16 +51,24 @@ runs:
         PRE_RUN: ${{ inputs.pre-run }}
         TOLERATE: ${{ inputs.tolerate-pool-crash }}
       run: |
+        # Belt and braces with RUNNER_TEMP: if a report from a previous run
+        # survived, the gate would parse IT — >0 tests, 0 failures, and for the
+        # Workers shards the stale log even carries the teardown fingerprint that
+        # licenses a non-zero exit. Every layer would agree while the code under
+        # test never ran. Self-hosted runners (vars.RUNNER) are where fixed paths
+        # persist, so the removal is unconditional rather than a hosted-only
+        # assumption.
+        rm -f "$RUNNER_TEMP/${NAME}.json" "$RUNNER_TEMP/${NAME}.log"
         if [ -n "$PRE_RUN" ]; then bash -c "$PRE_RUN"; fi
         set +e
         # CLI reporters replace the config ones: dot for humans, json for the gate.
         npm run "$SCRIPT" -- ${SHARD:+--shard="$SHARD"} \
-          --reporter=dot --reporter=json --outputFile.json="/tmp/${NAME}.json" \
-          2>&1 | tee "/tmp/${NAME}.log"
+          --reporter=dot --reporter=json --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
+          2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
         status=${PIPESTATUS[0]}
         set -e
         node "$GITHUB_WORKSPACE/scripts/ci/check-vitest-report.mjs" \
-          "$status" "/tmp/${NAME}.json" "/tmp/${NAME}.log" "$TOLERATE"
+          "$status" "$RUNNER_TEMP/${NAME}.json" "$RUNNER_TEMP/${NAME}.log" "$TOLERATE"
 
     - name: Upload report and log
       id: upload
@@ -69,8 +77,8 @@ runs:
       with:
         name: ${{ inputs.artifact-name }}
         path: |
-          /tmp/${{ inputs.artifact-name }}.json
-          /tmp/${{ inputs.artifact-name }}.log
+          ${{ runner.temp }}/${{ inputs.artifact-name }}.json
+          ${{ runner.temp }}/${{ inputs.artifact-name }}.log
         retention-days: 5
         if-no-files-found: error
 
