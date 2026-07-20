@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
+import { SUITES } from '../../../scripts/ci/suites.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
@@ -61,10 +62,19 @@ function report(artifactDir: string, name: string, files: string[]) {
 }
 
 function runCompleteness(lanes: Record<string, string>, cwd: string, artifactRoot = 'artifacts') {
-  return spawnSync(process.execPath, [COMPLETENESS, join(work, artifactRoot), JSON.stringify(lanes)], {
-    cwd,
-    encoding: 'utf8',
-  });
+  // The gate requires a result for EVERY suite lane, because an absent key is
+  // indistinguishable from a skipped lane and would disarm that suite silently.
+  // Default the lanes a given test is not exercising to 'skipped' (inert: no
+  // reports + skipped is the documented pass) so each case stays focused on one
+  // suite without the others failing it for an unrelated reason — and, more
+  // importantly, so the cases that assert exit 1 still fail for the defect under
+  // test rather than for a missing key.
+  const allLanes = Object.fromEntries(SUITES.map((s: { lane: string }) => [s.lane, 'skipped']));
+  return spawnSync(
+    process.execPath,
+    [COMPLETENESS, join(work, artifactRoot), JSON.stringify({ ...allLanes, ...lanes })],
+    { cwd, encoding: 'utf8' },
+  );
 }
 
 describe('REQ-OPS-003 AC5: cross-suite completeness gate', () => {
@@ -112,6 +122,21 @@ describe('REQ-OPS-003 AC5: cross-suite completeness gate', () => {
   it('fails when a lane reported success but uploaded no reports', () => {
     const cwd = tree(['src/a.test.ts']);
     expect(runCompleteness({ backend: 'success' }, cwd, 'missing').status).toBe(1);
+  });
+
+  it('fails when a suite has no lane result at all, rather than reading it as skipped', () => {
+    // Adding a suite to suites.mjs without adding its lane to the LANES argument
+    // in test.yml used to disarm the reconciler for that suite: the lookup
+    // yields undefined, and undefined !== 'success' takes the "nothing to
+    // reconcile" branch. Pass the raw JSON directly, bypassing the defaults
+    // above, so the omission is real.
+    const cwd = tree(['src/a.test.ts']);
+    const r = spawnSync(process.execPath, [COMPLETENESS, join(work, 'missing'), '{"backend":"skipped"}'], {
+      cwd,
+      encoding: 'utf8',
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('frontend');
   });
 
   it('passes when a lane was skipped by the path filter', () => {
