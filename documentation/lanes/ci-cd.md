@@ -117,9 +117,9 @@ Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `wor
 - **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit`, and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
 - **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
-- **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate.
+- **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
-- **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions.
+- **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
 - **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
 - **bundle-size** — `wrangler deploy --dry-run` against a patched config, gated on `scripts/ci/check-bundle-size.mjs` ([REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy)).
