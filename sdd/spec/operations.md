@@ -104,9 +104,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - The CI runner label is configurable across all workflows.
 - Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
 - All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
-- The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the gates in AC4 and AC5 — not serialization — are what keep the result trustworthy.
-
-- Report-gating and cross-suite reconciliation live in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports); coverage-threshold evidence in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
+- The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the report and reconciliation gates in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) — not serialization — are what keep the result trustworthy. Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
 
 **Priority:** P0
 
