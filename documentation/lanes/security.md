@@ -234,7 +234,9 @@ Two types of R2 credentials serve different purposes:
 - Revoked via `deleteScopedR2Token()` on user deletion
 - Requires `API Tokens: Edit` permission on the deploy token
 
-**Handling inside the container.** `rclone.conf` is created `0600` *before* any content is written to it, not chmod'd afterwards — the file previously sat world-readable between the heredoc and the trailing chmod, with the R2 keys and the base64 encryption key already in it. The placeholder substitution pipes its sed script through stdin (`sed -i -f -`) rather than passing it on the command line: `sed -i "s|X|$SECRET|"` puts the secret in `/proc/<pid>/cmdline`, readable by anything else in the container for the life of the process. A post-substitution grep asserts no `PLACEHOLDER_*` token survives and fails the function closed — it is called inside an `if`, which suppresses `set -e`, so a silently failed substitution would otherwise report success and leave R2 sync dead for the whole session.
+**Handling inside the container.** `rclone.conf` is created `0600` *before* any content is written to it, not chmod'd afterwards — the file previously sat world-readable between the heredoc and the trailing chmod, with the R2 keys and the base64 encryption key already in it.
+
+The placeholder substitution pipes its sed script through stdin (`sed -i -f -`) rather than passing it on the command line: `sed -i "s|X|$SECRET|"` puts the secret in `/proc/<pid>/cmdline`, readable by anything else in the container for the life of the process. A post-substitution grep asserts no `PLACEHOLDER_*` token survives and fails the function closed — it is called inside an `if`, which suppresses `set -e`, so a silently failed substitution would otherwise report success and leave R2 sync dead for the whole session.
 
 ## Graceful Shutdown
 
