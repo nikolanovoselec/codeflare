@@ -52,7 +52,14 @@ function report(artifactDir: string, name: string, files: string[]) {
       numFailedTests: 0,
       numFailedTestSuites: 0,
       testResults: files.map((f) => ({
-        name: `/checkout/${f}`,
+        // An absolute path under the tree the gate is run against, which is what
+        // vitest actually writes. The old synthetic `/checkout/` prefix only
+        // worked because the gate located the suite directory by searching for
+        // `/<dir>/` inside the string; now that it relativises against cwd — the
+        // exact operation, and the one production does — a fabricated prefix
+        // outside the run directory produces `../../..` paths and matches
+        // nothing. The fixture was the unfaithful half.
+        name: join(work, 'tree', f),
         startTime: 0,
         endTime: 10,
         assertionResults: [{ status: 'passed' }],
