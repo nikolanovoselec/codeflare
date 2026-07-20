@@ -38,28 +38,69 @@ const GATED_JOBS = [...jobsSection.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gm)]
   .map((m) => m[1])
   .filter((name) => !UNGATED_JOBS.has(name));
 
-/**
- * Splits a gate expression on its top-level `||`, ignoring any inside
- * parentheses. Splitting on the bare string assumes `&&` binds tighter, which
- * stops being true the moment anyone parenthesises a sub-expression.
- */
-function topLevelClauses(gate) {
-  const wrapped = gate.trim().match(/^!cancelled\(\)\s*&&\s*\(([\s\S]*)\)$/);
-  const expr = wrapped ? wrapped[1] : gate.trim();
+/** Splits on `op` at paren depth 0 only. */
+function splitTop(expr, op) {
   const parts = [];
   let depth = 0;
   let start = 0;
   for (let i = 0; i < expr.length; i += 1) {
     if (expr[i] === '(') depth += 1;
     else if (expr[i] === ')') depth -= 1;
-    else if (depth === 0 && expr.startsWith('||', i)) {
+    else if (depth === 0 && expr.startsWith(op, i)) {
       parts.push(expr.slice(start, i));
-      i += 1;
+      i += op.length - 1;
       start = i + 1;
     }
   }
   parts.push(expr.slice(start));
-  return parts;
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+/** Strips parens that wrap the WHOLE expression, never `(a) && (b)`. */
+function unwrap(expr) {
+  let e = expr.trim();
+  while (e.startsWith('(') && e.endsWith(')')) {
+    let depth = 0;
+    let wrapsAll = true;
+    for (let i = 0; i < e.length; i += 1) {
+      if (e[i] === '(') depth += 1;
+      else if (e[i] === ')') {
+        depth -= 1;
+        if (depth === 0 && i !== e.length - 1) {
+          wrapsAll = false;
+          break;
+        }
+      }
+    }
+    if (!wrapsAll) break;
+    e = e.slice(1, -1).trim();
+  }
+  return e;
+}
+
+/**
+ * Expands a gate into the alternative PATHS that can reach the job — the
+ * cartesian product of its conjuncts, descending into parenthesised ORs.
+ *
+ * An earlier version pattern-matched `^!cancelled() && ( … )$` and split the
+ * inside on `||`. That shape fits `prepare` and `outcome` and nothing else:
+ * `build-worker`, `container` and `deploy` carry a trailing
+ * `&& needs.prepare.result == 'success'`, so the unwrap missed, the whole
+ * expression became one clause, and the guard failed three legitimate gates.
+ * Assuming a shape is what a parser is for.
+ */
+function gatePaths(expr) {
+  const e = unwrap(expr);
+  const ors = splitTop(e, '||');
+  if (ors.length > 1) return ors.flatMap(gatePaths);
+  const ands = splitTop(e, '&&');
+  if (ands.length > 1) {
+    return ands.reduce(
+      (acc, conjunct) => acc.flatMap((prefix) => gatePaths(conjunct).map((s) => (prefix ? `${prefix} && ${s}` : s))),
+      ['']
+    );
+  }
+  return [e];
 }
 
 /** Returns the raw YAML block for a top-level job, comments and all. */
@@ -154,25 +195,19 @@ describe('manual deploys cannot skip tests', () => {
       // nothing after it — satisfied every assertion here while giving manual
       // dispatch an ungated path to deploy.
       //
-      // A dispatch clause must be a pure CONJUNCTION containing a verify check.
-      // Any `||` inside it introduces an alternative path that reaches the job
-      // without the verify condition, at any nesting depth — which is why a
-      // regex precondition was not enough: `\([^()]*\|\|[^()]*\)` sees only the
-      // innermost pair, so wrapping the escape in a call
-      // (`verify == 'success' || contains(github.actor, 'admin')`) evaded it,
-      // and `contains()`/`startsWith()` is the idiomatic way to write exactly
-      // that escape in a GitHub expression.
-      for (const clause of topLevelClauses(gate)) {
-        if (!clause.includes("github.event_name == 'workflow_dispatch'")) continue;
-        assert.doesNotMatch(
-          clause,
-          /\|\|/,
-          `job "${name}" has a workflow_dispatch clause containing an ||, so some path through it reaches the job without a verify condition`
-        );
+      // Every PATH that mentions workflow_dispatch must carry a verify check.
+      // Stated over expanded paths rather than by banning `||` inside a dispatch
+      // clause: that ban was disjunction-blind, so it rejected a legitimate
+      // `dispatch && verify && (env == 'staging' || env == 'production')`, where
+      // the OR restricts rather than adds a route. Expanding catches the real
+      // evasion — `dispatch && (verify == 'success' || contains(actor,'admin'))`
+      // yields a path with dispatch and no verify — without the false positive.
+      for (const path of gatePaths(gate)) {
+        if (!path.includes("github.event_name == 'workflow_dispatch'")) continue;
         assert.match(
-          clause,
+          path,
           /needs\.verify\.result == '(success|skipped|cancelled)'/,
-          `job "${name}" has a workflow_dispatch clause with no verify condition, which is an ungated manual-deploy path`
+          `job "${name}" has a workflow_dispatch path with no verify condition, which is an ungated manual-deploy path:\n  ${path}`
         );
       }
       // always() would run these jobs through a cancellation.
@@ -195,6 +230,28 @@ describe('manual deploys cannot skip tests', () => {
       }
     });
   }
+
+  // The gate expressions above are the only inputs gatePaths() ever sees, so a
+  // parser that fits them by accident looks correct forever. These fixtures pin
+  // the shapes that matter — including the trailing-conjunct form that a
+  // shape-matching predecessor could not parse, failing three real jobs.
+  it('expands gate shapes into the paths that reach a job', () => {
+    const D = "github.event_name == 'workflow_dispatch'";
+    const V = "needs.verify.result == 'success'";
+    const ungated = (gate) =>
+      gatePaths(gate).filter((p) => p.includes(D) && !/needs\.verify\.result == '(success|skipped|cancelled)'/.test(p));
+
+    // Wrapped OR followed by a trailing conjunct — build-worker/container/deploy.
+    assert.deepEqual(ungated(`!cancelled() && ( (${D} && ${V}) || (a && b) ) && needs.prepare.result == 'success'`), []);
+    // Wrapped OR with nothing after it — prepare/outcome.
+    assert.deepEqual(ungated(`!cancelled() && ( (${D} && ${V}) || (a && b) )`), []);
+    // A restricting OR under a verified dispatch clause is legitimate.
+    assert.deepEqual(ungated(`!cancelled() && ( (${D} && ${V} && (x == 'a' || x == 'b')) )`), []);
+    // An alternative to the verify check is not.
+    assert.equal(ungated(`!cancelled() && ( (${D} && (${V} || contains(github.actor, 'admin'))) )`).length, 1);
+    // Nor is a bypass appended after the wrapped group.
+    assert.equal(ungated(`!cancelled() && ( (a && b) ) || ${D}`).length, 1);
+  });
 
   it('deploys the commit that was verified, never a branch name', () => {
     const outputs = jobBlock('prepare');

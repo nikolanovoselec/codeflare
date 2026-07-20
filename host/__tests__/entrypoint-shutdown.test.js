@@ -98,6 +98,19 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
       const close = entrypoint.indexOf('\n}', fn.index);
       functionRanges.push([fn.index, close === -1 ? entrypoint.length : close]);
     }
+    // A range ends at the first column-0 `\n}`. If a function's closer is ever
+    // indented, its range runs on to the NEXT function's closer and swallows any
+    // top-level trap in between — the one direction that fails open. Overlap is
+    // the signal, so make it loud rather than silent.
+    for (const [open, close] of functionRanges) {
+      const swallowed = functionRanges.filter(([o]) => o > open && o < close);
+      assert.equal(
+        swallowed.length,
+        0,
+        `a function body starting at offset ${open} extends past another function's start; its closing brace is probably not at column 0, so traps between them would be misread as in-function`
+      );
+    }
+
     const allTraps = [...entrypoint.matchAll(/^[ \t]*trap\s+(\S+)\s+(.*)$/gm)].filter(
       (m) => !functionRanges.some(([open, close]) => m.index > open && m.index < close)
     );
