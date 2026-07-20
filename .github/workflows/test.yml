@@ -67,6 +67,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      # Single source of truth for "the diff filter did not run, so every lane
+      # must run". Derived from the filter step's own outcome rather than a
+      # hand-listed set of event names: those two lists were duplicated and
+      # drifted, which is exactly how merge_group ended up skipping every lane
+      # while the required check still reported green. Any future trigger the
+      # filter does not handle now defaults to running everything.
+      full: ${{ steps.filter.outcome == 'skipped' }}
       backend: ${{ steps.filter.outputs.backend }}
       webui: ${{ steps.filter.outputs.webui }}
       landing: ${{ steps.filter.outputs.landing }}
@@ -118,8 +125,7 @@ jobs:
     name: Quality (lint / knip / audit)
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
@@ -178,8 +184,7 @@ jobs:
     name: Typecheck
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
@@ -218,8 +223,7 @@ jobs:
     name: Backend tests (${{ matrix.slug }})
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
@@ -294,8 +298,7 @@ jobs:
     name: Workflow audit
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.workflows == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
@@ -351,8 +354,7 @@ jobs:
     name: Bundle size
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
@@ -405,12 +407,15 @@ jobs:
   coverage:
     name: Coverage (${{ matrix.slug }})
     needs: changes
-    # Deliberately NOT on pull_request. v8 coverage is per-process, so a sharded
-    # run gives each shard a view of only its own slice; enforcing thresholds
-    # needs the whole suite in one process, which costs minutes. Deploy is gated
-    # on the main-branch PR Checks run, so enforcing here still stops a coverage
-    # regression from reaching production — it just reports after merge rather
+    # Deliberately NOT on pull_request, and deliberately NOT on merge_group.
+    # Coverage is per-process, so a sharded run gives each shard a view of only
+    # its own slice; enforcing thresholds needs the whole suite in one process,
+    # which costs minutes. Putting that in a merge queue would tax every merge.
+    # The push-to-main run still enforces it before deploy, so a coverage
+    # regression cannot reach production — it just reports after merge rather
     # than before, which is the right trade for a slow-moving regression guard.
+    # This is the one lane intentionally keyed on event name instead of the
+    # `full` flag; every other lane must run whenever the diff filter did not.
     #
     # Until this existed the thresholds in both vitest configs were decoration:
     # declared, never executed. Same class as a test that cannot fail.
@@ -470,8 +475,7 @@ jobs:
     name: Frontend tests (${{ matrix.slug }})
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
@@ -520,8 +524,7 @@ jobs:
     name: Landing tests
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.landing == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
@@ -550,8 +553,7 @@ jobs:
     name: Host tests
     needs: changes
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
+      needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.host == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
