@@ -395,6 +395,8 @@ jobs:
 
       - name: Deploy to Cloudflare
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VAR_ONBOARDING: ${{ vars.ONBOARDING_LANDING_PAGE || 'inactive' }}
           VAR_MAX_SESSIONS_USER: ${{ vars.MAX_SESSIONS_USER }}
           VAR_MAX_SESSIONS_ADMIN: ${{ vars.MAX_SESSIONS_ADMIN }}
@@ -435,9 +437,6 @@ jobs:
           done
           echo "::error::wrangler deploy failed after $max attempts"
           exit 1
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Set worker secrets (bulk)
         # One `wrangler secret bulk` call replaces the former eight sequential
