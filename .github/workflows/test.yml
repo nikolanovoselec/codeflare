@@ -394,7 +394,13 @@ jobs:
         working-directory: ${{ matrix.directory }}
         env:
           NO_COLOR: '1'
-        run: npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log
+        run: |
+          # GitHub runs steps as `bash -e {0}` — NO pipefail. Without this line
+          # `vitest | tee` reports tee's exit status, so a failed threshold check
+          # passes the step: the first version of this lane reported success while
+          # printing "Coverage for lines (0%) does not meet global threshold (53%)".
+          set -o pipefail
+          npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log
 
       - name: Publish the coverage table
         if: always()

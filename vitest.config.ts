@@ -65,9 +65,14 @@ export default defineConfig({
     // the dot reporter still prints.
     reporters: process.env.CI ? ['dot'] : ['default'],
 
-    // v8 coverage configuration (FIX-54)
     coverage: {
-      provider: 'v8',
+      // istanbul, not v8. The v8 provider collects coverage through the V8
+      // inspector in the Node host, which cannot see inside workerd isolates —
+      // running this suite under the Workers pool with provider 'v8' reports a
+      // flat 0% for every file and fails every threshold. istanbul instruments
+      // the source at transform time, so it is runtime-agnostic and reports real
+      // numbers from inside the pool.
+      provider: 'istanbul',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/__tests__/**', 'src/**/*.test.ts', 'src/**/*.generated.ts'],
