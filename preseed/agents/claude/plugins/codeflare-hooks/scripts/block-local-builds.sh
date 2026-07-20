@@ -28,6 +28,7 @@ INPUT=$(cat)
 # Identify the tool. We only care about shell-bearing tools.
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 [ -z "$TOOL_NAME" ] && exit 0
+EMBEDDED=0
 
 # Extract the command body. Different MCP tools carry it under
 # different keys; we normalise to one string for pattern matching.
@@ -36,12 +37,13 @@ case "$TOOL_NAME" in
     CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
     ;;
   mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file)
-    # Only shell invocations can be local builds. JavaScript / Python
-    # / etc. payloads can mention these strings in inert ways.
+    # Scan the payload whatever the interpreter. This used to exit 0 for any
+    # language but "shell", reasoning that other languages only MENTION these
+    # strings inertly — missing that they can execute them:
+    #   language: "python", code: 'subprocess.run("npm test", shell=True)'
+    # One parameter on an already-available tool defeated the whole guard.
     LANG=$(echo "$INPUT" | jq -r '.tool_input.language // empty' 2>/dev/null)
-    if [ "$LANG" != "shell" ]; then
-      exit 0
-    fi
+    [ -n "$LANG" ] && [ "$LANG" != "shell" ] && EMBEDDED=1
     CMD=$(echo "$INPUT" | jq -r '.tool_input.code // empty' 2>/dev/null)
     ;;
   mcp__context-mode__ctx_batch_execute)
@@ -90,14 +92,32 @@ fi
 #      with `touch /tmp/local-build-bypass` if it bites.
 #
 # CMDPOS = start-of-line plus optional leading whitespace.
+# Command-position anchor. A shell build command starts a line, and requiring
+# that is what stops `echo "run npm test"` tripping the guard.
+#
+# A non-shell payload never satisfies it — the command is always embedded, as in
+# subprocess.run("npm test") — so widening the language gate above WITHOUT this
+# left the fix inert: the payload was scanned and matched nothing. For embedded
+# payloads, also accept a command opening after a quote, paren, bracket or comma.
+# The prose false positive that motivates the strict anchor does not apply there:
+# an interpreter payload is code, not commentary.
 CMDPOS='(^|\n)[[:space:]]*'
+# Trailing boundary. Patterns below append ([[:space:]]|$) to stop `npm testing`
+# matching `npm test`. In an embedded payload the command is closed by the
+# surrounding quote instead — `subprocess.run("npm test", …)` ends at `"`, not
+# whitespace — so the leading anchor alone was not enough.
+CMDEND='([[:space:]]|$)'
+if [ "${EMBEDDED:-0}" = "1" ]; then
+  CMDPOS='(^|\n|["'"'"'`([,])[[:space:]]*'
+  CMDEND='([[:space:]"'"'"'`),;]|$)'
+fi
 
 PATTERNS=(
   # Test runners (binaries that are the first word of a command).
-  "${CMDPOS}vitest([[:space:]]|$)"
-  "${CMDPOS}jest([[:space:]]|$)"
-  "${CMDPOS}mocha([[:space:]]|$)"
-  "${CMDPOS}pytest([[:space:]]|$)"
+  "${CMDPOS}vitest${CMDEND}"
+  "${CMDPOS}jest${CMDEND}"
+  "${CMDPOS}mocha${CMDEND}"
+  "${CMDPOS}pytest${CMDEND}"
   "${CMDPOS}playwright[[:space:]]+test"
   "${CMDPOS}node[[:space:]]+--test"
   "${CMDPOS}bun[[:space:]]+test"
@@ -115,17 +135,17 @@ PATTERNS=(
   # mid-match, making `.*` the correct primitive here.
   "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|prettier|playwright)([[:space:]@]|$)"
   "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?wrangler[[:space:]]+(dev|build|deploy)"
-  "${CMDPOS}npm[[:space:]]+test([[:space:]]|$)"
+  "${CMDPOS}npm[[:space:]]+test${CMDEND}"
   "${CMDPOS}npm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint|knip|check|e2e)"
   "${CMDPOS}pnpm[[:space:]]+test"
   "${CMDPOS}pnpm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint)"
   "${CMDPOS}yarn[[:space:]]+test"
   "${CMDPOS}yarn[[:space:]]+(build|dev|typecheck|lint)"
   # Direct compiler / linter / formatter binaries
-  "${CMDPOS}tsc([[:space:]]|$)"
-  "${CMDPOS}oxlint([[:space:]]|$)"
-  "${CMDPOS}eslint([[:space:]]|$)"
-  "${CMDPOS}prettier([[:space:]]|$)"
+  "${CMDPOS}tsc${CMDEND}"
+  "${CMDPOS}oxlint${CMDEND}"
+  "${CMDPOS}eslint${CMDEND}"
+  "${CMDPOS}prettier${CMDEND}"
   # Wrangler dev/build/deploy (deploy goes through CI/Actions)
   "${CMDPOS}wrangler[[:space:]]+(dev|build|deploy)"
   # Cargo / Go builds and tests

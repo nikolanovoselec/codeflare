@@ -51,6 +51,18 @@ export const options = {
     session_create_duration: ['p(95)<5000'],
     session_delete_duration: ['p(95)<3000'],
     errors: ['rate<0.15'],
+    // Without this, every threshold below is satisfied by an EMPTY sink: k6's
+    // TrendSink.P() returns 0 for no samples and RateSink returns rate 0, so
+    // p(95)<5000 and rate<0.15 both pass having measured nothing. Both suites
+    // `return` on 429 before recording any custom metric, and the workflow never
+    // sets STRESS_TEST_MODE=active, so at higher concurrency MOST iterations take
+    // that path and the suite gets more vacuous as load rises — the opposite of
+    // what a load test is for. http_req_failed is a built-in fed by every
+    // request regardless of branch, so it cannot be starved this way.
+    http_req_failed: ['rate<0.25'],
+    // And a floor on the sink itself: a run that recorded no samples at all has
+    // proven nothing, whatever the percentiles say.
+    checks: ['rate>0.90'],
   },
 };
 

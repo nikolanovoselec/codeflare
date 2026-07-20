@@ -347,7 +347,13 @@ fi
 # Users who need pre-emptive bypass should use the sentinel file
 # (`touch /tmp/review-bypass`), which fires first via Bypass 1.
 # ---------------------------------------------------------------------------
-if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
+# Require an explicit bracketed token, not free English. The previous pattern
+# was `\bskip (the )?(review|verification)\b` over raw user text, so
+# "please dont skip review this time, be thorough" MATCHED — a user asking for
+# more rigour silently disabled enforcement. Any phrasing that mentions skipping
+# in order to reject it has the same effect. An opt-out this consequential should
+# take a deliberate token that cannot appear by accident in a sentence.
+if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\[skip[ -](review|verification)\]'; then
   exit 0
 fi
 

@@ -52,8 +52,16 @@ export const options = {
   thresholds: {
     // We MUST see at least one 429
     rate_limit_429s: ['count>0'],
-    // No unexpected errors (5xx, network failures)
+    // No unexpected errors (5xx, network failures).
+    // NB: unexpectedErrors only ever receives .add(true), so this reads as
+    // "exactly zero", not "under 5%". Left as-is deliberately — zero is the
+    // right bar for a 5xx — but the threshold overstates its own tolerance.
     unexpected_errors: ['rate<0.05'],
+    // k6 does NOT fail a run on failed check()s. Without this, every check in
+    // this file is decorative — including 'successes did not exceed rate limit
+    // cap' at the bottom, which is the single assertion that would catch a
+    // limiter letting everything through. That is the entire point of the suite.
+    checks: ['rate>0.99'],
   },
 };
 
@@ -114,7 +122,12 @@ export function sessionLimitTest() {
   });
   if (listRes.status === 200) {
     try {
-      const sessions = listRes.json();
+      // GET /api/sessions returns { sessions: [...] } (src/routes/session/crud.ts),
+      // never a bare array. Array.isArray() on the envelope was always false, so
+      // this loop never executed — inside a try with an empty catch, so nothing
+      // said so — and every run left up to 10 container-backed
+      // ratelimit-test-* sessions in the live deployment, permanently.
+      const sessions = listRes.json('sessions');
       if (Array.isArray(sessions)) {
         for (const s of sessions) {
           if (s.name && s.name.startsWith('ratelimit-test-')) {
@@ -122,8 +135,10 @@ export function sessionLimitTest() {
           }
         }
       }
-    } catch {
-      // ignore cleanup errors
+    } catch (e) {
+      // Still non-fatal — a failed cleanup must not fail the load test — but
+      // silence is what let the bug above survive. Say something.
+      console.warn(`cleanup failed, sessions may have leaked: ${e}`);
     }
   }
 }
