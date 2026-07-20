@@ -366,7 +366,13 @@ jobs:
               # counted as fine.
               echo "::error::$f has no \"thresholds\" key — the export schema is not what this gate parses, so no verdict was read from it"
               failed=1
-            elif grep -q '"ok":false' "$f" 2>/dev/null; then
+            # k6's --summary-export goes through JSON.stringify(results, null, 4),
+            # so the file contains `"ok": false` WITH a space. Grepping for
+            # `"ok":false` matched nothing, the schema guard above passed on the
+            # bare `"thresholds"` key, and every run fell through to the success
+            # branch printing "All thresholds met". The one gate that exists to
+            # catch a breach asserted the opposite of the truth.
+            elif grep -qE '"ok"[[:space:]]*:[[:space:]]*false' "$f" 2>/dev/null; then
               echo "FAIL: Threshold breached in $f"
               failed=1
             else
