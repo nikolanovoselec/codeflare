@@ -66,11 +66,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
 3. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @manual -->
 4. If the scan finds unexcepted vulnerabilities, the pipeline fails before push. <!-- @manual -->
-5. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the resulting registry URI is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+5. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 
 **Constraints:**
 
-- The container-binding and scaling steps consume the registry URI from this REQ; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
+- The container-binding and scaling steps rebuild the registry URI from the image tag this REQ produces — the URI itself is never a workflow output, since it would embed a masked secret and be silently dropped; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
 - The input hash covers every Dockerfile COPY source; a coverage guard disables reuse (forcing a fresh build) if a COPY source falls outside the hashed path set.
 - The weekly hash salt bounds reuse: an unchanged image is rebuilt and rescanned at least once per ISO week.
 
