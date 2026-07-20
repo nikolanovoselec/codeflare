@@ -318,9 +318,24 @@ jobs:
       - name: Measure the Worker bundle
         # --dry-run needs no credentials and no network: it bundles exactly what
         # a real deploy would upload and prints the size Cloudflare enforces.
+        #
+        # But `image = "./Dockerfile"` makes wrangler BUILD the container image
+        # as part of the dry run — pulling a 50MB base layer and burning ~3
+        # minutes to produce something container-image.yml already builds, scans,
+        # and content-addresses. The size line is printed before that starts and
+        # does not depend on it, so point the image at a registry reference for
+        # the measurement. The config lives in the repo root because wrangler
+        # resolves `main` and the assets dir relative to the config file.
         run: |
-          npx wrangler deploy --dry-run --outdir /tmp/worker-bundle 2>&1 \
-            | tee /tmp/wrangler-dry-run.log
+          set -euo pipefail
+          sed 's|^image = "\./Dockerfile"$|image = "registry.example.invalid/size-check:latest"|' \
+            wrangler.toml > wrangler.size-check.toml
+          if ! grep -q 'registry.example.invalid/size-check' wrangler.size-check.toml; then
+            echo "::error::the containers image line in wrangler.toml no longer matches the size-check patch — it would rebuild the image (slow) instead of measuring. Update the sed in test.yml."
+            exit 1
+          fi
+          npx wrangler deploy --dry-run --outdir /tmp/worker-bundle \
+            --config wrangler.size-check.toml 2>&1 | tee /tmp/wrangler-dry-run.log
         env:
           NO_COLOR: '1'
 

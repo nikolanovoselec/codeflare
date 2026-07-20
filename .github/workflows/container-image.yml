@@ -206,10 +206,12 @@ jobs:
         # Self-hosted runners instead accumulate tagged images from prior
         # deploys in /var/lib/docker, so prior *-container images and dangling
         # layers are dropped too — everything except the image we scan next.
+        env:
+          # Through the environment, never interpolated into the script body.
+          KEEP: ${{ steps.docker-build.outputs.local_ref }}
         run: |
           sudo mkdir -p /mnt/trivy-tmp /mnt/trivy-cache
           sudo chmod 1777 /mnt/trivy-tmp /mnt/trivy-cache
-          KEEP="${{ steps.docker-build.outputs.local_ref }}"
           # Guard: an empty KEEP would make grep -vxF match nothing and delete
           # the scan target too.
           if [ -n "$KEEP" ]; then

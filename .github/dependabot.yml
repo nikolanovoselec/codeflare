@@ -5,6 +5,16 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # Cooldown before a freshly published version is proposed. The npm
+    # compromise pattern is publish-malicious-version then wait for automation
+    # to pull it within hours; a waiting period lets the ecosystem revoke it
+    # first. Longer for majors, which carry the most change and the least
+    # scrutiny in review (zizmor dependabot-cooldown).
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
     # Owns the Wrangler pin used by package.json and GitHub workflow installs.
 
   - package-ecosystem: npm
@@ -12,18 +22,48 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # Cooldown before a freshly published version is proposed. The npm
+    # compromise pattern is publish-malicious-version then wait for automation
+    # to pull it within hours; a waiting period lets the ecosystem revoke it
+    # first. Longer for majors, which carry the most change and the least
+    # scrutiny in review (zizmor dependabot-cooldown).
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
 
   - package-ecosystem: npm
     directory: /host
     target-branch: develop
     schedule:
       interval: weekly
+    # Cooldown before a freshly published version is proposed. The npm
+    # compromise pattern is publish-malicious-version then wait for automation
+    # to pull it within hours; a waiting period lets the ecosystem revoke it
+    # first. Longer for majors, which carry the most change and the least
+    # scrutiny in review (zizmor dependabot-cooldown).
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
 
   - package-ecosystem: npm
     directory: /landing
     target-branch: develop
     schedule:
       interval: weekly
+    # Cooldown before a freshly published version is proposed. The npm
+    # compromise pattern is publish-malicious-version then wait for automation
+    # to pull it within hours; a waiting period lets the ecosystem revoke it
+    # first. Longer for majors, which carry the most change and the least
+    # scrutiny in review (zizmor dependabot-cooldown).
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
 
   # Pi agent preseed (@gotgenes/pi-subagents, context-mode)
   # is intentionally NOT managed by Dependabot. Although it has a real
@@ -44,6 +84,16 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # Cooldown before a freshly published version is proposed. The npm
+    # compromise pattern is publish-malicious-version then wait for automation
+    # to pull it within hours; a waiting period lets the ecosystem revoke it
+    # first. Longer for majors, which carry the most change and the least
+    # scrutiny in review (zizmor dependabot-cooldown).
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
     ignore:
       # Stay on Node LTS (even majors: 22, 24, 26, ...). Dependabot kept proposing
       # Node 25 Current (non-LTS), which should not ship to the production Container DO.
@@ -58,3 +108,13 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # Cooldown before a freshly published version is proposed. The npm
+    # compromise pattern is publish-malicious-version then wait for automation
+    # to pull it within hours; a waiting period lets the ecosystem revoke it
+    # first. Longer for majors, which carry the most change and the least
+    # scrutiny in review (zizmor dependabot-cooldown).
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
