@@ -11,7 +11,28 @@
 //
 // Usage: node scripts/ci/check-bundle-size.mjs <wrangler-dry-run.log>
 import { appendFileSync, readFileSync } from 'node:fs';
-import { BUDGETS } from './size-budgets.mjs';
+
+// `limitKiB` is the platform's hard ceiling — the number Cloudflare itself
+// enforces. `budgetKiB` is ours: set close to current usage so unexpected
+// growth is visible while there is still headroom to react. A budget parked at
+// the platform limit would never fire and would be theater.
+const BUDGETS = {
+  worker: {
+    label: 'Worker script (gzipped)',
+    // Workers paid plan. The free plan is 3 MiB; codeflare runs containers,
+    // which is paid-only, so 10 MiB is the ceiling that actually applies.
+    limitKiB: 10 * 1024,
+    // Measured 3705.85 KiB on 2026-07-20 (run 29724182607). ~13% headroom:
+    // enough that ordinary feature work does not trip it, tight enough that a
+    // step change — a dependency pulled into the Worker, a seed that stops
+    // being trimmed — fails the PR that caused it instead of the next deploy.
+    //
+    // Worth knowing: 3705 KiB is already past the 3 MiB free-plan ceiling, so
+    // this Worker cannot deploy on the free plan regardless of the budget.
+    // Most of it is src/lib/agent-seed.generated.ts (12 MiB raw).
+    budgetKiB: 4200,
+  },
+};
 
 const [, , logPath] = process.argv;
 
@@ -79,7 +100,7 @@ if (budgetKiB !== null && !(typeof budgetKiB === 'number' && Number.isFinite(bud
 
 if (budgetKiB === null) {
   console.log(
-    `::notice title=bundle size::${label} is ${gzipKiB.toFixed(1)} KiB gzipped (${pctOfLimit}% of the ${limitKiB} KiB platform limit). No budget set yet — set budgetKiB in scripts/ci/size-budgets.mjs to start enforcing.`,
+    `::notice title=bundle size::${label} is ${gzipKiB.toFixed(1)} KiB gzipped (${pctOfLimit}% of the ${limitKiB} KiB platform limit). No budget set yet — set budgetKiB in this file to start enforcing.`,
   );
   process.exit(0);
 }
@@ -88,7 +109,7 @@ if (gzipKiB > budgetKiB) {
   fail(
     `${label} is ${gzipKiB.toFixed(1)} KiB gzipped, over the ${budgetKiB} KiB budget. ` +
       `Cloudflare's hard limit is ${limitKiB} KiB, so this is not yet a broken deploy — but the budget exists to catch growth ` +
-      `while there is still headroom. Either trim the bundle or raise budgetKiB in scripts/ci/size-budgets.mjs deliberately.`,
+      `while there is still headroom. Either trim the bundle or raise budgetKiB in scripts/ci/check-bundle-size.mjs deliberately.`,
   );
 }
 
