@@ -177,9 +177,16 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       const modes = entries.flatMap((entry) => entry.modes).sort();
       expect(modes, `${key} should have generated mode entries`).toEqual(['advanced', 'default']);
       for (const entry of entries) {
+        // The engineering constitution (source of the gate sections) ships
+        // advanced-only (manifest.json), so default-mode docs carry no gates;
+        // Pi's compact context merges them into one 'Review and CI gates'
+        // section present in both modes (REQ-AGENT-095/097).
         const requiredHeadings = key === '.pi/agent/AGENTS.md'
-          ? ['Work continuity', 'Review push gate', 'CI-result handoff gate']
-          : ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate'];
+          ? ['Work continuity', 'Review and CI gates']
+          : entry.modes.includes('advanced')
+            ? ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate']
+            : [];
+        if (requiredHeadings.length === 0) continue;
         expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`)
           .toEqual(expect.arrayContaining(requiredHeadings));
       }
@@ -370,8 +377,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/local-statusline.ts');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/context-mode-runtime.ts');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
+    // REQ-AGENT-085: generated reviewers expose only direct Bash evidence
+    // execution (the richer tool set predates the reviewer-economics change).
     expect(frontmatter(codeReviewer?.content ?? '')).toMatchObject({
-      tools: 'read, grep, bash, ctx_execute, graphify_query, graphify_explain, graphify_path',
+      tools: 'bash',
       prompt_mode: 'replace',
       extensions: 'true',
     });

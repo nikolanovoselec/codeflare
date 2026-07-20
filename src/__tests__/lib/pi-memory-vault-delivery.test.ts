@@ -661,6 +661,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(markdownHeadings(giveups[0]?.message.content)).toEqual(['## Extraction delivery stopped']);
     expect(extractionJobLines(giveups[0]?.message.content)).toEqual([
       expect.stringMatching(/^- `memory-capture` · request `[^`]+` · 6\/6 failed calls$/),
+      expect.stringMatching(/^- `memory-capture`: a new request may re-arm after 15 later real user prompts$/),
     ]);
     expect(giveups[0]?.message.content).toMatch(/\*\*Next automatic opportunity\*\*[\s\S]+15 later real user prompts/);
   });
