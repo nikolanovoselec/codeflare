@@ -277,6 +277,12 @@ RUN set -eu; \
 # manifest is served by the same host, so that is self-certifying. Pinning the
 # script is what stops arbitrary substitution; tracked by the `antigravity-cli`
 # job in bump-shadow-pins.yml so it still updates, visibly.
+#
+# BREAK-GLASS: this URL is unversioned, so the moment Google edits the script
+# every image build fails here — including an emergency hotfix — until the hash
+# is updated. That is the point of a pin, but the recovery path must not be
+# discovered mid-incident: read the new script, then set this ARG to its sha256
+# (`curl -fsSL <url> | sha256sum`). Do NOT work around it by dropping the check.
 ARG ANTIGRAVITY_INSTALLER_SHA256=ee1ea43ce4e9e56356c4ab6dad907ef357ae4bdfcaadb682735909fb57c9c640
 RUN curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh && \
     echo "${ANTIGRAVITY_INSTALLER_SHA256}  /tmp/agy-install.sh" | sha256sum -c - && \
