@@ -612,16 +612,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rclone
 
+      - name: Select host tests
+        # The exclusion list and the *.test.js glob are the two ways a host test
+        # can silently stop running, so the selection is computed once, here, and
+        # its invariants are asserted by host/__tests__/host-test-inventory.test.js
+        # (which runs inside this very selection). This step is the backstop that
+        # test cannot be: if the selection came out empty, no test ran at all and
+        # a green lane would mean nothing.
+        working-directory: host/__tests__
+        run: |
+          set -euo pipefail
+          # Whole-line match (-x) so an entry can never swallow a similarly named
+          # test and a stray blank line excludes nothing.
+          SELECTED=$(printf '%s\n' *.test.js | sort | grep -vxFf ci-excluded.txt || true)
+          COUNT=$(printf '%s\n' "$SELECTED" | grep -c . || true)
+          if [ "$COUNT" -lt 1 ]; then
+            echo "::error::Host test selection is empty — the lane would pass having run nothing."
+            exit 1
+          fi
+          printf '%s\n' "$SELECTED" | sed 's|^|host/__tests__/|' > "$RUNNER_TEMP/host-tests.txt"
+          echo "Running $COUNT host tests ($(grep -c . ci-excluded.txt) excluded)."
+
       - name: Run host hook tests (node:test)
         # host/__tests__/ci-excluded.txt lists exact filenames of tests that need
         # graphify CLI, python3 graphify module, rclone state, or gh-in-PR-context
         # that only exist inside the codeflare container. They run during
-        # development, not in CI. Whole-line match (-x) so an entry can never
-        # swallow a similarly named test and a stray blank line excludes nothing.
+        # development, not in CI. The file list comes from the reconcile step
+        # above so the selection is computed once and audited.
         run: |
-          node --experimental-test-module-mocks --test --test-timeout=60000 \
-            $(ls host/__tests__/*.test.js \
-              | grep -vxFf <(sed 's|^|host/__tests__/|' host/__tests__/ci-excluded.txt))
+          set -euo pipefail
+          xargs -a "$RUNNER_TEMP/host-tests.txt" \
+            node --experimental-test-module-mocks --test --test-timeout=60000
         timeout-minutes: 5
 
   dependency-review:
