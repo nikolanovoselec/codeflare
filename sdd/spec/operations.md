@@ -6,7 +6,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### Key Concepts
 
-- **Deploy Pipeline** -- The `deploy.yml` workflow, gated on a green PR Checks run for the same SHA (workflow_run): prepare resolves the target, worker assets build in parallel with the container image (built, scanned, and pushed by the reusable `container-image.yml`, which reuses the existing image when its inputs are unchanged), then the deploy job applies config, runs `wrangler deploy`, sets secrets in bulk, and smoke-checks `/health`. The single path from code to production.
+- **Deploy Pipeline** -- The `deploy.yml` workflow, gated on a green PR Checks run for the same SHA (workflow_run): prepare resolves the target, worker assets build in parallel with the container image (built, scanned, and pushed by the reusable `container-image.yml`, which reuses the existing image when its inputs are unchanged), then the deploy job applies config, runs `wrangler deploy`, and sets secrets in bulk. The single path from code to production.
 - **CI/CD** -- Continuous integration via `test.yml` (PR checks), `codeql.yml` (static analysis), `scorecard.yml` (supply chain), and `fuzz.yml` (property-based testing). Continuous deployment via `deploy.yml`.
 - **Container Tier** -- Resource allocation profiles (`low`, `default`, `saas`, `high`) that control CPU, memory, and disk per container. Selected via the `RESSOURCE_TIER` GitHub Actions variable and applied by patching `wrangler.toml` at deploy time.
 
@@ -33,7 +33,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-3. The deploy pipeline runs as staged jobs: prepare resolves the target, worker assets and the container image (build, scan, push) proceed in parallel, then the deploy job applies config, deploys, sets secrets, and smoke-checks health. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+3. The deploy pipeline runs as staged jobs: prepare resolves the target, worker assets and the container image (build, scan, push) proceed in parallel, then the deploy job applies config, deploys, and sets secrets. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 4. Dependencies are cached between runs for faster pipeline execution. <!-- @manual -->
 5. Frontend and landing assets are built once and handed to the deploy job as an artifact; no deployment step runs unless the gating PR Checks run for the same SHA ended green (tests are not re-run in-deploy). <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @manual -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->

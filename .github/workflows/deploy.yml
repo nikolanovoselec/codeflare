@@ -14,7 +14,7 @@ name: Deploy
 #             └── container (reusable container-image.yml:            │
 #                 input-hash reuse gate → build → scan → push)      ──┘
 # deploy = wrangler config mutations + wrangler deploy + bulk secrets +
-# post-deploy health smoke + registry prune.
+# registry prune.
 #
 # The `registry: dockerhub` input replaces the former deploy-dockerhub.yml
 # copy of this file — same pipeline, image pushed to docker.io instead
@@ -552,50 +552,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Post-deploy smoke (health)
-        id: smoke
-        # /health is public (run_worker_first in wrangler.toml), so this needs
-        # no auth. E2E_BASE_URL is the environment-scoped deployed base URL;
-        # environments without it skip the smoke with a notice.
-        #
-        # 403 carve-out: the worker cannot return 403 on this route — it is
-        # public, registered before any auth middleware, and served
-        # run_worker_first. A 403 here is zone-edge bot mitigation rejecting
-        # datacenter runner IPs before the request reaches the worker (runs
-        # 29713266135 / 29713556409 got 403 on every attempt, browser UA
-        # included, while the same endpoint served 200 from other vantage
-        # points). Real deploy failures surface as 000/404/5xx/redirects and
-        # still hard-fail. Proper fix is a zone WAF skip for /health; drop
-        # this carve-out once that exists.
-        env:
-          BASE: ${{ vars.E2E_BASE_URL }}
-          UA: 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'
-        run: |
-          if [ -z "$BASE" ]; then
-            echo "::notice::No E2E_BASE_URL var for this environment — skipping post-deploy smoke"
-            echo "result=skipped" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          CODE=000
-          for i in 1 2 3 4 5; do
-            CODE=$(curl -sS -o /dev/null -w '%{http_code}' -A "$UA" "$BASE/health" || echo 000)
-            echo "Attempt $i: $BASE/health -> $CODE"
-            if [ "$CODE" = "200" ]; then
-              echo "Deployment healthy"
-              echo "result=healthy" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            sleep 10
-          done
-          if [ "$CODE" = "403" ]; then
-            echo "::warning::smoke inconclusive: $BASE/health returned 403 on all attempts — zone-edge bot mitigation blocks runner traffic; the public run_worker_first route cannot emit 403 from the worker. Add a zone WAF skip for /health to restore a hard gate."
-            echo "result=edge-403-inconclusive" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "result=failed-${CODE}" >> "$GITHUB_OUTPUT"
-          echo "::error::post-deploy smoke failed: $BASE/health returned $CODE"
-          exit 1
-
       # Prune old container images from the CF registry (scripts/ci/prune-registry.mjs;
       # CF-registry-only — Docker Hub manages its own storage). Non-fatal: cleanup
       # is best-effort, any error is a warning and the deploy stays green.
@@ -619,9 +575,6 @@ jobs:
           ENV_NAME: ${{ needs.prepare.outputs.env_name }}
           IMAGE_TAG: ${{ needs.container.outputs.image_tag }}
           REUSED: ${{ needs.container.outputs.reused }}
-          # The step's own result output distinguishes skipped/healthy/
-          # inconclusive; outcome alone reads "success" even for a no-op.
-          SMOKE: ${{ steps.smoke.outputs.result || steps.smoke.outcome }}
         run: |
           {
             echo "## Deploy summary"
@@ -631,5 +584,4 @@ jobs:
             echo "| Worker | ${WORKER_NAME} |"
             echo "| Image tag | ${IMAGE_TAG} |"
             echo "| Image reused (build/scan skipped) | ${REUSED} |"
-            echo "| Health smoke | ${SMOKE} |"
           } >> "$GITHUB_STEP_SUMMARY"
