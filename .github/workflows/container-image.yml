@@ -1,0 +1,301 @@
+name: Container Image
+# Reusable build → scan → push pipeline for the session-container image,
+# parameterized by target registry:
+#   cloudflare — registry.cloudflare.com via `wrangler containers push` (default)
+#   dockerhub  — docker.io via docker push; the documented bypass for when the
+#                CF managed registry drops connections mid-upload ("use of
+#                closed network connection"). Requires DOCKERHUB_USERNAME /
+#                DOCKERHUB_TOKEN secrets and (after first push) flipping the
+#                auto-created Docker Hub repo to Public so the Cloudflare
+#                container runtime can pull without auth.
+#
+# Build avoidance: the image tag is `in-<hash>` where <hash> covers every
+# build input (Dockerfile COPY sources + the Dockerfile itself) plus an ISO
+# week salt. If that tag already exists in the target registry, build, scan,
+# and push are skipped and the existing image is reused — most deploys touch
+# only worker src/ and skip the multi-GB build+scan entirely. The weekly salt
+# bounds two forms of staleness at ≤7 days: agent CLIs installed with @latest
+# inside the Dockerfile, and the Trivy CVE verdict of the reused image
+# (REQ-SEC-011: every pushed image was scanned green before its first push).
+# A non-empty cache-bust input disables reuse AND busts the npm-install layer
+# cache, exactly like the previous CLAUDE_CODE_CACHE_BUSTER behavior.
+on:
+  workflow_call:
+    inputs:
+      registry:
+        description: 'Target registry: cloudflare | dockerhub'
+        type: string
+        default: 'cloudflare'
+      environment:
+        description: 'GitHub environment (scopes vars/secrets)'
+        type: string
+        required: true
+      ref:
+        description: 'Git ref/SHA to build'
+        type: string
+        required: true
+      worker-name:
+        description: 'Worker name; the image repo is <worker-name>-container'
+        type: string
+        required: true
+      cache-bust:
+        description: 'Non-empty = force a full rebuild (content is written to .cache-bust)'
+        type: string
+        default: ''
+      runner:
+        description: 'runs-on label'
+        type: string
+        default: 'ubuntu-latest'
+    outputs:
+      registry_uri:
+        description: 'Full image URI (registry/repo:tag) to point wrangler.toml at'
+        value: ${{ jobs.image.outputs.registry_uri }}
+      reused:
+        description: '"true" when an identical-input image already existed and build+scan+push were skipped'
+        value: ${{ jobs.image.outputs.reused }}
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Build, scan, push (${{ inputs.registry }})
+    runs-on: ${{ inputs.runner }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      actions: write # type=gha buildx cache writes to the Actions cache service
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+      IMAGE_NAME: ${{ inputs.worker-name }}-container
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    outputs:
+      registry_uri: ${{ steps.reuse.outputs.registry_uri || steps.push.outputs.registry_uri }}
+      reused: ${{ steps.reuse.outputs.reused || 'false' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Compute image input hash
+        id: hash
+        run: |
+          # Every path the Dockerfile COPYs, plus the Dockerfile itself. The
+          # weekly salt forces at most one rebuild+rescan per ISO week even
+          # with unchanged inputs (fresh @latest agents, fresh CVE verdict).
+          HASHED_PATHS="Dockerfile entrypoint.sh host preseed scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs src/lib/agent-seed.generated.ts"
+
+          # Guard: every COPY source in the Dockerfile must be covered by
+          # HASHED_PATHS — otherwise the reuse gate could serve a stale image
+          # after someone adds a new COPY. Unknown source => build fresh.
+          NO_REUSE=0
+          while read -r src; do
+            case "$src" in
+              .cache-bust) ;; # represented by the cache-bust input
+              Dockerfile|entrypoint.sh|host/*|preseed/*|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|src/lib/agent-seed.generated.ts) ;;
+              *)
+                echo "::warning::COPY source '$src' not covered by the image input hash — disabling reuse for this run. Add it to HASHED_PATHS in container-image.yml."
+                NO_REUSE=1
+                ;;
+            esac
+          done < <(awk '$1 == "COPY" && $2 !~ /^--from/ { for (i = 2; i < NF; i++) print $i }' Dockerfile)
+
+          HASH=$( { for p in $HASHED_PATHS; do git rev-parse "HEAD:$p"; done; echo "week=$(date -u +%G-W%V)"; } | sha256sum | cut -c1-16 )
+          echo "tag=in-${HASH}" >> "$GITHUB_OUTPUT"
+          echo "no_reuse=${NO_REUSE}" >> "$GITHUB_OUTPUT"
+          echo "trivy_db_key=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "Image tag: in-${HASH} (no_reuse=${NO_REUSE})"
+
+      - name: Log in to Docker Hub
+        if: inputs.registry == 'dockerhub'
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Check registry for an existing identical-input image
+        id: reuse
+        if: inputs.cache-bust == '' && steps.hash.outputs.no_reuse == '0'
+        run: |
+          TAG="${{ steps.hash.outputs.tag }}"
+          if [ "${{ inputs.registry }}" = "dockerhub" ]; then
+            URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
+            if docker manifest inspect "$URI" >/dev/null 2>&1; then
+              echo "reused=true" >> "$GITHUB_OUTPUT"
+              echo "registry_uri=${URI}" >> "$GITHUB_OUTPUT"
+              echo "Identical-input image already in registry: ${URI} — skipping build/scan/push"
+            else
+              echo "No existing image for tag ${TAG} — building"
+            fi
+          else
+            # Short-lived pull creds via the same CF API the prune script uses.
+            # Any failure here degrades to a fresh build (safe direction).
+            CRED=$(curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/containers/registries/registry.cloudflare.com/credentials" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' \
+              --data '{"expiration_minutes":10,"permissions":["pull"]}') || CRED='{}'
+            if [ "$(printf '%s' "$CRED" | jq -r .success)" != "true" ]; then
+              echo "::warning::could not mint registry credentials — building fresh"
+              exit 0
+            fi
+            AUTH=$(printf '%s:%s' "$(printf '%s' "$CRED" | jq -r .result.username)" "$(printf '%s' "$CRED" | jq -r .result.password)" | base64 -w0)
+            ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
+              "https://registry.cloudflare.com/v2/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}/manifests/${TAG}" || echo 000)
+            if [ "$CODE" = "200" ]; then
+              URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}:${TAG}"
+              echo "reused=true" >> "$GITHUB_OUTPUT"
+              echo "registry_uri=${URI}" >> "$GITHUB_OUTPUT"
+              echo "Identical-input image already in registry: ${URI} — skipping build/scan/push"
+            else
+              echo "No existing image for tag ${TAG} (HTTP ${CODE}) — building"
+            fi
+          fi
+
+      - name: Write cache buster (force fresh npm install layers)
+        if: steps.reuse.outputs.reused != 'true' && inputs.cache-bust != ''
+        run: echo "${{ inputs.cache-bust }}" > .cache-bust
+
+      # The 'default' docker builder doesn't support type=gha cache. The
+      # docker-container driver (provisioned by setup-buildx-action) does
+      # and is what unlocks --cache-from / --cache-to against the
+      # built-in GitHub Actions cache service. No extra registry creds.
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        if: steps.reuse.outputs.reused != 'true'
+
+      - name: Build container image
+        id: docker-build
+        if: steps.reuse.outputs.reused != 'true'
+        run: |
+          TAG="${{ steps.hash.outputs.tag }}"
+          # --load keeps the image available to the local docker daemon
+          # so the Trivy scan step and the push step that follow can
+          # reference it by tag, unchanged.
+          docker buildx build --platform linux/amd64 \
+            --cache-from type=gha,scope=${{ inputs.registry }} \
+            --cache-to type=gha,mode=max,scope=${{ inputs.registry }} \
+            --load \
+            --label "org.opencontainers.image.revision=${{ inputs.ref }}" \
+            -t "${IMAGE_NAME}:${TAG}" .
+          echo "local_ref=${IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Provision scan scratch space and free disk
+        if: steps.reuse.outputs.reused != 'true'
+        # Trivy exports the full uncompressed image to a temp dir before
+        # analyzing layers. On GitHub-hosted runners the root disk arrives
+        # ~90% full of preinstalled toolchains (a fresh VM per job — nothing
+        # accumulates and docker prunes reclaim ~0B), so the export dies on /
+        # with "no space left on device". The Azure resource disk at /mnt is a
+        # separate, nearly empty volume with tens of GB free: point Trivy's
+        # temp dir and cache there instead of deleting GitHub's preinstalls.
+        # Self-hosted runners instead accumulate tagged images from prior
+        # deploys in /var/lib/docker, so prior *-container images and dangling
+        # layers are dropped too — everything except the image we scan next.
+        run: |
+          sudo mkdir -p /mnt/trivy-tmp /mnt/trivy-cache
+          sudo chmod 1777 /mnt/trivy-tmp /mnt/trivy-cache
+          KEEP="${{ steps.docker-build.outputs.local_ref }}"
+          # Guard: an empty KEEP would make grep -vxF match nothing and delete
+          # the scan target too.
+          if [ -n "$KEEP" ]; then
+            docker images --format '{{.Repository}}:{{.Tag}}' \
+              | grep -vxF "$KEEP" \
+              | xargs -r docker rmi -f || true
+          fi
+          docker image prune -f || true
+          rm -rf /tmp/trivy-* || true
+          df -h / /tmp /mnt 2>/dev/null || true
+
+      - name: Restore Trivy vulnerability DB cache
+        if: steps.reuse.outputs.reused != 'true'
+        # Keyed by day: at most one DB download per day across all runs;
+        # restore-keys serves yesterday's DB while a fresh one uploads.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /mnt/trivy-cache
+          key: trivy-db-${{ steps.hash.outputs.trivy_db_key }}
+          restore-keys: trivy-db-
+
+      - name: Scan container image for vulnerabilities
+        if: steps.reuse.outputs.reused != 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          # Both the uncompressed-image export and the vuln DB go to the big
+          # /mnt resource disk; the root disk stays out of the equation.
+          TMPDIR: /mnt/trivy-tmp
+          TRIVY_CACHE_DIR: /mnt/trivy-cache
+        with:
+          image-ref: ${{ steps.docker-build.outputs.local_ref }}
+          severity: HIGH,CRITICAL
+          # Gate only on CVEs that have an available fix. Unfixed base-image
+          # CVEs (blank Fixed Version, no upstream patch) cannot be remediated
+          # by rebuilding and would otherwise block every deploy whenever the
+          # Trivy feed adds one. Fixable CVEs we consciously accept (e.g. fixed
+          # upstream but a vendored CLI hasn't rebuilt) stay listed in .trivyignore.
+          ignore-unfixed: true
+          exit-code: 1
+          format: table
+          scanners: vuln
+          trivyignores: .trivyignore
+          timeout: 15m
+
+      - name: Install wrangler (pinned to the repo's devDependency version)
+        if: steps.reuse.outputs.reused != 'true' && inputs.registry == 'cloudflare'
+        # This job never runs `npm ci` (nothing else here needs node_modules),
+        # so wrangler is installed globally at the exact pinned version.
+        run: npm install -g "wrangler@$(node -p "require('./package.json').devDependencies.wrangler")"
+
+      - name: Push image
+        id: push
+        if: steps.reuse.outputs.reused != 'true'
+        run: |
+          TAG="${{ steps.hash.outputs.tag }}"
+          if [ "${{ inputs.registry }}" = "dockerhub" ]; then
+            REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
+            docker tag "${IMAGE_NAME}:${TAG}" "${REGISTRY_URI}"
+            # Retry transient registry push failures: 30 attempts, 30s apart.
+            attempt=0; max=30
+            until [ "$attempt" -ge "$max" ]; do
+              attempt=$((attempt+1))
+              echo "::group::docker push (attempt $attempt/$max)"
+              if docker push "${REGISTRY_URI}"; then echo "::endgroup::"; break; fi
+              echo "::endgroup::"
+              if [ "$attempt" -ge "$max" ]; then echo "::error::docker push failed after $max attempts"; exit 1; fi
+              echo "::warning::docker push failed (attempt $attempt/$max); retrying in 30s"
+              sleep 30
+            done
+          else
+            # Retry transient registry/control-plane push failures: 30 attempts, 30s apart.
+            attempt=0; max=30
+            until [ "$attempt" -ge "$max" ]; do
+              attempt=$((attempt+1))
+              echo "::group::wrangler containers push (attempt $attempt/$max)"
+              # NB: `if <pipeline>` is required, not a bare `cmd | tee` + $PIPESTATUS:
+              # GitHub runs steps under `bash -eo pipefail`, so a bare failing pipeline
+              # would trip `set -e` and abort the step before any retry could run. The
+              # `if` condition suppresses `set -e`; pipefail still surfaces wrangler's
+              # exit through the pipe while tee keeps writing the log for URI extraction.
+              if npx wrangler containers push "${IMAGE_NAME}:${TAG}" 2>&1 | tee /tmp/push-output.txt; then
+                echo "::endgroup::"
+                break
+              fi
+              echo "::endgroup::"
+              if [ "$attempt" -ge "$max" ]; then
+                echo "::error::wrangler containers push failed after $max attempts"
+                exit 1
+              fi
+              echo "::warning::wrangler containers push failed (attempt $attempt/$max); retrying in 30s"
+              sleep 30
+            done
+            # Extract the registry URI from the "Pushed image:" line (includes tag)
+            REGISTRY_URI=$(grep -oP '(?<=Pushed image: )registry\.cloudflare\.com/\S+' /tmp/push-output.txt | head -1)
+            if [ -z "$REGISTRY_URI" ]; then
+              echo "::error::Failed to extract registry URI from wrangler containers push output"
+              cat /tmp/push-output.txt
+              exit 1
+            fi
+          fi
+          echo "Registry URI: ${REGISTRY_URI}"
+          echo "registry_uri=${REGISTRY_URI}" >> "$GITHUB_OUTPUT"
