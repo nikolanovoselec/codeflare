@@ -21,7 +21,11 @@ const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 
 // Jobs that check out a ref, build, or deploy. Every one of them must be
 // unreachable unless the code was verified.
-const GATED_JOBS = ['prepare', 'build-worker', 'container', 'deploy'];
+// `outcome` belongs here too. It was added later with a bare `always()`, and
+// because this list did not name it, the assertions below — including the one
+// that forbids always() — structurally could not see it. A gate list that is
+// hand-maintained alongside the thing it guards drifts exactly this way.
+const GATED_JOBS = ['prepare', 'build-worker', 'container', 'deploy', 'outcome'];
 
 /** Returns the raw YAML block for a top-level job, comments and all. */
 function jobBlock(name) {

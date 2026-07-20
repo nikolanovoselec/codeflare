@@ -379,7 +379,7 @@ export default {
       });
     }
 
-    // Only route API and health requests through Hono
+    // Only route API requests through Hono
     // Non-API routes fall through to static assets (SPA)
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/public/')) {
       return app.fetch(request, env, ctx);

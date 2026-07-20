@@ -649,7 +649,21 @@ jobs:
   outcome:
     name: Deploy outcome
     needs: [verify, prepare, build-worker, container, deploy]
-    if: always()
+    # Carries the same gate as every other job, for the same reason. With a bare
+    # `always()` this fired on workflow_run completions where PR Checks went RED:
+    # the five gated jobs correctly skipped, and this job then failed the run
+    # with "the gate was not satisfied" — but the gate WAS satisfied, it declined
+    # on purpose. Every failed post-merge PR Checks would have produced a second,
+    # misleading red Deploy. `!cancelled()` rather than `always()` for the reason
+    # stated in the header: cancelling a deploy must actually stop it.
+    if: >-
+      !cancelled() && (
+      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
+      (github.event_name == 'workflow_run'
+       && needs.verify.result == 'skipped'
+       && github.event.workflow_run.conclusion == 'success'
+       && github.event.workflow_run.event == 'push'
+       && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

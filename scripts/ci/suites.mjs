@@ -28,7 +28,6 @@ export const SUITES = [
     lane: 'frontend',
     dir: 'web-ui/src/__tests__',
     extensions: ['.test.ts', '.test.tsx'],
-    // setup.ts is the vitest setupFile, not a test file.
     exclude: [],
     artifacts: ['frontend-shard-'],
   },

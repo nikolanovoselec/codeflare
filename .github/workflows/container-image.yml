@@ -132,6 +132,11 @@ jobs:
             {
               line = line $0
               if (sub(/\\[ \t]*$/, " ", line)) next
+              # sub() first: split() on an EXPLICIT separator does not strip
+              # leading whitespace the way the default FS does, so an indented
+              # COPY would land "" in f[1] and the instruction would go unseen —
+              # silently reintroducing the blind spot this rewrite closed.
+              sub(/^[ \t]+/, "", line)
               n = split(line, f, /[ \t]+/)
               inst = toupper(f[1])
               if (inst == "COPY" || inst == "ADD") {
@@ -393,7 +398,12 @@ jobs:
               sleep 30
             done
             # Extract the registry URI from the "Pushed image:" line (includes tag)
-            REGISTRY_URI=$(grep -oP '(?<=Pushed image: )registry\.cloudflare\.com/\S+' /tmp/push-output.txt | head -1)
+            # `|| true` so the diagnostic below is actually reachable: steps run
+            # under `bash -eo pipefail`, and VAR=$(failing pipeline) trips set -e
+            # at the assignment, so the `cat` that dumps the push output — the
+            # only thing that tells you WHY extraction failed — never ran. `head`
+            # can also take SIGPIPE and return 141 under pipefail.
+            REGISTRY_URI=$(grep -oP '(?<=Pushed image: )registry\.cloudflare\.com/\S+' /tmp/push-output.txt | head -1 || true)
             if [ -z "$REGISTRY_URI" ]; then
               echo "::error::Failed to extract registry URI from wrangler containers push output"
               cat /tmp/push-output.txt

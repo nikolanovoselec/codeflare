@@ -24,6 +24,13 @@ name: Bump Shadow Pins
 #   merge-ready with no manual checksum step)
 # - zizmor (pinned twice: the action's `version:` in zizmor.yml and the
 #   VERSION + SHA256 of the gating binary in test.yml)
+# - the five coding-agent CLIs baked into the image (claude-code, codex,
+#   opencode-ai, copilot, pi-coding-agent) as Dockerfile ARGs; the candidate is
+#   the newest release published MORE than 7 days ago, mirroring the
+#   dependabot.yml cooldown, and the bump is forward-only
+# - the Antigravity CLI installer script, pinned by sha256 in the Dockerfile
+#   (a changed hash is both a normal vendor update and what substitution looks
+#   like, so its PR asks for the installer diff to be reviewed)
 
 on:
   schedule:
@@ -1816,7 +1823,13 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP '^ARG ANTIGRAVITY_INSTALLER_SHA256=\\K[0-9a-f]{64}' Dockerfile)
+          # \K, not \\K. Inside SINGLE quotes the shell passes the backslash
+          # through verbatim, so \\K reaches PCRE as literal backslash + K and
+          # matches nothing; the assignment then fails under set -e and this job
+          # died at step 1 on every run. The sibling agent-clis job uses double
+          # quotes, where \\K is correct — same operator, two quoting contexts,
+          # and only one of them was right.
+          CURRENT=$(grep -oP '^ARG ANTIGRAVITY_INSTALLER_SHA256=\K[0-9a-f]{64}' Dockerfile)
           curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh
           LATEST=$(sha256sum /tmp/agy-install.sh | cut -d' ' -f1)
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"

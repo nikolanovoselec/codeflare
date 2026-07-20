@@ -18,7 +18,8 @@ try {
   process.exit(0);
 }
 
-// The v8 text reporter prints a table whose "All files" row carries the totals:
+// The istanbul text reporter (v8 reports a flat 0% under workerd) prints a
+// table whose "All files" row carries the totals — the format is identical:
 //   All files          |   53.42 |    43.01 |   54.2  |   53.42 |
 const row = log.match(/^\s*All files\s*\|([^\n]*)$/m);
 if (!row) {
