@@ -172,10 +172,15 @@ jobs:
   quality:
     name: Quality (lint / knip / audit)
     needs: changes
+    # `host` is in this list because the bash -n syntax gate below covers every
+    # tracked *.sh — most of which live under preseed/ and host/, neither of
+    # which is in the backend or webui filter. Without it, a PR touching only
+    # preseed/**/*.sh skipped the syntax check written for exactly those files.
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
-      needs.changes.outputs.webui == 'true'
+      needs.changes.outputs.webui == 'true' ||
+      needs.changes.outputs.host == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -568,7 +573,31 @@ jobs:
           # passes the step: the first version of this lane reported success while
           # printing "Coverage for lines (0%) does not meet global threshold (53%)".
           set -o pipefail
-          npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log
+          status=0
+          npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
+
+          # A threshold miss is the verdict this lane exists for, so it is checked
+          # from the reporter's own output and always fatal — never masked by the
+          # tolerance below.
+          if grep -qE 'does not meet (global )?threshold' /tmp/coverage.log; then
+            echo "::error::coverage thresholds not met (see the table above)"
+            exit 1
+          fi
+
+          # The backend matrix entry re-runs the Workers pool, which crashes
+          # workerd at teardown AFTER all tests pass — the exact reason
+          # check-vitest-report.mjs exists and refuses to gate on exit code. This
+          # lane feeds the required `test` context, so gating it on the poisoned
+          # status would turn every green run red post-merge and, on main, block
+          # the deploy. Tolerate that one fingerprint and nothing else.
+          if [ "$status" -ne 0 ]; then
+            if grep -qF '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/coverage.log; then
+              echo "::warning::tolerating the known workerd teardown crash (thresholds were still evaluated above)"
+            else
+              echo "::error::coverage run failed with status $status and no known-crash fingerprint"
+              exit "$status"
+            fi
+          fi
 
       - name: Publish the coverage table
         if: always()
@@ -744,7 +773,7 @@ jobs:
         # here. It used to hold 14 entries under one blanket rationale (graphify
         # CLI, python3 graphify module, rclone state, gh-in-PR-context) that was
         # accurate for a couple of them and inherited by proximity for the rest.
-        # Seven are back in the lane; each of the seven that remain now carries
+        # Six are back in the lane; each of the seven that remain now carries
         # its own reason in the file, so the list is auditable rather than
         # inherited. An eighth, skill-sdd-init-contract.test.js, was excluded
         # because it FAILED — it pinned SKILL.md prose that had since been

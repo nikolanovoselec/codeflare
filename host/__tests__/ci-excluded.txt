@@ -2,6 +2,8 @@
 # Lines starting with # and blank lines are ignored by both the lane's selection
 # step and host-test-inventory.test.js. A blanket rationale is how twelve files
 # ended up excluded by proximity for months; a reason per file is auditable.
+# Seven entries remain: of the original fourteen, six returned to the lane and
+# one (skill-sdd-init-contract.test.js) was deleted as prose-pinning theater.
 
 # Shell out to the graphify binary and its python3 module, which exist only
 # inside the codeflare image.

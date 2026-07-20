@@ -201,7 +201,12 @@ jobs:
               echo "::warning::could not mint registry credentials — building fresh"
               exit 0
             fi
+            # Mask the minted credential before it can reach a log. It is a live
+            # registry password with a 10-minute window; without this any later
+            # `set -x`, jq error, or debug dump prints it verbatim.
+            echo "::add-mask::$(printf '%s' "$CRED" | jq -r .result.password)"
             AUTH=$(printf '%s:%s' "$(printf '%s' "$CRED" | jq -r .result.username)" "$(printf '%s' "$CRED" | jq -r .result.password)" | base64 -w0)
+            echo "::add-mask::${AUTH}"
             ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
             CODE=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
               "https://registry.cloudflare.com/v2/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}/manifests/${TAG}" || echo 000)
@@ -437,7 +442,12 @@ jobs:
               echo "::error::Could not mint registry credentials to read back the pushed manifest digest"
               exit 1
             fi
+            # Mask the minted credential before it can reach a log. It is a live
+            # registry password with a 10-minute window; without this any later
+            # `set -x`, jq error, or debug dump prints it verbatim.
+            echo "::add-mask::$(printf '%s' "$CRED" | jq -r .result.password)"
             AUTH=$(printf '%s:%s' "$(printf '%s' "$CRED" | jq -r .result.username)" "$(printf '%s' "$CRED" | jq -r .result.password)" | base64 -w0)
+            echo "::add-mask::${AUTH}"
             ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
             DIGEST=$(curl -sS -o /dev/null -D - -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
               "https://registry.cloudflare.com/v2/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}/manifests/${TAG}" \

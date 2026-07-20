@@ -230,6 +230,16 @@ RCLONE_EOF
         "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" \
         | sed -i -f - "$USER_HOME/.config/rclone/rclone.conf"
 
+    # This function is called as `if create_rclone_config; then`, which disables
+    # `set -e` for its whole body — so a failed substitution would fall through
+    # to `return 0` and report success while leaving the literal PLACEHOLDER_*
+    # tokens in the config, silently killing R2 sync for the entire session.
+    # Assert the substitution actually took.
+    if grep -q 'PLACEHOLDER_\(ACCESS_KEY\|SECRET_KEY\|ENDPOINT\)' "$USER_HOME/.config/rclone/rclone.conf"; then
+        echo "[entrypoint] ERROR: rclone credential substitution did not apply" >&2
+        return 1
+    fi
+
     # REQ-ENTERPRISE-018 / REQ-STOR-017 (Governed Mode): with R2 SSE-C disabled, objects
     # keep R2's default at-rest encryption, so their ETags are usable MD5 checksums again.
     # Re-enable checksum comparison so the delta initial sync (--checksum) catches even
@@ -1360,12 +1370,24 @@ shutdown_handler() {
     # is still alive when the final bisync starts, bisync_with_r2's stale-lock
     # clear sees a live `rclone bisync` (pgrep), leaves the .lck in place, and
     # rclone fast-fails with "prior lock file found" - losing the final sync and
-    # up to one full cadence (AD56) of user work. Wait for it to go quiet. 5s out
-    # of the 120s budget; the loop exits the moment the process is gone.
-    for _ in $(seq 1 50); do
+    # up to one full cadence (AD56) of user work. Wait for it to go quiet.
+    #
+    # This wait happens BEFORE the watchdog below starts, so it is time added to
+    # the shutdown budget, not taken from it. The watchdog is shortened by
+    # however long we waited, keeping the total at 120s and preserving AD57's
+    # 15s clean-exit buffer against the DO's 135s hard kill.
+    QUIESCE_DECIS=0
+    while [ "$QUIESCE_DECIS" -lt 50 ]; do
         pgrep -f "rclone bisync" >/dev/null 2>&1 || break
         sleep 0.1
+        QUIESCE_DECIS=$((QUIESCE_DECIS + 1))
     done
+    QUIESCE_SECS=$(( (QUIESCE_DECIS + 9) / 10 ))
+    if [ "$QUIESCE_DECIS" -ge 50 ]; then
+        # Falling through silently would land in exactly the stale-lock
+        # fast-fail this loop exists to avoid, with nothing to diagnose it from.
+        echo "[entrypoint] WARNING: rclone bisync still running after 5s; final bisync may hit a stale lock"
+    fi
 
     # Perform final bisync to R2 (only if baseline was established).
     # Wrap in a 120s watchdog so the DO's destroy() SIGKILL budget (135s,
@@ -1416,7 +1438,7 @@ shutdown_handler() {
                 kill_subtree "$sig" "$child"
             done
         }
-        ( sleep 108
+        ( sleep $(( 108 - QUIESCE_SECS ))
           kill_subtree TERM "$BISYNC_PID"
           sleep 12
           kill_subtree KILL "$BISYNC_PID"
