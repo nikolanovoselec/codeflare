@@ -613,3 +613,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Verification:** [Automated test](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-OPS-024: Worker bundle size is gated before it can fail a deploy
+
+**Intent:** Cloudflare rejects an oversized Worker at deploy time, so without a pre-merge check the discovery point for "the bundle grew too much" is a failed production deploy. The gate moves that to the pull request that caused it.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The measured size comes from wrangler's own dry-run output — the same figure the platform applies — rather than an independently computed estimate that can drift from it. <!-- @impl: scripts/ci/check-bundle-size.mjs --> <!-- @manual -->
+2. A gzipped bundle over the configured budget fails the check. <!-- @impl: scripts/ci/check-bundle-size.mjs --> <!-- @manual -->
+3. Zero or more than one size measurement in the log fails the check rather than gating on whichever was printed first. <!-- @impl: scripts/ci/check-bundle-size.mjs --> <!-- @manual -->
+4. A budget that is missing, non-numeric or not positive fails the check; only an explicit opt-out sentinel skips enforcement. <!-- @impl: scripts/ci/check-bundle-size.mjs --> <!-- @manual -->
+
+**Constraints:**
+
+- The budget sits below the platform limit with headroom, so ordinary feature work does not trip it while a step change still fails the PR. A budget parked at the platform limit would never fire.
+- The dry run repoints the container image away from the Dockerfile, so measuring the bundle does not rebuild an image the container lane already builds.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** Manual check
+
+**Status:** Implemented
