@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-21
+
+- **The coverage-threshold gate has a REQ** ([REQ-OPS-022](operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence); Implemented). Existing CI behaviour, previously unspecified: the lane proves a coverage table was produced before judging anything, treats a threshold miss or a test failure as fatal, and tolerates the Workers-pool teardown-crash fingerprint only after all three checks pass.
+
 ## 2026-07-20
 
 - **Every test suite runs sharded through one gated action** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); Implemented). The frontend suite is sharded and gated on its JSON report like the backend already was, instead of being one unshielded `npm test`, and the completeness reconciliation now covers every suite rather than the backend alone.

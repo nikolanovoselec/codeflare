@@ -35,7 +35,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 3. The deploy pipeline runs as staged jobs: prepare resolves the target, worker assets and the container image (build, scan, push) proceed in parallel, then the deploy job applies config, deploys, and sets secrets. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 4. Dependencies are cached between runs for faster pipeline execution. <!-- @manual -->
-5. Frontend and landing assets are built once and handed to the deploy job as an artifact; no deployment step runs unless the gating PR Checks run for the same SHA ended green (tests are not re-run in-deploy). <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @manual -->
+5. Frontend and landing assets are built once and handed to the deploy job as an artifact; no deployment step runs unless the gating PR Checks run for the same SHA ended green (tests are not re-run in-deploy). <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 
 **Constraints:**
@@ -48,7 +48,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/deploy-requires-tests.test.js)
 
 **Status:** Implemented
 
@@ -283,7 +283,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - The sync daemon's PID record is the sole mechanism for shutdown; no in-memory fallback exists.
 - The shutdown sync is bounded so a deletion storm cannot wipe R2.
-- Shutdown kills the background init subshell before the pidfile sweep, and waits — bounded, within the shutdown budget — for the sync daemon's rclone process to fully exit before starting the final sync, so the stale-lock guard never races a still-live process. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC5: the final sync waits for the daemon rclone to exit before it starts) -->
+- Shutdown kills the background init subshell before the pidfile sweep, and waits — bounded, within the shutdown budget — for the sync daemon's rclone process to fully exit before starting the final sync, so the stale-lock guard never races a still-live process. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC5: the final sync waits for the daemon rclone to exit before it starts) --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: the quiesce wait is taken out of the shutdown budget, not added to it) -->
 
 **Priority:** P0
 
@@ -556,6 +556,34 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Priority:** P2
 
 **Dependencies:** None.
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-022: Coverage-threshold gate fails closed on missing evidence
+
+**Intent:** A coverage run that dies before reporting, or that reports a threshold miss or a test failure, is never masked by the workerd-teardown-crash tolerance this lane needs in order to run at all.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The lane asserts the coverage reporter produced its summary table before evaluating anything else, so a run that died before emitting coverage fails instead of passing on the absence of a failure string. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
+2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
+3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
+4. The known teardown-crash fingerprint is tolerated only after the table, threshold and test-failure checks have all passed. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
+
+**Constraints:**
+
+- The fingerprint appears after every passing run of the Workers pool, so it can never be the sole condition for tolerating a non-zero exit.
+- `set -o pipefail` is required: without it `npm test | tee` reports tee's status and a failed threshold check passes.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
 **Verification:** Manual check
 
