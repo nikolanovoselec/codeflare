@@ -84,7 +84,7 @@ function runCompleteness(lanes: Record<string, string>, cwd: string, artifactRoo
   );
 }
 
-describe('REQ-OPS-003 AC5: cross-suite completeness gate', () => {
+describe('REQ-OPS-023 AC3: cross-suite completeness gate', () => {
   it('passes when every backend test file in the tree appears in some report', () => {
     const files = ['src/a.test.ts', 'src/nested/b.test.ts'];
     const cwd = tree(files);
@@ -218,21 +218,9 @@ const passing = (files = 2) => ({
   })),
 });
 
-describe('REQ-OPS-003 AC4: vitest report gate', () => {
+describe('REQ-OPS-023 AC1: vitest report gate', () => {
   it('accepts a clean run', () => {
     expect(runReportGate(0, passing(), '').status).toBe(0);
-  });
-
-  it('accepts a non-zero exit carrying the known workerd teardown fingerprint', () => {
-    expect(runReportGate(1, passing(), TEARDOWN_CRASH).status).toBe(0);
-  });
-
-  it('rejects that same crash for a suite that did not opt into tolerance', () => {
-    expect(runReportGate(1, passing(), TEARDOWN_CRASH, 'false').status).toBe(1);
-  });
-
-  it('rejects a non-zero exit without that fingerprint', () => {
-    expect(runReportGate(1, passing(), 'some other crash').status).toBe(1);
   });
 
   it('rejects a report with failed tests even on a zero exit', () => {
@@ -292,5 +280,22 @@ describe('REQ-OPS-003 AC4: vitest report gate', () => {
 
   it('rejects a negative collected-test count', () => {
     expect(runReportGate(0, { ...passing(0), numTotalTests: -1 }, '').status).toBe(1);
+  });
+});
+
+// Split out from the report-gate block: crash tolerance is a distinct
+// contract - a carve-out with its own opt-in and its own fingerprint - not a
+// case of "is this report clean". REQ-OPS-023 AC2 covers it.
+describe('REQ-OPS-023 AC2: teardown-crash tolerance', () => {
+  it('accepts a non-zero exit carrying the known workerd teardown fingerprint', () => {
+    expect(runReportGate(1, passing(), TEARDOWN_CRASH).status).toBe(0);
+  });
+
+  it('rejects that same crash for a suite that did not opt into tolerance', () => {
+    expect(runReportGate(1, passing(), TEARDOWN_CRASH, 'false').status).toBe(1);
+  });
+
+  it('rejects a non-zero exit without that fingerprint', () => {
+    expect(runReportGate(1, passing(), 'some other crash').status).toBe(1);
   });
 });

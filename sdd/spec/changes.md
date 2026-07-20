@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-21
 
+- **Suite report-gating is its own REQ** ([REQ-OPS-023](operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports), new; [REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) stays Implemented). No behaviour change: REQ-OPS-003 AC4 bundled the report gate with the teardown-crash carve-out in one criterion, and AC5 carried the cross-suite reconciliation. All three move to a REQ about how a lane reaches its verdict, leaving REQ-OPS-003 about which checks run.
+
 - **The coverage-threshold gate has a REQ** ([REQ-OPS-022](operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence); Implemented). Existing CI behaviour, previously unspecified: the lane proves a coverage table was produced before judging anything, treats a threshold miss or a test failure as fatal, and tolerates the Workers-pool teardown-crash fingerprint only after all three checks pass.
 
 ## 2026-07-20

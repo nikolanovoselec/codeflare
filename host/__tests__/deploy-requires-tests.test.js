@@ -32,10 +32,35 @@ const UNGATED_JOBS = new Set(['verify']);
 // `container` to `container_scan` and it vanishes from this list unchecked,
 // which is the same silent drift the derivation replaced. Unscoped, it also
 // picked up `on:`'s children as phantom jobs.
-const jobsSection = deployYml.slice(deployYml.indexOf('\njobs:'));
+const jobsIdx = deployYml.indexOf('\njobs:');
+const jobsSection = jobsIdx === -1 ? '' : deployYml.slice(jobsIdx);
 const GATED_JOBS = [...jobsSection.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gm)]
   .map((m) => m[1])
   .filter((name) => !UNGATED_JOBS.has(name));
+
+/**
+ * Splits a gate expression on its top-level `||`, ignoring any inside
+ * parentheses. Splitting on the bare string assumes `&&` binds tighter, which
+ * stops being true the moment anyone parenthesises a sub-expression.
+ */
+function topLevelClauses(gate) {
+  const wrapped = gate.trim().match(/^!cancelled\(\)\s*&&\s*\(([\s\S]*)\)$/);
+  const expr = wrapped ? wrapped[1] : gate.trim();
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < expr.length; i += 1) {
+    if (expr[i] === '(') depth += 1;
+    else if (expr[i] === ')') depth -= 1;
+    else if (depth === 0 && expr.startsWith('||', i)) {
+      parts.push(expr.slice(start, i));
+      i += 1;
+      start = i + 1;
+    }
+  }
+  parts.push(expr.slice(start));
+  return parts;
+}
 
 /** Returns the raw YAML block for a top-level job, comments and all. */
 function jobBlock(name) {
@@ -88,6 +113,20 @@ describe('manual deploys cannot skip tests', () => {
     );
   });
 
+  // The derivation is now the single point of failure for every gate test
+  // below: if it yields an empty list, the loop registers no it() blocks at all
+  // and this file reports green having verified nothing — the same
+  // declared-never-executed shape the coverage lane's "was a table produced"
+  // check exists to prevent. Prove it ran.
+  it('derives the gated job list from deploy.yml', () => {
+    assert.ok(jobsIdx !== -1, 'deploy.yml has no top-level jobs: section, so no gate could be derived');
+    assert.ok(
+      GATED_JOBS.length >= 5,
+      `derived only ${GATED_JOBS.length} gated jobs (${GATED_JOBS.join(', ')}); the gate assertions below would cover almost nothing`
+    );
+    assert.ok(GATED_JOBS.includes('deploy'), 'the deploy job itself is missing from the derived gate list');
+  });
+
   for (const name of GATED_JOBS) {
     it(`gates "${name}" on the verify result`, () => {
       const gate = condition(name);
@@ -115,18 +154,21 @@ describe('manual deploys cannot skip tests', () => {
       // nothing after it — satisfied every assertion here while giving manual
       // dispatch an ungated path to deploy.
       //
-      // Splitting on `||` assumes `&&` binds tighter, which only holds while no
-      // `||` sits inside parentheses. Assert that precondition rather than
-      // assume it: `(dispatch && (verify == 'success' || inputs.force))` keeps
-      // both tokens in the first chunk and passes, while shipping an ungated
-      // manual-deploy path.
-      assert.doesNotMatch(
-        gate.replace(/^!cancelled\(\) && \(|\)$/g, ''),
-        /\([^()]*\|\|[^()]*\)/,
-        `job "${name}" nests an || inside parentheses, so the clause split below cannot see through it`
-      );
-      for (const clause of gate.split('||')) {
+      // A dispatch clause must be a pure CONJUNCTION containing a verify check.
+      // Any `||` inside it introduces an alternative path that reaches the job
+      // without the verify condition, at any nesting depth — which is why a
+      // regex precondition was not enough: `\([^()]*\|\|[^()]*\)` sees only the
+      // innermost pair, so wrapping the escape in a call
+      // (`verify == 'success' || contains(github.actor, 'admin')`) evaded it,
+      // and `contains()`/`startsWith()` is the idiomatic way to write exactly
+      // that escape in a GitHub expression.
+      for (const clause of topLevelClauses(gate)) {
         if (!clause.includes("github.event_name == 'workflow_dispatch'")) continue;
+        assert.doesNotMatch(
+          clause,
+          /\|\|/,
+          `job "${name}" has a workflow_dispatch clause containing an ||, so some path through it reaches the job without a verify condition`
+        );
         assert.match(
           clause,
           /needs\.verify\.result == '(success|skipped|cancelled)'/,

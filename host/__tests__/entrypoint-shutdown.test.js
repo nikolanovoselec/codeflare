@@ -87,7 +87,20 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     // `trap shutdown_handler EXIT` — would overwrite the EXIT slot with the
     // unguarded function and reintroduce the double-run, while every assertion
     // here still passed against the first line.
-    const allTraps = [...entrypoint.matchAll(/^trap (\S+) (.*)$/gm)];
+    // Excluded by POSITION, not by column. Anchoring at column 0 was how the
+    // daemon's in-function `trap '…' USR1` stayed out of scope, but bash does
+    // not care about indentation: a conditional registration
+    // (`if …; then\n    trap shutdown_handler EXIT\nfi`) is the natural way to
+    // add one, sits at column 4, and was invisible to a column-0 anchor while
+    // overwriting the EXIT slot with the unguarded handler.
+    const functionRanges = [];
+    for (const fn of entrypoint.matchAll(/^[A-Za-z_][A-Za-z0-9_]*\(\)\s*\{$/gm)) {
+      const close = entrypoint.indexOf('\n}', fn.index);
+      functionRanges.push([fn.index, close === -1 ? entrypoint.length : close]);
+    }
+    const allTraps = [...entrypoint.matchAll(/^[ \t]*trap\s+(\S+)\s+(.*)$/gm)].filter(
+      (m) => !functionRanges.some(([open, close]) => m.index > open && m.index < close)
+    );
     assert.equal(
       allTraps.length,
       1,
@@ -120,6 +133,9 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     const callIdx = wrapperCode.search(/^\s*shutdown_handler\s*$/m);
     assert.ok(setIdx !== -1, `${trapped} must set ${sentinel[1]}=1`);
     assert.ok(callIdx !== -1, `${trapped} must call shutdown_handler`);
+    // Guarded on callIdx above: with callIdx === -1 this comparison is false and
+    // reports "sets the sentinel after invoking the handler", which is a
+    // confidently wrong diagnosis of a call that simply was not found.
     assert.ok(
       setIdx < callIdx,
       `${trapped} sets ${sentinel[1]} after invoking the handler, so a second signal re-enters before the guard is armed`

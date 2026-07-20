@@ -626,7 +626,10 @@ jobs:
           fi
 
           # Only now is the poisoned exit status safe to forgive: the table was
-          # produced, thresholds were evaluated, and no test failed.
+          # produced, no test failed, and thresholds were evaluated. Listed in
+          # execution order — the test-failure check runs first because with
+          # reportOnFailure on, failing tests depress coverage, so a threshold
+          # miss reported ahead of them names the symptom instead of the cause.
           if [ "$status" -ne 0 ]; then
             if grep -qF '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/coverage.log; then
               echo "::warning::tolerating the known workerd teardown crash (coverage table and thresholds both verified above)"

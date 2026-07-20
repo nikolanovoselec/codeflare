@@ -95,10 +95,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The PR-check workflow triggers on every pull request to the main or develop branch, on push to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
 3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml --> <!-- @manual -->
-4. Every suite is gated on its machine-readable vitest JSON report: zero failures, no zero-test files. A non-zero exit is accepted only for the suite that opts into Workers-pool teardown-crash tolerance, and only with the exact fingerprint; missing or corrupt reports fail closed. <!-- @impl: scripts/ci/check-vitest-report.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC4: vitest report gate) -->
-5. The aggregate job reconciles every suite's reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs --> <!-- @impl: scripts/ci/suites.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC5: cross-suite completeness gate) -->
-6. The workflow runs both backend and frontend typechecks. <!-- @manual -->
-7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
+4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
+5. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
 
 **Constraints:**
 
@@ -108,11 +106,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
 - The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the gates in AC4 and AC5 — not serialization — are what keep the result trustworthy.
 
+- Report-gating and cross-suite reconciliation live in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports); coverage-threshold evidence in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
+
 **Priority:** P0
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/ci/suite-gates.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -574,7 +574,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The lane asserts the coverage reporter produced its summary table before evaluating anything else, so a run that died before emitting coverage fails instead of passing on the absence of a failure string. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
 2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
 3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
-4. The known teardown-crash fingerprint is tolerated only after the table, threshold and test-failure checks have all passed. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
+4. The known teardown-crash fingerprint is tolerated only after the table, test-failure, and threshold checks have all passed. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
 
 **Constraints:**
 
@@ -586,5 +586,32 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
 **Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-023: Suite results are gated on machine-readable reports
+
+**Intent:** A lane's verdict comes from a parsed report rather than an exit code or reporter prose, so a suite cannot pass by crashing in the right way, running nothing, or losing files to a mis-sharded run.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Every suite is gated on its machine-readable vitest JSON report: zero failures, no zero-test files, and a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-vitest-report.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC1: vitest report gate) -->
+2. A non-zero exit is accepted only for the suite that opts into Workers-pool teardown-crash tolerance, and only with the exact fingerprint. <!-- @impl: scripts/ci/check-vitest-report.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC2: teardown-crash tolerance) -->
+3. The aggregate job reconciles every suite's reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs --> <!-- @impl: scripts/ci/suites.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC3: cross-suite completeness gate) -->
+
+**Constraints:**
+
+- Crash tolerance is opt-in per suite: only the Workers pool has the teardown bug, so a non-zero exit from the jsdom or Node suites stays fatal.
+- Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** [Automated test](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
