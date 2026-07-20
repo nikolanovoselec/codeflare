@@ -707,14 +707,19 @@ jobs:
           set -euo pipefail
           # Whole-line match (-x) so an entry can never swallow a similarly named
           # test and a stray blank line excludes nothing.
-          SELECTED=$(printf '%s\n' *.test.js | sort | grep -vxFf ci-excluded.txt || true)
+          # Strip comments and blanks first: the exclusion file documents WHY each
+          # entry is excluded, and a `#` line handed to grep -vxF would be a
+          # filename that matches nothing (harmless) while the inventory test
+          # would reject it as naming no test.
+          grep -vE '^\s*(#|$)' ci-excluded.txt > "$RUNNER_TEMP/excluded.txt"
+          SELECTED=$(printf '%s\n' *.test.js | sort | grep -vxFf "$RUNNER_TEMP/excluded.txt" || true)
           COUNT=$(printf '%s\n' "$SELECTED" | grep -c . || true)
           if [ "$COUNT" -lt 1 ]; then
             echo "::error::Host test selection is empty — the lane would pass having run nothing."
             exit 1
           fi
           printf '%s\n' "$SELECTED" | sed 's|^|host/__tests__/|' > "$RUNNER_TEMP/host-tests.txt"
-          echo "Running $COUNT host tests ($(grep -c . ci-excluded.txt) excluded)."
+          echo "Running $COUNT host tests ($(grep -c . "$RUNNER_TEMP/excluded.txt") excluded)."
 
       - name: Run host hook tests (node:test)
         # host/__tests__/ci-excluded.txt lists tests that genuinely cannot run

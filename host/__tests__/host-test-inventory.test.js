@@ -36,7 +36,10 @@ const excluded = () =>
   readFileSync(join(HERE, 'ci-excluded.txt'), 'utf8')
     .split('\n')
     .map((line) => line.trim())
-    .filter(Boolean);
+    // `#` lines carry the per-file reason for the exclusion. They are stripped
+    // identically here and in the lane's selection step; if the two ever
+    // disagree, the count printed by the lane stops matching what it ran.
+    .filter((line) => line && !line.startsWith('#'));
 
 describe('host test inventory', () => {
   it('leaves every test file reachable by the lane glob', () => {

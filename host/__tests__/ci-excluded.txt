@@ -1,2 +1,24 @@
+# Tests that cannot run on a GitHub runner, with the specific reason each.
+# Lines starting with # and blank lines are ignored by both the lane's selection
+# step and host-test-inventory.test.js. A blanket rationale is how twelve files
+# ended up excluded by proximity for months; a reason per file is auditable.
+
+# Shell out to the graphify binary and its python3 module, which exist only
+# inside the codeflare image.
 entrypoint-graphify-mcp.test.js
 graphify-session-start.test.js
+
+# Drives the SDD review-spawn hook against real git upstream state (@{u}) and a
+# gh PR context. The runner checkout is a detached merge ref with no upstream,
+# so the PR-state branches resolve differently than in a session.
+enforce-review-spawn.test.js
+
+# Exercises the live bisync daemon loop end to end. Needs real rclone bisync
+# state transitions (lock files, resync fallback); exceeded the 60s per-file
+# timeout on the runner.
+entrypoint-bisync-behavior.test.js
+
+# Merges settings.json with jq against a fixture HOME and asserts the resulting
+# hook registrations and SYNC_MODE filter scope; depends on container-side
+# rclone filter state.
+entrypoint-hooks-merge.test.js
