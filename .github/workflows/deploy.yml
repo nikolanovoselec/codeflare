@@ -181,31 +181,21 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache web-ui node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-webui
+      # One action rather than a hand-rolled cache+install pair per directory:
+      # these copies had already drifted from .github/actions/install-deps —
+      # they used restore-keys (a prefix hit leaves cache-hit false, so npm ci
+      # runs anyway and wipes node_modules, making the fallback inert) and had
+      # no timeout around npm ci, which is the one thing that makes its retry
+      # reachable when a registry connection hangs instead of failing.
+      - uses: ./.github/actions/install-deps
         with:
-          path: web-ui/node_modules
-          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
-          restore-keys: webui-
+          directory: web-ui
+          key-prefix: webui
 
-      - name: Cache landing node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-landing
+      - uses: ./.github/actions/install-deps
         with:
-          path: landing/node_modules
-          key: landing-${{ hashFiles('landing/package-lock.json') }}
-          restore-keys: landing-
-
-      - name: Install web-ui dependencies
-        if: steps.cache-webui.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: web-ui
-
-      - name: Install landing dependencies
-        if: steps.cache-landing.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: landing
+          directory: landing
+          key-prefix: landing
 
       - name: Build frontend
         run: npm run build
@@ -289,17 +279,9 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Cache root node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-root
+      - uses: ./.github/actions/install-deps
         with:
-          path: node_modules
-          key: root-${{ hashFiles('package-lock.json') }}
-          restore-keys: root-
-
-      - name: Install root dependencies
-        if: steps.cache-root.outputs.cache-hit != 'true'
-        run: npm ci
+          key-prefix: root
 
       - name: Download built assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

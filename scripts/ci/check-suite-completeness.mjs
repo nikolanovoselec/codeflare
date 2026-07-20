@@ -14,7 +14,7 @@
 // reports are fine when that lane was skipped by the path filter, and a hard
 // failure when it reported success — otherwise a flaky artifact download would
 // silently disarm the gate.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, lstatSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { SUITES, NODE_SUITE_FILES } from './suites.mjs';
 
@@ -55,7 +55,7 @@ function collect(dir, keep, out = []) {
     const p = join(dir, e);
     let s;
     try {
-      s = statSync(p);
+      s = lstatSync(p);
     } catch {
       continue;
     }
@@ -69,7 +69,7 @@ function collect(dir, keep, out = []) {
 // reports by directory-name prefix rather than by guessing at file contents.
 const artifactDirs = (() => {
   try {
-    return readdirSync(root).filter((d) => statSync(join(root, d)).isDirectory());
+    return readdirSync(root).filter((d) => lstatSync(join(root, d)).isDirectory());
   } catch {
     return [];
   }

@@ -53,7 +53,14 @@ concurrency:
   # github.ref is the per-PR merge ref for pull_request events, so two PRs
   # sharing one head branch never cancel each other (each tests its own merge
   # result) while superseded pushes of the same PR still cancel.
-  group: test-${{ github.ref }}
+  #
+  # github.workflow is in the key because deploy.yml calls this workflow: a
+  # called workflow inherits the CALLER's context, so a manual production deploy
+  # from main would otherwise land in the same group as the ordinary
+  # push-to-main run and one would cancel the other — turning verify.result into
+  # 'cancelled' and silently skipping the whole deploy. Here github.workflow is
+  # "Deploy" for the inline run and "PR Checks" for the real one.
+  group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -386,11 +393,21 @@ jobs:
         env:
           ZIZMOR_VERSION: '1.27.0'
           ZIZMOR_SHA256: '277f2bd8fd37cf60c42ab7afca6faa884e65440fa31e02b44bdaae60f62a358f'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           curl -fsSL -o /tmp/zizmor.tar.gz \
             "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
           echo "${ZIZMOR_SHA256}  /tmp/zizmor.tar.gz" | sha256sum -c -
+          # The checksum above is self-certified: the bump job hashed the same
+          # download it then committed as the trusted pin, so it only protects
+          # against tampering AFTER the bump. Compromise the release on bump day
+          # and your hash gets pinned — after which your binary gates every PR
+          # for workflow vulnerabilities and can report clean. zizmor publishes
+          # SLSA provenance for its release artifacts, which is an INDEPENDENT
+          # signal: it attests the artifact was built by zizmorcore's own
+          # workflow, which a substituted binary cannot forge.
+          gh attestation verify /tmp/zizmor.tar.gz --repo zizmorcore/zizmor
           tar -xzf /tmp/zizmor.tar.gz -C /tmp zizmor
           # Offline for the same reason zizmor.yml is: the online audit dies
           # fatally when the advisory API blips, which would fail merges on
