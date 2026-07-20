@@ -144,6 +144,24 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     );
   });
 
+  it('REQ-OPS-010 AC5: the final sync waits for the daemon rclone to exit before it starts', () => {
+    // Regression guard for a silent data-loss path: walk_kill only sends TERM,
+    // so without this wait bisync_with_r2 could start while the daemon's rclone
+    // was still alive, see a live `rclone bisync` in its stale-lock check,
+    // leave the .lck in place and fast-fail — dropping the final sync and up to
+    // one full cadence of user work. The wait must come BEFORE the sync, so
+    // this asserts the ordering, not merely that both strings are present.
+    const body = shutdownHandlerBody();
+    const waitIdx = body.search(/pgrep -f "rclone bisync"/);
+    const syncIdx = body.search(/^\s*\(?\s*bisync_with_r2\b/m);
+    assert.notEqual(waitIdx, -1, 'shutdown_handler must wait for the daemon rclone bisync to exit');
+    assert.notEqual(syncIdx, -1, 'shutdown_handler must invoke bisync_with_r2');
+    assert.ok(
+      waitIdx < syncIdx,
+      'the reap-wait must precede the final bisync; after it, the stale-lock guard has already lost the race'
+    );
+  });
+
   it('REQ-OPS-010 AC6: terminal server is killed after the final sync completes', () => {
     // TERMINAL_PID must be killed inside shutdown_handler (after bisync)
     assert.notEqual(entrypoint.indexOf('shutdown_handler()'), -1, 'shutdown_handler must be defined');

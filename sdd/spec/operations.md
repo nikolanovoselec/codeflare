@@ -283,6 +283,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - The sync daemon's PID record is the sole mechanism for shutdown; no in-memory fallback exists.
 - The shutdown sync is bounded so a deletion storm cannot wipe R2.
+- Shutdown kills the background init subshell before the pidfile sweep, and waits — bounded, within the shutdown budget — for the sync daemon's rclone process to fully exit before starting the final sync, so the stale-lock guard never races a still-live process. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC5: the final sync waits for the daemon rclone to exit before it starts) -->
 
 **Priority:** P0
 
@@ -542,7 +543,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. A zizmor security audit runs on every pull request or push touching workflow files. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 2. The audit's findings upload as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
-3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/zizmor.yml::actionlint --> <!-- @manual -->
+3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
 4. The audit is merge-blocking: it runs inside the required status context and fails on any surviving finding, while a separate workflow records the same audit as SARIF for alert history. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
 
 **Constraints:**
