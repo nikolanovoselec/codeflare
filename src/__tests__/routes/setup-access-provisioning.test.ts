@@ -258,300 +258,194 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
     adminUsers: ['user@example.com'],
   };
 
-  describe('GET /api/setup/status', () => {
-    it('returns configured: false without tokenDetected when setup is not complete', async () => {
-      const app = createTestApp();
-      mockKV.get.mockResolvedValue(null);
-
-      const res = await app.request('/api/setup/status');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as { configured: boolean };
-      expect(body.configured).toBe(false);
-      expect((body as Record<string, unknown>).tokenDetected).toBeUndefined();
-    });
-
-    it('returns configured: true without tokenDetected when setup is complete', async () => {
-      const app = createTestApp();
-      mockKV.get.mockResolvedValue('true');
-
-      const res = await app.request('/api/setup/status');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as { configured: boolean; tokenDetected?: boolean };
-      expect(body.configured).toBe(true);
-      expect(body.tokenDetected).toBeUndefined();
-    });
-
-    it('returns only configured when CLOUDFLARE_API_TOKEN is not set', async () => {
-      const app = createTestApp({ CLOUDFLARE_API_TOKEN: '' as unknown as string });
-      mockKV.get.mockResolvedValue(null);
-
-      const res = await app.request('/api/setup/status');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as { configured: boolean };
-      expect(body.configured).toBe(false);
-      expect((body as Record<string, unknown>).tokenDetected).toBeUndefined();
-    });
-
-    it('checks setup:complete key in KV', async () => {
-      const app = createTestApp();
-      await app.request('/api/setup/status');
-
-      expect(mockKV.get).toHaveBeenCalledWith('setup:complete');
-    });
-  });
-
-  describe('GET /api/setup/prefill', () => {
-    it('returns empty prefill when CLOUDFLARE_API_TOKEN is not set', async () => {
-      const app = createTestApp({ CLOUDFLARE_API_TOKEN: '' as unknown as string });
-
-      const res = await app.request('/api/setup/prefill');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as { adminUsers: string[]; allowedUsers: string[] };
-      expect(body.adminUsers).toEqual([]);
-      expect(body.allowedUsers).toEqual([]);
-    });
-
-    it('prefills admin/users from Access groups without custom domain', async () => {
-      const app = createTestApp();
-
-      globalThis.fetch = createUrlMockFetch({
-        '/accounts': mockResponses.accounts,
-        '~/access/groups': () => new Response(
-          JSON.stringify({
-            success: true,
-            result: [
-              {
-                id: 'group-admins-123',
-                name: TEST_ADMIN_GROUP_NAME,
-                include: [
-                  { email: { email: 'Admin@Example.com' } },
-                  { email: { email: 'admin@example.com' } },
-                ],
-              },
-              {
-                id: 'group-users-456',
-                name: TEST_USER_GROUP_NAME,
-                include: [{ email: { email: 'member@example.com' } }],
-              },
-            ],
-          }),
-          { status: 200, headers: jsonHeaders }
-        ),
-      });
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/prefill');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as {
-        adminUsers: string[];
-        allowedUsers: string[];
-      };
-      expect((body as Record<string, unknown>).customDomain).toBeUndefined();
-      expect(body.adminUsers).toEqual(['admin@example.com']);
-      expect(body.allowedUsers).toEqual(['member@example.com']);
-    });
-  });
-
   describe('POST /api/setup/configure', () => {
-    it('returns 400 when customDomain is missing', async () => {
-      const app = createTestApp();
 
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ allowedUsers: ['user@example.com'], adminUsers: ['user@example.com'] }),
+    // REQ-SETUP-003: session-OIDC mode (SaaS OR onboarding) + OAUTH_CLIENT_ID skips
+    // CF Access provisioning; the Worker handles auth via its own GitHub-OIDC session
+    // cookie. A stray Access app on a session-OIDC domain 302s the credential-less
+    // vault service-worker registration (REQ-VAULT-017). Gate: isSessionOidcMode.
+    describe('REQ-SETUP-003: CF Access provisioning gated by isSessionOidcMode + OAUTH_CLIENT_ID', () => {
+      // A configure mock fetch whose Access handlers RECORD every call but never
+      // perform real provisioning — so the assertions read the recorded calls.
+      // accessAppFlowMocks() are included so the flow *could* provision if the gate
+      // were gutted (the test then fails), making this gut-checkable.
+      function isAccessProvisionCall(call: unknown[]): boolean {
+        const url = typeof call[0] === 'string' ? call[0] : '';
+        const method = (call[1] as RequestInit | undefined)?.method;
+        const isWrite = method === 'POST' || method === 'PUT';
+        return isWrite && (url.includes('/access/apps') || url.includes('/access/groups') || url.includes('/policies'));
+      }
+
+      it('SKIPS Access provisioning in onboarding mode with OAUTH_CLIENT_ID (THE BUG)', async () => {
+        const app = createTestApp({ ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'x' } as Partial<Env>);
+        // Onboarding needs Turnstile; provide the widget mock so the flow completes.
+        globalThis.fetch = createUrlMockFetch({
+          ...baseFlowMocks(),
+          ...customDomainFlowMocks(),
+          ...accessAppFlowMocks(),
+          '~/challenges/widgets': () => new Response(
+            JSON.stringify({ success: true, result: { sitekey: '0x4AAAAA-test', secret: 'turnstile-secret' } }),
+            { status: 200, headers: jsonHeaders }
+          ),
+        });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(standardBody),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        // No-op runStep keeps the wizard advancing: the step still reports success.
+        expect(lines).toContainEqual(
+          expect.objectContaining({ step: 'create_access_app', status: 'success' })
+        );
+        // But NO CF Access resources were created/updated.
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        expect(mockFetch.mock.calls.filter(isAccessProvisionCall)).toHaveLength(0);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_app_id', expect.anything());
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('VALIDATION_ERROR');
+      it('SKIPS Access provisioning in SaaS mode with OAUTH_CLIENT_ID (regression guard)', async () => {
+        const app = createTestApp({ SAAS_MODE: 'active', OAUTH_CLIENT_ID: 'x' } as Partial<Env>);
+        // SaaS also needs Turnstile; provide the widget mock so the flow completes.
+        globalThis.fetch = createUrlMockFetch({
+          ...baseFlowMocks(),
+          ...customDomainFlowMocks(),
+          ...accessAppFlowMocks(),
+          '~/challenges/widgets': () => new Response(
+            JSON.stringify({ success: true, result: { sitekey: '0x4AAAAA-test', secret: 'turnstile-secret' } }),
+            { status: 200, headers: jsonHeaders }
+          ),
+        });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(standardBody),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(lines).toContainEqual(
+          expect.objectContaining({ step: 'create_access_app', status: 'success' })
+        );
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        expect(mockFetch.mock.calls.filter(isAccessProvisionCall)).toHaveLength(0);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_app_id', expect.anything());
+      });
+
+      it('enterprise mode still PROVISIONS the host-wide Access app + the vault SW-bypass app', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...standardBody, dynamicRoutes: ['development'] }),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(lines).toContainEqual(
+          expect.objectContaining({ step: 'create_access_app', status: 'success' })
+        );
+
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        // Host-wide enterprise Access app is created (POST to /access/apps).
+        const hostAppCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/apps')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+            && JSON.parse(((call[1] as RequestInit).body as string) || '{}').domain === 'claude.example.com'
+        );
+        expect(hostAppCreate).toBeDefined();
+
+        // SW-bypass app is created scoped to the vault service-worker script.
+        const swBypassCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/apps')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+            && JSON.parse(((call[1] as RequestInit).body as string) || '{}').domain === 'claude.example.com/api/vault/*/service_worker.js'
+        );
+        expect(swBypassCreate).toBeDefined();
+        // The SW-bypass app id is persisted to KV under the dedicated key.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:access_sw_bypass_app_id', expect.any(String));
+      });
+
+      it('default mode (no OAUTH_CLIENT_ID, no SaaS/onboarding) still PROVISIONS Access groups + app + policy', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(standardBody),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        const groupCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/groups')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+        );
+        const appCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/apps')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+        );
+        const policyCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/policies')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+        );
+        expect(groupCreate).toBeDefined();
+        expect(appCreate).toBeDefined();
+        expect(policyCreate).toBeDefined();
+      });
+
+      it('REQ-SETUP-004: a re-run in onboarding mode never creates an Access app (idempotent skip)', async () => {
+        const app = createTestApp({ ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'x' } as Partial<Env>);
+        // Both runs must execute the configure flow in bootstrap mode. The
+        // idempotent case in REQ-SETUP-004 AC2 is retry-after-partial, where
+        // setup:complete is unset on each retry. Without this, the first run's
+        // setup:complete='true' write (backed by the mock KV) flips the second
+        // run onto the auth-gated path (403) before it can re-run the flow.
+        mockKV.get.mockResolvedValue(null);
+        globalThis.fetch = createUrlMockFetch({
+          ...baseFlowMocks(),
+          ...customDomainFlowMocks(),
+          ...accessAppFlowMocks(),
+          '~/challenges/widgets': () => new Response(
+            JSON.stringify({ success: true, result: { sitekey: '0x4AAAAA-test', secret: 'turnstile-secret' } }),
+            { status: 200, headers: jsonHeaders }
+          ),
+        });
+
+        for (let run = 0; run < 2; run++) {
+          const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(standardBody),
+          });
+          expect(res.status).toBe(200);
+          await readNdjson(res);
+        }
+
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        // Across BOTH runs: zero Access-app creation/update calls.
+        const accessAppWrites = mockFetch.mock.calls.filter(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/apps')
+            && ((call[1] as RequestInit | undefined)?.method === 'POST'
+              || (call[1] as RequestInit | undefined)?.method === 'PUT')
+        );
+        expect(accessAppWrites).toHaveLength(0);
+      });
     });
-
-    it('returns 400 when allowedUsers is missing', async () => {
-      const app = createTestApp();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customDomain: 'claude.example.com', adminUsers: ['admin@example.com'] }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('returns 400 when allowedUsers is empty array', async () => {
-      const app = createTestApp();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customDomain: 'claude.example.com', allowedUsers: [], adminUsers: ['admin@example.com'] }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('reads token from env, not from request body', async () => {
-      const app = createTestApp({ CLOUDFLARE_API_TOKEN: 'my-env-token' });
-      mockFullSuccessFlow();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
-      });
-
-      expect(res.status).toBe(200);
-      // Consume NDJSON to ensure async work completes
-      await readNdjson(res);
-
-      // Verify CF API was called with the env token, not a body token
-      const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.cloudflare.com/client/v4/accounts',
-        expect.objectContaining({
-          headers: { Authorization: 'Bearer my-env-token' },
-        })
-      );
-    });
-
-    it('returns error when get_account step fails', async () => {
-      const app = createTestApp();
-
-      globalThis.fetch = createUrlMockFetch({
-        '/accounts': () => new Response(
-          JSON.stringify({ success: false, result: [] }),
-          { status: 200 }
-        ),
-      });
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
-      });
-
-      expect(res.status).toBe(200);
-      const lines = await readNdjson(res);
-      // Should have a running then error line for get_account
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'get_account', status: 'error' })
-      );
-      const summary = getNdjsonSummary(lines);
-      expect(summary.success).toBe(false);
-    });
-
-    it('progresses through steps correctly on success', async () => {
-      const app = createTestApp();
-      mockFullSuccessFlow();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
-      });
-
-      expect(res.status).toBe(200);
-      const lines = await readNdjson(res);
-      const summary = getNdjsonSummary(lines);
-      expect(summary.success).toBe(true);
-      // Each step should have running + success lines
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'get_account', status: 'success' })
-      );
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'derive_r2_credentials', status: 'success' })
-      );
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'set_secrets', status: 'success' })
-      );
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'finalize', status: 'success' })
-      );
-    });
-
-    it('sets only 2 secrets (R2 credentials, not CLOUDFLARE_API_TOKEN or ADMIN_SECRET)', async () => {
-      const app = createTestApp();
-      mockFullSuccessFlow();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
-      });
-      await readNdjson(res);
-
-      // Find all secret-setting calls (PUT to /secrets)
-      const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
-      const secretCalls = mockFetch.mock.calls.filter(
-        call => typeof call[0] === 'string' &&
-          call[0].includes('/secrets') &&
-          (call[1] as RequestInit)?.method === 'PUT'
-      );
-      expect(secretCalls).toHaveLength(2);
-
-      // Extract secret names
-      const secretNames = secretCalls.map(call => {
-        const body = JSON.parse((call[1] as RequestInit).body as string);
-        return body.name;
-      });
-      expect(secretNames).toContain('R2_ACCESS_KEY_ID');
-      expect(secretNames).toContain('R2_SECRET_ACCESS_KEY');
-      expect(secretNames).not.toContain('ADMIN_SECRET');
-      expect(secretNames).not.toContain('CLOUDFLARE_API_TOKEN');
-    });
-
-    it('stores users in KV as user:{email} entries', async () => {
-      const app = createTestApp();
-      mockFullSuccessFlow();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customDomain: 'claude.example.com',
-          allowedUsers: ['alice@example.com', 'bob@example.com'],
-          adminUsers: ['alice@example.com'],
-        }),
-      });
-
-      expect(res.status).toBe(200);
-      await readNdjson(res);
-
-      // Verify user entries stored in KV with correct roles
-      expect(mockKV.put).toHaveBeenCalledWith(
-        'user:alice@example.com',
-        expect.stringContaining('"role":"admin"')
-      );
-      expect(mockKV.put).toHaveBeenCalledWith(
-        'user:bob@example.com',
-        expect.stringContaining('"role":"user"')
-      );
-    });
-
-    it('stores setup completion in KV', async () => {
-      const app = createTestApp();
-      mockFullSuccessFlow();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
-      });
-      await readNdjson(res);
-
-      expect(mockKV.put).toHaveBeenCalledWith('setup:complete', 'true');
-      expect(mockKV.put).toHaveBeenCalledWith('setup:account_id', 'acc123');
-      expect(mockKV.put).toHaveBeenCalledWith('setup:completed_at', expect.any(String));
-    });
-
   });
 });

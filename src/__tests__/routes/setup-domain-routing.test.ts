@@ -258,258 +258,49 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
     adminUsers: ['user@example.com'],
   };
 
-  describe('GET /api/setup/status', () => {
-    it('returns configured: false without tokenDetected when setup is not complete', async () => {
-      const app = createTestApp();
-      mockKV.get.mockResolvedValue(null);
-
-      const res = await app.request('/api/setup/status');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as { configured: boolean };
-      expect(body.configured).toBe(false);
-      expect((body as Record<string, unknown>).tokenDetected).toBeUndefined();
-    });
-
-    it('returns configured: true without tokenDetected when setup is complete', async () => {
-      const app = createTestApp();
-      mockKV.get.mockResolvedValue('true');
-
-      const res = await app.request('/api/setup/status');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as { configured: boolean; tokenDetected?: boolean };
-      expect(body.configured).toBe(true);
-      expect(body.tokenDetected).toBeUndefined();
-    });
-
-    it('returns only configured when CLOUDFLARE_API_TOKEN is not set', async () => {
-      const app = createTestApp({ CLOUDFLARE_API_TOKEN: '' as unknown as string });
-      mockKV.get.mockResolvedValue(null);
-
-      const res = await app.request('/api/setup/status');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as { configured: boolean };
-      expect(body.configured).toBe(false);
-      expect((body as Record<string, unknown>).tokenDetected).toBeUndefined();
-    });
-
-    it('checks setup:complete key in KV', async () => {
-      const app = createTestApp();
-      await app.request('/api/setup/status');
-
-      expect(mockKV.get).toHaveBeenCalledWith('setup:complete');
-    });
-  });
-
-  describe('GET /api/setup/prefill', () => {
-    it('returns empty prefill when CLOUDFLARE_API_TOKEN is not set', async () => {
-      const app = createTestApp({ CLOUDFLARE_API_TOKEN: '' as unknown as string });
-
-      const res = await app.request('/api/setup/prefill');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as { adminUsers: string[]; allowedUsers: string[] };
-      expect(body.adminUsers).toEqual([]);
-      expect(body.allowedUsers).toEqual([]);
-    });
-
-    it('prefills admin/users from Access groups without custom domain', async () => {
-      const app = createTestApp();
-
-      globalThis.fetch = createUrlMockFetch({
-        '/accounts': mockResponses.accounts,
-        '~/access/groups': () => new Response(
-          JSON.stringify({
-            success: true,
-            result: [
-              {
-                id: 'group-admins-123',
-                name: TEST_ADMIN_GROUP_NAME,
-                include: [
-                  { email: { email: 'Admin@Example.com' } },
-                  { email: { email: 'admin@example.com' } },
-                ],
-              },
-              {
-                id: 'group-users-456',
-                name: TEST_USER_GROUP_NAME,
-                include: [{ email: { email: 'member@example.com' } }],
-              },
-            ],
-          }),
-          { status: 200, headers: jsonHeaders }
-        ),
-      });
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/prefill');
-      expect(res.status).toBe(200);
-
-      const body = await res.json() as {
-        adminUsers: string[];
-        allowedUsers: string[];
-      };
-      expect((body as Record<string, unknown>).customDomain).toBeUndefined();
-      expect(body.adminUsers).toEqual(['admin@example.com']);
-      expect(body.allowedUsers).toEqual(['member@example.com']);
-    });
-  });
-
   describe('POST /api/setup/configure', () => {
-    it('returns 400 when customDomain is missing', async () => {
-      const app = createTestApp();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ allowedUsers: ['user@example.com'], adminUsers: ['user@example.com'] }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('returns 400 when allowedUsers is missing', async () => {
-      const app = createTestApp();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customDomain: 'claude.example.com', adminUsers: ['admin@example.com'] }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('returns 400 when allowedUsers is empty array', async () => {
-      const app = createTestApp();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customDomain: 'claude.example.com', allowedUsers: [], adminUsers: ['admin@example.com'] }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('reads token from env, not from request body', async () => {
-      const app = createTestApp({ CLOUDFLARE_API_TOKEN: 'my-env-token' });
-      mockFullSuccessFlow();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
-      });
-
-      expect(res.status).toBe(200);
-      // Consume NDJSON to ensure async work completes
-      await readNdjson(res);
-
-      // Verify CF API was called with the env token, not a body token
-      const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.cloudflare.com/client/v4/accounts',
-        expect.objectContaining({
-          headers: { Authorization: 'Bearer my-env-token' },
-        })
-      );
-    });
-
-    it('returns error when get_account step fails', async () => {
-      const app = createTestApp();
-
-      globalThis.fetch = createUrlMockFetch({
-        '/accounts': () => new Response(
-          JSON.stringify({ success: false, result: [] }),
-          { status: 200 }
-        ),
-      });
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
-      });
-
-      expect(res.status).toBe(200);
-      const lines = await readNdjson(res);
-      // Should have a running then error line for get_account
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'get_account', status: 'error' })
-      );
-      const summary = getNdjsonSummary(lines);
-      expect(summary.success).toBe(false);
-    });
-
-    it('progresses through steps correctly on success', async () => {
+    it('handles custom domain configuration with DNS and route', async () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
       const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
+        body: JSON.stringify({
+          customDomain: 'claude.example.com',
+          allowedUsers: ['user@example.com'],
+          adminUsers: ['user@example.com'],
+        }),
       });
 
       expect(res.status).toBe(200);
       const lines = await readNdjson(res);
       const summary = getNdjsonSummary(lines);
       expect(summary.success).toBe(true);
-      // Each step should have running + success lines
+      expect(summary.customDomainUrl).toBe('https://claude.example.com');
       expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'get_account', status: 'success' })
+        expect.objectContaining({ step: 'configure_custom_domain', status: 'success' })
       );
       expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'derive_r2_credentials', status: 'success' })
+        expect.objectContaining({ step: 'create_access_app', status: 'success' })
       );
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'set_secrets', status: 'success' })
-      );
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'finalize', status: 'success' })
-      );
-    });
 
-    it('sets only 2 secrets (R2 credentials, not CLOUDFLARE_API_TOKEN or ADMIN_SECRET)', async () => {
-      const app = createTestApp();
-      mockFullSuccessFlow();
-
-      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(standardBody),
-      });
-      await readNdjson(res);
-
-      // Find all secret-setting calls (PUT to /secrets)
+      // Verify DNS record creation was called with correct parameters
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
-      const secretCalls = mockFetch.mock.calls.filter(
+      const dnsCall = mockFetch.mock.calls.find(
         call => typeof call[0] === 'string' &&
-          call[0].includes('/secrets') &&
-          (call[1] as RequestInit)?.method === 'PUT'
+          call[0].includes('/dns_records') &&
+          (call[1] as RequestInit)?.body !== undefined
       );
-      expect(secretCalls).toHaveLength(2);
-
-      // Extract secret names
-      const secretNames = secretCalls.map(call => {
-        const body = JSON.parse((call[1] as RequestInit).body as string);
-        return body.name;
-      });
-      expect(secretNames).toContain('R2_ACCESS_KEY_ID');
-      expect(secretNames).toContain('R2_SECRET_ACCESS_KEY');
-      expect(secretNames).not.toContain('ADMIN_SECRET');
-      expect(secretNames).not.toContain('CLOUDFLARE_API_TOKEN');
+      expect(dnsCall).toBeDefined();
+      const dnsBody = JSON.parse(dnsCall![1]?.body as string);
+      expect(dnsBody.type).toBe('CNAME');
+      expect(dnsBody.name).toBe('claude');
+      expect(dnsBody.content).toBe('codeflare.test-account.workers.dev');
+      expect(dnsBody.proxied).toBe(true);
     });
 
-    it('stores users in KV as user:{email} entries', async () => {
+    it('uses Access group includes for access policy', async () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
@@ -522,35 +313,358 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
           adminUsers: ['alice@example.com'],
         }),
       });
-
-      expect(res.status).toBe(200);
       await readNdjson(res);
 
-      // Verify user entries stored in KV with correct roles
-      expect(mockKV.put).toHaveBeenCalledWith(
-        'user:alice@example.com',
-        expect.stringContaining('"role":"admin"')
+      // Find the access policy creation call
+      const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+      const policyCall = mockFetch.mock.calls.find(
+        call => typeof call[0] === 'string' &&
+          call[0].includes('/policies') &&
+          (call[1] as RequestInit)?.method === 'POST'
       );
-      expect(mockKV.put).toHaveBeenCalledWith(
-        'user:bob@example.com',
-        expect.stringContaining('"role":"user"')
-      );
+      expect(policyCall).toBeDefined();
+      const policyBody = JSON.parse(policyCall![1]?.body as string);
+      expect(policyBody.include).toEqual([
+        { group: { id: 'group-admins-123' } },
+        { group: { id: 'group-users-456' } },
+      ]);
     });
 
-    it('stores setup completion in KV', async () => {
+    it('returns permission error when zones API returns 403 for custom domain', async () => {
       const app = createTestApp();
-      mockFullSuccessFlow();
+
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/zones?name=': () => new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 10000, message: 'Authentication error' }],
+            result: [],
+          }),
+          { status: 403 }
+        ),
+      });
 
       const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(standardBody),
       });
+
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      expect(lines).toContainEqual(
+        expect.objectContaining({
+          step: 'configure_custom_domain',
+          status: 'error',
+          error: expect.stringContaining('Zone permissions'),
+        })
+      );
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
+      expect(summary.error).toEqual(expect.stringContaining('Zone permissions'));
+    });
+
+    it('returns permission error when zones API returns authentication error message', async () => {
+      const app = createTestApp();
+
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/zones?name=': () => new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 9103, message: 'Unknown X-Auth-Key or X-Auth-Email' }],
+            result: null,
+          }),
+          { status: 400 }
+        ),
+      });
+
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(standardBody),
+      });
+
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
+      expect(summary.error).toEqual(expect.stringContaining('Zone permissions'));
+    });
+
+    it('returns permission error when worker route creation returns auth error', async () => {
+      const app = createTestApp();
+
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/zones?name=': mockResponses.zoneLookup,
+        '/workers/subdomain': mockResponses.subdomainLookup,
+        '~/dns_records': (_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return mockResponses.dnsRecordLookupEmpty();
+          }
+          return mockResponses.dnsRecordCreate();
+        },
+        '/workers/routes': () => new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 10000, message: 'Authentication error' }],
+          }),
+          { status: 403 }
+        ),
+      });
+
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(standardBody),
+      });
+
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
+      expect(summary.error).toEqual(expect.stringContaining('Zone permissions'));
+    });
+
+    it('returns permission error when DNS record creation returns auth error', async () => {
+      const app = createTestApp();
+
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/zones?name=': mockResponses.zoneLookup,
+        '/workers/subdomain': mockResponses.subdomainLookup,
+        '~/dns_records': (_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return mockResponses.dnsRecordLookupEmpty();
+          }
+          // POST/PUT for create/update - return auth error
+          return new Response(
+            JSON.stringify({
+              success: false,
+              errors: [{ code: 10000, message: 'Authentication error' }],
+            }),
+            { status: 403 }
+          );
+        },
+      });
+
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(standardBody),
+      });
+
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
+      expect(summary.error).toEqual(expect.stringContaining('DNS permissions'));
+    });
+
+    it('continues when DNS record already exists (code 81057)', async () => {
+      const app = createTestApp();
+
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/zones?name=': mockResponses.zoneLookup,
+        '/workers/subdomain': mockResponses.subdomainLookup,
+        '~/dns_records': (_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return mockResponses.dnsRecordLookupEmpty();
+          }
+          // POST create - "already exists" error
+          return new Response(
+            JSON.stringify({
+              success: false,
+              errors: [{ code: 81057, message: 'The record already exists.' }],
+            }),
+            { status: 400 }
+          );
+        },
+        '/workers/routes': mockResponses.workerRouteCreate,
+        ...accessAppFlowMocks(),
+      });
+
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(standardBody),
+      });
+
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      expect(lines).toContainEqual(
+        expect.objectContaining({ step: 'configure_custom_domain', status: 'success' })
+      );
+    });
+
+    it('updates existing worker route when creation returns already exists', async () => {
+      const app = createTestApp();
+
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/zones?name=': mockResponses.zoneLookup,
+        '/workers/subdomain': mockResponses.subdomainLookup,
+        '~/dns_records': (_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return mockResponses.dnsRecordLookupEmpty();
+          }
+          return mockResponses.dnsRecordCreate();
+        },
+        '~/workers/routes': (_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return new Response(
+              JSON.stringify({
+                success: true,
+                result: [{ id: 'route-123', pattern: 'claude.example.com/*' }],
+              }),
+              { status: 200 }
+            );
+          }
+          if (init.method === 'POST') {
+            return new Response(
+              JSON.stringify({
+                success: false,
+                errors: [{ code: 10020, message: 'route already exists' }],
+              }),
+              { status: 409 }
+            );
+          }
+          return new Response('', { status: 200 });
+        },
+        ...accessAppFlowMocks(),
+      });
+
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(standardBody),
+      });
+
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      expect(lines).toContainEqual(
+        expect.objectContaining({ step: 'configure_custom_domain', status: 'success' })
+      );
+
+      const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+      const routeUpdateCall = mockFetch.mock.calls.find(
+        call => typeof call[0] === 'string'
+          && call[0].includes('/workers/routes/route-123')
+          && (call[1] as RequestInit)?.method === 'PUT'
+      );
+      expect(routeUpdateCall).toBeDefined();
+    });
+
+    it('updates legacy /app/* worker route to domain/* when route already exists', async () => {
+      const app = createTestApp();
+
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/zones?name=': mockResponses.zoneLookup,
+        '/workers/subdomain': mockResponses.subdomainLookup,
+        '~/dns_records': (_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return mockResponses.dnsRecordLookupEmpty();
+          }
+          return mockResponses.dnsRecordCreate();
+        },
+        '~/workers/routes': (_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return new Response(
+              JSON.stringify({
+                success: true,
+                result: [{ id: 'route-legacy-app', pattern: 'claude.example.com/app/*', script: 'codeflare' }],
+              }),
+              { status: 200 }
+            );
+          }
+          if (init.method === 'POST') {
+            return new Response(
+              JSON.stringify({
+                success: false,
+                errors: [{ code: 10020, message: 'route already exists' }],
+              }),
+              { status: 409 }
+            );
+          }
+          return new Response('', { status: 200 });
+        },
+        ...accessAppFlowMocks(),
+      });
+
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(standardBody),
+      });
+
+      expect(res.status).toBe(200);
       await readNdjson(res);
 
-      expect(mockKV.put).toHaveBeenCalledWith('setup:complete', 'true');
-      expect(mockKV.put).toHaveBeenCalledWith('setup:account_id', 'acc123');
-      expect(mockKV.put).toHaveBeenCalledWith('setup:completed_at', expect.any(String));
+      const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+      const routeUpdateCall = mockFetch.mock.calls.find(
+        call => typeof call[0] === 'string'
+          && call[0].includes('/workers/routes/route-legacy-app')
+          && (call[1] as RequestInit)?.method === 'PUT'
+      );
+      expect(routeUpdateCall).toBeDefined();
+      const routeUpdateBody = JSON.parse((routeUpdateCall![1] as RequestInit).body as string) as {
+        pattern: string;
+        script: string;
+      };
+      expect(routeUpdateBody.pattern).toBe('claude.example.com/*');
+      expect(routeUpdateBody.script).toBe('codeflare');
+    });
+
+    it('uses hostname from workers.dev URL when subdomain API fails', async () => {
+      const app = createTestApp();
+
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(),
+        '/zones?name=': mockResponses.zoneLookup,
+        '/workers/subdomain': () => new Response(
+          JSON.stringify({ success: false, result: null }),
+          { status: 200 }
+        ),
+        '~/dns_records': (_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return mockResponses.dnsRecordLookupEmpty();
+          }
+          return mockResponses.dnsRecordCreate();
+        },
+        '/workers/routes': mockResponses.workerRouteCreate,
+        ...accessAppFlowMocks(),
+      });
+
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(standardBody),
+      });
+
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+
+      // Verify DNS record was created with fallback subdomain from hostname
+      const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+      const dnsCall = mockFetch.mock.calls.find(
+        call => typeof call[0] === 'string' &&
+          call[0].includes('/dns_records') &&
+          (call[1] as RequestInit)?.body !== undefined
+      );
+      expect(dnsCall).toBeDefined();
+      const dnsBody = JSON.parse(dnsCall![1]?.body as string);
+      // Should use hostname fallback from the worker request URL.
+      expect(dnsBody.content).toBe(new URL(TEST_WORKER_BASE_URL).host);
     });
 
   });

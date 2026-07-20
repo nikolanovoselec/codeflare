@@ -535,7 +535,7 @@ None.
 
 1. A container that exits for any reason (graceful stop, crash, or an SDK-surfaced error) transitions its KV status to stopped, and the dashboard reads status directly from the record with no read-side staleness reconciliation. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (writes status=stopped to KV only after the not-running confirmation window (catch-all)) -->
 2. Stopped is written only after the container reads not-running across a confirmation window spanning more than one alarm tick, so a single transient not-running reading never flips a live session to stopped. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (does not flip a live session to stopped on a single transient not-running tick) -->
-3. On a not-running reading from the error path, stopped is not written; the same confirmation window opens and re-arms a metrics tick, deferring the stopped decision to that window. <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @impl: src/container/container-metrics.ts::openNotRunningConfirmation --> <!-- @test: src/__tests__/container/index.test.ts (onError opens the not-running confirmation window and re-arms instead of writing stopped) -->
+3. On a not-running reading from the error path, stopped is not written; the same confirmation window opens and re-arms a metrics tick, deferring the stopped decision to that window. <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @impl: src/container/container-metrics.ts::openNotRunningConfirmation --> <!-- @test: src/__tests__/container/lifecycle.test.ts (onError opens the not-running confirmation window and re-arms instead of writing stopped) -->
 4. When the container is demonstrably running (running branch after a successful `/health` probe) but KV reads stopped, running is re-asserted, unless a persisted shutdown-requested marker shows a deliberate stop is in flight. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 
 **Constraints:**
@@ -549,7 +549,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
 
-**Verification:** [collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts), [onError / onStop lifecycle](../../src/__tests__/container/index.test.ts)
+**Verification:** [collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts), [onError / onStop lifecycle](../../src/__tests__/container/lifecycle.test.ts)
 
 **Status:** Implemented
 
