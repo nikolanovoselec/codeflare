@@ -94,7 +94,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The PR-check workflow triggers on every pull request to the main or develop branch, on push to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
-3. The workflow runs the backend suite (four vitest shards, each pool parallel), frontend (build + tests), landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
+3. The workflow runs the backend suite (four Workers-pool shards plus an unsharded Node-runtime leg), frontend (build + tests), landing, and host suites as parallel jobs. <!-- @impl: .github/actions/backend-tests/action.yml --> <!-- @manual -->
 4. The backend gate accepts a non-zero test-run exit only when the machine-readable vitest JSON report parses with more than zero tests, zero failures, and no zero-test files, and the log carries the exact Workers-pool teardown-crash fingerprint; a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-backend-test-report.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC4: backend test report gate) -->
 5. The aggregate job reconciles the shard reports against the backend test files in the tree and fails when any file ran in no shard, or when the lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC5: cross-shard completeness gate) -->
 6. The workflow runs both backend and frontend typechecks. <!-- @manual -->

@@ -15,13 +15,18 @@ inputs:
     required: false
     default: 'all'
   node-suite:
-    description: 'Run the Pi-extension Node suite ("true"/"false"). It is not sharded — enable in exactly one shard.'
+    description: 'Run the Node-runtime suite ("true"/"false"). It is not sharded — enable in exactly one leg.'
+    required: false
+    default: 'true'
+  workers-suite:
+    description: 'Run the sharded Workers-pool suite ("true"/"false"). Off for the leg that only carries the Node suite.'
     required: false
     default: 'true'
 runs:
   using: composite
   steps:
     - name: Run backend vitest suite
+      if: inputs.workers-suite == 'true'
       shell: bash
       env:
         # Plain-text output so the gate's fingerprint check reads stable bytes.
@@ -38,17 +43,21 @@ runs:
         set -e
         node scripts/ci/check-backend-test-report.mjs "$status" /tmp/backend-tests.json /tmp/backend-tests.log
 
-    - name: Run Pi-extension tests (Node environment)
+    - name: Run Node-environment tests
       # Plain Node vitest project (vitest.node.config.ts): no workerd, but the
       # same JSON gate closes the zero-test hole — a file that loads yet collects
-      # nothing fails loudly instead of rotting green. Runs after `npm test` so
-      # the pretest seed regeneration has already happened.
+      # nothing fails loudly instead of rotting green.
       if: inputs.node-suite == 'true'
       shell: bash
       env:
         NO_COLOR: '1'
         FORCE_COLOR: '0'
+        WORKERS_SUITE: ${{ inputs.workers-suite }}
       run: |
+        # `pretest` (seed regeneration) hooks `npm test`, not `npm run test:node`.
+        # On the leg that skips the Workers suite nothing has regenerated the seeds
+        # yet, and these tests read them.
+        if [ "$WORKERS_SUITE" != "true" ]; then npm run pretest; fi
         set +e
         npm run test:node -- \
           --reporter=dot --reporter=json --outputFile.json=/tmp/node-tests.json \

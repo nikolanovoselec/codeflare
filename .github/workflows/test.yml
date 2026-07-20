@@ -225,7 +225,7 @@ jobs:
         timeout-minutes: 5
 
   backend-tests:
-    name: Backend tests (shard ${{ matrix.shard }})
+    name: Backend tests (${{ matrix.slug }})
     needs: changes
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -242,15 +242,31 @@ jobs:
         # overhead sits in the main process where extra pool workers cannot
         # reach it. It is per-process, though, so it divides cleanly across
         # shards — each of which is its own runner.
+        #
+        # The Node-runtime suite is not shardable, so it gets its own leg rather
+        # than riding one shard and making it the straggler (it cost shard 1 an
+        # extra ~35s while its siblings idled).
         include:
           - shard: '1/4'
             slug: shard-1
+            workers: 'true'
+            node: 'false'
           - shard: '2/4'
             slug: shard-2
+            workers: 'true'
+            node: 'false'
           - shard: '3/4'
             slug: shard-3
+            workers: 'true'
+            node: 'false'
           - shard: '4/4'
             slug: shard-4
+            workers: 'true'
+            node: 'false'
+          - shard: ''
+            slug: node
+            workers: 'false'
+            node: 'true'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -279,9 +295,8 @@ jobs:
         with:
           shard: ${{ matrix.shard }}
           artifact-suffix: ${{ matrix.slug }}
-          # The Node suite is not sharded — running it in every shard is pure
-          # duplication, so only shard 1 carries it.
-          node-suite: ${{ matrix.slug == 'shard-1' }}
+          workers-suite: ${{ matrix.workers }}
+          node-suite: ${{ matrix.node }}
 
   frontend-tests:
     name: Frontend tests
