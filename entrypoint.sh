@@ -179,7 +179,12 @@ create_rclone_config() {
     # and that chmod the R2 access key, secret and the base64 ENCRYPTION_KEY sat
     # in a world-readable file. Short window, single-tenant container — but the
     # ordering costs nothing and the substitutions below are what fill it.
-    umask 077
+    # NOT a bare `umask 077`: umask is per-PROCESS, not per-function, so setting
+    # it here would silently narrow the mode of every file this 3181-line
+    # entrypoint creates afterwards. Create the file 0600 explicitly instead —
+    # same guarantee, no global side effect. (The chmod further down used to be
+    # the first thing narrowing the mode, so the R2 keys and the base64
+    # ENCRYPTION_KEY sat world-readable between the heredoc and it.)
     : > "$USER_HOME/.config/rclone/rclone.conf"
     chmod 600 "$USER_HOME/.config/rclone/rclone.conf"
 

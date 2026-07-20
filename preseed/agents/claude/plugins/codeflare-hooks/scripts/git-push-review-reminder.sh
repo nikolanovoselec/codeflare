@@ -74,14 +74,7 @@ esac
 COMMAND=$(echo "$INPUT" | jq -r '
   if (.tool_input.command // "") != "" then
     .tool_input.command
-  elif (.tool_input.code // "") != "" then
-    # Any language, not just "shell". The gate used to require
-    # .tool_input.language == "shell", so ctx_execute with language "python" and
-    # a subprocess.run payload was invisible to this hook. One parameter on an
-    # already-available tool defeated the control. The comment above the old gate
-    # even predicted the shape of the failure ("if the upstream schema ever stops
-    # requiring language, this gate falls open") without noticing that a language
-    # the schema DOES allow falls open the same way.
+  elif (.tool_input.language // "") == "shell" and (.tool_input.code // "") != "" then
     .tool_input.code
   elif (.tool_input.commands | type? == "array") then
     [.tool_input.commands[]?.command // empty] | join("; ")

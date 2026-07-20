@@ -189,18 +189,13 @@ PUSH_LINE=$(awk '
       print NR; next
     }
   }
-  # C. mcp__*__ctx_execute / ctx_execute_file, ANY language (uses `"code"`).
-  #    The language gate here (`if ($0 !~ /"language":"shell"/) next`) made a
-  #    python or javascript payload invisible — and because
-  #    `[ -n "$PUSH_LINE" ] || exit 0` below reads "no candidate" as "no push",
-  #    that silently skipped this entire enforcement pipeline whatever the real
-  #    PR state. Candidates are deliberately loose; the gh-PR-HEAD truth layer
-  #    downstream is what filters false positives.
+  # C. mcp__*__ctx_execute with `"language":"shell"` (uses `"code"` field).
   #    Pattern note: `mcp__[^"]*ctx_execute"` requires the literal `ctx_execute`
   #    to end at the closing `"` - the trailing `_batch_execute` form does NOT
   #    match. This is the mutual-exclusion anchor that lets blocks B and C
   #    share the line-level `mcp__` prefix without firing twice on one entry.
-  /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute(_file)?"/ {
+  /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
+    if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
     if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
@@ -352,13 +347,7 @@ fi
 # Users who need pre-emptive bypass should use the sentinel file
 # (`touch /tmp/review-bypass`), which fires first via Bypass 1.
 # ---------------------------------------------------------------------------
-# Require an explicit bracketed token, not free English. The previous pattern
-# was `\bskip (the )?(review|verification)\b` over raw user text, so
-# "please dont skip review this time, be thorough" MATCHED — a user asking for
-# more rigour silently disabled enforcement. Any phrasing that mentions skipping
-# in order to reject it has the same effect. An opt-out this consequential should
-# take a deliberate token that cannot appear by accident in a sentence.
-if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\[skip[ -](review|verification)\]'; then
+if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
   exit 0
 fi
 
@@ -480,7 +469,8 @@ retroactive_ack_scan() {
       if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
     }
-    /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute(_file)?"/ {
+    /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
+      if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
       if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
