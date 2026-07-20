@@ -36,7 +36,7 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     include: ['src/**/*.test.ts'],
-    exclude: ['web-ui/**', 'e2e/**'],
+    exclude: ['web-ui/**'],
     // Serialize the Workers pool to one worker. @cloudflare/vitest-pool-workers
     // crashes workerd at pool teardown ("Worker exited unexpectedly") AFTER every
     // test passes — the documented WebSockets + Durable Objects under per-file
