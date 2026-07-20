@@ -115,12 +115,14 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
       entrypoint.includes('--max-delete 100'),
       'entrypoint.sh must pass --max-delete 100 to rclone bisync'
     );
-    // The shutdown handler must actually invoke a bisync (not just the daemon)
-    const handlerIdx = entrypoint.indexOf('shutdown_handler()');
-    const handlerBlock = entrypoint.slice(handlerIdx, handlerIdx + 3000);
+    // The shutdown handler must actually invoke a bisync (not just the daemon).
+    // Matches the CALL, not the substring 'bisync': the handler also mentions
+    // bisync in comments and greps for a running `rclone bisync`, so a loose
+    // match stayed green with the final-sync call deleted.
+    const handlerBlock = shutdownHandlerBody();
     assert.ok(
-      handlerBlock.includes('bisync') || handlerBlock.includes('bisync_with_r2'),
-      'shutdown_handler must invoke bisync/bisync_with_r2 for the final sync to R2'
+      /^\s*\(?\s*bisync_with_r2\b/m.test(handlerBlock),
+      'shutdown_handler must invoke bisync_with_r2 for the final sync to R2'
     );
   });
 
@@ -131,9 +133,11 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
       allTouches.length >= 2,
       'entrypoint.sh must touch /tmp/.bisync-initialized on both the success path and the timeout/error path'
     );
-    // The shutdown_handler must gate the final bisync on this flag existing
-    const handlerIdx = entrypoint.indexOf('shutdown_handler()');
-    const handlerBlock = entrypoint.slice(handlerIdx, handlerIdx + 3000);
+    // The shutdown_handler must gate the final bisync on this flag existing.
+    // Scoped to the actual function body, not a fixed byte window: a 3000-byte
+    // slice made this assertion a proximity check, so adding a dozen lines
+    // anywhere earlier in the handler failed it while the gate was untouched.
+    const handlerBlock = shutdownHandlerBody();
     assert.ok(
       handlerBlock.includes('/tmp/.bisync-initialized'),
       'shutdown_handler must check /tmp/.bisync-initialized before running the final bisync'
