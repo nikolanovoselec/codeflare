@@ -407,7 +407,7 @@ jobs:
           VAR_OAUTH_CLIENT_ID: ${{ (vars.SAAS_MODE == 'active' || vars.ONBOARDING_LANDING_PAGE == 'active') && secrets.OAUTH_CLIENT_ID || '' }}
         run: |
           # Optional --var flags are assembled in bash from env (never inline
-          # ${{ }} in the command: template-injection hygiene + safe quoting).
+          # workflow expressions in the command: injection hygiene + safe quoting).
           run_deploy() {
             local args=(--var "ONBOARDING_LANDING_PAGE:${VAR_ONBOARDING}" --var "CLOUDFLARE_WORKER_NAME:${WORKER_NAME}")
             [ -n "$VAR_MAX_SESSIONS_USER" ] && args+=(--var "MAX_SESSIONS_USER:${VAR_MAX_SESSIONS_USER}")
