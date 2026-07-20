@@ -200,6 +200,11 @@ const passing = (files = 2) => ({
   numTotalTests: files,
   numFailedTests: 0,
   numFailedTestSuites: 0,
+  // The gate asserts these are integers rather than defaulting them to 0, so a
+  // reporter that stops emitting them cannot silently retire the skipped-test
+  // check. That makes them part of the fixture contract, not optional decoration.
+  numPendingTests: 0,
+  numTodoTests: 0,
   testResults: Array.from({ length: files }, (_, i) => ({
     name: `/checkout/src/${i}.test.ts`,
     assertionResults: [{ status: 'passed' }],
@@ -231,7 +236,7 @@ describe('REQ-OPS-003 AC4: vitest report gate', () => {
 
   it('rejects a run that collected zero tests', () => {
     expect(
-      runReportGate(0, { numTotalTests: 0, numFailedTests: 0, numFailedTestSuites: 0, testResults: [] }, '')
+      runReportGate(0, { ...passing(0), numTotalTests: 0 }, '')
         .status,
     ).toBe(1);
   });
@@ -246,5 +251,39 @@ describe('REQ-OPS-003 AC4: vitest report gate', () => {
 
   it('rejects an unparseable report', () => {
     expect(runReportGate(0, '{ not json', '').status).toBe(1);
+  });
+
+  it('rejects a report with no testResults array at all', () => {
+    // A summary with no per-file evidence used to satisfy the gate: the
+    // zero-assertion check iterated an empty array and found nothing wrong. The
+    // gate's whole premise is that the exit code is untrustworthy and the report
+    // is the evidence, so a report carrying no evidence cannot pass.
+    const { testResults: _omitted, ...noDetail } = passing();
+    expect(runReportGate(0, noDetail, '').status).toBe(1);
+  });
+
+  it('rejects a summary count that disagrees with the per-file detail', () => {
+    const r = passing();
+    r.numTotalTests = 99;
+    const out = runReportGate(0, r, '');
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain('99');
+  });
+
+  it('rejects a report missing the skipped/todo counters', () => {
+    // With `?? 0` these defaulted silently, so a reporter that renamed them
+    // turned the skip gate into `0 > 0` — permanently false, with nothing to
+    // notice that the .skip backstop had gone.
+    const { numPendingTests: _p, ...noPending } = passing();
+    expect(runReportGate(0, noPending, '').status).toBe(1);
+  });
+
+  it('rejects skipped and todo tests', () => {
+    expect(runReportGate(0, { ...passing(), numPendingTests: 1 }, '').status).toBe(1);
+    expect(runReportGate(0, { ...passing(), numTodoTests: 1 }, '').status).toBe(1);
+  });
+
+  it('rejects a negative collected-test count', () => {
+    expect(runReportGate(0, { ...passing(0), numTotalTests: -1 }, '').status).toBe(1);
   });
 });

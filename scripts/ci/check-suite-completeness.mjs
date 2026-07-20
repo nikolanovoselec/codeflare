@@ -33,6 +33,15 @@ try {
   console.error('::error::suite-completeness gate: lane-results argument is not JSON');
   process.exit(1);
 }
+// JSON.parse('null') yields null and JSON.parse('5') yields a number — both are
+// valid JSON, so the catch above does not fire, and hasOwnProperty.call(null, …)
+// then throws a raw TypeError instead of the ::error:: annotation this gate
+// exists to emit. It still failed closed, just illegibly. A lane map that is not
+// an object cannot describe any lane.
+if (laneResults === null || typeof laneResults !== 'object' || Array.isArray(laneResults)) {
+  console.error(`::error::suite-completeness gate: lane-results argument is not a JSON object: ${laneJson}`);
+  process.exit(1);
+}
 
 /** Every file under `dir` (recursively) satisfying `keep`. */
 function collect(dir, keep, out = []) {

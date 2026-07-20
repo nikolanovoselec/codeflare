@@ -25,8 +25,11 @@
   // manifest — the entire rollback history this script exists to preserve — is
   // deleted in one run, while the log cheerfully prints "Keeping 1 tags".
   if (!Number.isInteger(KEEP_N) || KEEP_N < 1) {
-    console.log("::error::KEEP_N must be a positive integer, got " + JSON.stringify(process.env.KEEP_N));
-    process.exitCode = 1;
+    // Warning + skip, not exit 1: the file header promises every internal error
+    // degrades that way, and a misconfigured KEEP_N must not fail a deploy that
+    // has already shipped the worker. Skipping is the safe direction anyway —
+    // nothing is deleted.
+    console.log("::warning::KEEP_N must be a positive integer, got " + JSON.stringify(process.env.KEEP_N) + "; skipping prune");
     return;
   }
   // URI shape: registry.cloudflare.com/<acct>/<repo>:<tag>
@@ -59,16 +62,16 @@
   //
   // End of list is the ABSENCE of a `Link: <...>; rel="next"` header. `n` is a
   // maximum the server may undercut, so `page.length < 500` is not a
-  // termination signal: against a registry that caps pages at 100, the first
-  // response ended enumeration with `complete` still true and the prune then
-  // ran against a lexical prefix of the repository — exactly the partial
-  // enumeration the comment above says it must refuse.
+  // termination signal: a registry that caps pages below the requested n would
+  // end enumeration on its first response with `complete` still true, and the
+  // prune would then run against a lexical prefix of the repository — exactly
+  // the partial enumeration the comment above says it must refuse. Whether any
+  // registry this talks to actually caps is not known; the point is that the
+  // code must not depend on it not doing so.
   const tagSet = new Set();
   let last = "";
   let complete = true;
-  let pages = 0;
   for (let p = 0; p < 200; p++) {
-    pages = p + 1;
     const url = base + "/tags/list?n=500" + (last ? "&last=" + encodeURIComponent(last) : "");
     const r = await fetch(url, { headers: { Authorization: auth } });
     if (!r.ok) { console.log("::warning::tags/list HTTP " + r.status); complete = false; break; }
@@ -80,9 +83,16 @@
     for (const t of page) tagSet.add(t);
     const added = tagSet.size - before;
 
+    // Require BOTH signals before declaring the list complete. `Link: rel=next`
+    // is a SHOULD in the distribution spec, so a registry that paginates via
+    // `last=` without emitting it would end enumeration after one page — and a
+    // full page is positive evidence that more exist. Neither signal alone is
+    // safe: page size can be undercut by the server, and Link can be absent.
+    // Whether the Cloudflare registry emits Link has not been measured, so this
+    // deliberately does not depend on knowing.
     const link = r.headers.get("link") || "";
     const hasNext = /rel="?next"?/.test(link);
-    if (!hasNext) break;
+    if (!hasNext && page.length < 500) break;
 
     // A "next" link that yields nothing new means the cursor is not advancing
     // (an inclusive `last`, or a server ignoring it). Continuing would spin to
@@ -100,7 +110,18 @@
 
   // Fetch manifest digest + creation time per tag, concurrency-bounded
   async function info(tag) {
-    const r = await fetch(base + "/manifests/" + tag, { headers: { Authorization: auth, Accept: accept } });
+    // Retry before giving up. Failing closed on an unresolvable manifest is
+    // right, but without a retry a single 429 among 16-way concurrent fetches
+    // aborts the entire prune — and every aborted prune leaves more tags, which
+    // means more fetches next run, which raises the flake probability again. The
+    // ratchet ends at a registry so full that `wrangler containers push` drops
+    // connections mid-upload, i.e. exactly what this script exists to prevent.
+    let r;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await new Promise((res) => setTimeout(res, 500 * attempt));
+      r = await fetch(base + "/manifests/" + tag, { headers: { Authorization: auth, Accept: accept } });
+      if (r.ok) break;
+    }
     if (!r.ok) return null;
     const digest = r.headers.get("docker-content-digest");
     const body = await r.json();

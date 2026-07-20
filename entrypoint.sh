@@ -15,10 +15,11 @@ echo "[entrypoint] PWD: $(pwd)"
 
 # Initialize PID placeholders
 # Empty, not 0. `kill 0` is POSIX for "signal every process in my process
-# group", and the guard below is `[ -n "$TERMINAL_PID" ]`, which "0" satisfies.
-# The trap is installed long before this is assigned, so any early shutdown ran
-# `kill 0` and SIGTERMed the whole container group — including PID 1, which has
-# the same trap. The sibling placeholder (SYNC_DAEMON_PID="") is the right idiom.
+# group", and the guard at the kill site is `[ -n "$TERMINAL_PID" ]`, which "0"
+# satisfies. The exposure window is from the trap being armed (~line 1429) until
+# the real PID is assigned (~line 1866): a shutdown landing in there ran `kill 0`
+# and SIGTERMed the whole container group, including PID 1, which carries the
+# same trap. The sibling placeholder (SYNC_DAEMON_PID="") is the right idiom.
 TERMINAL_PID=""
 
 echo "[entrypoint] pwd: $(pwd)"

@@ -235,19 +235,21 @@ RUN npm install -g \
 
 # Assert the pin took, and that the pruning above did not break what it pruned.
 #
-# Two gaps this closes. First, the prune is blind: `if [ -d prebuilds ]` yields 0
-# when the directory is absent and `rm -rf` yields 0 on paths that do not exist,
-# so a release that relocates its native binaries prunes nothing (or, worse, has
-# something it now needs removed) and every layer below still builds green.
-# codex, opencode and copilot were never invoked at build time — the two
-# --version warm-ups that would have covered them are commented out below — so
-# the first thing to notice would have been a user's session.
+# What this DOES check: that `npm install -g "pkg@${ARG}"` actually installed the
+# pinned version. With an empty ARG that spec resolves to latest, silently
+# unpinning the most privileged packages in the image — so comparing the
+# installed version against the ARG is what makes the pin load-bearing rather
+# than decorative. The Pi prewarm block below already asserts exactly this; these
+# four were the exception.
 #
-# Second, `npm install -g "pkg@"` with an empty ARG resolves to latest, silently
-# unpinning the most privileged packages in the image. Comparing the installed
-# version against the ARG is what makes the pin load-bearing rather than
-# decorative. The Pi prewarm block below already asserts exactly this; these four
-# were the exception.
+# What it does NOT check, stated plainly: `command -v` is a symlink-existence
+# test. It cannot tell that the blind prune below matched nothing (`if [ -d
+# prebuilds ]` yields 0 when absent, `rm -rf` yields 0 on missing paths), nor
+# that a release relocated a native binary, nor that something copilot now needs
+# was removed. Actually invoking the three binaries would close that, but the
+# --version warm-ups were deliberately removed (AD96) because their V8 compile
+# caches inflate the image; re-adding them here would undo that trade. The gap is
+# real and unclosed.
 RUN set -eu; \
     check() { \
       installed=$(node -p "require('/usr/local/lib/node_modules/$1/package.json').version" 2>/dev/null || true); \
