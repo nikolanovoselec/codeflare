@@ -75,9 +75,12 @@ jobs:
       attestations: write # store the attestation on this repository
     timeout-minutes: 30
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+      # Registry credentials are deliberately NOT job-level. At job scope they
+      # sit in process.env for every third-party action in this job —
+      # docker/login-action, setup-buildx, trivy-action, actions/cache,
+      # attest-build-provenance — none of which need them, so one compromised
+      # release of any of them reads a production Cloudflare deploy token. Only
+      # the two steps that talk to a registry declare them.
       IMAGE_NAME: ${{ inputs.worker-name }}-container
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     outputs:
@@ -96,7 +99,12 @@ jobs:
           # Every path the Dockerfile COPYs, plus the Dockerfile itself. The
           # weekly salt forces at most one rebuild+rescan per ISO week even
           # with unchanged inputs (fresh @latest agents, fresh CVE verdict).
-          HASHED_PATHS="Dockerfile entrypoint.sh host preseed scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs src/lib/agent-seed.generated.ts"
+          # .dockerignore decides what the COPYs actually include and
+          # .trivyignore decides which CVEs the scan tolerates. Neither was
+          # hashed, so deleting a suppression left the tag identical, the reuse
+          # probe hit, and build+scan+push were skipped — the image shipped with
+          # the CVE and the scan that would now fail never ran.
+          HASHED_PATHS="Dockerfile .dockerignore .trivyignore entrypoint.sh host preseed scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs src/lib/agent-seed.generated.ts"
 
           # Guard: every COPY source in the Dockerfile must be covered by
           # HASHED_PATHS — otherwise the reuse gate could serve a stale image
@@ -166,6 +174,9 @@ jobs:
         env:
           TAG: ${{ steps.hash.outputs.tag }}
           REGISTRY: ${{ inputs.registry }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           if [ "${REGISTRY}" = "dockerhub" ]; then
             URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
@@ -340,6 +351,9 @@ jobs:
         env:
           TAG: ${{ steps.hash.outputs.tag }}
           REGISTRY: ${{ inputs.registry }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           if [ "${REGISTRY}" = "dockerhub" ]; then
             REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
@@ -388,39 +402,62 @@ jobs:
           fi
           echo "Registry URI: ${REGISTRY_URI}"
 
-          # The manifest digest is what `gh attestation verify` resolves an image
-          # to, and it is only obtainable on the Docker Hub path: `docker push`
-          # populates RepoDigests, whereas `wrangler containers push` prints only
-          # "Pushed image: <uri>" and leaves the docker daemon unauthenticated
-          # against registry.cloudflare.com, so nothing here can read the manifest
-          # back. Attesting a config digest instead would produce an attestation
-          # the standard tooling cannot verify — theatre, not provenance.
+          # Provenance is keyed on the digest the REGISTRY assigned, because that
+          # is what `gh attestation verify` resolves an image reference to. A
+          # config digest would produce an attestation the standard tooling
+          # cannot check, so both paths read the real manifest digest back or
+          # fail — an unverifiable attestation is worse than none.
           if [ "${REGISTRY}" = "dockerhub" ]; then
             # Guard the empty case in the template, not after the fact: steps run
             # as `bash -e`, and `index` on an empty RepoDigests slice fails the
             # command, aborting the step before the check below could report why.
             DIGEST=$(docker image inspect "${REGISTRY_URI}" \
               --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' | cut -d@ -s -f2)
-            if [ -z "${DIGEST}" ]; then
-              echo "::error::Pushed to Docker Hub but could not read back the manifest digest"
+          else
+            # `wrangler containers push` prints no digest and leaves the docker
+            # daemon unauthenticated against registry.cloudflare.com — but the
+            # reuse gate above proves the manifest is readable anyway: mint the
+            # same short-lived pull credential and take Docker-Content-Digest off
+            # the response. Same Accept set as the reuse probe, so the digest
+            # returned is for the same representation.
+            CRED=$(curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/containers/registries/registry.cloudflare.com/credentials" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' \
+              --data '{"expiration_minutes":10,"permissions":["pull"]}')
+            if [ "$(printf '%s' "$CRED" | jq -r .success)" != "true" ]; then
+              echo "::error::Could not mint registry credentials to read back the pushed manifest digest"
               exit 1
             fi
-            echo "Manifest digest: ${DIGEST}"
-            echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+            AUTH=$(printf '%s:%s' "$(printf '%s' "$CRED" | jq -r .result.username)" "$(printf '%s' "$CRED" | jq -r .result.password)" | base64 -w0)
+            ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
+            DIGEST=$(curl -sS -o /dev/null -D - -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
+              "https://registry.cloudflare.com/v2/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}/manifests/${TAG}" \
+              | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }')
           fi
 
+          case "${DIGEST}" in
+            sha256:*) ;;
+            *)
+              echo "::error::Pushed to ${REGISTRY} but could not read back a manifest digest (got '${DIGEST}') — refusing to attest an unverifiable subject"
+              exit 1
+              ;;
+          esac
+          echo "Manifest digest: ${DIGEST}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
       - name: Attest build provenance
-        # Only on the Docker Hub path: that is the one registry this pipeline
-        # pushes to that a third party can pull from, and the one where the
-        # manifest digest is available (see the push step). subject-name is the
-        # bare image name, never the registry URI — the URI embeds the Docker Hub
-        # username, which is a secret, and an attestation is public.
-        # push-to-registry stays false for the same reason plus the extra write
-        # scope it would need; `gh attestation verify` resolves by digest against
-        # this repository, so the attestation is still verifiable:
-        #   gh attestation verify oci://docker.io/<user>/<image>:<tag> \
+        # Runs on BOTH registries, so the production path is covered rather than
+        # only the emergency bypass. Skipped when the image was reused: no new
+        # artifact was produced, and the identical-input image already carries
+        # the attestation from the build that created it.
+        #
+        # subject-name is the bare image name, never the registry URI — the URI
+        # embeds the account id / Docker Hub username, and an attestation is
+        # PUBLIC. push-to-registry stays false for the same reason plus the extra
+        # write scope it would need; `gh attestation verify` resolves by digest
+        # against this repository, so the attestation is still verifiable:
+        #   gh attestation verify oci://<registry>/<path>:<tag> \
         #     --repo nikolanovoselec/codeflare
-        if: inputs.registry == 'dockerhub' && steps.reuse.outputs.reused != 'true'
+        if: steps.reuse.outputs.reused != 'true'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-name: ${{ env.IMAGE_NAME }}

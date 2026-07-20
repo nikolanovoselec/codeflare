@@ -1,0 +1,42 @@
+name: Install k6
+description: Install a checksum-verified k6 release binary
+
+# Four stress jobs installed k6 with `curl -sL … | tar xz` piped straight into
+# tar, then `sudo mv` into /usr/local/bin — no integrity check, as root, in jobs
+# that hold CF_ACCESS_CLIENT_SECRET, OAUTH_E2E_TEST_SECRET and (in setup) a
+# Cloudflare API token. The workflow-audit lane already fixed this class for
+# actionlint and zizmor; stress-test was never swept.
+#
+# One action rather than four copies: the version and its checksum must move
+# together, and four places to edit is four chances to move only one.
+#
+# Unlike zizmor, k6 publishes a checksums.txt per release, so the pin below was
+# taken from that file and independently confirmed against the served artifact —
+# it is a verification, not a trust-on-first-use hash.
+
+inputs:
+  version:
+    description: k6 release version, without the leading v
+    required: false
+    default: '0.56.0'
+  sha256:
+    description: SHA256 of k6-v<version>-linux-amd64.tar.gz, from the release checksums.txt
+    required: false
+    default: 'f90877b2721dbc607853ff785433c9a471e5aafdee788e78f6c833413541d649'
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        K6_VERSION: ${{ inputs.version }}
+        K6_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        ASSET="k6-v${K6_VERSION}-linux-amd64"
+        curl -fsSL -o "$RUNNER_TEMP/k6.tar.gz" \
+          "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/${ASSET}.tar.gz"
+        echo "${K6_SHA256}  $RUNNER_TEMP/k6.tar.gz" | sha256sum -c -
+        tar -xzf "$RUNNER_TEMP/k6.tar.gz" -C "$RUNNER_TEMP" "${ASSET}/k6"
+        sudo mv "$RUNNER_TEMP/${ASSET}/k6" /usr/local/bin/k6
+        k6 version

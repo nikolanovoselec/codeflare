@@ -142,6 +142,16 @@ jobs:
               - 'landing/**'
             host:
               - *shared
+              # host/__tests__ asserts on the STRUCTURE of workflows other than
+              # test.yml: deploy-requires-tests.test.js and
+              # workflow-deploy-max-instances.test.js read deploy.yml,
+              # zizmor-version-lockstep.test.js reads zizmor.yml,
+              # workflow-stress-test.test.js reads stress-test.yml. Without
+              # '.github/**' here, a PR editing only deploy.yml skips this lane,
+              # so the guard written specifically to make that edit visible never
+              # runs. A test that can be disarmed by editing the file it guards
+              # is not a guard.
+              - '.github/**'
               - 'host/**'
               - 'preseed/**'
             workflows:
@@ -505,7 +515,9 @@ jobs:
 
       - name: Publish the coverage table
         if: always()
-        run: node scripts/ci/render-coverage-summary.mjs /tmp/coverage.log "${{ matrix.slug }}" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          SLUG: ${{ matrix.slug }}
+        run: node scripts/ci/render-coverage-summary.mjs /tmp/coverage.log "$SLUG" >> "$GITHUB_STEP_SUMMARY"
 
   frontend-tests:
     name: Frontend tests (${{ matrix.slug }})
@@ -577,6 +589,16 @@ jobs:
         with:
           directory: landing
           key-prefix: landing
+
+      - name: Build landing
+        # Same reason the web-ui shard builds (see frontend-tests): landing's
+        # vitest uses getViteConfig for Container-API component rendering, which
+        # does not exercise astro routing, content collections or adapter output.
+        # Without this, a change that breaks `astro build` passes PR Checks green
+        # and only surfaces in deploy.yml's build-worker job — after the gate that
+        # was supposed to catch it already approved the merge.
+        run: npm run build
+        working-directory: landing
 
       - name: Run suite (fail-closed gate)
         # Container-API render tests + pure-logic unit tests (landing/README.md)
@@ -658,7 +680,20 @@ jobs:
         run: |
           set -euo pipefail
           xargs -a "$RUNNER_TEMP/host-tests.txt" \
-            node --experimental-test-module-mocks --test --test-timeout=60000
+            node --experimental-test-module-mocks --test --test-timeout=60000 \
+              --test-reporter=spec --test-reporter-destination=stdout \
+              --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report.xml"
+
+          # node --test exits 0 when the files it was handed define no tests at
+          # all, so "the selection was non-empty" is not the same as "assertions
+          # ran". This is the host-lane equivalent of check-vitest-report.mjs's
+          # zero-collected-tests gate.
+          COUNT=$(grep -o 'tests="[0-9]*"' "$RUNNER_TEMP/host-report.xml" | head -1 | grep -o '[0-9]*' || echo 0)
+          if [ "${COUNT:-0}" -lt 1 ]; then
+            echo "::error::The host lane executed 0 tests. It ran the files it selected and none of them asserted anything."
+            exit 1
+          fi
+          echo "Host lane executed ${COUNT} tests."
         timeout-minutes: 5
 
   dependency-review:

@@ -309,10 +309,24 @@ jobs:
 
       - name: Resolve KV namespace
         run: |
+          set -o pipefail
           KV_TITLE="${WORKER_NAME}-kv"
 
-          # Check if namespace already exists
-          KV_ID=$(npx wrangler kv namespace list 2>/dev/null \
+          # `2>/dev/null` used to hide the ONE error that must not be hidden.
+          # If `kv namespace list` fails transiently — CF 5xx, rate limit, token
+          # still propagating — stderr was discarded and `set -e` does not fire
+          # for a command substitution wrapping a pipeline in an assignment, so
+          # KV_ID came out empty. Empty was then read as "the namespace does not
+          # exist", a SECOND namespace with the same title was created, and
+          # wrangler.toml was pointed at the new empty one: the deploy reports
+          # success while every user record, preference and setup value vanishes
+          # from the worker's view. "I could not ask" and "it is not there" are
+          # different answers and must not share a code path.
+          if ! LIST=$(npx wrangler kv namespace list 2>&1); then
+            echo "::error::Could not list KV namespaces — refusing to guess. Output: ${LIST}"
+            exit 1
+          fi
+          KV_ID=$(printf '%s' "$LIST" \
             | sed -n '/^\[/,/^\]/p' \
             | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
             | head -1)
@@ -624,3 +638,45 @@ jobs:
             echo "| Image tag | ${IMAGE_TAG} |"
             echo "| Image reused (build/scan skipped) | ${REUSED} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # A Deploy run in which every gated job declines to run reports `success`,
+  # because a skipped job is not a failed one. `gh run list --workflow=deploy.yml`
+  # then shows a green Deploy against a SHA that was never deployed — which is
+  # exactly the reading someone does when asking "did that ship?". test.yml has a
+  # `summary` job that refuses to let skipped lanes masquerade as passed ones;
+  # this is the same idea for the deploy side: a green Deploy must mean a deploy
+  # happened.
+  outcome:
+    name: Deploy outcome
+    needs: [verify, prepare, build-worker, container, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert the run did what its name says
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          DEPLOY=$(echo "$RESULTS" | jq -r '.deploy.result')
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+
+          if [ "$DEPLOY" = "success" ]; then
+            echo "Worker deployed."
+            exit 0
+          fi
+
+          {
+            echo "## No deploy happened"
+            echo ""
+            echo '```'
+            echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$DEPLOY" = "skipped" ]; then
+            echo "::error::Nothing was deployed — the gate was not satisfied (see the job results above). Failing so this run is not mistaken for a successful deploy."
+          else
+            echo "::error::The deploy job ended '$DEPLOY'."
+          fi
+          exit 1

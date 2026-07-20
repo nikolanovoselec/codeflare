@@ -174,10 +174,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+      - uses: ./.github/actions/install-k6
 
       - name: Run API throughput test
         env:
@@ -212,10 +209,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+      - uses: ./.github/actions/install-k6
 
       - name: Run session lifecycle test
         env:
@@ -250,10 +244,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+      - uses: ./.github/actions/install-k6
 
       - name: Run storage operations test
         env:
@@ -274,7 +265,10 @@ jobs:
   rate-limit-validation:
     name: Stress Test with Rate Limits
     needs: setup
-    if: inputs.suite == 'rate-limit-validation'
+    # 'all' used to exclude this suite, so the broadest option a user can pick
+    # ran three of the four and the summary reported green having never
+    # validated rate limits at all.
+    if: inputs.suite == 'all' || inputs.suite == 'rate-limit-validation'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     environment: integration
     timeout-minutes: 10
@@ -288,10 +282,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install k6
-        run: |
-          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
-          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+      - uses: ./.github/actions/install-k6
 
       - name: Validate rate limits are enforced
         run: |
@@ -365,16 +356,21 @@ jobs:
             exit 1
           fi
           for f in "${results[@]}"; do
-            if [ -f "$f" ]; then
-              # k6 summary export includes threshold pass/fail
-              if grep -q '"thresholds"' "$f" 2>/dev/null; then
-                if grep -q '"ok":false' "$f" 2>/dev/null; then
-                  echo "FAIL: Threshold breached in $f"
-                  failed=1
-                else
-                  echo "PASS: All thresholds met in $f"
-                fi
-              fi
+            if [ ! -f "$f" ]; then
+              echo "::error::$f disappeared between the glob and the read"
+              failed=1
+            elif ! grep -q '"thresholds"' "$f" 2>/dev/null; then
+              # No else-branch here meant a summary export whose schema changed,
+              # or that k6 truncated, contributed nothing and could not fail the
+              # step — the file was present, unreadable as a verdict, and silently
+              # counted as fine.
+              echo "::error::$f has no \"thresholds\" key — the export schema is not what this gate parses, so no verdict was read from it"
+              failed=1
+            elif grep -q '"ok":false' "$f" 2>/dev/null; then
+              echo "FAIL: Threshold breached in $f"
+              failed=1
+            else
+              echo "PASS: All thresholds met in $f"
             fi
           done
           exit $failed

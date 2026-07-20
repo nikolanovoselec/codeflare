@@ -30,6 +30,15 @@ on:
     - cron: '0 6 * * 1'  # Mondays 06:00 UTC
   workflow_dispatch:
 
+# Every job probes `git ls-remote` for an existing bump branch and then creates
+# it. That check is TOCTOU the moment two runs overlap — a Monday cron racing a
+# manual dispatch would have both jobs decide the branch is absent and both push.
+# Serialised rather than cancel-in-progress: a half-finished run has already
+# pushed branches, and cancelling it would leave them without PRs.
+concurrency:
+  group: bump-shadow-pins
+  cancel-in-progress: false
+
 # Baseline is read-only; every job that pushes a bump branch and opens a PR
 # elevates itself. pi-extensions-discover only lists package names.
 #
@@ -45,6 +54,11 @@ permissions:
 jobs:
   context-mode:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -215,6 +229,11 @@ jobs:
 
   graphify:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -334,6 +353,11 @@ jobs:
 
   zoxide:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -437,6 +461,11 @@ jobs:
 
   yazi:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -540,6 +569,11 @@ jobs:
 
   lazygit:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -643,6 +677,11 @@ jobs:
 
   silverbullet:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -746,6 +785,11 @@ jobs:
 
   openvscode-server:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -858,6 +902,11 @@ jobs:
     # autodetects it for faster ctx_execute/ctx_batch_execute subprocess starts.
     # The Dockerfile literal is invisible to Dependabot, so this job tracks it.
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -973,6 +1022,7 @@ jobs:
   # graphify-native.ts extension.)
   pi-extensions-discover:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       packages: ${{ steps.list.outputs.packages }}
     steps:
@@ -998,6 +1048,11 @@ jobs:
       matrix:
         package: ${{ fromJson(needs.pi-extensions-discover.outputs.packages) }}
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -1136,6 +1191,11 @@ jobs:
     # It is not an npm dependency; the canonical skill bundle version is exposed
     # by impeccable.style and must be copied into both runtimes together.
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -1240,6 +1300,11 @@ jobs:
     # with no per-session npx fetch). That Dockerfile literal is invisible to
     # Dependabot, so this job bumps it weekly.
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -1348,6 +1413,11 @@ jobs:
     # as an npx cache + stable bin path; the Dockerfile version env is invisible
     # to Dependabot, so this job bumps it weekly.
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -1456,6 +1526,11 @@ jobs:
     # lockfile and is not covered by Dependabot or the pi-extensions job (which only
     # reads the Pi package.json), so this job bumps it weekly.
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -1561,6 +1636,11 @@ jobs:
 
   zizmor:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
@@ -1714,6 +1794,11 @@ jobs:
 
   actionlint:
     runs-on: ubuntu-latest
+    # Without this every job inherits the 360-minute ceiling. These jobs curl
+    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
+    # connection burns six runner-hours before GitHub kills it. install-deps
+    # already wraps npm ci in `timeout 600` for exactly this reason.
+    timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
       pull-requests: write # open the bump PR
