@@ -4,7 +4,7 @@ name: PR Checks
 #   - pull_request targeting main OR develop (pre-merge gate; develop
 #     is included so the feature → develop step of the canonical flow
 #     gets the same pre-merge signal as feature → main does)
-#   - workflow_dispatch (manual re-run)
+#   - workflow_dispatch (manual re-run; runs every lane unconditionally)
 #
 # `push` deliberately does NOT list develop: while a develop → main PR is
 # open, a push to develop already fires a pull_request (synchronize) run,
@@ -17,6 +17,14 @@ name: PR Checks
 # (push to main). The post-merge run is the one Deploy gates on via
 # workflow_run; the pre-merge run is what blocks the merge button. Those
 # are distinct refs/purposes, not the duplicate this trigger list avoids.
+#
+# Topology: the `changes` job path-filters the diff; the lanes run in
+# PARALLEL, each gated on its filter (all lanes run on workflow_dispatch).
+# The `summary` job — check name "test", the required branch-protection
+# context — aggregates: failure/cancelled in any needed lane fails it,
+# skipped lanes (nothing relevant changed) pass it. Backend tests are
+# sharded 2-way because @cloudflare/vitest-pool-workers forces
+# maxWorkers=1 (see vitest.config.ts); the shards halve the longest lane.
 on:
   push:
     branches: [main]
@@ -32,7 +40,127 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      webui: ${{ steps.filter.outputs.webui }}
+      landing: ${{ steps.filter.outputs.landing }}
+      host: ${{ steps.filter.outputs.host }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          # `shared` is an anchor, not a lane: pipeline changes re-run every lane.
+          # Root package.json/lock are shared because the root toolchain (vitest,
+          # oxlint, knip, wrangler) gates every lane's behavior.
+          filters: |
+            shared: &shared
+              - '.github/workflows/test.yml'
+              - '.github/actions/**'
+              - 'scripts/ci/**'
+              - 'package.json'
+              - 'package-lock.json'
+            backend:
+              - *shared
+              - 'src/**'
+              - 'scripts/**'
+              - 'preseed/**'
+              - 'wrangler.toml'
+              - 'vitest.config.ts'
+              - 'tsconfig.json'
+            webui:
+              - *shared
+              - 'web-ui/**'
+            landing:
+              - *shared
+              - 'landing/**'
+            host:
+              - *shared
+              - 'host/**'
+              - 'preseed/**'
+
+  quality:
+    name: Quality (lint / knip / audit)
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.backend == 'true' ||
+      needs.changes.outputs.webui == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Agent seed generator drift guard
+        # The committed src/lib/agent-seed.generated.ts must equal a fresh generation
+        # from preseed/. `pretest` regenerates it during `npm test`, so a stale committed
+        # copy would silently ship OLD extension bytes to R2/containers (the deploy-seeding
+        # path embeds this file). Fail fast if the generator output drifts from what is
+        # committed. The generator uses only Node builtins, so it needs no node_modules.
+        run: |
+          node scripts/generate-agent-seed.mjs
+          git diff --exit-code src/lib/agent-seed.generated.ts \
+            || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
+
+      - name: Cache root node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-root
+        with:
+          path: node_modules
+          key: root-${{ hashFiles('package-lock.json') }}
+
+      - name: Cache web-ui node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-webui
+        with:
+          path: web-ui/node_modules
+          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
+
+      - name: Install root dependencies
+        if: steps.cache-root.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Install web-ui dependencies
+        if: steps.cache-webui.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: web-ui
+
+      - name: Lint backend
+        run: npm run lint
+
+      - name: Lint frontend
+        run: npm run lint
+        working-directory: web-ui
+
+      - name: Dead code check (backend)
+        run: npm run knip
+
+      - name: Dead code check (frontend)
+        run: npm run knip
+        working-directory: web-ui
+
+      - name: Security audit (backend)
+        run: npm audit --audit-level=high --omit=dev
+
+      - name: Security audit (frontend)
+        run: npm audit --audit-level=high --omit=dev
+        working-directory: web-ui
+
+  typecheck:
+    name: Typecheck
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.backend == 'true' ||
+      needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -56,20 +184,6 @@ jobs:
           path: web-ui/node_modules
           key: webui-${{ hashFiles('web-ui/package-lock.json') }}
 
-      - name: Cache host node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-host
-        with:
-          path: host/node_modules
-          key: host-${{ hashFiles('host/package-lock.json') }}
-
-      - name: Cache landing node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-landing
-        with:
-          path: landing/node_modules
-          key: landing-${{ hashFiles('landing/package-lock.json') }}
-
       - name: Install root dependencies
         if: steps.cache-root.outputs.cache-hit != 'true'
         run: npm ci
@@ -79,65 +193,144 @@ jobs:
         run: npm ci
         working-directory: web-ui
 
-      - name: Agent seed generator drift guard
-        # The committed src/lib/agent-seed.generated.ts must equal a fresh generation
-        # from preseed/. `pretest` regenerates it during `npm test`, so a stale committed
-        # copy would silently ship OLD extension bytes to R2/containers (the deploy-seeding
-        # path embeds this file). Fail fast if the generator output drifts from what is
-        # committed. The generator uses only Node builtins, so it needs no node_modules.
-        run: |
-          node scripts/generate-agent-seed.mjs
-          git diff --exit-code src/lib/agent-seed.generated.ts \
-            || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
+      - name: Generate Workers runtime types
+        run: npx wrangler types
 
-      - name: Lint backend
-        run: npm run lint
+      - name: Type check backend
+        run: npm run typecheck
+        timeout-minutes: 5
 
-      - name: Lint frontend
-        run: npm run lint
+      - name: Type check frontend
+        run: npm run typecheck
         working-directory: web-ui
+        timeout-minutes: 5
 
-      - name: Dead code check (backend)
-        run: npm run knip
+  backend-tests:
+    name: Backend tests (shard ${{ matrix.shard }})
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.backend == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Dead code check (frontend)
-        run: npm run knip
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Cache root node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-root
+        with:
+          path: node_modules
+          key: root-${{ hashFiles('package-lock.json') }}
+
+      - name: Install root dependencies
+        if: steps.cache-root.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        run: mkdir -p web-ui/dist
+
+      - name: Run backend tests (fail-closed gate)
+        uses: ./.github/actions/backend-tests
+        with:
+          shard: ${{ matrix.shard }}
+
+  frontend-tests:
+    name: Frontend tests
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.webui == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Cache web-ui node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-webui
+        with:
+          path: web-ui/node_modules
+          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
+
+      - name: Install web-ui dependencies
+        if: steps.cache-webui.outputs.cache-hit != 'true'
+        run: npm ci
         working-directory: web-ui
 
       - name: Build frontend
         run: npm run build
         working-directory: web-ui
 
-      - name: Run backend tests
-        # @cloudflare/vitest-pool-workers 0.16.x crashes workerd at pool teardown
-        # ("Worker exited unexpectedly") AFTER every test has passed — a known upstream
-        # flake (cloudflare/workers-sdk), not a test failure. `isolate: false` does NOT
-        # fix it (it crashes the pool during collection instead — verified in CI), so the
-        # crash is tolerated here. NO_COLOR keeps the summary plain text so the guard can
-        # read it. The guard accepts a non-zero exit ONLY when all hold: the pool-crash
-        # fingerprint is present, at least one test passed, and nothing failed. The error
-        # count is NOT pinned: per-file isolation tears down one workerd isolate per file,
-        # so a busy suite emits 2+ of the same teardown crash (verified in CI). A real
-        # failure still prints "N failed" and fails the job. isolate:false (the documented
-        # WS+DO fix) is unusable here — it crashes collection (0 tests). Keep in sync with
-        # deploy.yml.
-        env:
-          NO_COLOR: '1'
-          FORCE_COLOR: '0'
-        run: |
-          set +e
-          npm test 2>&1 | tee /tmp/backend-tests.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -eq 0 ]; then exit 0; fi
-          if grep -Fq '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/backend-tests.log \
-            && grep -Eq 'Errors[[:space:]]+[0-9]+ error' /tmp/backend-tests.log \
-            && grep -Eq 'Tests[[:space:]]+[0-9]+ passed' /tmp/backend-tests.log \
-            && ! grep -Eq '(Test Files|Tests)[[:space:]]+[0-9]+ failed' /tmp/backend-tests.log; then
-            echo "Accepting backend tests: all tests passed; only the known workerd teardown crash remained"
-            exit 0
-          fi
-          exit "$status"
+      - name: Run frontend tests
+        run: npm test
+        working-directory: web-ui
+
+  landing-tests:
+    name: Landing tests
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.landing == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Cache landing node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-landing
+        with:
+          path: landing/node_modules
+          key: landing-${{ hashFiles('landing/package-lock.json') }}
+
+      - name: Install landing dependencies
+        if: steps.cache-landing.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: landing
+
+      - name: Run landing tests
+        # Container-API render tests + pure-logic unit tests (landing/README.md)
+        run: npm test
+        working-directory: landing
+
+  host-tests:
+    name: Host tests
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.host == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Cache host node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-host
+        with:
+          path: host/node_modules
+          key: host-${{ hashFiles('host/package-lock.json') }}
 
       - name: Install host dependencies
         if: steps.cache-host.outputs.cache-hit != 'true'
@@ -154,51 +347,48 @@ jobs:
           sudo apt-get install -y rclone
 
       - name: Run host hook tests (node:test)
-        # 15 test files excluded: they need graphify CLI, python3 graphify
-        # module, rclone, or gh-in-PR-context that only exist inside the
-        # codeflare container. They run during development, not in CI.
+        # host/__tests__/ci-excluded.txt lists tests that need graphify CLI,
+        # python3 graphify module, rclone, or gh-in-PR-context that only exist
+        # inside the codeflare container. They run during development, not in CI.
         run: |
           node --experimental-test-module-mocks --test --test-timeout=60000 \
-            $(ls host/__tests__/*.test.js \
-              | grep -v -E '(entrypoint-bisync-behavior|entrypoint-context-mode|entrypoint-graphify-bisync|entrypoint-graphify-mcp|entrypoint-hooks-merge|entrypoint-shutdown|enforce-ctx-mode\.test|enforce-review-spawn|graphify-clone-prompt|graphify-session-start|lane-classifier|memory-context-inject|memory-prompt-iso-ts|preseed-graphify-discipline|skill-sdd-init-contract)')
+            $(ls host/__tests__/*.test.js | grep -vFf host/__tests__/ci-excluded.txt)
         timeout-minutes: 5
-
-      - name: Run frontend tests
-        run: npm test
-        working-directory: web-ui
-
-      - name: Install landing dependencies
-        if: steps.cache-landing.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: landing
-
-      - name: Run landing tests
-        # Container-API render tests + pure-logic unit tests (landing/README.md)
-        run: npm test
-        working-directory: landing
-
-      - name: Generate Workers runtime types
-        run: npx wrangler types
-
-      - name: Type check backend
-        run: npm run typecheck
-        timeout-minutes: 5
-
-      - name: Type check frontend
-        run: npm run typecheck
-        working-directory: web-ui
-        timeout-minutes: 5
-
-      - name: Security audit (backend)
-        run: npm audit --audit-level=high --omit=dev
-
-      - name: Security audit (frontend)
-        run: cd web-ui && npm audit --audit-level=high --omit=dev
 
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+
+  summary:
+    # Check name "test" is the required branch-protection context on main —
+    # renaming this job's `name` breaks the merge gate.
+    name: test
+    needs:
+      - changes
+      - quality
+      - typecheck
+      - backend-tests
+      - frontend-tests
+      - landing-tests
+      - host-tests
+      - dependency-review
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate lane results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          BAD=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
+          if [ -n "$BAD" ]; then
+            echo "::error::Failed lanes: $(echo "$BAD" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "All lanes green (skipped = not affected by this change)"
