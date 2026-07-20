@@ -2766,7 +2766,9 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Status:** Accepted (2026-07-20)
 
-**Context:** PR Checks ran as one serial job (~10 min: lint → knip → build → backend tests → host → frontend → landing → typecheck → audit) regardless of what changed, with the backend suite forced to `maxWorkers: 1` by the Workers-pool teardown crash and gated by a grep-on-prose guard duplicated in test.yml and deploy.yml. Deploy was a single 729-line job that re-ran the entire test suite it had already gated on via `workflow_run`, rebuilt and rescanned the multi-GB container image on every deploy even when no container input changed, and carried a 533-line Docker Hub near-copy (`deploy-dockerhub.yml`). The scripted e2e suite was dispatch-only, fully serial, and fail-open — `describe.skipIf(!isSetup)` turned a failed setup probe into a green run with zero executed tests.
+**Context:** PR Checks ran as one serial job (~10 min: lint → knip → build → backend tests → host → frontend → landing → typecheck → audit) regardless of what changed, with the backend suite forced to `maxWorkers: 1` by the Workers-pool teardown crash and gated by a grep-on-prose guard duplicated in test.yml and deploy.yml. Deploy was a single 729-line job that re-ran the entire test suite it had already gated on via `workflow_run`, rebuilt and rescanned the multi-GB container image on every deploy even when no container input changed, and carried a 533-line Docker Hub near-copy (`deploy-dockerhub.yml`).
+
+The scripted e2e suite was dispatch-only, fully serial, and fail-open — `describe.skipIf(!isSetup)` turned a failed setup probe into a green run with zero executed tests.
 
 **Decision:**
 
