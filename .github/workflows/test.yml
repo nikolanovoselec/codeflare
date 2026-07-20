@@ -688,7 +688,11 @@ jobs:
           # all, so "the selection was non-empty" is not the same as "assertions
           # ran". This is the host-lane equivalent of check-vitest-report.mjs's
           # zero-collected-tests gate.
-          COUNT=$(grep -o 'tests="[0-9]*"' "$RUNNER_TEMP/host-report.xml" | head -1 | grep -o '[0-9]*' || echo 0)
+          # Count <testcase> elements, not the first tests="N" attribute: node's
+          # junit reporter emits one <testsuite> per file, so `head -1` reported
+          # the first FILE's count (13) rather than the run's (hundreds) — and
+          # would have fired a false alarm had that file happened to be empty.
+          COUNT=$(grep -c '<testcase' "$RUNNER_TEMP/host-report.xml" || true)
           if [ "${COUNT:-0}" -lt 1 ]; then
             echo "::error::The host lane executed 0 tests. It ran the files it selected and none of them asserted anything."
             exit 1
