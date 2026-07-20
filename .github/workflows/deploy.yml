@@ -98,18 +98,27 @@ jobs:
       cache_bust: ${{ vars.CLAUDE_CODE_CACHE_BUSTER == 'active' && github.sha || '' }}
       registry: ${{ inputs.registry || 'cloudflare' }}
     steps:
+      # Expression values reach the shell only via env (git refs may contain
+      # shell metacharacters; zizmor template-injection).
       - name: Block production deploys from non-main branches
         if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.environment == 'production'
+        env:
+          REF: ${{ github.ref }}
         run: |
-          echo "::error::Production deploys are only allowed from main. Got branch: ${{ github.ref }}"
+          echo "::error::Production deploys are only allowed from main. Got branch: ${REF}"
           exit 1
 
       - name: Log resolved parameters
+        env:
+          ENV_NAME: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
+          REF: ${{ github.event.workflow_run.head_sha || github.ref }}
+          WORKER: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
+          REGISTRY: ${{ inputs.registry || 'cloudflare' }}
         run: |
-          echo "environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}"
-          echo "ref:         ${{ github.event.workflow_run.head_sha || github.ref }}"
-          echo "worker:      ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}"
-          echo "registry:    ${{ inputs.registry || 'cloudflare' }}"
+          echo "environment: ${ENV_NAME}"
+          echo "ref:         ${REF}"
+          echo "worker:      ${WORKER}"
+          echo "registry:    ${REGISTRY}"
 
   build-worker:
     name: Build worker assets
@@ -129,6 +138,7 @@ jobs:
       # checkout only ever sees already-merged, maintainer-trusted SHAs.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          persist-credentials: false
           ref: ${{ needs.prepare.outputs.ref }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -191,6 +201,10 @@ jobs:
     permissions:
       contents: read
       actions: write # type=gha buildx cache writes to the Actions cache service
+    # secrets: inherit is deliberate (zizmor secrets-inherit): the callee job
+    # binds inputs.environment, and enterprise deploys rely on environment-
+    # scoped secret overrides that explicit pass-through (evaluated in THIS
+    # job's env-less context) would not see.
     uses: ./.github/workflows/container-image.yml
     with:
       registry: ${{ needs.prepare.outputs.registry }}
@@ -219,6 +233,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          persist-credentials: false
           ref: ${{ needs.prepare.outputs.ref }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -349,8 +364,9 @@ jobs:
           sed -n '30,52p' wrangler.toml
 
       - name: Point wrangler.toml to pre-pushed image
+        env:
+          REGISTRY_URI: ${{ needs.container.outputs.registry_uri }}
         run: |
-          REGISTRY_URI="${{ needs.container.outputs.registry_uri }}"
           if [ -z "$REGISTRY_URI" ]; then
             echo "::error::container job produced no registry URI"
             exit 1
@@ -378,18 +394,28 @@ jobs:
           echo "--- strict-egress VPC binding enabled for enterprise deploy ---"
 
       - name: Deploy to Cloudflare
+        env:
+          VAR_ONBOARDING: ${{ vars.ONBOARDING_LANDING_PAGE || 'inactive' }}
+          VAR_MAX_SESSIONS_USER: ${{ vars.MAX_SESSIONS_USER }}
+          VAR_MAX_SESSIONS_ADMIN: ${{ vars.MAX_SESSIONS_ADMIN }}
+          VAR_STRESS_TEST_MODE: ${{ vars.STRESS_TEST_MODE }}
+          VAR_SAAS_MODE: ${{ vars.SAAS_MODE }}
+          VAR_SAAS_EXTRA_IDPS: ${{ vars.SAAS_EXTRA_IDPS }}
+          VAR_ENTERPRISE_MODE: ${{ vars.ENTERPRISE_MODE }}
+          VAR_OAUTH_CLIENT_ID: ${{ (vars.SAAS_MODE == 'active' || vars.ONBOARDING_LANDING_PAGE == 'active') && secrets.OAUTH_CLIENT_ID || '' }}
         run: |
+          # Optional --var flags are assembled in bash from env (never inline
+          # ${{ }} in the command: template-injection hygiene + safe quoting).
           run_deploy() {
-            npx wrangler deploy --name "${WORKER_NAME}" \
-              --var ONBOARDING_LANDING_PAGE:${{ vars.ONBOARDING_LANDING_PAGE || 'inactive' }} \
-              --var CLOUDFLARE_WORKER_NAME:${WORKER_NAME} \
-              ${{ vars.MAX_SESSIONS_USER && format('--var MAX_SESSIONS_USER:{0}', vars.MAX_SESSIONS_USER) || '' }} \
-              ${{ vars.MAX_SESSIONS_ADMIN && format('--var MAX_SESSIONS_ADMIN:{0}', vars.MAX_SESSIONS_ADMIN) || '' }} \
-              ${{ vars.STRESS_TEST_MODE && format('--var STRESS_TEST_MODE:{0}', vars.STRESS_TEST_MODE) || '' }} \
-              ${{ vars.SAAS_MODE && format('--var SAAS_MODE:{0}', vars.SAAS_MODE) || '' }} \
-              ${{ vars.SAAS_EXTRA_IDPS && format('--var SAAS_EXTRA_IDPS:{0}', vars.SAAS_EXTRA_IDPS) || '' }} \
-              ${{ vars.ENTERPRISE_MODE && format('--var ENTERPRISE_MODE:{0}', vars.ENTERPRISE_MODE) || '' }} \
-              ${{ (vars.SAAS_MODE == 'active' || vars.ONBOARDING_LANDING_PAGE == 'active') && secrets.OAUTH_CLIENT_ID && format('--var OAUTH_CLIENT_ID:{0}', secrets.OAUTH_CLIENT_ID) || '' }}
+            local args=(--var "ONBOARDING_LANDING_PAGE:${VAR_ONBOARDING}" --var "CLOUDFLARE_WORKER_NAME:${WORKER_NAME}")
+            [ -n "$VAR_MAX_SESSIONS_USER" ] && args+=(--var "MAX_SESSIONS_USER:${VAR_MAX_SESSIONS_USER}")
+            [ -n "$VAR_MAX_SESSIONS_ADMIN" ] && args+=(--var "MAX_SESSIONS_ADMIN:${VAR_MAX_SESSIONS_ADMIN}")
+            [ -n "$VAR_STRESS_TEST_MODE" ] && args+=(--var "STRESS_TEST_MODE:${VAR_STRESS_TEST_MODE}")
+            [ -n "$VAR_SAAS_MODE" ] && args+=(--var "SAAS_MODE:${VAR_SAAS_MODE}")
+            [ -n "$VAR_SAAS_EXTRA_IDPS" ] && args+=(--var "SAAS_EXTRA_IDPS:${VAR_SAAS_EXTRA_IDPS}")
+            [ -n "$VAR_ENTERPRISE_MODE" ] && args+=(--var "ENTERPRISE_MODE:${VAR_ENTERPRISE_MODE}")
+            [ -n "$VAR_OAUTH_CLIENT_ID" ] && args+=(--var "OAUTH_CLIENT_ID:${VAR_OAUTH_CLIENT_ID}")
+            npx wrangler deploy --name "${WORKER_NAME}" "${args[@]}"
           }
           # Retry transient CF control-plane failures (e.g. 500 on container-app
           # image swap): 30 attempts, 30s apart, so a transient error never wastes

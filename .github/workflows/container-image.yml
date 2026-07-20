@@ -79,6 +79,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref }}
+          persist-credentials: false
 
       - name: Compute image input hash
         id: hash
@@ -119,9 +120,11 @@ jobs:
       - name: Check registry for an existing identical-input image
         id: reuse
         if: inputs.cache-bust == '' && steps.hash.outputs.no_reuse == '0'
+        env:
+          TAG: ${{ steps.hash.outputs.tag }}
+          REGISTRY: ${{ inputs.registry }}
         run: |
-          TAG="${{ steps.hash.outputs.tag }}"
-          if [ "${{ inputs.registry }}" = "dockerhub" ]; then
+          if [ "${REGISTRY}" = "dockerhub" ]; then
             URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
             if docker manifest inspect "$URI" >/dev/null 2>&1; then
               echo "reused=true" >> "$GITHUB_OUTPUT"
@@ -156,7 +159,9 @@ jobs:
 
       - name: Write cache buster (force fresh npm install layers)
         if: steps.reuse.outputs.reused != 'true' && inputs.cache-bust != ''
-        run: echo "${{ inputs.cache-bust }}" > .cache-bust
+        env:
+          CACHE_BUST: ${{ inputs.cache-bust }}
+        run: printf '%s\n' "$CACHE_BUST" > .cache-bust
 
       # The 'default' docker builder doesn't support type=gha cache. The
       # docker-container driver (provisioned by setup-buildx-action) does
@@ -168,16 +173,19 @@ jobs:
       - name: Build container image
         id: docker-build
         if: steps.reuse.outputs.reused != 'true'
+        env:
+          TAG: ${{ steps.hash.outputs.tag }}
+          REGISTRY: ${{ inputs.registry }}
+          REF: ${{ inputs.ref }}
         run: |
-          TAG="${{ steps.hash.outputs.tag }}"
           # --load keeps the image available to the local docker daemon
           # so the Trivy scan step and the push step that follow can
           # reference it by tag, unchanged.
           docker buildx build --platform linux/amd64 \
-            --cache-from type=gha,scope=${{ inputs.registry }} \
-            --cache-to type=gha,mode=max,scope=${{ inputs.registry }} \
+            --cache-from "type=gha,scope=${REGISTRY}" \
+            --cache-to "type=gha,mode=max,scope=${REGISTRY}" \
             --load \
-            --label "org.opencontainers.image.revision=${{ inputs.ref }}" \
+            --label "org.opencontainers.image.revision=${REF}" \
             -t "${IMAGE_NAME}:${TAG}" .
           echo "local_ref=${IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
 
@@ -250,9 +258,11 @@ jobs:
       - name: Push image
         id: push
         if: steps.reuse.outputs.reused != 'true'
+        env:
+          TAG: ${{ steps.hash.outputs.tag }}
+          REGISTRY: ${{ inputs.registry }}
         run: |
-          TAG="${{ steps.hash.outputs.tag }}"
-          if [ "${{ inputs.registry }}" = "dockerhub" ]; then
+          if [ "${REGISTRY}" = "dockerhub" ]; then
             REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
             docker tag "${IMAGE_NAME}:${TAG}" "${REGISTRY_URI}"
             # Retry transient registry push failures: 30 attempts, 30s apart.
