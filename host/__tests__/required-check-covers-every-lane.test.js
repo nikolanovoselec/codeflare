@@ -24,7 +24,7 @@ const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/test.y
 // so a lane renamed to `workflow_audit` would vanish from this check and could
 // then be missing from summary.needs while the merge button stayed green -
 // exactly the hole this file exists to close. The sibling guard in
-// deploy-requires-tests.test.js was widened for the same reason.
+// deploy-requires-tests.test.js uses a literal job list for the same reason.
 function jobIds() {
   const jobs = workflow.slice(workflow.indexOf('\njobs:'));
   return [...jobs.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gm)].map((m) => m[1]);
