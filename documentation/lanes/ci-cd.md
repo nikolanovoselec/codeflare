@@ -132,7 +132,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 ### Backend Tests
 
-**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
+**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** istanbul provider — the v8 provider profiles through the Node host's V8 inspector, which cannot see inside workerd isolates and reports a flat 0% for this suite. Thresholds live in each suite's own vitest config and are enforced by the `coverage` lane (post-merge and nightly, not per-PR — see above). Measured 2026-07-20 on the first run that ever executed them: backend 90.2% statements / 82.7% branches, web-ui 77.4% / 66.0%. Thresholds sit ~2 points under those, because the previous 53/43 and 32/27 sat 37 and 45 points below actual and would have passed a suite with most of its tests deleted.
 
 **CI workerd crash guard (fail-closed):** `@cloudflare/vitest-pool-workers` crashes `workerd` at pool teardown after all tests pass — a known upstream limitation of WebSockets + Durable Objects under per-file storage isolation, still present on 0.18.x/vitest 4 (the documented alternative `--max-workers=1 --no-isolate` crashes this suite at collection). Serializing the pool never fixed it — the crash is at teardown, not a concurrency race — so the pool runs parallel and the gate, not serialization, is what makes the result trustworthy.
 

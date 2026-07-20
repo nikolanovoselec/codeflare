@@ -76,11 +76,17 @@ export default defineConfig({
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/__tests__/**', 'src/**/*.test.ts', 'src/**/*.generated.ts'],
+      // Measured 2026-07-20 (run 29725141008), the first run that ever executed
+      // them: 90.21 statements / 82.68 branches / 91.01 functions / 91.6 lines.
+      // The old 53/43 were never run, so nobody knew the suite was 37 points
+      // above them — a floor that far below actual cannot catch a regression.
+      // Set ~2 points under measured: tight enough to fail when coverage really
+      // drops, loose enough not to trip on ordinary churn.
       thresholds: {
-        statements: 53,
-        branches: 43,
-        functions: 53,
-        lines: 53,
+        statements: 88,
+        branches: 80,
+        functions: 89,
+        lines: 89,
       },
     },
   },
