@@ -45,6 +45,11 @@ jobs:
           node-version: '22'
 
       - name: Install wrangler
+        # zizmor: ignore[adhoc-packages] the version is read out of this repo's
+        # own package.json devDependency, so it tracks the lockfile-managed pin
+        # rather than floating. Same trade as container-image.yml: a global
+        # install avoids an `npm ci` of the full tree in a job that needs no
+        # node_modules, at the cost of not verifying an integrity hash.
         run: npm install -g "wrangler@$(node -p \"require('./package.json').devDependencies.wrangler\")"
 
       - name: Resolve target

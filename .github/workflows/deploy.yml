@@ -20,7 +20,14 @@ name: Deploy
 # copy of this file — same pipeline, image pushed to docker.io instead
 # (bypass for CF managed-registry connection drops; needs
 # DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets and a public Docker Hub repo).
-on:
+# zizmor: ignore[dangerous-triggers] workflow_run is the trigger this pipeline
+# needs — deploy must fire only after PR Checks went green for the same SHA —
+# and its pwn-request vector is closed by the three guards repeated on EVERY
+# job below: conclusion == 'success', event == 'push', and
+# head_repository.full_name == github.repository. Repeated per job rather than
+# centralised because a job skipped via `if:` still satisfies `needs:`. Added
+# after the Scorecard DangerousWorkflowID audit; see the header comment.
+on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: ['PR Checks']
     types: [completed]
@@ -201,10 +208,13 @@ jobs:
     permissions:
       contents: read
       actions: write # type=gha buildx cache writes to the Actions cache service
-    # secrets: inherit is deliberate (zizmor secrets-inherit): the callee job
-    # binds inputs.environment, and enterprise deploys rely on environment-
-    # scoped secret overrides that explicit pass-through (evaluated in THIS
-    # job's env-less context) would not see.
+    # zizmor: ignore[secrets-inherit] the callee binds inputs.environment, and
+    # enterprise deploys rely on environment-scoped secret overrides. Explicit
+    # pass-through is evaluated in THIS job's env-less context, so it would
+    # resolve the base repo secret and hand enterprise deploys the wrong
+    # credentials — silently. Inheriting is the correct behaviour here, not a
+    # convenience; the callee only reads CLOUDFLARE_{API_TOKEN,ACCOUNT_ID} and
+    # DOCKERHUB_{USERNAME,TOKEN}.
     uses: ./.github/workflows/container-image.yml
     with:
       registry: ${{ needs.prepare.outputs.registry }}
@@ -213,7 +223,7 @@ jobs:
       worker-name: ${{ needs.prepare.outputs.worker_name }}
       cache-bust: ${{ needs.prepare.outputs.cache_bust }}
       runner: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    secrets: inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
 
   deploy:
     name: Deploy worker

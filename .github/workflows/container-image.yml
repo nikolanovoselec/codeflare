@@ -289,6 +289,13 @@ jobs:
         if: steps.reuse.outputs.reused != 'true' && inputs.registry == 'cloudflare'
         # This job never runs `npm ci` (nothing else here needs node_modules),
         # so wrangler is installed globally at the exact pinned version.
+        #
+        # zizmor: ignore[adhoc-packages] the version is not ad-hoc: it is read
+        # out of this repo's own package.json devDependency, so it moves only
+        # when the lockfile-managed pin moves. Installing from the lockfile
+        # instead would mean an `npm ci` of the full tree in a job that
+        # otherwise needs no node_modules. Residual gap: a global install
+        # verifies no integrity hash, unlike a lockfile install.
         run: npm install -g "wrangler@$(node -p "require('./package.json').devDependencies.wrangler")"
 
       - name: Push image
