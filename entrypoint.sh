@@ -178,13 +178,13 @@ create_rclone_config() {
     # down used to be the first thing narrowing the mode, so between the heredoc
     # and that chmod the R2 access key, secret and the base64 ENCRYPTION_KEY sat
     # in a world-readable file. Short window, single-tenant container — but the
-    # ordering costs nothing and the substitutions below are what fill it.
+    # ordering costs nothing.
+    #
     # NOT a bare `umask 077`: umask is per-PROCESS, not per-function, so setting
-    # it here would silently narrow the mode of every file this 3181-line
-    # entrypoint creates afterwards. Create the file 0600 explicitly instead —
-    # same guarantee, no global side effect. (The chmod further down used to be
-    # the first thing narrowing the mode, so the R2 keys and the base64
-    # ENCRYPTION_KEY sat world-readable between the heredoc and it.)
+    # it here would silently narrow the mode of every file this entrypoint
+    # creates afterwards. Creating this one file 0600 gives the same guarantee
+    # with no global side effect; `cat >`, `cat >>` and `sed -i` all preserve the
+    # mode, so the trailing chmod is now belt-and-braces rather than the gate.
     : > "$USER_HOME/.config/rclone/rclone.conf"
     chmod 600 "$USER_HOME/.config/rclone/rclone.conf"
 
@@ -1355,6 +1355,17 @@ shutdown_handler() {
     kill_pidfile_subtree /tmp/vault-monitor.pid
     kill_pidfile_subtree /tmp/silverbullet.pid
     kill_pidfile_subtree /tmp/openvscode.pid
+
+    # walk_kill only sends TERM; it does not reap. If the daemon's rclone bisync
+    # is still alive when the final bisync starts, bisync_with_r2's stale-lock
+    # clear sees a live `rclone bisync` (pgrep), leaves the .lck in place, and
+    # rclone fast-fails with "prior lock file found" - losing the final sync and
+    # up to one full cadence (AD56) of user work. Wait for it to go quiet. 5s out
+    # of the 120s budget; the loop exits the moment the process is gone.
+    for _ in $(seq 1 50); do
+        pgrep -f "rclone bisync" >/dev/null 2>&1 || break
+        sleep 0.1
+    done
 
     # Perform final bisync to R2 (only if baseline was established).
     # Wrap in a 120s watchdog so the DO's destroy() SIGKILL budget (135s,
