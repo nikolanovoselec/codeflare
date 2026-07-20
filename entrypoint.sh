@@ -235,8 +235,14 @@ RCLONE_EOF
     # to `return 0` and report success while leaving the literal PLACEHOLDER_*
     # tokens in the config, silently killing R2 sync for the entire session.
     # Assert the substitution actually took.
+    # Sets SYNC_ERROR/SYNC_STATUS like every other failure return in this
+    # function, so the sync log and the status surface say WHY R2 is off. A bare
+    # `return 1` here would leave the session reporting sync in an unexplained
+    # state, for the one failure mode whose whole point is that it is silent.
     if grep -q 'PLACEHOLDER_\(ACCESS_KEY\|SECRET_KEY\|ENDPOINT\)' "$USER_HOME/.config/rclone/rclone.conf"; then
-        echo "[entrypoint] ERROR: rclone credential substitution did not apply" >&2
+        SYNC_ERROR="rclone credential substitution did not apply"
+        SYNC_STATUS="skipped"
+        echo "[entrypoint] ERROR: $SYNC_ERROR" >&2
         return 1
     fi
 

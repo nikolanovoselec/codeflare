@@ -162,6 +162,35 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     );
   });
 
+  it('REQ-OPS-010: the quiesce wait is taken out of the shutdown budget, not added to it', () => {
+    // The ordering test above stays green if the wait is unbounded or if the
+    // watchdog goes back to a flat `sleep 108` — i.e. it does not cover the
+    // regression the fix was for. The invariant is that quiesce + watchdog is
+    // constant, so that AD57's 15s clean-exit buffer against the DO's 135s hard
+    // kill survives. Derive both numbers from the source and check the sum.
+    const body = shutdownHandlerBody();
+
+    const bound = body.match(/QUIESCE_DECIS"?\s*-lt\s+(\d+)/);
+    assert.ok(bound, 'the quiesce loop must have a literal iteration bound');
+    const maxQuiesceSecs = Math.ceil(Number(bound[1]) / 10);
+
+    const watchdog = body.match(/sleep \$\(\(\s*(\d+)\s*-\s*QUIESCE_SECS\s*\)\)/);
+    assert.ok(
+      watchdog,
+      'the watchdog SIGTERM sleep must subtract QUIESCE_SECS; a bare `sleep 108` adds the wait to the budget instead of taking it from it'
+    );
+
+    const grace = body.match(/kill_subtree TERM[\s\S]*?sleep (\d+)/);
+    assert.ok(grace, 'the watchdog must sleep between SIGTERM and SIGKILL');
+
+    const total = maxQuiesceSecs + (Number(watchdog[1]) - maxQuiesceSecs) + Number(grace[1]);
+    assert.equal(
+      total,
+      120,
+      `worst-case shutdown is ${total}s, not the 120s AD57 budgets against the DO's 135s hard kill`
+    );
+  });
+
   it('REQ-OPS-010 AC6: terminal server is killed after the final sync completes', () => {
     // TERMINAL_PID must be killed inside shutdown_handler (after bisync)
     assert.notEqual(entrypoint.indexOf('shutdown_handler()'), -1, 'shutdown_handler must be defined');

@@ -173,9 +173,11 @@ jobs:
     name: Quality (lint / knip / audit)
     needs: changes
     # `host` is in this list because the bash -n syntax gate below covers every
-    # tracked *.sh — most of which live under preseed/ and host/, neither of
-    # which is in the backend or webui filter. Without it, a PR touching only
-    # preseed/**/*.sh skipped the syntax check written for exactly those files.
+    # tracked *.sh, and the `host` filter is the only one matching a change that
+    # touches host/** or .github/** alone — those PRs previously ran the host
+    # lane but not this one, so the syntax check never saw them. (preseed/** is
+    # already in the `backend` filter, so preseed-only PRs were always covered;
+    # an earlier version of this comment claimed otherwise and was wrong.)
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
@@ -589,23 +591,44 @@ jobs:
           status=0
           npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
 
-          # A threshold miss is the verdict this lane exists for, so it is checked
-          # from the reporter's own output and always fatal — never masked by the
-          # tolerance below.
-          if grep -qE 'does not meet (global )?threshold' /tmp/coverage.log; then
+          # POSITIVE proof the coverage reporter ran. Every check below this point
+          # decides on the ABSENCE of a failure string, so without this a run that
+          # died before emitting coverage — an istanbul provider error, a config
+          # fault, the teardown crash racing the report — would satisfy all of
+          # them and go green having enforced nothing. That is the exact
+          # "declared, never executed" state this lane was written to end, so it
+          # is asserted rather than assumed. Both matrix entries emit istanbul's
+          # / v8's `text` table, whose last row starts with "All files".
+          if ! grep -q '^All files' /tmp/coverage.log; then
+            echo "::error::no coverage table was produced — thresholds were never evaluated"
+            exit 1
+          fi
+
+          # A threshold miss is the verdict this lane exists for: always fatal,
+          # never masked by the crash tolerance below. Matched loosely enough to
+          # survive a future per-glob threshold, whose message reads
+          # `does not meet "src/lib/**" threshold` rather than `global`.
+          if grep -qE 'does not meet .*threshold' /tmp/coverage.log; then
             echo "::error::coverage thresholds not met (see the table above)"
             exit 1
           fi
 
-          # The backend matrix entry re-runs the Workers pool, which crashes
-          # workerd at teardown AFTER all tests pass — the exact reason
-          # check-vitest-report.mjs exists and refuses to gate on exit code. This
-          # lane feeds the required `test` context, so gating it on the poisoned
-          # status would turn every green run red post-merge and, on main, block
-          # the deploy. Tolerate that one fingerprint and nothing else.
+          # A real test failure is fatal, and must be detected on its own. The
+          # workerd teardown crash fires after EVERY passing backend run
+          # (vitest.config.ts), so its fingerprint is present essentially always
+          # — tolerating a non-zero status merely because the fingerprint is
+          # there would tolerate every failure, which is what the first version
+          # of this block did.
+          if grep -qE '^ *Tests +.*failed' /tmp/coverage.log; then
+            echo "::error::tests failed during the coverage run"
+            exit 1
+          fi
+
+          # Only now is the poisoned exit status safe to forgive: the table was
+          # produced, thresholds were evaluated, and no test failed.
           if [ "$status" -ne 0 ]; then
             if grep -qF '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/coverage.log; then
-              echo "::warning::tolerating the known workerd teardown crash (thresholds were still evaluated above)"
+              echo "::warning::tolerating the known workerd teardown crash (coverage table and thresholds both verified above)"
             else
               echo "::error::coverage run failed with status $status and no known-crash fingerprint"
               exit "$status"

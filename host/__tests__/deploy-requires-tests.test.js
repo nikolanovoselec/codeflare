@@ -100,6 +100,22 @@ describe('manual deploys cannot skip tests', () => {
       );
       // always() would run these jobs through a cancellation.
       assert.doesNotMatch(gate, /\balways\(\)/, `job "${name}" uses always(), so cancelling a deploy would not stop it`);
+
+      // Every assertion above is applied identically to all five jobs, so a
+      // clause added to one of them is only caught if it is illegal everywhere.
+      // `outcome` legitimately accepts a cancelled verify — it is report-only
+      // and exists to turn that case red — but the same clause on `deploy`
+      // would ship untested code from a dispatch whose verify was cancelled by
+      // a second dispatch. Allowlist the value per job rather than per file.
+      const allowedResults = name === 'outcome'
+        ? new Set(['success', 'skipped', 'cancelled'])
+        : new Set(['success', 'skipped']);
+      for (const [, value] of gate.matchAll(/needs\.verify\.result == '([a-z]+)'/g)) {
+        assert.ok(
+          allowedResults.has(value),
+          `job "${name}" accepts verify result '${value}', which is not a gate this job may pass on`
+        );
+      }
     });
   }
 
