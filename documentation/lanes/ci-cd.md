@@ -114,7 +114,7 @@ Tests are not re-run anywhere in this workflow — the `workflow_run` gate alrea
 Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `workflow_dispatch` and the nightly schedule):
 
 - **changes** — `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `workflows`. `changes.outputs.full` (the filter step's own `skipped` outcome) is the single flag meaning "no diff was filtered, run everything".
-- **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit`, and a `bash -n` syntax pass over every tracked shell script.
+- **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --audit-level=high --omit=dev` (both), and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
 - **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
 - **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
