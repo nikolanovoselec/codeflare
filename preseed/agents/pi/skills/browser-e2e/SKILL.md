@@ -27,7 +27,7 @@ Drive the `chrome-devtools` server's tools through the adapter `mcp` proxy (see 
 5. `click` / `fill` to walk a flow, re-observing after each step.
 6. **Judge against the requirement and report a verdict**: pass/fail per acceptance criterion, each backed by what you observed (a screenshot, a measured value, the rendered text) — not "the selector existed".
 
-Example task: *"e2e test codeflare.novoselec.ch from a mobile device viewport"* → `resize_page` to 390×844 → `navigate_page` → `take_snapshot` + `take_screenshot` → walk the sign-in / contact flow with `click`/`fill` → verdict per AC, with screenshots.
+Example task: *"e2e test the integration deployment from a mobile device viewport"* → `resize_page` to 390×844 → `navigate_page` → `take_snapshot` + `take_screenshot` → walk the sign-in / contact flow with `click`/`fill` → verdict per AC, with screenshots.
 
 ## Targets
 
