@@ -49,6 +49,16 @@ if (failedTests > 0 || failedSuites > 0) {
   fail(`${failedTests} failed test(s) / ${failedSuites} failed suite(s)`);
 }
 
+// A test file that contributes ZERO tests is a collection casualty (workerd
+// dies loading the file; the old grep guard silently accepted this — 7 files
+// were dead for weeks while runs stayed green). Zero-test files fail loudly.
+const results = Array.isArray(report.testResults) ? report.testResults : [];
+const empty = results.filter((r) => (r.assertionResults ?? []).length === 0);
+if (empty.length > 0) {
+  const names = empty.map((r) => r.name ?? '?').join('\n  ');
+  fail(`${empty.length} test file(s) collected zero tests (collection crash):\n  ${names}`);
+}
+
 if (status === 0) {
   console.log(`backend-test gate: ${total} tests, 0 failures`);
   process.exit(0);

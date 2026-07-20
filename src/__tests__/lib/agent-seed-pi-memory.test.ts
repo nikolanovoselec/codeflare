@@ -12,32 +12,6 @@ import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isR
  * isn't available in the Workers vitest pool).
  */
 
-const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.gemini/', '.copilot/', '.config/opencode/', '.pi/agent/'];
-
-function stripPrefix(key: string): string {
-  for (const prefix of VALID_KEY_PREFIXES) {
-    if (key.startsWith(prefix)) return key.slice(prefix.length);
-  }
-  return key;
-}
-
-function claudeDocs() {
-  return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
-}
-
-function markdownHeadings(content: string): string[] {
-  return [...content.matchAll(/^##+\s+(.+)$/gm)].map((match) => match[1]);
-}
-
-function markdownSection(content: string, heading: string): string {
-  const match = [...content.matchAll(/^##+\s+(.+)$/gm)].find((candidate) => candidate[1] === heading);
-  expect(match, `section ${heading}`).toBeTruthy();
-  const start = match?.index ?? 0;
-  const rest = content.slice(start);
-  const next = rest.slice(1).search(/\n##+\s+/);
-  return next === -1 ? rest : rest.slice(0, next + 1);
-}
-
 function frontmatter(content: string): Record<string, string> {
   return Object.fromEntries(
     (content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')

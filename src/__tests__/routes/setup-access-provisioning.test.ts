@@ -127,11 +127,6 @@ async function readNdjson(res: Response): Promise<Record<string, unknown>[]> {
 }
 
 /** Extract the final summary line from NDJSON lines (the one with `done: true`). */
-function getNdjsonSummary(lines: Record<string, unknown>[]): Record<string, unknown> {
-  const summary = lines.find(l => l.done === true);
-  if (!summary) throw new Error('No summary line found in NDJSON response');
-  return summary;
-}
 
 // Standard env token for configure tests
 const TEST_TOKEN = 'env-api-token';

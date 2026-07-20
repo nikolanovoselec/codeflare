@@ -10,6 +10,10 @@ inputs:
     description: 'Optional vitest --shard value (e.g. "1/2"). Empty runs the whole suite.'
     required: false
     default: ''
+  artifact-suffix:
+    description: 'Suffix for the uploaded report/log artifact name (artifact names cannot contain "/").'
+    required: false
+    default: 'all'
 runs:
   using: composite
   steps:
@@ -29,3 +33,14 @@ runs:
         status=${PIPESTATUS[0]}
         set -e
         node scripts/ci/check-backend-test-report.mjs "$status" /tmp/backend-tests.json /tmp/backend-tests.log
+
+    - name: Upload test report and log
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: backend-tests-${{ inputs.artifact-suffix }}
+        path: |
+          /tmp/backend-tests.json
+          /tmp/backend-tests.log
+        retention-days: 5
+        if-no-files-found: ignore

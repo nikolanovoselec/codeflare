@@ -1,12 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
-import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
-import { handleContextModeCommand, restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt, type PiSettings } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
-import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachConfiguredContextMode, attachContextModeToForeground, clearInheritedContextModeBridgeIdleOverride } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -207,7 +203,11 @@ describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit
     ]);
     for (const key of consultSkillKeys) {
       const doc = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === key);
-      expect([...(doc?.modes ?? [])].sort(), key).toEqual(['advanced', 'default']);
+      // consult-llm is Pro-only: manifest.json pins both agents' skills to
+      // ['advanced'] (this assertion previously expected default+advanced and
+      // never ran — the file was one of the silently-dead collection-crash
+      // casualties the old grep guard masked).
+      expect([...(doc?.modes ?? [])].sort(), key).toEqual(['advanced']);
       expect(frontmatter(doc?.content ?? '').name).toBe('consult-llm');
       expect(markdownHeadings(doc?.content ?? '')).toEqual(expect.arrayContaining([
         'Hard gate — explicit user request only',

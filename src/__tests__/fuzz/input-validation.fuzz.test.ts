@@ -14,15 +14,6 @@ import { sanitizeSessionName, getSessionKey, getSessionPrefix, getPreferencesKey
 import { getR2Url, parseListObjectsXml, parseInitiateMultipartUploadXml } from '../../lib/r2-client';
 import { CircuitBreaker } from '../../lib/circuit-breaker';
 import { validateKey, MAX_KEY_LENGTH } from '../../routes/storage/validation';
-import { toError, toErrorMessage, AppError, NotFoundError, ValidationError, SetupError, RateLimitError, CircuitBreakerOpenError } from '../../lib/error-types';
-import { getDefaultTabConfig } from '../../lib/agent-config';
-import { isBucketNameResponse } from '../../lib/type-guards';
-import { isOnboardingLandingPageActive } from '../../lib/onboarding';
-import { TabConfigSchema } from '../../lib/schemas';
-import { createLogger, setLogLevel } from '../../lib/logger';
-import { toApiSession } from '../../lib/session-helpers';
-import { getSetupCompleteCache, setSetupCompleteCache, resetSetupCache } from '../../lib/cache-reset';
-import { getConfigsForMode, getPreseedKeysNotInMode } from '../../lib/r2-seed';
 
 const NUM_RUNS = parseInt(process.env.FAST_CHECK_NUM_RUNS || '1000');
 

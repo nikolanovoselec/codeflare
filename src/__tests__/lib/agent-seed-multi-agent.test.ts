@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { sessionId } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
-import { handleContextModeCommand, restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
+import { handleContextModeCommand, restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt, type PiSettings } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachConfiguredContextMode, attachContextModeToForeground, clearInheritedContextModeBridgeIdleOverride } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 
 /**
@@ -15,30 +15,12 @@ import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachConf
  * isn't available in the Workers vitest pool).
  */
 
-const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.gemini/', '.copilot/', '.config/opencode/', '.pi/agent/'];
-
-function stripPrefix(key: string): string {
-  for (const prefix of VALID_KEY_PREFIXES) {
-    if (key.startsWith(prefix)) return key.slice(prefix.length);
-  }
-  return key;
-}
-
 function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
 }
 
 function markdownHeadings(content: string): string[] {
   return [...content.matchAll(/^##+\s+(.+)$/gm)].map((match) => match[1]);
-}
-
-function markdownSection(content: string, heading: string): string {
-  const match = [...content.matchAll(/^##+\s+(.+)$/gm)].find((candidate) => candidate[1] === heading);
-  expect(match, `section ${heading}`).toBeTruthy();
-  const start = match?.index ?? 0;
-  const rest = content.slice(start);
-  const next = rest.slice(1).search(/\n##+\s+/);
-  return next === -1 ? rest : rest.slice(0, next + 1);
 }
 
 function frontmatter(content: string): Record<string, string> {

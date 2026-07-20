@@ -79,7 +79,7 @@ vi.mock('@cloudflare/containers', () => ({
 }));
 
 // Now import the container class after mocks are set up
-import { container as ContainerClass, validateBucketNameInput } from '../../container/index';
+import { container as ContainerClass } from '../../container/index';
 
 // REQ-SESSION-019: Final-sync drain endpoint authentication
 // REQ-ENTERPRISE-017: AI Gateway Configured in the Setup Wizard

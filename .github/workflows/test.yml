@@ -216,7 +216,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/2', '2/2']
+        include:
+          - shard: '1/2'
+            slug: shard-1
+          - shard: '2/2'
+            slug: shard-2
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -242,6 +246,7 @@ jobs:
         uses: ./.github/actions/backend-tests
         with:
           shard: ${{ matrix.shard }}
+          artifact-suffix: ${{ matrix.slug }}
 
   frontend-tests:
     name: Frontend tests
@@ -336,6 +341,12 @@ jobs:
         if: steps.cache-host.outputs.cache-hit != 'true'
         run: npm ci
         working-directory: host
+
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
+        # which resolves the [assets] directory; without the dir the config loads
+        # without assets and the test fails.
+        run: mkdir -p web-ui/dist
 
       - name: Build host (TypeScript)
         run: npm run build
