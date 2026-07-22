@@ -47,7 +47,6 @@ function extractKillHelpers() {
     '_process_start_time',
     '_process_generation',
     '_process_group',
-    '_process_state',
     '_openvscode_generation_members',
     '_wait_then_kill_pid',
     '_wait_then_kill_generation',
@@ -94,7 +93,7 @@ function openvscodeSupervisorScript() {
     extractFn('_openvscode_should_launch'),
     openvscodeLaunchScript(),
     extractFn('_openvscode_supervise_loop'),
-    'export -f walk_kill _process_start_time _process_generation _process_group _process_state _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
+    'export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
     'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop',
   ].join('\n');
 }
@@ -528,7 +527,10 @@ probe_identity() {
 probe_identity matching match match actual-generation
 probe_identity pid mismatch match actual-generation
 probe_identity start match mismatch actual-generation
-probe_identity generation match match other-generation`, { FIXTURE: dir });
+probe_identity generation match match other-generation`, {
+      FIXTURE: dir,
+      OPENVSCODE_TERM_GRACE_SECONDS: '0.2',
+    });
 
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.stdout.trim().split('\n'), [
@@ -537,6 +539,35 @@ probe_identity generation match match other-generation`, { FIXTURE: dir });
       'start=SIGNALED',
       'generation=UNSIGNALED',
     ]);
+  });
+
+  it('REQ-IDE-005 AC7: generation cleanup rescans children forked between signal snapshots', () => {
+    const forker = writeExecutable(dir, 'fork-on-term', `#!/usr/bin/env bash
+trap '
+  (
+    for _ in $(seq 1 40); do
+      setsid sleep 30 >/dev/null 2>&1 &
+      sleep 0.01
+    done
+  ) &
+' TERM
+while true; do sleep 0.1; done
+`);
+    const result = runBash(`${extractKillHelpers()}
+CODEFLARE_OPENVSCODE_GENERATION=fork-race "$FORKER" >/dev/null 2>&1 &
+leader=$!
+sleep 0.1
+_wait_then_kill_generation fork-race
+remaining="$(_openvscode_generation_members fork-race)"
+printf 'remaining=%s\n' "\${remaining:-none}"
+for pid in $remaining; do kill -KILL "$pid" 2>/dev/null || true; done
+kill -KILL "$leader" 2>/dev/null || true`, {
+      FORKER: forker,
+      OPENVSCODE_TERM_GRACE_SECONDS: '0.2',
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), 'remaining=none');
   });
 });
 
