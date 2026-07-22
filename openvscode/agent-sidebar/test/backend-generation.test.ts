@@ -74,6 +74,18 @@ class FakePiSpawner implements PiProcessSpawner {
   }
 }
 
+class SpawnFailingPiChild extends FakePiChild {
+  async waitForSpawn(): Promise<void> {
+    throw new Error('Pi executable is unavailable');
+  }
+}
+
+class SpawnFailingPiSpawner implements PiProcessSpawner {
+  spawn(_spec: PiSpawnSpec): PiChildProcess {
+    return new SpawnFailingPiChild();
+  }
+}
+
 class FakePty implements ClaudePtyProcess {
   exited = false;
   readonly writes: string[] = [];
@@ -98,6 +110,39 @@ class FakePtySpawner implements ClaudePtySpawner {
     return child;
   }
 }
+
+test('REQ-IDE-005 AC3+AC7: an asynchronous Pi spawn failure cannot leave a running backend', async () => {
+  const backend = new PiRpcBackend(new SpawnFailingPiSpawner(), new ApprovalBridge(new DeferredApprovalHost()), {
+    output: () => undefined,
+    reset: () => undefined,
+    failed: () => undefined,
+  });
+
+  await assert.rejects(backend.start(), /unavailable/);
+  assert.equal(backend.running, false);
+});
+
+test('REQ-IDE-005 AC3: cycle-thinking renders the correlated Pi response level', async () => {
+  const output: string[] = [];
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new DeferredApprovalHost()), {
+    output: (text) => output.push(text),
+    reset: () => undefined,
+    failed: () => undefined,
+  });
+
+  await backend.cycleThinkingLevel();
+  spawner.children[0]?.emit({
+    id: 'thinking-1',
+    type: 'response',
+    command: 'cycle_thinking_level',
+    success: true,
+    data: { level: 'high' },
+  });
+  await waitForImmediate();
+
+  assert.deepEqual(output, ['\nThinking: high\n']);
+});
 
 test('REQ-IDE-005 AC5+AC7: a late Pi approval response cannot enter a replacement conversation', async () => {
   const host = new DeferredApprovalHost();

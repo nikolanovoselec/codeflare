@@ -1,3 +1,4 @@
+import { renameSync, watch } from 'node:fs';
 import { mkdir, mkdtemp, readFile as readFsFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -216,6 +217,48 @@ describe('REQ-IDE-005: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('before\n');
   });
 
+  it('REQ-IDE-005: a failed staged replacement leaves the approved existing file intact', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'pi-sidebar-atomic-'));
+    const project = join(workspace, 'project');
+    const movedProject = join(workspace, 'project-moved');
+    const target = join(project, 'file.ts');
+    await mkdir(project);
+    await writeFile(target, 'before\n');
+    let moved = false;
+    let watcher: ReturnType<typeof watch> | undefined;
+
+    try {
+      const guarded = createSidebarApprovalTools({
+        workspaceRoot: workspace,
+        requestApproval: async (request) => {
+          watcher = watch(project, { encoding: 'utf8' }, (_event, filename) => {
+            if (!moved && filename?.startsWith('.codeflare-file.ts-')) {
+              moved = true;
+              renameSync(project, movedProject);
+            }
+          });
+          return { id: request.id, approved: true };
+        },
+      });
+
+      const result = await guarded.write.execute(
+        'write-staging-race',
+        { path: target, content: `${'after'.repeat(100_000)}\n` },
+        undefined,
+        undefined,
+        { ...context(), cwd: workspace },
+      );
+
+      watcher?.close();
+      expect(moved).toBe(true);
+      expect(text(result)).toMatch(/denied|failed|changed/i);
+      expect(await readFsFile(join(movedProject, 'file.ts'), 'utf8')).toBe('before\n');
+    } finally {
+      watcher?.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('REQ-IDE-005: mutation boundary cannot follow a parent symlink swapped in after approval', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'pi-sidebar-workspace-'));
     const outside = await mkdtemp(join(tmpdir(), 'pi-sidebar-outside-'));
@@ -365,7 +408,8 @@ describe('REQ-IDE-005: Pi sidebar guarded approvals', () => {
     });
     await fixture.pi.emit({ type: 'tool_call', toolName: 'mcp__example__mutate', toolCallId: 'outer', input: {} });
     expect(nested).toMatchObject({ block: true });
-    expect(String(nested?.reason)).toMatch(/nested|pending|approval/i);
+    const nestedDecision = nested as { block: boolean; reason?: string } | undefined;
+    expect(String(nestedDecision?.reason)).toMatch(/nested|pending|approval/i);
     expect(fixture.harness.approvals).toHaveLength(1);
   });
 });
