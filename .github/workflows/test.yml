@@ -891,6 +891,74 @@ jobs:
           working-directory: openvscode/agent-sidebar
           artifact-name: browser-ide
 
+  browser-ide-image:
+    name: Browser IDE complete image
+    needs: [changes, browser-ide]
+    if: >-
+      (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') &&
+      needs.browser-ide.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build complete image
+        env:
+          IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
+        run: docker build --tag "$IMAGE" .
+
+      - name: Verify packaged sidebar and native ABI
+        env:
+          IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /usr/local/bin/node "$IMAGE" \
+            /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs \
+            | tee /tmp/browser-ide-image-evidence.txt
+          docker image inspect "$IMAGE" \
+            --format 'image_bytes={{.Size}} image_id={{.Id}}' \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+
+      - name: Measure idle OpenVSCode resources
+        env:
+          IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          container=$(docker run -d --entrypoint /usr/local/bin/openvscode-server "$IMAGE" \
+            --host 127.0.0.1 --port 13337 \
+            --server-base-path /api/vscode/smoke \
+            --without-connection-token \
+            --default-folder /home/user/workspace \
+            --server-data-dir /tmp/openvscode-smoke-data \
+            --extensions-dir /opt/codeflare/openvscode/extensions/pi \
+            --telemetry-level off --accept-server-license-terms)
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for _ in $(seq 1 60); do
+            if docker exec "$container" curl -fsS http://127.0.0.1:13337/api/vscode/smoke/ >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
+          STATS=$(docker exec "$container" sh -c \
+            'printf "processes=%s rss_kib=%s" "$(ps -e --no-headers | wc -l)" "$(ps -e -o rss= | awk '\''{s+=$1} END {print s+0}'\'')"')
+          printf '%s\n' "$STATS" | tee -a /tmp/browser-ide-image-evidence.txt
+          if docker exec "$container" pgrep -af '/usr/local/bin/(pi|claude)' >/tmp/sidebar-agents.txt; then
+            cat /tmp/sidebar-agents.txt
+            echo 'Agent process started before the sidebar became visible.' >&2
+            exit 1
+          fi
+
+      - name: Upload image evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-ide-image-evidence
+          path: /tmp/browser-ide-image-evidence.txt
+          retention-days: 5
+          if-no-files-found: error
+
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
@@ -918,6 +986,7 @@ jobs:
       - landing-tests
       - host-tests
       - browser-ide
+      - browser-ide-image
       - dependency-review
     if: always()
     runs-on: ubuntu-latest
