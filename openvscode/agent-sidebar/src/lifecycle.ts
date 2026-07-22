@@ -4,16 +4,17 @@ import type {
   BackendFactories,
   BackendKind,
 } from './backend.ts';
-import { notImplemented } from './not-implemented.ts';
 
 export function selectBackendKind(value: unknown): BackendKind {
-  void value;
-  return notImplemented('closed extension backend selection');
+  if (value === 'pi' || value === 'claude') return value;
+  throw new Error('Unsupported sidebar backend');
 }
 
 export class SidebarLifecycle {
   readonly #selected: BackendKind;
   readonly #factories: BackendFactories;
+  #backend: Backend | undefined;
+  #starting: Promise<Backend> | undefined;
 
   constructor(selected: BackendKind, factories: BackendFactories) {
     this.#selected = selected;
@@ -25,15 +26,37 @@ export class SidebarLifecycle {
   }
 
   async resolveVisible(): Promise<Backend> {
-    void this.#factories;
-    return notImplemented('lazy visible sidebar backend resolution');
+    if (this.#backend) return this.#backend;
+    if (this.#starting) return this.#starting;
+
+    const factory = this.#factories[this.#selected];
+    this.#starting = (async () => {
+      const backend = factory();
+      await backend.start();
+      this.#backend = backend;
+      return backend;
+    })();
+
+    try {
+      return await this.#starting;
+    } finally {
+      this.#starting = undefined;
+    }
   }
 
   async newConversation(): Promise<Backend> {
-    return notImplemented('backend replacement lifecycle');
+    await this.#stopCurrent();
+    return this.resolveVisible();
   }
 
   async deactivate(): Promise<void> {
-    return notImplemented('backend deactivation lifecycle');
+    await this.#stopCurrent();
+  }
+
+  async #stopCurrent(): Promise<void> {
+    const backend = this.#backend ?? (this.#starting ? await this.#starting : undefined);
+    this.#starting = undefined;
+    this.#backend = undefined;
+    await backend?.stop();
   }
 }

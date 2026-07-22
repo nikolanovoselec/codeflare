@@ -1,5 +1,4 @@
 import type { BackendKind } from './backend.ts';
-import { notImplemented } from './not-implemented.ts';
 
 export interface WebviewDocumentOptions {
   readonly backend: BackendKind;
@@ -18,6 +17,44 @@ export interface WebviewDocument {
 }
 
 export function createWebviewDocument(options: WebviewDocumentOptions): WebviewDocument {
-  void options;
-  return notImplemented('strict local webview CSP document');
+  const values = [options.cspSource, options.nonce, options.scriptUri, options.styleUri];
+  if (values.some((value) => /[\r\n<>"']/.test(value))) {
+    throw new Error('Unsafe webview document option');
+  }
+
+  const csp = [
+    "default-src 'none'",
+    `img-src ${options.cspSource}`,
+    `font-src ${options.cspSource}`,
+    `style-src ${options.cspSource}`,
+    `script-src 'nonce-${options.nonce}'`,
+    "connect-src 'none'",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join('; ');
+  const label = options.backend === 'pi' ? 'Pi' : 'Claude Code';
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="${options.styleUri}">
+  <title>${label}</title>
+</head>
+<body>
+  <main id="app" aria-label="${label} sidebar"></main>
+  <script nonce="${options.nonce}" src="${options.scriptUri}"></script>
+</body>
+</html>`;
+
+  return {
+    html,
+    csp,
+    localResourceRoots: ['webview'],
+    enableCommandUris: false,
+    enableNavigation: false,
+  };
 }
