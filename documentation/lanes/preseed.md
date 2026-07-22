@@ -1052,16 +1052,18 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
-Pi uses the narrower supported command grammar in
-[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize only protected-base `gh pr create` and a non-destructive single-branch `git push`.
+Pi uses the supported command grammar in
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize protected-base `gh pr create`, explicit single-branch pushes, and implicit bare, remote-only, or `HEAD` pushes.
 
-For a push, Pi resolves the pushed source ref and queries the destination branch's PR. A launch follows when that source and branch match the authoritative open PR head targeting `main` or `master`. Branch deletion, tags, ambiguous or multi-ref pushes, PR edit/update/merge commands, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert ([REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing)).
+For an explicit push, Pi resolves the pushed source ref and queries the destination branch's PR. For an implicit push, it resolves the checked-out branch and `HEAD` inside the exact repository bound to that successful shell invocation. A launch follows only when that branch and full SHA match the authoritative open PR head targeting `main` or `master`. Branch deletion, tags, dry-run/follow-tag, ambiguous or multi-ref pushes, PR edit/update/merge commands, failed commands, quoted examples, child sessions, passive startup, detached HEAD, and integration-bound PRs are inert; a forced single-branch push still requires the same exact branch-and-head match ([REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing)).
+<!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo -->
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryBranch -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
 <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
-For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. Agent-end acknowledgement reads Pi's live session entries so the final triage does not race the session-file flush; settled recovery remains the fallback for missing work. Both require the extension-emitted review window for the successful persisted boundary, and fresh PR state must still report that window's full head SHA; an unbound boundary or replacement PR is inert.
+For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. Agent-end acknowledgement reads Pi's live session entries so the final triage does not race the session-file flush; settled recovery remains the fallback for missing work. Both require the extension-emitted review window for the successful persisted boundary. That window binds the originating tool call, repository root, branch, PR number, protected base, and full head SHA; fresh PR state must still report the same identity. Ambient cwd changes, active-repository changes, an unbound boundary, or a replacement PR are inert.
 
 The window lists missing reviewer lanes and, when an acknowledgement exists, the exact acknowledged-to-current range. Every counted public reviewer prompt carries that range. Unmatched calls stay in flight until native notification, and only the reminder head can be acknowledged. A delayed persisted notification can acknowledge that head after reload or newer unpublished local work while the PR still points to it; unfinished or replaced work may repeat at a later boundary ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
 
@@ -1075,7 +1077,7 @@ After every required reviewer result arrives, the launch handoff requires an aut
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
 <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md::Finding discipline -->
 
-Pi CI is not part of review completion or acknowledgement. After either eligible Git action, protected-base PR creation or an exact-branch protected-PR push, the extension issues one ordered plan; the root launches required reviewers first, then runs that plan's resolver once with explicit repository cwd and review launch state. CI launches last without waiting for review completion. An empty response means no monitor, and interruption remains aborted until a later plan or explicit request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
+Pi CI is not part of review completion or acknowledgement. After either eligible Git action, protected-base PR creation or an explicit/implicit exact-head protected-PR push, the extension issues one ordered plan; the root launches required reviewers first, then runs that plan's resolver once with explicit repository cwd and review launch state. CI launches last without waiting for review completion. An empty response means no monitor, and interruption remains aborted until a later plan or explicit request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
 
 ---
 

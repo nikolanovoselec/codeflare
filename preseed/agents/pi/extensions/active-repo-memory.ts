@@ -39,7 +39,9 @@ function effectivePath(command: string, cwd: string): string {
   return resolve(effectiveCwdForCommand(command, cwd));
 }
 
-function shellInputs(event: any, sessionCwd: string): Array<{ command: string; cwd: string }> {
+export type ShellInvocation = { command: string; cwd: string };
+
+export function shellInvocations(event: any, sessionCwd: string): ShellInvocation[] {
   const input = event?.input ?? event?.args;
   const name = String(event?.toolName ?? "");
   if (!input || typeof input !== "object") return [];
@@ -59,11 +61,15 @@ function shellInputs(event: any, sessionCwd: string): Array<{ command: string; c
   return [];
 }
 
+export function resolveShellInvocationRepo(invocation: ShellInvocation): string | undefined {
+  return findGitRoot(effectivePath(invocation.command, invocation.cwd));
+}
+
 export function rememberActiveRepoFromToolResult(event: any, sessionCwd: string): string | undefined {
   if (event?.isError === true || event?.result?.isError === true) return undefined;
   let remembered: string | undefined;
-  for (const input of shellInputs(event, sessionCwd)) {
-    const repo = findGitRoot(effectivePath(input.command, input.cwd));
+  for (const invocation of shellInvocations(event, sessionCwd)) {
+    const repo = resolveShellInvocationRepo(invocation);
     if (!repo) continue;
     rememberActiveRepo(repo);
     remembered = repo;

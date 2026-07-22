@@ -18,6 +18,11 @@ type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
   reviewRange?: string;
+  reviewRepo?: string;
+  reviewBranch?: string;
+  reviewPrNumber?: number;
+  reviewBase?: 'main' | 'master';
+  reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
   triageComplete: boolean;
@@ -133,7 +138,15 @@ function reviewReminder(head: string, reviewRange: string): Record<string, unkno
   return sessionEntry('custom_message', {
     customType: 'pr-boundary-launch-plan',
     content: `review_range=${reviewRange}`,
-    details: { head, reviewRange },
+    details: {
+      head,
+      reviewRange,
+      repo: '/workspace/repo',
+      branch: 'pi',
+      prNumber: 42,
+      base: 'main',
+      boundaryToolUseId: 'push-1',
+    },
     display: true,
   });
 }
@@ -159,7 +172,7 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063: recognizes only PR creation and non-destructive single-branch pushes', async () => {
+  it('REQ-AGENT-063: recognizes implicit and explicit branch pushes while rejecting non-branch forms', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
     const push = {
       reminder: true,
@@ -168,6 +181,7 @@ describe('Claude-equivalent review boundary helpers', () => {
       pushSource: 'refs/heads/pi',
       pushTarget: 'pi',
     };
+    const inferredPush = { reminder: true, settled: true, event: 'push' as const };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
       ['git push origin pi', push],
@@ -182,7 +196,10 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['cat <<A <<B\nfirst\nA\ngit push origin pi\nB\ngit push origin pi', push],
       ['printf done; git push origin pi', push],
       ['git push origin HEAD:refs/heads/pi', { ...push, pushSource: 'HEAD' }],
-      ['git push', none],
+      ['git push', inferredPush],
+      ['git push origin', inferredPush],
+      ['git push origin HEAD', inferredPush],
+      ['git push -u origin HEAD', inferredPush],
       ['gh pr create --base main --title review', { reminder: true, settled: true, event: 'pr-create' }],
       ['gh pr edit 42 --base master', none],
       ['gh pr edit 42 --base main && git push origin pi', push],
@@ -193,11 +210,13 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['git push --all origin', none],
       ['git push --mirror origin', none],
       ['git push --tags origin', none],
-      ['git push --force origin pi', none],
+      ['git push --force origin pi', push],
+      ['git push --force-with-lease origin pi', push],
       ['git push --dry-run origin pi', none],
       ['git push --follow-tags origin pi', none],
-      ['git push -fu origin pi', none],
-      ['git push origin +pi', none],
+      ['git push -fu origin pi', push],
+      ['git push origin +pi', push],
+      ['git push origin pi other', none],
       ['git push origin refs/tags/v1:refs/heads/pi', none],
       ['git push origin pi:HEAD', none],
       ['git -C /tmp/repo push origin pi', push],
@@ -418,6 +437,11 @@ describe('native Pi transcript review facts', () => {
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
     expect(facts.reviewHead).toBe(head);
     expect(facts.reviewRange).toBe(reviewRange);
+    expect(facts.reviewRepo).toBe('/workspace/repo');
+    expect(facts.reviewBranch).toBe('pi');
+    expect(facts.reviewPrNumber).toBe(42);
+    expect(facts.reviewBase).toBe('main');
+    expect(facts.reviewBoundaryToolUseId).toBe('push-1');
     expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
   });

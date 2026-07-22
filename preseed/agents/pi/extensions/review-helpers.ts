@@ -20,6 +20,11 @@ export type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
   reviewRange?: string;
+  reviewRepo?: string;
+  reviewBranch?: string;
+  reviewPrNumber?: number;
+  reviewBase?: "main" | "master";
+  reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
   triageComplete: boolean;
@@ -173,7 +178,7 @@ function gitSubcommand(words: ShellWords): string | undefined {
 
 const PUSH_OPTIONS_WITH_VALUE = new Set(["--exec", "--push-option", "--receive-pack", "--repo", "-o"]);
 const UNSUPPORTED_PUSH_OPTIONS = new Set([
-  "--all", "--delete", "--dry-run", "--follow-tags", "--force", "--force-if-includes", "--force-with-lease", "--mirror", "--prune", "--tags", "-d", "-f", "-n",
+  "--all", "--delete", "--dry-run", "--follow-tags", "--mirror", "--prune", "--tags", "-d", "-n",
 ]);
 
 function branchRef(value: string): string | undefined {
@@ -191,7 +196,7 @@ function pushBoundary(words: ShellWords): { source?: string; target?: string } |
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] ?? "";
     if (UNSUPPORTED_PUSH_OPTIONS.has(arg)
-      || /^-[^-]*[dfn]/.test(arg)
+      || /^-[^-]*[dn]/.test(arg)
       || [...UNSUPPORTED_PUSH_OPTIONS].some((option) => arg.startsWith(`${option}=`))) {
       return undefined;
     }
@@ -207,12 +212,15 @@ function pushBoundary(words: ShellWords): { source?: string; target?: string } |
     positionals.push(arg);
   }
   const refspecs = positionals.slice(1);
+  if (refspecs.length === 0) return {};
   if (refspecs.length !== 1) return undefined;
   const refspec = refspecs[0] ?? "";
-  if (!refspec || refspec.startsWith("+") || refspec.startsWith(":")) return undefined;
-  const separator = refspec.indexOf(":");
-  const sourceRaw = separator === -1 ? refspec : refspec.slice(0, separator);
-  const targetRaw = separator === -1 ? refspec : refspec.slice(separator + 1);
+  if (refspec === "HEAD") return {};
+  const normalizedRefspec = refspec.startsWith("+") ? refspec.slice(1) : refspec;
+  if (!normalizedRefspec || normalizedRefspec.startsWith(":")) return undefined;
+  const separator = normalizedRefspec.indexOf(":");
+  const sourceRaw = separator === -1 ? normalizedRefspec : normalizedRefspec.slice(0, separator);
+  const targetRaw = separator === -1 ? normalizedRefspec : normalizedRefspec.slice(separator + 1);
   if (!sourceRaw || !targetRaw || targetRaw === "HEAD") return undefined;
   const sourceBranch = sourceRaw === "HEAD" ? undefined : branchRef(sourceRaw);
   const source = sourceRaw === "HEAD"
@@ -356,7 +364,17 @@ function nativeNotification(entry: Record<string, any>): { toolUseId: string; su
   return { toolUseId, succeeded: /^(?:Done|Completed)$/i.test(status) };
 }
 
-function reviewWindow(entry: Record<string, any>): { head?: string; range?: string } | undefined {
+type ReviewWindow = {
+  head?: string;
+  range?: string;
+  repo?: string;
+  branch?: string;
+  prNumber?: number;
+  base?: "main" | "master";
+  boundaryToolUseId?: string;
+};
+
+function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
   if (entry.type !== "custom_message" || ![
     "pr-boundary-launch-plan",
     "pr-boundary-launch-follow-up",
@@ -365,7 +383,16 @@ function reviewWindow(entry: Record<string, any>): { head?: string; range?: stri
   ].includes(entry.customType)) return undefined;
   const head = typeof entry.details?.head === "string" ? entry.details.head : undefined;
   const range = typeof entry.details?.reviewRange === "string" ? entry.details.reviewRange : undefined;
-  return { head, range };
+  const repo = typeof entry.details?.repo === "string" ? entry.details.repo : undefined;
+  const branch = typeof entry.details?.branch === "string" ? entry.details.branch : undefined;
+  const prNumber = Number.isInteger(entry.details?.prNumber) ? entry.details.prNumber : undefined;
+  const base = entry.details?.base === "main" || entry.details?.base === "master"
+    ? entry.details.base
+    : undefined;
+  const boundaryToolUseId = typeof entry.details?.boundaryToolUseId === "string"
+    ? entry.details.boundaryToolUseId
+    : undefined;
+  return { head, range, repo, branch, prNumber, base, boundaryToolUseId };
 }
 
 export function reviewTranscriptFacts(input: {
@@ -395,7 +422,12 @@ export function reviewTranscriptFacts(input: {
   if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, triageComplete: false, closedNotified: false, lanes };
   const later = entries.slice(boundaryIndex + 1);
   const terminalIndexes = new Map<ReviewLane, number>();
-  const window = later.reduce<{ head?: string; range?: string } | undefined>((current, entry) => reviewWindow(entry) ?? current, undefined);
+  const window = later.reduce<ReviewWindow | undefined>((current, entry) => {
+    const candidate = reviewWindow(entry);
+    if (!candidate) return current;
+    if (candidate.boundaryToolUseId && candidate.boundaryToolUseId !== boundary?.toolUseId) return current;
+    return candidate;
+  }, undefined);
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
       const lane = call.arguments?.subagent_type as ReviewLane;
@@ -438,7 +470,21 @@ export function reviewTranscriptFacts(input: {
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );
-  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, ciLaunched, triageComplete, closedNotified, lanes };
+  return {
+    boundary,
+    reviewHead: window?.head,
+    reviewRange: window?.range,
+    reviewRepo: window?.repo,
+    reviewBranch: window?.branch,
+    reviewPrNumber: window?.prNumber,
+    reviewBase: window?.base,
+    reviewBoundaryToolUseId: window?.boundaryToolUseId,
+    bypassed,
+    ciLaunched,
+    triageComplete,
+    closedNotified,
+    lanes,
+  };
 }
 
 export default function () {}

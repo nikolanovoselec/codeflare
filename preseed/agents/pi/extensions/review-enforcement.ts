@@ -3,7 +3,14 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, unlinkSync, wr
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { recallActiveRepo, rememberActiveRepoFromToolResult } from "./active-repo-memory";
+import {
+  findGitRoot,
+  recallActiveRepo,
+  rememberActiveRepoFromToolResult,
+  resolveShellInvocationRepo,
+  shellInvocations,
+  type ShellInvocation,
+} from "./active-repo-memory";
 import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import {
   classifyReviewBoundaryCommand,
@@ -30,6 +37,7 @@ type PrState = {
 type Dependencies = {
   queryPr(repo: string, target?: string): Promise<PrState | undefined>;
   queryHead?(repo: string, revision?: string): Promise<string | undefined>;
+  queryBranch?(repo: string): Promise<string | undefined>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
 };
@@ -156,18 +164,23 @@ function blockDecision(repo: string, head: string): "block" | "giveup" {
   return "block";
 }
 
-function shellCommands(event: any): string[] {
-  const input = event?.input;
-  const name = String(event?.toolName ?? "");
-  if (!input || typeof input !== "object") return [];
-  if ((name === "bash" || name === "Bash") && typeof input.command === "string") return [input.command];
-  if (name.endsWith("ctx_execute") && input.language === "shell" && typeof input.code === "string") return [input.code];
-  if (name.endsWith("ctx_batch_execute") && Array.isArray(input.commands)) {
-    return input.commands
-      .map((item: Record<string, unknown>) => item?.command)
-      .filter((command: unknown): command is string => typeof command === "string");
-  }
-  return [];
+type ClassifiedBoundary = {
+  invocation: ShellInvocation;
+  classification: ReturnType<typeof classifyReviewBoundaryCommand>;
+  toolUseId: string;
+};
+
+function latestBoundary(event: any, sessionCwd: string): ClassifiedBoundary | undefined {
+  const toolUseId = typeof event?.toolCallId === "string" ? event.toolCallId : undefined;
+  if (!toolUseId) return undefined;
+  return shellInvocations(event, sessionCwd)
+    .map((invocation) => ({
+      invocation,
+      classification: classifyReviewBoundaryCommand(invocation.command),
+      toolUseId,
+    }))
+    .filter(({ classification }) => classification.reminder)
+    .at(-1);
 }
 
 function successful(event: any): boolean {
@@ -188,11 +201,21 @@ function consumeBypassSentinel(): boolean {
   }
 }
 
-function boundaryContext(ctx: ReviewContext): { repo: string; file: string } | undefined {
-  const repo = existsSync(join(ctx.cwd, ".git")) ? ctx.cwd : (recallActiveRepo() ?? ctx.cwd);
+function rootSessionFile(ctx: ReviewContext): string | undefined {
   const file = sessionFile(ctx);
-  if (!file || isChildSession(ctx, file)) return undefined;
-  return { repo, file };
+  return file && !isChildSession(ctx, file) ? file : undefined;
+}
+
+function boundaryContext(ctx: ReviewContext, preferredRepo?: string): { repo: string; file: string } | undefined {
+  const file = rootSessionFile(ctx);
+  if (!file) return undefined;
+  const preferredRoot = preferredRepo ? findGitRoot(preferredRepo) : undefined;
+  if (preferredRepo && !preferredRoot) return undefined;
+  const rememberedRepo = recallActiveRepo();
+  const repo = preferredRoot
+    ?? findGitRoot(ctx.cwd)
+    ?? (rememberedRepo ? findGitRoot(rememberedRepo) : undefined);
+  return repo ? { repo, file } : undefined;
 }
 
 function reviewEnabled(repo: string): boolean {
@@ -210,18 +233,20 @@ async function currentReview(
   dependencies: Dependencies,
   target: string | undefined,
   revision = "HEAD",
+  preferredRepo?: string,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
-  const context = boundaryContext(ctx);
+  const context = boundaryContext(ctx, preferredRepo);
   if (!context) return undefined;
+  const branch = target ?? await (dependencies.queryBranch ?? queryBranch)(context.repo);
+  if (!branch) return undefined;
   const head = await (dependencies.queryHead ?? queryHead)(context.repo, revision);
   if (!head) return undefined;
   const delays = dependencies.headRetryDelaysMs ?? [0, 250, 1_000];
   const sleep = dependencies.sleep ?? defaultSleep;
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
-    const pr = await dependencies.queryPr(context.repo, target);
-    if (!isProtectedPr(pr)) continue;
-    if (target && pr.headRefName !== target) continue;
+    const pr = await dependencies.queryPr(context.repo, branch);
+    if (!isProtectedPr(pr) || pr.headRefName !== branch) continue;
     if (head === pr.headRefOid) return { ...context, pr };
   }
   return undefined;
@@ -233,6 +258,7 @@ type LaunchMessage = {
   phase: "plan" | "follow-up";
   repo: string;
   pr: PrState;
+  boundaryToolUseId: string;
   ackHead?: string;
   range?: string;
   reviewers: ReviewLane[];
@@ -346,6 +372,11 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     ...sections.flatMap((section, index) => index === sections.length - 1 ? [section] : [section, ""]),
   ].join("\n");
   const details: Record<string, unknown> = {
+    repo: input.repo,
+    branch: input.pr.headRefName,
+    prNumber: input.pr.number,
+    base: input.pr.baseRefName,
+    boundaryToolUseId: input.boundaryToolUseId,
     head: input.pr.headRefOid,
     ackHead: input.ackHead,
     reviewRange: input.range,
@@ -408,15 +439,24 @@ async function acknowledgeCompletedReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
 ): Promise<boolean> {
-  const context = boundaryContext(ctx);
+  const file = rootSessionFile(ctx);
+  if (!file) return false;
+  const preview = transcriptFacts(ctx, file, []);
+  if (!preview.boundary
+    || !fullSha(preview.reviewHead)
+    || !preview.reviewRepo
+    || !preview.reviewBranch
+    || !preview.reviewPrNumber
+    || !preview.reviewBase
+    || preview.reviewBoundaryToolUseId !== preview.boundary.toolUseId) return false;
+  const context = boundaryContext(ctx, preview.reviewRepo);
   if (!context) return false;
-  const preview = transcriptFacts(ctx, context.file, []);
-  if (!preview.boundary || !fullSha(preview.reviewHead)) return false;
   const classification = classifyReviewBoundaryCommand(preview.boundary.command);
-  const target = classification.event === "push" ? classification.pushTarget : undefined;
-  const reviewedPr = await dependencies.queryPr(context.repo, target);
+  const reviewedPr = await dependencies.queryPr(context.repo, preview.reviewBranch);
   if (!isEnforcedPr(reviewedPr)
-    || (target && reviewedPr.headRefName !== target)
+    || reviewedPr.number !== preview.reviewPrNumber
+    || reviewedPr.baseRefName !== preview.reviewBase
+    || reviewedPr.headRefName !== preview.reviewBranch
     || reviewedPr.headRefOid !== preview.reviewHead
     || !reviewEnabled(context.repo)
     || preview.bypassed
@@ -432,6 +472,8 @@ async function acknowledgeCompletedReview(
     && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
   if (reviewedFacts.reviewHead !== reviewedHead
     || reviewedFacts.reviewRange !== reviewedRange
+    || reviewedFacts.reviewRepo !== context.repo
+    || reviewedFacts.reviewBranch !== reviewedPr.headRefName
     || !allReviewedLanesTerminal
     || !reviewedFacts.triageComplete) return false;
 
@@ -442,6 +484,7 @@ async function acknowledgeCompletedReview(
       phase: "follow-up",
       repo: context.repo,
       pr: reviewedPr,
+      boundaryToolUseId: preview.boundary.toolUseId,
       ackHead: reviewedHead,
       range: reviewedRange,
       reviewers: [],
@@ -456,17 +499,17 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("tool_result", async (event, ctx) => {
     if (!successful(event)) return;
     rememberActiveRepoFromToolResult(event, ctx.cwd);
-    const boundary = shellCommands(event)
-      .map((command) => ({ command, classification: classifyReviewBoundaryCommand(command) }))
-      .find(({ classification }) => classification.reminder);
+    const boundary = latestBoundary(event, ctx.cwd);
     if (!boundary) return;
+    const eventRepo = resolveShellInvocationRepo(boundary.invocation);
+    if (!eventRepo) return;
     const target = boundary.classification.event === "push"
       ? boundary.classification.pushTarget
       : undefined;
     const revision = boundary.classification.event === "push"
       ? boundary.classification.pushSource ?? "HEAD"
       : "HEAD";
-    const review = await currentReview(ctx, dependencies, target, revision);
+    const review = await currentReview(ctx, dependencies, target, revision, eventRepo);
     if (!review || !isEnforcedPr(review.pr)) return;
 
     const skipReview = bypassSentinelPresent();
@@ -483,6 +526,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       phase: "plan",
       repo: review.repo,
       pr: review.pr,
+      boundaryToolUseId: boundary.toolUseId,
       ackHead,
       range,
       reviewers: requiredLanes,
@@ -496,20 +540,25 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
   pi.on("agent_settled", async (_event, ctx) => {
     if (await acknowledgeCompletedReview(pi, ctx, dependencies)) return;
-    const context = boundaryContext(ctx);
+    const file = rootSessionFile(ctx);
+    if (!file) return;
+    const preview = transcriptFacts(ctx, file, []);
+    if (!preview.boundary
+      || !fullSha(preview.reviewHead)
+      || !preview.reviewRepo
+      || !preview.reviewBranch
+      || !preview.reviewPrNumber
+      || !preview.reviewBase
+      || preview.reviewBoundaryToolUseId !== preview.boundary.toolUseId) return;
+    const context = boundaryContext(ctx, preview.reviewRepo);
     if (!context) return;
-    const preview = transcriptFacts(ctx, context.file, []);
-    if (!preview.boundary || !fullSha(preview.reviewHead)) return;
-
-    const boundaryClassification = classifyReviewBoundaryCommand(preview.boundary.command);
-    const target = boundaryClassification.event === "push"
-      ? boundaryClassification.pushTarget
-      : undefined;
-    const revision = boundaryClassification.event === "push"
-      ? boundaryClassification.pushSource ?? "HEAD"
-      : "HEAD";
-    const review = await currentReview(ctx, dependencies, target, revision);
-    if (!review || review.pr.headRefOid !== preview.reviewHead) return;
+    const pr = await dependencies.queryPr(context.repo, preview.reviewBranch);
+    if (!isProtectedPr(pr)
+      || pr.number !== preview.reviewPrNumber
+      || pr.baseRefName !== preview.reviewBase
+      || pr.headRefName !== preview.reviewBranch
+      || pr.headRefOid !== preview.reviewHead) return;
+    const review = { ...context, pr };
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const bypassed = preview.bypassed || consumeBypassSentinel();
@@ -553,6 +602,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         phase: "plan",
         repo: review.repo,
         pr: review.pr,
+        boundaryToolUseId: preview.boundary.toolUseId,
         ackHead,
         range,
         reviewers: requiredLanes,
@@ -574,12 +624,30 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       phase: "follow-up",
       repo: review.repo,
       pr: review.pr,
+      boundaryToolUseId: preview.boundary.toolUseId,
       ackHead,
       range,
       reviewers: missingLanes,
       ciEvent,
     });
   });
+}
+
+export async function queryBranch(
+  repo: string,
+  runner: QueryPrRunner = execFileAsync,
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await runner(
+      "git",
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { cwd: repo, encoding: "utf8", timeout: 10_000 },
+    );
+    const value = String(stdout).trim();
+    return value || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function queryHead(
@@ -622,5 +690,6 @@ export async function queryPr(
 export default function reviewEnforcement(pi: ExtensionAPI): void {
   registerReviewEnforcement(pi as unknown as ReviewPi, {
     queryPr: (repo, target) => queryPr(repo, execFileAsync, target),
+    queryBranch: (repo) => queryBranch(repo, execFileAsync),
   });
 }

@@ -32,6 +32,7 @@ type PlannedReviewEnforcement = {
     dependencies: {
       queryPr(repo: string, target?: string): Promise<PrState | undefined>;
       queryHead?(repo: string, revision?: string): Promise<string | undefined>;
+      queryBranch?(repo: string): Promise<string | undefined>;
       sleep?(delayMs: number): Promise<void>;
       headRetryDelaysMs?: number[];
     },
@@ -145,6 +146,19 @@ function launchWaves(reviewers: ReviewLane[], includeCi: boolean): Array<string[
 
 function diffScope() {
   return { mode: 'diff', workSet: 'changed-hunks-and-direct-invalidations' };
+}
+
+function boundaryIdentity(
+  fixture: ReturnType<typeof makeReviewFixture>,
+  boundaryToolUseId = 'push-1',
+) {
+  return {
+    repo: fixture.repo,
+    branch: fixture.pr.headRefName,
+    prNumber: fixture.pr.number,
+    base: fixture.pr.baseRefName,
+    boundaryToolUseId,
+  };
 }
 
 function markdownHeadings(content: string | undefined): string[] {
@@ -319,23 +333,23 @@ function makeHarness(repo: string, sessionFile: string): {
 async function registerFixture(
   fixture: ReturnType<typeof makeReviewFixture>,
   cwd = fixture.repo,
-  observeTarget?: (target: string | undefined) => void,
+  observeQuery?: (repo: string, target: string | undefined) => void,
 ) {
   const { registerReviewEnforcement } = await plannedEnforcement();
   const harness = makeHarness(cwd, fixture.sessionFile);
   await registerReviewEnforcement(harness.pi, {
-    queryPr: async (_repo, target) => {
-      observeTarget?.(target);
+    queryPr: async (repo, target) => {
+      observeQuery?.(repo, target);
       return fixture.pr;
     },
   });
   return harness;
 }
 
-function boundaryEvent(command = 'git push origin pi') {
+function boundaryEvent(command = 'git push origin pi', toolCallId = 'push-1') {
   return {
     toolName: 'bash',
-    toolCallId: 'push-1',
+    toolCallId,
     input: { command },
     args: { command },
     result: { content: [{ type: 'text', text: 'ok' }], isError: false },
@@ -370,6 +384,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-plan',
         display: true,
         details: {
+          ...boundaryIdentity(fixture),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -417,6 +432,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-follow-up',
         display: true,
         details: {
+          ...boundaryIdentity(fixture),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -477,6 +493,7 @@ describe('Pi review reminder and settled enforcement', () => {
         message: expect.objectContaining({
           customType: 'pr-boundary-launch-plan',
           details: {
+            ...boundaryIdentity(fixture),
             head: fixture.head,
             ackHead: expectedAck,
             reviewRange: undefined,
@@ -500,12 +517,13 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-current', 'bash'),
     );
 
-    await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-current'));
 
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
         details: {
+          ...boundaryIdentity(fixture, 'push-current'),
           head: fixture.head,
           ackHead: fixture.head,
           reviewRange: undefined,
@@ -585,6 +603,7 @@ describe('Pi review reminder and settled enforcement', () => {
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
         details: {
+          ...boundaryIdentity(fixture),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -610,6 +629,7 @@ describe('Pi review reminder and settled enforcement', () => {
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
         details: {
+          ...boundaryIdentity(fixture),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -642,6 +662,7 @@ describe('Pi review reminder and settled enforcement', () => {
         message: expect.objectContaining({
           customType: 'pr-boundary-launch-plan',
           details: {
+            ...boundaryIdentity(fixture),
             head: fixture.head,
             ackHead: fixture.base,
             reviewRange: `${fixture.base}..${fixture.head}`,
@@ -717,6 +738,140 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
+  it('REQ-AGENT-036/REQ-AGENT-063: resolves implicit pushes from the event repository current branch', async () => {
+    for (const [index, command] of ['git push', 'git push origin', 'git push -u origin HEAD'].entries()) {
+      const fixture = makeReviewFixture();
+      const queries: Array<{ repo: string; target: string | undefined }> = [];
+      const harness = await registerFixture(fixture, fixture.repo, (repo, target) => {
+        queries.push({ repo, target });
+      });
+      const toolUseId = `implicit-${index}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+
+      expect(queries).toEqual([{ repo: fixture.repo, target: 'pi' }]);
+      expect(harness.sent).toHaveLength(1);
+      expect(harness.sent[0]?.message.details).toMatchObject({
+        ...boundaryIdentity(fixture, toolUseId),
+        head: fixture.head,
+        ciEvent: 'push',
+      });
+    }
+
+    const detached = makeReviewFixture();
+    git(detached.repo, 'checkout', '--detach', '-q');
+    let detachedQueries = 0;
+    const detachedHarness = await registerFixture(detached, detached.repo, () => {
+      detachedQueries += 1;
+    });
+    appendSession(detached.sessionFile,
+      assistantTool('detached-push', 'bash', { command: 'git push' }),
+      toolResult('detached-push', 'bash'),
+    );
+
+    await detachedHarness.emit('tool_result', boundaryEvent('git push', 'detached-push'));
+
+    expect(detachedQueries).toBe(0);
+    expect(detachedHarness.sent).toEqual([]);
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-055: binds git -C review and acknowledgement to the boundary repository', async () => {
+    const ambient = makeReviewFixture();
+    const boundary = makeReviewFixture();
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(ambient.repo, boundary.sessionFile);
+    const queriedRepos: string[] = [];
+    registerReviewEnforcement(harness.pi, {
+      queryPr: async (repo) => {
+        queriedRepos.push(repo);
+        return repo === boundary.repo ? boundary.pr : ambient.pr;
+      },
+    });
+    const command = `git -C "${boundary.repo}" push origin pi`;
+    appendSession(boundary.sessionFile,
+      assistantTool('cross-repo-push', 'bash', { command }),
+      toolResult('cross-repo-push', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'cross-repo-push'));
+
+    expect(queriedRepos).toEqual([boundary.repo]);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      ...boundaryIdentity(boundary, 'cross-repo-push'),
+      head: boundary.head,
+    });
+
+    harness.sent.splice(0);
+    rememberActiveRepo(ambient.repo);
+    appendSession(boundary.sessionFile,
+      assistantTool('code-cross', 'subagent', reviewerArgs(boundary, 'code-reviewer')),
+      assistantTool('spec-cross', 'subagent', reviewerArgs(boundary, 'spec-reviewer')),
+      assistantTool('doc-cross', 'subagent', reviewerArgs(boundary, 'doc-updater')),
+      assistantTool('ci-cross', 'subagent', ciArgs(boundary.head)),
+      notification('code-cross'),
+      notification('spec-cross'),
+      notification('doc-cross'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_end');
+
+    expect(queriedRepos).toEqual([boundary.repo, boundary.repo]);
+    expect(ackHead(boundary.repo)).toBe(boundary.head);
+    expect(ackHead(ambient.repo)).toBe(ambient.base);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({ customType: 'pr-boundary-fix-follow-up' }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+
+    harness.sent.splice(0);
+    await harness.emit('agent_settled');
+    expect(harness.sent).toEqual([]);
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-063: pairs a batch boundary with its command repository', async () => {
+    const ambient = makeReviewFixture();
+    const boundary = makeReviewFixture();
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(ambient.repo, boundary.sessionFile);
+    const queriedRepos: string[] = [];
+    registerReviewEnforcement(harness.pi, {
+      queryPr: async (repo) => {
+        queriedRepos.push(repo);
+        return repo === boundary.repo ? boundary.pr : ambient.pr;
+      },
+    });
+    const input = {
+      cwd: dirname(boundary.repo),
+      commands: [
+        { command: `git -C "${boundary.repo}" push origin pi` },
+        { command: `git -C "${ambient.repo}" status --short` },
+      ],
+    };
+    appendSession(boundary.sessionFile,
+      assistantTool('batch-cross-repo', 'ctx_batch_execute', input),
+      toolResult('batch-cross-repo', 'ctx_batch_execute'),
+    );
+
+    await harness.emit('tool_result', {
+      toolName: 'ctx_batch_execute',
+      toolCallId: 'batch-cross-repo',
+      input,
+      isError: false,
+    });
+
+    expect(queriedRepos).toEqual([boundary.repo]);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      ...boundaryIdentity(boundary, 'batch-cross-repo'),
+      head: boundary.head,
+    });
+  });
+
   it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
@@ -725,7 +880,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('create-1', 'bash', { command }),
       toolResult('create-1', 'bash'),
     );
-    await harness.emit('tool_result', boundaryEvent(command));
+    await harness.emit('tool_result', boundaryEvent(command, 'create-1'));
     harness.sent.splice(0);
     appendSession(fixture.sessionFile,
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
@@ -908,7 +1063,11 @@ describe('Pi review reminder and settled enforcement', () => {
         ...(emittedHead ? [{
           type: 'custom_message',
           customType: 'pr-boundary-launch-plan',
-          details: { head: emittedHead, reviewRange: `${fixture.base}..${emittedHead}` },
+          details: {
+            ...boundaryIdentity(fixture, 'stale-push'),
+            head: emittedHead,
+            reviewRange: `${fixture.base}..${emittedHead}`,
+          },
           display: true,
         }] : []),
       );
@@ -945,7 +1104,7 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-lagged', 'bash'),
     );
 
-    await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-lagged'));
 
     expect(queries).toBe(3);
     expect(delays).toEqual([10, 20]);
@@ -953,6 +1112,7 @@ describe('Pi review reminder and settled enforcement', () => {
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
         details: {
+          ...boundaryIdentity(fixture, 'push-lagged'),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -1001,6 +1161,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-follow-up',
         display: true,
         details: {
+          ...boundaryIdentity(fixture),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -1042,6 +1203,7 @@ describe('Pi review reminder and settled enforcement', () => {
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
         details: {
+          ...boundaryIdentity(fixture),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -1250,11 +1412,12 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('create-1', 'bash'),
     );
 
-    await harness.emit('tool_result', boundaryEvent('gh pr create --base main'));
+    await harness.emit('tool_result', boundaryEvent('gh pr create --base main', 'create-1'));
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
         details: {
+          ...boundaryIdentity(fixture, 'create-1'),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -1279,7 +1442,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
       toolResult('push-2', 'bash'),
     );
-    await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
   });
@@ -1300,6 +1463,7 @@ describe('Pi review reminder and settled enforcement', () => {
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
         details: {
+          ...boundaryIdentity(fixture),
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
@@ -1330,6 +1494,7 @@ describe('Pi review reminder and settled enforcement', () => {
       await harness.emit('agent_settled');
       expect(harness.sent).toHaveLength(1);
       expect(harness.sent[0]?.message.details).toEqual({
+        ...boundaryIdentity(fixture),
         head: fixture.head,
         ackHead: fixture.base,
         reviewRange: `${fixture.base}..${fixture.head}`,
