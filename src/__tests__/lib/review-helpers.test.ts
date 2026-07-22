@@ -290,7 +290,7 @@ describe('native Pi transcript review facts', () => {
     const sessionFile = writeSession([
       assistantTool('push-old', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
       toolResult('push-old', 'bash'),
-      assistantTool('code-old', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }, '2026-07-12T12:01:00.000Z'),
+      assistantTool('code-old', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }, '2026-07-12T12:01:00.000Z'),
       notification('code-old'),
       assistantTool('push-new', 'bash', { command: 'gh pr merge 42' }, '2026-07-12T12:05:00.000Z'),
       toolResult('push-new', 'bash'),
