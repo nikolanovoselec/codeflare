@@ -79,7 +79,7 @@ function appendTranscript(root: HTMLElement, speaker: string, text: string): voi
     const body = previous.querySelector('pre');
     if (body && (body.textContent?.length ?? 0) + boundedText.length <= MAX_ENTRY_CHARS) {
       body.textContent = `${body.textContent ?? ''}${boundedText}`;
-      previous.dataset.characters = String(body.textContent.length);
+      previous.dataset.characters = String((body.textContent ?? '').length);
       transcriptSizes.set(root, (transcriptSizes.get(root) ?? 0) + boundedText.length);
       trimTranscript(root);
       previous.scrollIntoView({ block: 'end' });

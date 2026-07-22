@@ -48,6 +48,7 @@ class AgentSidebarController implements WebviewViewProvider {
   readonly #lifecycle: SidebarLifecycle;
   #webview: Webview | undefined;
   #viewDisposables: Disposable[] = [];
+  #messageTail = Promise.resolve();
   #disposed = false;
 
   constructor(context: ExtensionContext, selected: BackendKind) {
@@ -69,7 +70,7 @@ class AgentSidebarController implements WebviewViewProvider {
     this.#configureWebview(view.webview);
     this.#viewDisposables.push(
       view.webview.onDidReceiveMessage((value: unknown) => {
-        void this.#handleWebviewMessage(value);
+        this.#messageTail = this.#messageTail.then(() => this.#handleWebviewMessage(value));
       }),
       view.onDidChangeVisibility(() => {
         if (view.visible) void this.#ensureStarted();
@@ -87,6 +88,7 @@ class AgentSidebarController implements WebviewViewProvider {
     this.#disposed = true;
     this.#webview = undefined;
     for (const disposable of this.#viewDisposables.splice(0)) disposable.dispose();
+    await this.#messageTail;
     await this.#lifecycle.deactivate();
   }
 

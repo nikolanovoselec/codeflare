@@ -17,10 +17,68 @@ declare module "@earendil-works/pi-coding-agent" {
   export type NotifyLevel = "info" | "warning" | "error";
 
   export interface ExtensionContext {
+    cwd: string;
+    hasUI: boolean;
+    mode: string;
+    ui: {
+      confirm(title: string, message: string, options?: unknown): Promise<boolean>;
+      [key: string]: any;
+    };
     [key: string]: any;
   }
 
   export type ExtensionCommandContext = ExtensionContext;
+
+  export interface AgentToolResult<T> {
+    content: Array<{ type: "text"; text: string } | { type: "image"; [key: string]: any }>;
+    details: T;
+  }
+
+  export type AgentToolUpdateCallback<T> = (result: AgentToolResult<T>) => void | Promise<void>;
+
+  export interface EditToolInput {
+    path: string;
+    edits: Array<{ oldText: string; newText: string }>;
+  }
+
+  export interface WriteToolInput {
+    path: string;
+    content: string;
+  }
+
+  export interface BashToolInput {
+    command: string;
+    timeout?: number;
+  }
+
+  export interface EditOperations {
+    access(path: string): Promise<void>;
+    readFile(path: string): Promise<Buffer>;
+    writeFile(path: string, content: string): Promise<void>;
+  }
+
+  export interface WriteOperations {
+    mkdir(path: string): Promise<void>;
+    writeFile(path: string, content: string): Promise<void>;
+  }
+
+  export interface BashOperations {
+    exec(command: string, cwd: string, options: {
+      onData(data: Buffer): void;
+      signal?: AbortSignal;
+      timeout?: number;
+      env?: NodeJS.ProcessEnv;
+    }): Promise<{ exitCode: number | null }>;
+  }
+
+  export interface ToolDefinition {
+    name: string;
+    label: string;
+    description: string;
+    parameters: any;
+    execute(...args: any[]): Promise<AgentToolResult<any>>;
+    [key: string]: any;
+  }
 
   export interface ExtensionAPI {
     registerCommand(
@@ -31,6 +89,13 @@ declare module "@earendil-works/pi-coding-agent" {
         handler: (args: string, ctx: ExtensionCommandContext) => void | Promise<void>;
       },
     ): void;
+    registerTool(tool: ToolDefinition): void;
+    on(event: string, handler: (event: any, ctx: ExtensionContext) => any): void;
+    getAllTools(): Array<{
+      name: string;
+      sourceInfo?: { path: string; source: string; [key: string]: any };
+      [key: string]: any;
+    }>;
     [key: string]: any;
   }
 }

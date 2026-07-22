@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -32,7 +32,7 @@ export async function prepareSidebarConfig(options) {
       const canonicalSource = await realpath(sourceRoot);
       for (const name of SIDEBAR_LINK_ALLOWLIST) {
         const sourcePath = resolve(canonicalSource, name);
-        if (await entryExists(sourcePath)) {
+        if (await projectableEntry(sourcePath, canonicalSource)) {
           await symlink(sourcePath, resolve(stageRoot, name));
           projected.push(name);
         }
@@ -83,8 +83,40 @@ async function directoryExists(path) {
   return true;
 }
 
-async function entryExists(path) {
-  return (await lstatOrUndefined(path)) !== undefined;
+async function projectableEntry(path, canonicalSource) {
+  const entry = await lstatOrUndefined(path);
+  if (!entry || entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())) return false;
+  const pending = [path];
+  const visited = new Set();
+  let inspected = 0;
+  while (pending.length > 0) {
+    if (++inspected > 10_000) return false;
+    const candidate = pending.pop();
+    const candidateStat = await lstat(candidate);
+    if (candidateStat.isSymbolicLink()) {
+      const target = await realpath(candidate);
+      if (!isAllowlistedSourcePath(target, canonicalSource)) return false;
+      if (!visited.has(target)) pending.push(target);
+      continue;
+    }
+    const canonicalCandidate = await realpath(candidate);
+    if (!isAllowlistedSourcePath(canonicalCandidate, canonicalSource)) return false;
+    if (visited.has(canonicalCandidate)) continue;
+    visited.add(canonicalCandidate);
+    if (candidateStat.isDirectory()) {
+      const children = await readdir(candidate);
+      for (const child of children) pending.push(resolve(candidate, child));
+    } else if (!candidateStat.isFile()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isAllowlistedSourcePath(path, canonicalSource) {
+  const rel = relative(canonicalSource, path);
+  if (!rel || rel === ".." || rel.startsWith("../") || isAbsolute(rel)) return false;
+  return SIDEBAR_LINK_ALLOWLIST.includes(rel.split(/[\\/]/, 1)[0]);
 }
 
 async function lstatOrUndefined(path) {

@@ -8,8 +8,10 @@ import {
   readFile as readLocalFile,
   realpath,
   rm,
+  rmdir,
   writeFile as writeLocalFile,
 } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { createHash, randomUUID as createRandomUUID } from "node:crypto";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -33,6 +35,7 @@ const WORKSPACE_ROOT = "/home/user/workspace";
 const MANIFEST_ROOT = "/tmp/codeflare-sidebar/pi/approvals";
 const APPROVAL_TTL_MS = 30_000;
 const MAX_GENERIC_INPUT_BYTES = 64 * 1024;
+const MAX_PREVIEW_BYTES = 768 * 1024;
 const MAX_BASH_OUTPUT_BYTES = 1024 * 1024;
 
 export type SidebarApprovalPreview =
@@ -60,6 +63,7 @@ export interface SidebarPathInfo {
   exists: boolean;
   symbolicLink: boolean;
   regularFile?: boolean;
+  hardLinked?: boolean;
   safeAncestors?: boolean;
 }
 
@@ -118,6 +122,8 @@ export function createSidebarApprovalTools(
   const randomUUID = dependencies.randomUUID ?? createRandomUUID;
   const sha256 = dependencies.sha256 ?? hashSha256;
   const mutationQueue = dependencies.withFileMutationQueue ?? createMutationQueue();
+  const useSecureEditBoundary = dependencies.editOperations === undefined;
+  const useSecureWriteBoundary = dependencies.writeOperations === undefined && dependencies.readFile === undefined;
 
   const approve = async (
     toolName: string,
@@ -161,8 +167,10 @@ export function createSidebarApprovalTools(
           if (!pathInfo.exists) return denied("Edit preview failed because the target does not exist.");
           await editOperations.access(pathInfo.absolutePath);
           const before = await editOperations.readFile(pathInfo.absolutePath);
+          if (before.byteLength > MAX_PREVIEW_BYTES) return denied("Edit preview exceeds the sidebar size limit.");
           const afterText = applyEdits(before.toString("utf8"), params.edits);
           const after = Buffer.from(afterText);
+          if (after.byteLength > MAX_PREVIEW_BYTES) return denied("Edit result exceeds the sidebar size limit.");
           const beforeSha256 = await sha256(before);
           const afterSha256 = await sha256(after);
           const diff = createDiff(pathInfo.canonicalPath, before.toString("utf8"), afterText);
@@ -174,6 +182,23 @@ export function createSidebarApprovalTools(
             afterSha256,
           }, ctx);
           if (!approval.approved) return denied(approval.reason ?? "Operation denied.", approval.request.id);
+          const currentInfo = await inspectPath(params.path, workspaceRoot);
+          const currentBoundaryError = validatePath(currentInfo, workspaceRoot);
+          if (currentBoundaryError || currentInfo.canonicalPath !== pathInfo.canonicalPath) {
+            return denied("Target changed after preview; stale approval was discarded.", approval.request.id);
+          }
+          if (useSecureEditBoundary) {
+            const postWriteSha256 = await secureWorkspaceWrite({
+              workspaceRoot,
+              targetPath: params.path,
+              expectedCanonicalPath: pathInfo.canonicalPath,
+              expectedExists: true,
+              expectedSha256: beforeSha256,
+              content: afterText,
+              sha256,
+            });
+            return success("Edit applied.", { approvalId: approval.request.id, postWriteSha256, diff, patch: diff });
+          }
           const current = await editOperations.readFile(pathInfo.absolutePath);
           if (await sha256(current) !== beforeSha256) return denied("Target changed after preview; stale approval was discarded.", approval.request.id);
           await editOperations.writeFile(pathInfo.absolutePath, afterText);
@@ -196,8 +221,11 @@ export function createSidebarApprovalTools(
           const boundaryError = validatePath(pathInfo, workspaceRoot);
           if (boundaryError) return denied(boundaryError);
           const before = pathInfo.exists ? await readFile(pathInfo.absolutePath) : Buffer.alloc(0);
-          const beforeSha256 = await sha256(before);
           const after = Buffer.from(params.content);
+          if (before.byteLength > MAX_PREVIEW_BYTES || after.byteLength > MAX_PREVIEW_BYTES) {
+            return denied("Write preview exceeds the sidebar size limit.");
+          }
+          const beforeSha256 = await sha256(before);
           const afterSha256 = await sha256(after);
           const diff = createDiff(pathInfo.canonicalPath, before.toString("utf8"), params.content);
           const approval = await approve("write", {
@@ -213,6 +241,18 @@ export function createSidebarApprovalTools(
           const currentBoundaryError = validatePath(currentInfo, workspaceRoot);
           if (currentBoundaryError || currentInfo.canonicalPath !== pathInfo.canonicalPath) {
             return denied("Target changed after preview; stale approval was discarded.", approval.request.id);
+          }
+          if (useSecureWriteBoundary) {
+            const postWriteSha256 = await secureWorkspaceWrite({
+              workspaceRoot,
+              targetPath: params.path,
+              expectedCanonicalPath: pathInfo.canonicalPath,
+              expectedExists: pathInfo.exists,
+              expectedSha256: beforeSha256,
+              content: params.content,
+              sha256,
+            });
+            return success("File written.", { approvalId: approval.request.id, postWriteSha256, diff, patch: diff });
           }
           const current = currentInfo.exists ? await readFile(currentInfo.absolutePath) : Buffer.alloc(0);
           if (await sha256(current) !== beforeSha256) return denied("Target changed after preview; stale approval was discarded.", approval.request.id);
@@ -321,7 +361,8 @@ export function registerSidebarApproval(
 
 export default async function sidebarApproval(pi: ExtensionAPI): Promise<void> {
   if (process.env.CODEFLARE_SIDEBAR !== "1") return;
-  const sdk = await import("file:///usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js");
+  const sdkPath = "file:///usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js";
+  const sdk = await import(sdkPath);
   const workspaceRoot = WORKSPACE_ROOT;
   registerSidebarApproval(pi, {
     workspaceRoot,
@@ -394,6 +435,7 @@ function validatePath(info: SidebarPathInfo, workspaceRoot: string): string | un
   if (info.symbolicLink) return "Symbolic link targets are not permitted.";
   if (info.safeAncestors === false) return "Target has a non-directory ancestor.";
   if (info.exists && info.regularFile === false) return "Target must be a regular file.";
+  if (info.hardLinked) return "Hard-linked targets are not permitted.";
   const canonicalRoot = resolve(workspaceRoot);
   const rel = relative(canonicalRoot, info.canonicalPath);
   if (rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
@@ -432,6 +474,7 @@ async function inspectLocalPath(path: string, cwd: string): Promise<SidebarPathI
       exists: true,
       symbolicLink: symbolicLink || target.isSymbolicLink(),
       regularFile: target.isFile(),
+      hardLinked: target.nlink > 1,
       safeAncestors,
     };
   } catch (error) {
@@ -456,6 +499,147 @@ async function inspectLocalPath(path: string, cwd: string): Promise<SidebarPathI
         existingParent = nextParent;
       }
     }
+  }
+}
+
+interface SecureWriteRequest {
+  workspaceRoot: string;
+  targetPath: string;
+  expectedCanonicalPath: string;
+  expectedExists: boolean;
+  expectedSha256: string;
+  content: string;
+  sha256(content: Buffer | string): Promise<string> | string;
+}
+
+async function secureWorkspaceWrite(request: SecureWriteRequest): Promise<string> {
+  const lexicalRoot = resolve(request.workspaceRoot);
+  const absoluteTarget = resolve(lexicalRoot, request.targetPath);
+  const relativeTarget = relative(lexicalRoot, absoluteTarget);
+  if (
+    relativeTarget.length === 0 ||
+    relativeTarget === ".." ||
+    relativeTarget.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
+    isAbsolute(relativeTarget)
+  ) throw new Error("Target is outside the workspace");
+
+  const parts = relativeTarget.split(/[\\/]+/);
+  const fileName = parts.pop();
+  if (!fileName || fileName === "." || fileName === "..") throw new Error("Invalid target name");
+
+  const canonicalRoot = await realpath(lexicalRoot);
+  const directories: FileHandle[] = [];
+  const createdDirectories: string[] = [];
+  let target: FileHandle | undefined;
+  let createdTargetPath: string | undefined;
+  let mutationCompleted = false;
+  try {
+    let directory = await open(
+      lexicalRoot,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    directories.push(directory);
+    if (await realpath(`/proc/self/fd/${directory.fd}`) !== canonicalRoot) {
+      throw new Error("Workspace identity changed");
+    }
+
+    for (const part of parts) {
+      if (!part || part === "." || part === "..") throw new Error("Invalid target path");
+      const childPath = `/proc/self/fd/${directory.fd}/${part}`;
+      let child: FileHandle;
+      try {
+        child = await open(
+          childPath,
+          constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+        );
+      } catch (error) {
+        if (request.expectedExists || !isNodeError(error) || error.code !== "ENOENT") throw error;
+        try {
+          await mkdir(childPath, { mode: 0o700 });
+          createdDirectories.push(childPath);
+        } catch (mkdirError) {
+          if (!isNodeError(mkdirError) || mkdirError.code !== "EEXIST") throw mkdirError;
+        }
+        child = await open(
+          childPath,
+          constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+        );
+      }
+      const childStat = await child.stat();
+      if (!childStat.isDirectory()) {
+        await child.close();
+        throw new Error("Target ancestor is not a directory");
+      }
+      directories.push(child);
+      directory = child;
+      assertCanonicalWorkspacePath(await realpath(`/proc/self/fd/${child.fd}`), canonicalRoot);
+    }
+
+    const canonicalParent = await realpath(`/proc/self/fd/${directory.fd}`);
+    assertCanonicalWorkspacePath(canonicalParent, canonicalRoot);
+    if (resolve(canonicalParent) !== resolve(dirname(request.expectedCanonicalPath))) {
+      throw new Error("Target parent changed after preview");
+    }
+
+    const fdTargetPath = `/proc/self/fd/${directory.fd}/${fileName}`;
+    const flags = request.expectedExists
+      ? constants.O_RDWR | constants.O_NOFOLLOW
+      : constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+    target = await open(fdTargetPath, flags, 0o600);
+    if (!request.expectedExists) createdTargetPath = fdTargetPath;
+    const targetStat = await target.stat();
+    if (!targetStat.isFile() || targetStat.nlink !== 1 || targetStat.size > MAX_PREVIEW_BYTES) {
+      throw new Error("Unsafe target identity");
+    }
+    const canonicalTarget = await realpath(`/proc/self/fd/${target.fd}`);
+    assertCanonicalWorkspacePath(canonicalTarget, canonicalRoot);
+    if (resolve(canonicalTarget) !== resolve(request.expectedCanonicalPath)) {
+      throw new Error("Target changed after preview");
+    }
+
+    const before = request.expectedExists ? await target.readFile() : Buffer.alloc(0);
+    if (await request.sha256(before) !== request.expectedSha256) {
+      throw new Error("Target changed after preview");
+    }
+    const content = Buffer.from(request.content);
+    await target.truncate(0);
+    let offset = 0;
+    while (offset < content.byteLength) {
+      const written = await target.write(content, offset, content.byteLength - offset, offset);
+      if (written.bytesWritten <= 0) throw new Error("Target write made no progress");
+      offset += written.bytesWritten;
+    }
+    await target.sync();
+
+    const pathStat = await lstat(fdTargetPath);
+    if (pathStat.dev !== targetStat.dev || pathStat.ino !== targetStat.ino || pathStat.isSymbolicLink()) {
+      throw new Error("Target changed during mutation");
+    }
+    const finalCanonicalTarget = await realpath(`/proc/self/fd/${target.fd}`);
+    if (resolve(finalCanonicalTarget) !== resolve(request.expectedCanonicalPath)) {
+      throw new Error("Target changed during mutation");
+    }
+    mutationCompleted = true;
+    return request.sha256(content);
+  } finally {
+    await target?.close().catch(() => undefined);
+    if (createdTargetPath && !mutationCompleted) await rm(createdTargetPath, { force: true }).catch(() => undefined);
+    if (!mutationCompleted) {
+      for (const directoryPath of createdDirectories.reverse()) {
+        await rmdir(directoryPath).catch(() => undefined);
+      }
+    }
+    for (const directory of directories.reverse()) {
+      await directory.close().catch(() => undefined);
+    }
+  }
+}
+
+function assertCanonicalWorkspacePath(path: string, canonicalRoot: string): void {
+  if (path.endsWith(" (deleted)")) throw new Error("Workspace path was removed");
+  const rel = relative(canonicalRoot, path);
+  if (rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
+    throw new Error("Target is outside the workspace");
   }
 }
 

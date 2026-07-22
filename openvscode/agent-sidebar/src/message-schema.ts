@@ -98,5 +98,5 @@ function assertByteLimit(value: string, limit: number): void {
 }
 
 function validTerminalDimension(value: unknown): value is number {
-  return Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 1_000;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 1_000;
 }

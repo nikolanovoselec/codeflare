@@ -28,7 +28,7 @@ Both backends use `/home/user/workspace` and inherit the container's approved cr
 
 ## Lifecycle
 
-Each OpenVSCode launch has a fresh generation token plus recorded PID, process group, and start time. Sidebar descendants inherit the token even when `node-pty` or Pi creates another process group. Restart and shutdown send TERM, wait for the bounded grace period, then send KILL to remaining members before starting another generation. Identity checks prevent a stale pidfile from signaling a reused PID.
+Each OpenVSCode launch has a fresh generation token plus recorded PID, process group, and start time. Every Pi or Claude conversation also gets its own descendant token. New conversation, restart, and shutdown send TERM, wait for the bounded grace period, then send KILL to every process that still carries the token before starting a replacement. Token scans remain safe when the recorded leader exits, becomes a zombie, changes groups, or has its PID reused.
 
 ## Build and verification
 

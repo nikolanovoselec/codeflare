@@ -105,6 +105,7 @@ export class PiRpcBackend implements Backend {
   #transport = createTransport();
   #detach: Array<() => void> = [];
   #eventTail = Promise.resolve();
+  #generation = 0;
   running = false;
 
   constructor(spawner: PiProcessSpawner, approvalBridge: ApprovalBridge, sink: PiRpcSink) {
@@ -118,12 +119,20 @@ export class PiRpcBackend implements Backend {
     this.#transport = createTransport();
     const child = await this.#session.resolveVisible();
     if (!child.onStdout || !child.onStderr || !child.onExit) throw new Error('Pi RPC process does not expose strict stdio');
-    this.#detach = [
-      child.onStdout((data) => this.#accept(data)),
-      child.onStderr((data) => this.#sink.output(data)),
-      child.onExit(() => this.#handleExit()),
-    ];
+    const generation = ++this.#generation;
+    let stderrReported = false;
+    this.#eventTail = Promise.resolve();
     this.running = true;
+    this.#detach = [
+      child.onStdout((data) => this.#accept(data, generation)),
+      child.onStderr(() => {
+        if (generation === this.#generation && !stderrReported) {
+          stderrReported = true;
+          this.#sink.failed('Pi RPC process reported an error.');
+        }
+      }),
+      child.onExit(() => this.#handleExit(child, generation)),
+    ];
   }
 
   async prompt(message: string): Promise<void> {
@@ -147,7 +156,11 @@ export class PiRpcBackend implements Backend {
   }
 
   async newConversation(): Promise<void> {
-    await this.stop();
+    try {
+      if (this.running) await this.abort();
+    } finally {
+      await this.stop();
+    }
     this.#sink.reset();
     await this.start();
   }
@@ -155,48 +168,54 @@ export class PiRpcBackend implements Backend {
   async stop(): Promise<void> {
     const wasRunning = this.running;
     this.running = false;
+    this.#generation += 1;
     for (const detach of this.#detach.splice(0)) detach();
     if (wasRunning) this.#transport.markExited();
     await this.#session.dispose();
   }
 
-  #accept(data: Uint8Array): void {
-    if (!this.running) return;
+  #accept(data: Uint8Array, generation: number): void {
+    if (!this.running || generation !== this.#generation) return;
     let envelopes: readonly PiRpcEnvelope[];
     try {
       envelopes = this.#transport.feed(data);
     } catch (error) {
-      this.#protocolFailure(error);
+      this.#protocolFailure(error, generation);
       return;
     }
     for (const envelope of envelopes) {
-      this.#eventTail = this.#eventTail.then(() => this.#handleEnvelope(envelope)).catch((error: unknown) => {
-        this.#protocolFailure(error);
+      this.#eventTail = this.#eventTail.then(() => this.#handleEnvelope(envelope, generation)).catch((error: unknown) => {
+        this.#protocolFailure(error, generation);
       });
     }
   }
 
-  async #handleEnvelope(envelope: PiRpcEnvelope): Promise<void> {
+  async #handleEnvelope(envelope: PiRpcEnvelope, generation: number): Promise<void> {
+    if (!this.running || generation !== this.#generation) return;
     if (envelope.type === 'extension_ui_request') {
       const response = await this.#approvalBridge.handlePiRequest(envelope as unknown as PiExtensionUiRequest);
-      if (this.running) {
+      if (response && this.running && generation === this.#generation) {
         await this.#session.writeEnvelope(response as unknown as Readonly<Record<string, unknown>>);
       }
       return;
     }
     const text = textFromEnvelope(envelope);
-    if (text) this.#sink.output(text);
+    if (text && generation === this.#generation) this.#sink.output(text);
   }
 
-  #handleExit(): void {
-    if (!this.running) return;
+  #handleExit(child: PiChildProcess, generation: number): void {
+    if (!this.running || generation !== this.#generation) return;
     this.running = false;
     this.#transport.markExited();
     for (const detach of this.#detach.splice(0)) detach();
     this.#sink.failed('Pi RPC process exited.');
+    void this.#session.reapExitedProcess(child).catch(() => {
+      this.#sink.failed('Pi RPC descendants could not be reaped.');
+    });
   }
 
-  #protocolFailure(error: unknown): void {
+  #protocolFailure(error: unknown, generation: number): void {
+    if (!this.running || generation !== this.#generation) return;
     const reason = error instanceof PiProtocolError ? error.code : 'RPC processing failed';
     this.#sink.failed(reason);
     void this.stop().catch(() => undefined);

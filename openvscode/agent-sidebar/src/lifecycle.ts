@@ -26,12 +26,11 @@ export class SidebarLifecycle {
   }
 
   async resolveVisible(): Promise<Backend> {
-    if (this.#backend) return this.#backend;
+    if (this.#backend?.running) return this.#backend;
     if (this.#starting) return this.#starting;
 
-    const factory = this.#factories[this.#selected];
+    const backend = this.#backend ?? this.#factories[this.#selected]();
     this.#starting = (async () => {
-      const backend = factory();
       await backend.start();
       this.#backend = backend;
       return backend;

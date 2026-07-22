@@ -1,3 +1,10 @@
+import { randomUUID } from 'node:crypto';
+
+import {
+  SIDEBAR_PROCESS_GENERATION_ENV,
+  reapSidebarGeneration,
+} from '../process-generation.ts';
+
 export interface TerminalSize {
   readonly columns: number;
   readonly rows: number;
@@ -7,7 +14,7 @@ export interface ClaudePtySpawnSpec {
   readonly executable: '/usr/local/bin/claude';
   readonly args: readonly ['--settings', '/opt/codeflare/openvscode/claude/sidebar-settings.json'];
   readonly cwd: '/home/user/workspace';
-  readonly env: Readonly<{
+  readonly env: Readonly<Record<string, string> & {
     HOME: '/home/user';
     CLAUDE_CONFIG_DIR: '/tmp/codeflare-sidebar/claude/config';
     TERM: 'xterm-256color';
@@ -36,21 +43,38 @@ export interface ClaudePtySpawner {
 
 export type ClaudeOutputSink = (data: string) => void;
 
+export interface ClaudePtySessionOptions {
+  readonly generationFactory?: () => string;
+  readonly reapGeneration?: (token: string) => Promise<void>;
+}
+
 export class ClaudePtySession {
   readonly #spawner: ClaudePtySpawner;
   readonly #output: ClaudeOutputSink;
+  readonly #generationFactory: () => string;
+  readonly #reapGeneration: (token: string) => Promise<void>;
   #process: ClaudePtyProcess | undefined;
+  #generation: string | undefined;
+  #reaping = Promise.resolve();
   #detachOutput: (() => void) | undefined;
   #size: TerminalSize | undefined;
 
-  constructor(spawner: ClaudePtySpawner, output: ClaudeOutputSink) {
+  constructor(
+    spawner: ClaudePtySpawner,
+    output: ClaudeOutputSink,
+    options: ClaudePtySessionOptions = {},
+  ) {
     this.#spawner = spawner;
     this.#output = output;
+    this.#generationFactory = options.generationFactory ?? randomUUID;
+    this.#reapGeneration = options.reapGeneration ?? reapSidebarGeneration;
   }
 
   async resolveVisible(size: TerminalSize): Promise<ClaudePtyProcess> {
     assertTerminalSize(size);
-    if (this.#process && !this.#process.exited) {
+    await this.#reaping;
+    if (this.#process?.exited) await this.#reap();
+    if (this.#process) {
       if (!this.#size || this.#size.columns !== size.columns || this.#size.rows !== size.rows) {
         this.#process.resize(size.columns, size.rows);
         this.#size = { ...size };
@@ -58,11 +82,15 @@ export class ClaudePtySession {
       return this.#process;
     }
 
-    const spec = spawnSpec(size);
+    const generation = this.#generationFactory();
+    const spec = spawnSpec(size, generation);
     const process = this.#spawner.spawn(spec);
     this.#process = process;
+    this.#generation = generation;
     this.#size = { ...size };
-    this.#detachOutput = process.onData(this.#output);
+    this.#detachOutput = process.onData((data) => {
+      if (this.#process === process && this.#generation === generation) this.#output(data);
+    });
     return process;
   }
 
@@ -90,24 +118,41 @@ export class ClaudePtySession {
     await this.#reap();
   }
 
+  async reapExitedProcess(process: ClaudePtyProcess): Promise<void> {
+    if (this.#process !== process) return;
+    await this.#reap();
+  }
+
   #requireProcess(): ClaudePtyProcess {
     if (!this.#process || this.#process.exited) throw new Error('Claude PTY is not running');
     return this.#process;
   }
 
-  async #reap(): Promise<void> {
+  #reap(): Promise<void> {
     const process = this.#process;
+    const generation = this.#generation;
     this.#process = undefined;
+    this.#generation = undefined;
     this.#size = undefined;
     this.#detachOutput?.();
     this.#detachOutput = undefined;
-    if (!process || process.exited) return;
-    process.kill('SIGTERM');
-    await process.waitForExit();
+    if (!process && !generation) return this.#reaping;
+
+    const previous = this.#reaping;
+    const reaping = (async () => {
+      await previous;
+      if (process && !process.exited) {
+        process.kill('SIGTERM');
+        await process.waitForExit();
+      }
+      if (generation) await this.#reapGeneration(generation);
+    })();
+    this.#reaping = reaping;
+    return reaping;
   }
 }
 
-function spawnSpec(size: TerminalSize): ClaudePtySpawnSpec {
+function spawnSpec(size: TerminalSize, generation: string): ClaudePtySpawnSpec {
   return {
     executable: '/usr/local/bin/claude',
     args: ['--settings', '/opt/codeflare/openvscode/claude/sidebar-settings.json'],
@@ -116,6 +161,7 @@ function spawnSpec(size: TerminalSize): ClaudePtySpawnSpec {
       HOME: '/home/user',
       CLAUDE_CONFIG_DIR: '/tmp/codeflare-sidebar/claude/config',
       TERM: 'xterm-256color',
+      [SIDEBAR_PROCESS_GENERATION_ENV]: generation,
     },
     terminal: { name: 'xterm-256color', columns: size.columns, rows: size.rows },
     shell: false,

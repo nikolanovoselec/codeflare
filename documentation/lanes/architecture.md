@@ -176,7 +176,7 @@ The extension host owns one lazy lifecycle controller. Opening the view resolves
 
 Pi mutation approval crosses a local manifest boundary. The Pi guard writes a mode-0600 manifest and sends its opaque ID through the RPC extension UI request. The OpenVSCode extension host validates and displays it, then returns one correlated decision. Claude stays in Manual mode and displays its own TUI permission prompt. Webview messages are limited to prompt, lifecycle, model-cycle, terminal input, and resize commands; they cannot choose a process or send approval results.
 
-OpenVSCode launch generations record PID, process group, start time, and a random token. Descendants inherit the token, including detached Pi and PTY processes. The supervisor reaps one token completely before restart. See [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) and [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty).
+OpenVSCode launch generations record PID, process group, start time, and a random token. Each Pi or Claude conversation gets a second, narrower token. Descendants inherit both relevant tokens, including detached Pi and PTY processes. New conversation and the OpenVSCode supervisor each reap their own token completely before replacement. See [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) and [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty).
 
 ### Terminal Server (node-pty)
 

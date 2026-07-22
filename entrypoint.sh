@@ -1323,25 +1323,36 @@ _wait_then_kill_pid() {
 
 _wait_then_kill_generation() {
     local generation="$1" grace="${OPENVSCODE_TERM_GRACE_SECONDS:-2}" pid ticks max_ticks members
-    members="$(_openvscode_generation_members "$generation")"
-    for pid in $members; do
-        kill -TERM "$pid" 2>/dev/null || true
-    done
     max_ticks=$(awk -v seconds="$grace" 'BEGIN { ticks = int((seconds * 10) + 0.999); print ticks < 1 ? 1 : ticks }')
+
     ticks=0
     while [ "$ticks" -lt "$max_ticks" ]; do
         members="$(_openvscode_generation_members "$generation")"
-        [ -z "$members" ] && break
+        [ -z "$members" ] && return 0
+        for pid in $members; do
+            kill -TERM "$pid" 2>/dev/null || true
+        done
+        sleep 0.1
+        ticks=$((ticks + 1))
+    done
+
+    # Re-scan during the KILL phase as well. A TERM-ignoring member can fork
+    # between snapshots; every inherited-token child must be gone before the
+    # supervisor is allowed to start a replacement generation.
+    ticks=0
+    while [ "$ticks" -lt "$max_ticks" ]; do
+        members="$(_openvscode_generation_members "$generation")"
+        [ -z "$members" ] && return 0
+        for pid in $members; do
+            kill -KILL "$pid" 2>/dev/null || true
+        done
         sleep 0.1
         ticks=$((ticks + 1))
     done
     members="$(_openvscode_generation_members "$generation")"
-    for pid in $members; do
-        kill -KILL "$pid" 2>/dev/null || true
-    done
-    # Give PID 1 one scheduler turn to reap generation orphans before the next
-    # launch checks for duplicates.
-    sleep 0.1
+    [ -z "$members" ] && return 0
+    echo "[openvscode] generation cleanup did not converge; refusing restart" >&2
+    return 1
 }
 
 kill_pidfile_subtree() {
@@ -1357,19 +1368,18 @@ kill_pidfile_subtree() {
     [ -n "$expected_generation" ] || expected_generation="$stored_generation"
     [ -n "$expected_pgid" ] || expected_pgid="$stored_pgid"
 
-    if kill -0 "$pid" 2>/dev/null; then
-        [ -z "$expected_start" ] || [ "$(_process_start_time "$pid" 2>/dev/null || true)" = "$expected_start" ] || return 0
-        [ -z "$expected_generation" ] || [ "$(_process_generation "$pid" 2>/dev/null || true)" = "$expected_generation" ] || return 0
-        [ -z "$expected_pgid" ] || [ "$(_process_group "$pid" 2>/dev/null || true)" = "$expected_pgid" ] || return 0
-    elif [ -z "$expected_generation" ]; then
-        return 0
-    fi
-
+    # A generation token is independently safe to sweep even when the recorded
+    # leader exited, became a zombie, changed groups, or had its PID reused. The
+    # scan signals only processes that still carry that exact unguessable token.
     if [ -n "$expected_generation" ]; then
         _wait_then_kill_generation "$expected_generation"
-    else
-        _wait_then_kill_pid "$pid"
+        return $?
     fi
+
+    kill -0 "$pid" 2>/dev/null || return 0
+    [ -z "$expected_start" ] || [ "$(_process_start_time "$pid" 2>/dev/null || true)" = "$expected_start" ] || return 0
+    [ -z "$expected_pgid" ] || [ "$(_process_group "$pid" 2>/dev/null || true)" = "$expected_pgid" ] || return 0
+    _wait_then_kill_pid "$pid"
 }
 
 # Gate: may the IDE launch yet? Requires a resolved session id (so the base path
@@ -1453,8 +1463,18 @@ _openvscode_supervise_loop() {
 
     _openvscode_cleanup_current_generation() {
         [ -n "$current_pid" ] || return 0
-        kill_pidfile_subtree "$generation_pidfile" "$current_pid" "$current_start" "$current_generation" "$current_pgid"
-        rm -f "$generation_pidfile"
+        if [ -s "$generation_pidfile" ]; then
+            if ! kill_pidfile_subtree "$generation_pidfile" "$current_pid" "$current_start" "$current_generation" "$current_pgid"; then
+                echo "[openvscode] managed descendants remain; supervisor is stopping" >&2
+                return 1
+            fi
+        elif [ -n "$current_generation" ]; then
+            if ! _wait_then_kill_generation "$current_generation"; then
+                echo "[openvscode] managed descendants remain; supervisor is stopping" >&2
+                return 1
+            fi
+        fi
+        rm -f "$generation_pidfile" "${generation_pidfile}.tmp"
         current_pid=""
         current_start=""
         current_generation=""
@@ -1474,8 +1494,15 @@ _openvscode_supervise_loop() {
             >> /tmp/openvscode.log 2>&1 &
         current_pid=$!
         current_start="$(_process_start_time "$current_pid")"
-        current_pgid="$(_process_group "$current_pid")"
-        printf '%s\n%s\n%s\n%s\n' "$current_pid" "$current_start" "$current_generation" "$current_pgid" > "$generation_pidfile"
+        current_pgid=""
+        for _ in $(seq 1 20); do
+            current_pgid="$(_process_group "$current_pid" 2>/dev/null || true)"
+            [ "$current_pgid" = "$current_pid" ] && break
+            kill -0 "$current_pid" 2>/dev/null || break
+            sleep 0.01
+        done
+        (umask 077; printf '%s\n%s\n%s\n%s\n' "$current_pid" "$current_start" "$current_generation" "$current_pgid" > "${generation_pidfile}.tmp")
+        mv -f "${generation_pidfile}.tmp" "$generation_pidfile"
         if wait "$current_pid"; then exit_code=0; else exit_code=$?; fi
         _openvscode_cleanup_current_generation
         echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $exit_code), restarting in 5s..." >> /tmp/openvscode.log

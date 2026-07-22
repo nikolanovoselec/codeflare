@@ -35,8 +35,9 @@ test('REQ-IDE-005 AC7: one sidebar generation reaps a TERM-ignoring descendant i
       stdio: 'ignore',
     },
   );
-  assert.ok(leader.pid);
-  startedGroups.push(leader.pid);
+  const leaderPid = leader.pid;
+  assert.ok(leaderPid);
+  startedGroups.push(leaderPid);
 
   const before = await waitForMembers(token, 2);
   assert.ok(new Set(before.map((member) => member.processGroup)).size >= 2);

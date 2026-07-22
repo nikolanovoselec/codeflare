@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { open, realpath } from 'node:fs/promises';
+import { open, realpath, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { window, workspace } from 'vscode';
@@ -31,6 +31,7 @@ export class VsCodeApprovalHost implements ApprovalHost {
       return JSON.parse(content) as ApprovalManifest;
     } finally {
       await handle.close();
+      await unlink(path).catch(() => undefined);
     }
   }
 

@@ -1,8 +1,15 @@
+import { randomUUID } from 'node:crypto';
+
+import {
+  SIDEBAR_PROCESS_GENERATION_ENV,
+  reapSidebarGeneration,
+} from '../process-generation.ts';
+
 export interface PiSpawnSpec {
   readonly executable: '/usr/local/bin/pi';
   readonly args: readonly ['--mode', 'rpc', '--no-session', '--no-themes'];
   readonly cwd: '/home/user/workspace';
-  readonly env: Readonly<{
+  readonly env: Readonly<Record<string, string> & {
     HOME: '/home/user';
     CODEFLARE_SIDEBAR: '1';
   }>;
@@ -23,6 +30,11 @@ export interface PiProcessSpawner {
   spawn(spec: PiSpawnSpec): PiChildProcess;
 }
 
+export interface PiSessionOptions {
+  readonly generationFactory?: () => string;
+  readonly reapGeneration?: (token: string) => Promise<void>;
+}
+
 export const FIXED_PI_SPAWN_SPEC: PiSpawnSpec = Object.freeze({
   executable: '/usr/local/bin/pi',
   args: Object.freeze(['--mode', 'rpc', '--no-session', '--no-themes'] as const),
@@ -36,19 +48,32 @@ export const FIXED_PI_SPAWN_SPEC: PiSpawnSpec = Object.freeze({
 
 export class PiSession {
   readonly #spawner: PiProcessSpawner;
+  readonly #generationFactory: () => string;
+  readonly #reapGeneration: (token: string) => Promise<void>;
   #child: PiChildProcess | undefined;
+  #generation: string | undefined;
+  #reaping = Promise.resolve();
   #promptSequence = 0;
   #abortSequence = 0;
   #modelSequence = 0;
   #thinkingSequence = 0;
 
-  constructor(spawner: PiProcessSpawner) {
+  constructor(spawner: PiProcessSpawner, options: PiSessionOptions = {}) {
     this.#spawner = spawner;
+    this.#generationFactory = options.generationFactory ?? randomUUID;
+    this.#reapGeneration = options.reapGeneration ?? reapSidebarGeneration;
   }
 
   async resolveVisible(): Promise<PiChildProcess> {
-    if (!this.#child || this.#child.exited) {
-      this.#child = this.#spawner.spawn(FIXED_PI_SPAWN_SPEC);
+    await this.#reaping;
+    if (this.#child?.exited) await this.#reap();
+    if (!this.#child) {
+      const generation = this.#generationFactory();
+      this.#generation = generation;
+      this.#child = this.#spawner.spawn({
+        ...FIXED_PI_SPAWN_SPEC,
+        env: { ...FIXED_PI_SPAWN_SPEC.env, [SIDEBAR_PROCESS_GENERATION_ENV]: generation },
+      });
     }
     return this.#child;
   }
@@ -100,11 +125,28 @@ export class PiSession {
     await this.#reap();
   }
 
-  async #reap(): Promise<void> {
+  async reapExitedProcess(child: PiChildProcess): Promise<void> {
+    if (this.#child !== child) return;
+    await this.#reap();
+  }
+
+  #reap(): Promise<void> {
     const child = this.#child;
+    const generation = this.#generation;
     this.#child = undefined;
-    if (!child || child.exited) return;
-    child.signal('SIGTERM');
-    await child.waitForExit();
+    this.#generation = undefined;
+    if (!child && !generation) return this.#reaping;
+
+    const previous = this.#reaping;
+    const reaping = (async () => {
+      await previous;
+      if (child && !child.exited) {
+        child.signal('SIGTERM');
+        await child.waitForExit();
+      }
+      if (generation) await this.#reapGeneration(generation);
+    })();
+    this.#reaping = reaping;
+    return reaping;
   }
 }

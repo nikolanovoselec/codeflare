@@ -1,3 +1,7 @@
+import { isAbsolute, relative, resolve } from 'node:path';
+
+const FIRE_AND_FORGET_METHODS = new Set(['notify', 'setStatus', 'setWidget', 'setTitle', 'set_editor_text']);
+
 export type ApprovalOperation = 'edit' | 'write' | 'bash' | 'unknown';
 
 export interface ApprovalManifest {
@@ -57,14 +61,17 @@ export class ApprovalBridge {
   readonly #host: ApprovalHost;
   readonly #pending = new Set<string>();
   readonly #consumed = new Set<string>();
+  readonly #consumedOrder: string[] = [];
 
   constructor(host: ApprovalHost) {
     this.#host = host;
   }
 
-  async handlePiRequest(request: PiExtensionUiRequest): Promise<PiExtensionUiResponse> {
+  async handlePiRequest(request: PiExtensionUiRequest): Promise<PiExtensionUiResponse | undefined> {
+    if (!validRpcId(request.id)) throw new ApprovalBridgeError('INVALID_APPROVAL_ID');
+    if (FIRE_AND_FORGET_METHODS.has(request.method)) return undefined;
     if (request.method !== 'confirm') throw new ApprovalBridgeError('UNSUPPORTED_UI_REQUEST');
-    if (!validRpcId(request.id) || !validApprovalId(request.message)) {
+    if (!validApprovalId(request.message)) {
       throw new ApprovalBridgeError('INVALID_APPROVAL_ID');
     }
     const approvalId = request.message;
@@ -79,6 +86,11 @@ export class ApprovalBridge {
       await this.#host.openDiff(manifest);
       const confirmed = await this.#host.confirm(manifest);
       this.#consumed.add(approvalId);
+      this.#consumedOrder.push(approvalId);
+      while (this.#consumedOrder.length > 4_096) {
+        const expired = this.#consumedOrder.shift();
+        if (expired) this.#consumed.delete(expired);
+      }
       return { type: 'extension_ui_response', id: request.id, confirmed };
     } finally {
       this.#pending.delete(approvalId);
@@ -111,11 +123,11 @@ function validManifest(value: ApprovalManifest, expectedId: string): boolean {
     if (!bounded(value.toolName, 256) || !Number.isSafeInteger(value.createdAt) ||
       Number(value.createdAt) > value.expiresAt || !hashOrNonce(value.nonce)) return false;
     if (value.preview.kind === 'diff') {
-      return bounded(value.preview.path, 4_096) && bounded(value.preview.diff, 1024 * 1024) &&
-        bounded(value.preview.beforeSha256, 128) && bounded(value.preview.afterSha256, 128);
+      return workspacePath(value.preview.path) && bounded(value.preview.diff, 1024 * 1024) &&
+        sha256(value.preview.beforeSha256) && sha256(value.preview.afterSha256);
     }
     if (value.preview.kind === 'bash') {
-      return bounded(value.preview.command, 64 * 1024) && bounded(value.preview.cwd, 4_096);
+      return bounded(value.preview.command, 64 * 1024) && value.preview.cwd === '/home/user/workspace';
     }
     if (value.preview.kind === 'generic') {
       return bounded(value.preview.toolName, 256) && serializesWithin(value.preview.input, 64 * 1024);
@@ -133,6 +145,17 @@ function bounded(value: unknown, maxBytes: number): value is string {
 
 function hashOrNonce(value: unknown): value is string {
   return typeof value === 'string' && /^(?:[0-9a-f]{64}|[0-9a-f-]{32,36})$/i.test(value);
+}
+
+function sha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/i.test(value);
+}
+
+function workspacePath(value: unknown): value is string {
+  if (!bounded(value, 4_096) || !isAbsolute(value)) return false;
+  const root = '/home/user/workspace';
+  const rel = relative(root, resolve(value));
+  return rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
 }
 
 function serializesWithin(value: unknown, maxBytes: number): boolean {

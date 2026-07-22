@@ -881,9 +881,18 @@ jobs:
         run: npm run typecheck
         working-directory: openvscode/agent-sidebar
 
-      - name: Build extension and bundled webviews
-        run: npm run build
+      - name: Build extension and verify deterministic package bytes
         working-directory: openvscode/agent-sidebar
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          NODE_ENV=production npm run build
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/sidebar-dist-first.sha256"
+          test -s "$RUNNER_TEMP/sidebar-dist-first.sha256"
+          rm -rf dist
+          NODE_ENV=production npm run build
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/sidebar-dist-second.sha256"
+          diff -u "$RUNNER_TEMP/sidebar-dist-first.sha256" "$RUNNER_TEMP/sidebar-dist-second.sha256"
 
       - name: Verify OpenVSCode Node ABI addon
         run: node -e "const pty = require('node-pty'); if (typeof pty.spawn !== 'function') process.exit(1)"

@@ -35,6 +35,7 @@ export class StrictPiJsonlTransport {
   readonly #limits: PiJsonlLimits;
   readonly #pending = new Set<string>();
   readonly #settled = new Set<string>();
+  readonly #settledOrder: string[] = [];
   #buffer = Buffer.alloc(0);
   #closed = false;
 
@@ -79,11 +80,11 @@ export class StrictPiJsonlTransport {
       newline = this.#buffer.indexOf(0x0a);
     }
 
-    if (this.#buffer.byteLength > this.#limits.maxLineBytes) {
-      throw new PiProtocolError('RECORD_TOO_LARGE');
-    }
     if (this.#buffer.byteLength > this.#limits.maxBufferBytes) {
       throw new PiProtocolError('BUFFER_TOO_LARGE');
+    }
+    if (this.#buffer.byteLength > this.#limits.maxLineBytes) {
+      throw new PiProtocolError('RECORD_TOO_LARGE');
     }
     return envelopes;
   }
@@ -94,9 +95,13 @@ export class StrictPiJsonlTransport {
     if (this.#buffer.byteLength !== 0) {
       this.#buffer = Buffer.alloc(0);
       this.#pending.clear();
+      this.#settled.clear();
+      this.#settledOrder.length = 0;
       throw new PiProtocolError('UNTERMINATED_JSONL');
     }
     this.#pending.clear();
+    this.#settled.clear();
+    this.#settledOrder.length = 0;
     return [];
   }
 
@@ -104,6 +109,8 @@ export class StrictPiJsonlTransport {
     this.#closed = true;
     this.#buffer = Buffer.alloc(0);
     this.#pending.clear();
+    this.#settled.clear();
+    this.#settledOrder.length = 0;
   }
 
   #parseLine(line: Uint8Array): PiRpcEnvelope {
@@ -122,6 +129,12 @@ export class StrictPiJsonlTransport {
       if (this.#settled.has(value.id)) throw new PiProtocolError('DUPLICATE_RESPONSE');
       if (!this.#pending.delete(value.id)) throw new PiProtocolError('UNSOLICITED_RESPONSE');
       this.#settled.add(value.id);
+      this.#settledOrder.push(value.id);
+      const settledLimit = this.#limits.maxPendingRequests * 4;
+      while (this.#settledOrder.length > settledLimit) {
+        const expired = this.#settledOrder.shift();
+        if (expired) this.#settled.delete(expired);
+      }
     }
     return value;
   }

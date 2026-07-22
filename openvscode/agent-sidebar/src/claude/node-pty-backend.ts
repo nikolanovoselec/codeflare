@@ -101,6 +101,7 @@ export class ClaudePtyBackend implements Backend {
   readonly #sink: ClaudePtySink;
   #size = DEFAULT_SIZE;
   #detachExit: (() => void) | undefined;
+  #generation = 0;
   running = false;
 
   constructor(spawner: ClaudePtySpawner, sink: ClaudePtySink) {
@@ -112,8 +113,9 @@ export class ClaudePtyBackend implements Backend {
     if (this.running) return;
     try {
       const process = await this.#session.resolveVisible(this.#size);
-      this.#detachExit = process.onExit?.(() => this.#handleExit());
+      const generation = ++this.#generation;
       this.running = true;
+      this.#detachExit = process.onExit?.(() => this.#handleExit(process, generation));
     } catch (error) {
       this.#sink.failed(error instanceof Error ? error.message : 'Claude PTY failed to start');
       throw error;
@@ -137,6 +139,7 @@ export class ClaudePtyBackend implements Backend {
   async newConversation(): Promise<void> {
     const wasRunning = this.running;
     this.running = false;
+    this.#generation += 1;
     this.#detachExit?.();
     this.#detachExit = undefined;
     if (wasRunning) await this.#session.dispose();
@@ -146,17 +149,21 @@ export class ClaudePtyBackend implements Backend {
 
   async stop(): Promise<void> {
     this.running = false;
+    this.#generation += 1;
     this.#detachExit?.();
     this.#detachExit = undefined;
     await this.#session.dispose();
   }
 
-  #handleExit(): void {
-    if (!this.running) return;
+  #handleExit(process: ClaudePtyProcess, generation: number): void {
+    if (!this.running || generation !== this.#generation) return;
     this.running = false;
     this.#detachExit?.();
     this.#detachExit = undefined;
     this.#sink.failed('Claude PTY exited.');
+    void this.#session.reapExitedProcess(process).catch(() => {
+      this.#sink.failed('Claude PTY descendants could not be reaped.');
+    });
   }
 }
 
