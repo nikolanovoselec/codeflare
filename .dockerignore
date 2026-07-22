@@ -1,5 +1,7 @@
 *
 !host/
+# Codeflare-owned OpenVSCode extension and Claude sidebar runtime files.
+!openvscode/
 !entrypoint.sh
 !.cache-bust
 # Whitelist the context-mode plugin manifest so the Dockerfile can read

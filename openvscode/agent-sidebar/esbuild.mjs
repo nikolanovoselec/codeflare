@@ -16,6 +16,17 @@ await Promise.all([
     logLevel: 'info',
   }),
   build({
+    entryPoints: ['src/package-extension.ts'],
+    outfile: 'dist/package-extension.mjs',
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'esm',
+    sourcemap: !production,
+    minify: production,
+    logLevel: 'info',
+  }),
+  build({
     entryPoints: {
       chat: 'webview/chat.ts',
       terminal: 'webview/terminal.ts',

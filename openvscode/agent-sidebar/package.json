@@ -49,12 +49,12 @@
     "test:report": "vitest run test/*.test.ts ../claude/test/*.test.mjs --reporter=json --outputFile=browser-ide-report.json"
   },
   "dependencies": {
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/xterm": "6.0.0",
     "node-pty": "1.1.0"
   },
   "devDependencies": {
     "@types/node": "22.18.12",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "@types/vscode": "1.109.0",
     "esbuild": "0.28.1",
     "typescript": "7.0.2",

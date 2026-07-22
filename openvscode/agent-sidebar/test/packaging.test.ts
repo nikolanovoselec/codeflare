@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'vitest';
@@ -9,8 +9,18 @@ import { stageSidebarExtension } from '../src/package-extension.ts';
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(roots.splice(0).map(async (root) => {
+    await makeRemovable(root);
+    await rm(root, { recursive: true, force: true });
+  }));
 });
+
+async function makeRemovable(path: string): Promise<void> {
+  const info = await stat(path).catch(() => undefined);
+  if (!info?.isDirectory()) return;
+  await chmod(path, 0o755);
+  for (const entry of await readdir(path)) await makeRemovable(join(path, entry));
+}
 
 async function fixture(): Promise<{ source: string; target: string }> {
   const root = await mkdtemp(join(tmpdir(), 'sidebar-package-'));

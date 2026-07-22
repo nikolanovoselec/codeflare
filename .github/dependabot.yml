@@ -57,6 +57,15 @@ updates:
       default-days: 7
       semver-major-days: 30
 
+  - package-ecosystem: npm
+    directory: /openvscode/agent-sidebar
+    target-branch: develop
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+
   # Pi agent preseed (@gotgenes/pi-subagents, context-mode)
   # is intentionally NOT managed by Dependabot. Although it has a real
   # package.json + lockfile, every version here is ALSO pinned as a literal

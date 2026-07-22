@@ -19,6 +19,30 @@ RUN npm run build
 # Remove devDependencies after build to keep runtime image lean
 RUN npm prune --omit=dev
 
+# ---- OpenVSCode extension builder (Node 22 / addon ABI 127) ----
+# OpenVSCode 1.109.5 embeds Node 22.21.1. node-pty must be installed by that
+# exact major/runtime generation rather than copied from the Node 24 host build.
+FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/openvscode/agent-sidebar
+COPY openvscode/agent-sidebar/package.json openvscode/agent-sidebar/package-lock.json ./
+RUN npm ci
+COPY openvscode/agent-sidebar/tsconfig.json openvscode/agent-sidebar/esbuild.mjs ./
+COPY openvscode/agent-sidebar/src/ ./src/
+COPY openvscode/agent-sidebar/webview/ ./webview/
+RUN npm run typecheck && NODE_ENV=production npm run build
+RUN npm prune --omit=dev && \
+    test "$(node -p 'process.versions.modules')" = "127" && \
+    node -e "const pty = require('node-pty'); if (typeof pty.spawn !== 'function') process.exit(1)"
+
+RUN mkdir -p /out/extension && \
+    cp package.json /out/extension/package.json && \
+    cp -a dist /out/extension/dist && \
+    cp -a node_modules /out/extension/node_modules
+COPY openvscode/agent-sidebar/media/ /out/extension/media/
+
 # ---- Stage 2: Runtime ----
 FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf
 
@@ -153,6 +177,40 @@ RUN OPENVSCODE_VERSION="1.109.5" && \
     test -x /opt/openvscode-server/bin/openvscode-server && \
     /usr/local/bin/openvscode-server --version && \
     rm -rf /tmp/openvscode.tar.gz
+
+# Codeflare-owned no-VSIX sidebar extension. The staging module creates fixed
+# Pi/Claude inventories plus an empty unsupported-agent inventory, hard-links
+# their immutable files, and rejects VSIX or non-Codeflare package metadata.
+COPY --from=openvscode-agent-sidebar-builder /out/extension /tmp/codeflare-sidebar-extension
+RUN /usr/local/bin/node --input-type=module -e \
+      'const { stageSidebarExtension } = await import("file:///tmp/codeflare-sidebar-extension/dist/package-extension.mjs"); await stageSidebarExtension({ sourceDirectory: "/tmp/codeflare-sidebar-extension", rootDirectory: "/opt/codeflare/openvscode" });' && \
+    rm -rf /tmp/codeflare-sidebar-extension && \
+    test -f /opt/codeflare/openvscode/extensions/pi/codeflare-agent-sidebar/dist/extension.cjs && \
+    test -f /opt/codeflare/openvscode/extensions/claude/codeflare-agent-sidebar/dist/extension.cjs && \
+    test -z "$(find /opt/codeflare/openvscode/extensions/none -mindepth 1 -print -quit)" && \
+    test -z "$(find /opt/codeflare/openvscode -iname '*.vsix' -print -quit)" && \
+    /opt/openvscode-server/node -e \
+      'const {createRequire}=require("node:module"); const p=createRequire("/opt/codeflare/openvscode/extension/package.json")("node-pty"); if(process.versions.modules!=="127" || typeof p.spawn!=="function") process.exit(1)'
+
+# Claude sidebar state is projected fresh for every PTY process. The managed
+# settings and hook remain root-owned; terminal history and runtime state are
+# never copied into the projection.
+COPY openvscode/claude/managed-settings.mjs \
+     openvscode/claude/pre-tool-use-permission.mjs \
+     openvscode/claude/prepare-sidebar-config.mjs \
+     openvscode/claude/prepare-sidebar-config.sh \
+     openvscode/claude/sidebar-settings.json \
+     /opt/codeflare/openvscode/claude/
+RUN mkdir -p /etc/codeflare/claude-sidebar && \
+    cp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json && \
+    chmod 0555 /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh && \
+    find /opt/codeflare/openvscode/claude -type f ! -name prepare-sidebar-config.sh -exec chmod 0444 {} + && \
+    chmod 0555 /opt/codeflare/openvscode/claude /etc/codeflare/claude-sidebar && \
+    chmod 0444 /etc/codeflare/claude-sidebar/settings.json && \
+    cmp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json
+
+COPY scripts/ci/smoke-openvscode-sidebar-image.mjs /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
+RUN chmod 0444 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
 
 # REQ-STOR-017 / AD90: bake the agent-config seed tree into the image so a Governed Mode
 # (R2 SSE-C disabled) container can lay it down locally BEFORE the initial R2 sync — the
