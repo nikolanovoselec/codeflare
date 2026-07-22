@@ -7,6 +7,7 @@ import {
   open,
   readFile as readLocalFile,
   realpath,
+  rename,
   rm,
   rmdir,
   writeFile as writeLocalFile,
@@ -531,7 +532,8 @@ async function secureWorkspaceWrite(request: SecureWriteRequest): Promise<string
   const directories: FileHandle[] = [];
   const createdDirectories: string[] = [];
   let target: FileHandle | undefined;
-  let createdTargetPath: string | undefined;
+  let staged: FileHandle | undefined;
+  let stagedPath: string | undefined;
   let mutationCompleted = false;
   try {
     let directory = await open(
@@ -582,48 +584,77 @@ async function secureWorkspaceWrite(request: SecureWriteRequest): Promise<string
     }
 
     const fdTargetPath = `/proc/self/fd/${directory.fd}/${fileName}`;
-    const flags = request.expectedExists
-      ? constants.O_RDWR | constants.O_NOFOLLOW
-      : constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
-    target = await open(fdTargetPath, flags, 0o600);
-    if (!request.expectedExists) createdTargetPath = fdTargetPath;
-    const targetStat = await target.stat();
-    if (!targetStat.isFile() || targetStat.nlink !== 1 || targetStat.size > MAX_PREVIEW_BYTES) {
-      throw new Error("Unsafe target identity");
+    let targetIdentity: { dev: number; ino: number; mode: number } | undefined;
+    let before = Buffer.alloc(0);
+    if (request.expectedExists) {
+      target = await open(fdTargetPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const targetStat = await target.stat();
+      if (!targetStat.isFile() || targetStat.nlink !== 1 || targetStat.size > MAX_PREVIEW_BYTES) {
+        throw new Error("Unsafe target identity");
+      }
+      const canonicalTarget = await realpath(`/proc/self/fd/${target.fd}`);
+      assertCanonicalWorkspacePath(canonicalTarget, canonicalRoot);
+      if (resolve(canonicalTarget) !== resolve(request.expectedCanonicalPath)) {
+        throw new Error("Target changed after preview");
+      }
+      targetIdentity = { dev: targetStat.dev, ino: targetStat.ino, mode: targetStat.mode & 0o777 };
+      before = await target.readFile();
+    } else {
+      await assertPathMissing(fdTargetPath);
     }
-    const canonicalTarget = await realpath(`/proc/self/fd/${target.fd}`);
-    assertCanonicalWorkspacePath(canonicalTarget, canonicalRoot);
-    if (resolve(canonicalTarget) !== resolve(request.expectedCanonicalPath)) {
-      throw new Error("Target changed after preview");
-    }
-
-    const before = request.expectedExists ? await target.readFile() : Buffer.alloc(0);
     if (await request.sha256(before) !== request.expectedSha256) {
       throw new Error("Target changed after preview");
     }
+
     const content = Buffer.from(request.content);
-    await target.truncate(0);
+    stagedPath = `/proc/self/fd/${directory.fd}/.codeflare-${fileName}-${createRandomUUID()}.tmp`;
+    staged = await open(
+      stagedPath,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      targetIdentity?.mode ?? 0o600,
+    );
     let offset = 0;
     while (offset < content.byteLength) {
-      const written = await target.write(content, offset, content.byteLength - offset, offset);
+      const written = await staged.write(content, offset, content.byteLength - offset, offset);
       if (written.bytesWritten <= 0) throw new Error("Target write made no progress");
       offset += written.bytesWritten;
     }
-    await target.sync();
+    await staged.sync();
+    await staged.close();
+    staged = undefined;
 
-    const pathStat = await lstat(fdTargetPath);
-    if (pathStat.dev !== targetStat.dev || pathStat.ino !== targetStat.ino || pathStat.isSymbolicLink()) {
-      throw new Error("Target changed during mutation");
+    const commitParent = await realpath(`/proc/self/fd/${directory.fd}`);
+    if (resolve(commitParent) !== resolve(dirname(request.expectedCanonicalPath))) {
+      throw new Error("Target parent changed during mutation");
     }
-    const finalCanonicalTarget = await realpath(`/proc/self/fd/${target.fd}`);
+    if (targetIdentity && target) {
+      const currentContent = await readLocalFile(`/proc/self/fd/${target.fd}`);
+      if (await request.sha256(currentContent) !== request.expectedSha256) {
+        throw new Error("Target changed during mutation");
+      }
+      const current = await lstat(fdTargetPath);
+      if (current.dev !== targetIdentity.dev || current.ino !== targetIdentity.ino || current.isSymbolicLink()) {
+        throw new Error("Target changed during mutation");
+      }
+    } else {
+      await assertPathMissing(fdTargetPath);
+    }
+
+    await rename(stagedPath, fdTargetPath);
+    stagedPath = undefined;
+    mutationCompleted = true;
+    await directory.sync().catch(() => undefined);
+    const finalStat = await lstat(fdTargetPath);
+    if (!finalStat.isFile() || finalStat.nlink !== 1) throw new Error("Unsafe final target identity");
+    const finalCanonicalTarget = await realpath(fdTargetPath);
     if (resolve(finalCanonicalTarget) !== resolve(request.expectedCanonicalPath)) {
       throw new Error("Target changed during mutation");
     }
-    mutationCompleted = true;
     return request.sha256(content);
   } finally {
+    await staged?.close().catch(() => undefined);
     await target?.close().catch(() => undefined);
-    if (createdTargetPath && !mutationCompleted) await rm(createdTargetPath, { force: true }).catch(() => undefined);
+    if (stagedPath && !mutationCompleted) await rm(stagedPath, { force: true }).catch(() => undefined);
     if (!mutationCompleted) {
       for (const directoryPath of createdDirectories.reverse()) {
         await rmdir(directoryPath).catch(() => undefined);
@@ -633,6 +664,16 @@ async function secureWorkspaceWrite(request: SecureWriteRequest): Promise<string
       await directory.close().catch(() => undefined);
     }
   }
+}
+
+async function assertPathMissing(path: string): Promise<void> {
+  try {
+    await lstat(path);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error("Target changed after preview");
 }
 
 function assertCanonicalWorkspacePath(path: string, canonicalRoot: string): void {
@@ -650,7 +691,7 @@ const localEditOperations: EditOperations = {
 };
 
 const localWriteOperations: WriteOperations = {
-  mkdir: async (path) => mkdir(path, { recursive: true }),
+  mkdir: async (path) => { await mkdir(path, { recursive: true }); },
   writeFile: async (path, content) => writeLocalFile(path, content),
 };
 

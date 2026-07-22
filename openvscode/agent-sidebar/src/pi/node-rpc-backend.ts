@@ -22,6 +22,8 @@ export class NodePiProcessSpawner implements PiProcessSpawner {
 class NodePiChild implements PiChildProcess {
   readonly #child: ChildProcessWithoutNullStreams;
   readonly #exit: Promise<void>;
+  readonly #spawnReady: Promise<void>;
+  #stdinError: Error | undefined;
   exited = false;
 
   constructor(spec: PiSpawnSpec) {
@@ -32,18 +34,37 @@ class NodePiChild implements PiChildProcess {
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    this.#exit = new Promise((resolveExit, reject) => {
-      this.#child.once('error', reject);
-      this.#child.once('close', () => {
+    let resolveExit = (): void => undefined;
+    this.#exit = new Promise<void>((resolve) => { resolveExit = resolve; });
+    this.#spawnReady = new Promise<void>((resolveSpawn, rejectSpawn) => {
+      this.#child.once('spawn', resolveSpawn);
+      this.#child.once('error', (error) => {
         this.exited = true;
+        rejectSpawn(error);
         resolveExit();
       });
     });
+    this.#child.once('close', () => {
+      this.exited = true;
+      resolveExit();
+    });
+    this.#child.stdin.on('error', (error) => {
+      this.#stdinError = error;
+      this.#child.kill('SIGTERM');
+    });
   }
 
-  write(line: string): void {
-    if (this.exited || this.#child.stdin.destroyed) throw new Error('Pi RPC process is not writable');
-    this.#child.stdin.write(line, 'utf8');
+  async write(line: string): Promise<void> {
+    if (this.exited || this.#child.stdin.destroyed || this.#stdinError) {
+      throw this.#stdinError ?? new Error('Pi RPC process is not writable');
+    }
+    await new Promise<void>((resolveWrite, rejectWrite) => {
+      this.#child.stdin.write(line, 'utf8', (error) => {
+        if (error) rejectWrite(error);
+        else resolveWrite();
+      });
+    });
+    if (this.#stdinError) throw this.#stdinError;
   }
 
   signal(signal: 'SIGINT' | 'SIGTERM' | 'SIGKILL'): void {
@@ -58,6 +79,10 @@ class NodePiChild implements PiChildProcess {
       }
     }
     this.#child.kill(signal);
+  }
+
+  async waitForSpawn(): Promise<void> {
+    await this.#spawnReady;
   }
 
   async waitForExit(): Promise<void> {
@@ -118,7 +143,15 @@ export class PiRpcBackend implements Backend {
     if (this.running) return;
     this.#transport = createTransport();
     const child = await this.#session.resolveVisible();
-    if (!child.onStdout || !child.onStderr || !child.onExit) throw new Error('Pi RPC process does not expose strict stdio');
+    try {
+      await child.waitForSpawn?.();
+      if (!child.onStdout || !child.onStderr || !child.onExit) {
+        throw new Error('Pi RPC process does not expose strict stdio');
+      }
+    } catch (error) {
+      await this.#session.dispose().catch(() => undefined);
+      throw error;
+    }
     const generation = ++this.#generation;
     let stderrReported = false;
     this.#eventTail = Promise.resolve();
@@ -137,22 +170,22 @@ export class PiRpcBackend implements Backend {
 
   async prompt(message: string): Promise<void> {
     await this.start();
-    await this.#session.sendPrompt(message, (id) => this.#transport.registerRequest(id));
+    await this.#runWrite(() => this.#session.sendPrompt(message, (id) => this.#transport.registerRequest(id)));
   }
 
   async abort(): Promise<void> {
     if (!this.running) return;
-    await this.#session.abort((id) => this.#transport.registerRequest(id));
+    await this.#runWrite(() => this.#session.abort((id) => this.#transport.registerRequest(id)));
   }
 
   async cycleModel(): Promise<void> {
     await this.start();
-    await this.#session.cycleModel((id) => this.#transport.registerRequest(id));
+    await this.#runWrite(() => this.#session.cycleModel((id) => this.#transport.registerRequest(id)));
   }
 
   async cycleThinkingLevel(): Promise<void> {
     await this.start();
-    await this.#session.cycleThinkingLevel((id) => this.#transport.registerRequest(id));
+    await this.#runWrite(() => this.#session.cycleThinkingLevel((id) => this.#transport.registerRequest(id)));
   }
 
   async newConversation(): Promise<void> {
@@ -172,6 +205,16 @@ export class PiRpcBackend implements Backend {
     for (const detach of this.#detach.splice(0)) detach();
     if (wasRunning) this.#transport.markExited();
     await this.#session.dispose();
+  }
+
+  async #runWrite(operation: () => Promise<unknown>): Promise<void> {
+    const generation = this.#generation;
+    try {
+      await operation();
+    } catch (error) {
+      this.#protocolFailure(error, generation);
+      throw error;
+    }
   }
 
   #accept(data: Uint8Array, generation: number): void {
@@ -241,11 +284,12 @@ function textFromEnvelope(envelope: PiRpcEnvelope): string | undefined {
   if (envelope.type === 'response' && envelope.success === true && isRecord(envelope.data)) {
     const model = envelope.data.model;
     const thinking = envelope.data.thinkingLevel;
+    const cycledThinking = envelope.data.level;
     if (isRecord(model) && typeof model.id === 'string') {
       return `\nModel: ${model.id}${typeof thinking === 'string' ? ` (${thinking})` : ''}\n`;
     }
-    if (envelope.command === 'cycle_thinking_level' && typeof thinking === 'string') {
-      return `\nThinking: ${thinking}\n`;
+    if (envelope.command === 'cycle_thinking_level' && typeof cycledThinking === 'string') {
+      return `\nThinking: ${cycledThinking}\n`;
     }
   }
   if (envelope.type === 'tool_execution_start' && typeof envelope.toolName === 'string') {

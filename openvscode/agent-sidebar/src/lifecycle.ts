@@ -10,6 +10,18 @@ export function selectBackendKind(value: unknown): BackendKind {
   throw new Error('Unsupported sidebar backend');
 }
 
+export async function resolveVisibleSafely(
+  lifecycle: SidebarLifecycle,
+  onFailure: (error: unknown) => void,
+): Promise<Backend | undefined> {
+  try {
+    return await lifecycle.resolveVisible();
+  } catch (error) {
+    onFailure(error);
+    return undefined;
+  }
+}
+
 export class SidebarLifecycle {
   readonly #selected: BackendKind;
   readonly #factories: BackendFactories;

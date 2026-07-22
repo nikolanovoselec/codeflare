@@ -166,9 +166,15 @@ On desktop/tablet the panel expands to 80vh (centered, via `.dashboard-panel:not
     AI hosts continue to route to the LLM interceptor - one host→interceptor map, two WorkerEntrypoints, one responsibility each ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)). Wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing).
 - **Non-enterprise (container transport):** The real token flows to the container as `GH_TOKEN` via the existing deploy-keys→env path, unchanged ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)).
 
-### Browser IDE agent sidebar
+### Browser IDE agent sidebar ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar))
 
-**Files:** `openvscode/agent-sidebar/`, `openvscode/claude/`, and `preseed/agents/pi/extensions/sidebar-approval.ts`
+**Responsibility:** Provide one lazy, session-local sidebar conversation for the supported agent selected in terminal tab 1.
+
+**Inputs:** The closed sidebar-agent selection, view visibility, approved session configuration, and schema-validated webview messages.
+
+**Outputs:** A fixed extension inventory, one isolated Pi RPC or Claude PTY backend, guarded approvals, and complete descendant cleanup before replacement.
+
+**Source:** `openvscode/agent-sidebar/`, `openvscode/claude/`, and `preseed/agents/pi/extensions/sidebar-approval.ts`. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @impl: openvscode/agent-sidebar/src/claude/pty-session.ts::ClaudePtySession --> <!-- @impl: entrypoint.sh::_openvscode_supervise_loop -->
 
 OpenVSCode stays inside the session container and uses the existing authenticated `/api/vscode/<sessionId>` proxy. The image supplies one Codeflare-owned workspace extension through three fixed inventories. Pi and Claude inventories contain the same package bytes; the unsupported inventory is empty. No public route, listener, marketplace, VSIX, or second container is involved.
 

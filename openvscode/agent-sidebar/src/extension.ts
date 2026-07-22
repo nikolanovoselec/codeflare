@@ -12,7 +12,7 @@ import {
 
 import type { Backend, BackendFactories, BackendKind } from './backend.ts';
 import { ClaudePtyBackend, NodePtySpawner, type ClaudePtySink } from './claude/node-pty-backend.ts';
-import { SidebarLifecycle, selectBackendKind } from './lifecycle.ts';
+import { resolveVisibleSafely, SidebarLifecycle, selectBackendKind } from './lifecycle.ts';
 import { WebviewMessageAuthority, type AuthorizedWebviewMessage } from './message-schema.ts';
 import { ApprovalBridge } from './pi/approval-bridge.ts';
 import { NodePiProcessSpawner, PiRpcBackend, type PiRpcSink } from './pi/node-rpc-backend.ts';
@@ -73,14 +73,14 @@ class AgentSidebarController implements WebviewViewProvider {
         this.#messageTail = this.#messageTail.then(() => this.#handleWebviewMessage(value));
       }),
       view.onDidChangeVisibility(() => {
-        if (view.visible) void this.#ensureStarted();
+        if (view.visible) void this.#startVisible();
       }),
       view.onDidDispose(() => {
         this.#webview = undefined;
         for (const disposable of this.#viewDisposables.splice(0)) disposable.dispose();
       }),
     );
-    if (view.visible) await this.#ensureStarted();
+    if (view.visible) await this.#startVisible();
   }
 
   async dispose(): Promise<void> {
@@ -109,6 +109,12 @@ class AgentSidebarController implements WebviewViewProvider {
       styleUri: webview.asWebviewUri(Uri.joinPath(webviewRoot, styleName)).toString(),
     });
     webview.html = document.html;
+  }
+
+  async #startVisible(): Promise<void> {
+    await resolveVisibleSafely(this.#lifecycle, () => {
+      this.#post({ type: 'sidebar.error', message: 'The sidebar agent failed to start.' });
+    });
   }
 
   async #ensureStarted(): Promise<Backend> {

@@ -1290,7 +1290,7 @@ _process_start_time() {
 _process_generation() {
     local pid="$1"
     [ -r "/proc/$pid/environ" ] || return 1
-    tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
+    tr '\000' '\n' < "/proc/$pid/environ" 2>/dev/null \
         | awk -F= '$1 == "CODEFLARE_OPENVSCODE_GENERATION" {sub(/^[^=]*=/, ""); print; exit}'
 }
 

@@ -225,13 +225,13 @@ describe('REQ-IDE-005: Pi sidebar guarded approvals', () => {
     await mkdir(project);
     await writeFile(target, 'before\n');
     let moved = false;
-    let watcher: ReturnType<typeof watch> | undefined;
+    const watchState: { watcher?: ReturnType<typeof watch> } = {};
 
     try {
       const guarded = createSidebarApprovalTools({
         workspaceRoot: workspace,
         requestApproval: async (request) => {
-          watcher = watch(project, { encoding: 'utf8' }, (_event, filename) => {
+          watchState.watcher = watch(project, { encoding: 'utf8' }, (_event, filename) => {
             if (!moved && filename?.startsWith('.codeflare-file.ts-')) {
               moved = true;
               renameSync(project, movedProject);
@@ -249,12 +249,12 @@ describe('REQ-IDE-005: Pi sidebar guarded approvals', () => {
         { ...context(), cwd: workspace },
       );
 
-      watcher?.close();
+      watchState.watcher?.close();
       expect(moved).toBe(true);
       expect(text(result)).toMatch(/denied|failed|changed/i);
       expect(await readFsFile(join(movedProject, 'file.ts'), 'utf8')).toBe('before\n');
     } finally {
-      watcher?.close();
+      watchState.watcher?.close();
       await rm(workspace, { recursive: true, force: true });
     }
   });

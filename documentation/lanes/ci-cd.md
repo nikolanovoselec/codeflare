@@ -99,7 +99,7 @@ Job graph: `verify` → `prepare` → (`build-worker` ∥ `container`) → `depl
    - Trivy scans HIGH/CRITICAL with `ignore-unfixed: true` and `.trivyignore` for consciously accepted fixable CVEs (daily-cached vuln DB) — see [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011).
    - Push runs in a bounded retry loop (30 attempts, 30s apart); a COPY-coverage guard disables reuse if a Dockerfile COPY source ever falls outside the hashed path set.
    - The hashed path set also covers `.dockerignore` and `.trivyignore`: a deleted CVE suppression previously left the reuse tag unchanged, so the image was reused and the scan that would now fail never ran.
-   - Registry credentials are step-scoped rather than job-level, so the third-party build and scan actions sharing the job never see them in their environment. The minted registry password and the Basic-auth token derived from it are `::add-mask::`ed before first use, since a 10-minute credential still leaks through any later `set -x` or error dump.
+   - Registry credentials are step-scoped and masked before use, so the third-party build and scan actions never receive them.
 4. **deploy** — deploys the worker off the pre-built artifacts:
    - Downloads the dist artifact, resolves/creates the KV namespace, and patches `wrangler.toml`.
    - Applies worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB; all tiers default to 10 max instances, `MAX_INSTANCES` overrides) and points `image` at the pre-pushed registry URI.
@@ -122,8 +122,8 @@ Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `wor
 - **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
 - **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
-- **browser-ide:** installs the owned extension from its lockfile under Node 22.21.1, audits dependencies and licenses, typechecks, bundles the extension and local webviews, loads `node-pty`, and runs the extension plus Claude-helper suite with coverage and a gated JSON report.
-- **browser-ide-image:** builds the complete Docker image without pushing it, verifies fixed inventories, no VSIX, root-owned immutable files, OpenVSCode ABI 127 addon loading, Claude config and hook behavior, image size, and idle OpenVSCode process/RSS evidence. It also proves no Pi or Claude child starts before the sidebar is visible.
+- **browser-ide:** clean-installs under Node 22.21.1, audits dependencies and licenses, typechecks, bundles local assets, loads `node-pty`, and runs extension and Claude-helper behavior with coverage plus a gated JSON report.
+- **browser-ide-image:** builds without pushing; verifies inventories, no VSIX, ownership, ABI 127, Claude controls, and lazy startup; then records image size, idle process count, and RSS.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
 - **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
 - **bundle-size** — `wrangler deploy --dry-run` against a patched config, gated on `scripts/ci/check-bundle-size.mjs` ([REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy)).

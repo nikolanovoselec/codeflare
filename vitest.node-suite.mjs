@@ -11,6 +11,7 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/lib/agent-seed-multi-agent.test.ts',
   'src/__tests__/lib/local-statusline-repo.test.ts',
   'src/__tests__/lib/pi-memory-vault-delivery.test.ts',
+  'src/__tests__/lib/pi-sidebar-approval.test.ts',
   'src/__tests__/lib/review-enforcement.test.ts',
   'src/__tests__/lib/pi-review-scope.test.ts',
   'src/__tests__/lib/review-helpers.test.ts',

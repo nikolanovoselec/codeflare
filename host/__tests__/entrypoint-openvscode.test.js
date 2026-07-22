@@ -450,7 +450,7 @@ exit 0
 
     const result = runBash(`${acceleratedSupervisorScript()}
 ${extractKillHelpers()}
-SIGNAL_LOG="$UNRELATED_TERM_LOG" bash -c '
+SIGNAL_LOG="$UNRELATED_TERM_LOG" setsid bash -c '
   trap '\''printf "TERM\\n" >> "$SIGNAL_LOG"'\'' TERM
   while true; do sleep 0.1; done
 ' >/dev/null 2>&1 &
@@ -503,7 +503,7 @@ describe('identity-safe OpenVSCode cleanup / REQ-IDE-005 AC7', () => {
 probe_identity() {
   local label="$1" expected_pid_mode="$2" expected_start_mode="$3" expected_generation="$4"
   local pidfile="$FIXTURE/$label.pid" signal_log="$FIXTURE/$label.signal"
-  SIGNAL_LOG="$signal_log" CODEFLARE_OPENVSCODE_GENERATION=actual-generation bash -c '
+  SIGNAL_LOG="$signal_log" CODEFLARE_OPENVSCODE_GENERATION=actual-generation setsid bash -c '
     trap '\''printf "TERM\\n" >> "$SIGNAL_LOG"'\'' TERM
     while true; do sleep 0.1; done
   ' >/dev/null 2>&1 &
@@ -600,6 +600,7 @@ if kill -0 "$child" 2>/dev/null; then echo "ALIVE"; else echo "DEAD"; fi
     const trigger = join(dir, 'requested');
     const managedPid = join(dir, 'managed.pid');
     const termLog = join(dir, 'term.log');
+    const generationPidfile = join(dir, 'generation.pid');
     const managedChild = writeTermIgnoringChild(dir);
     const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
 "$MANAGED_CHILD" >/dev/null 2>&1 &
@@ -616,6 +617,7 @@ supervisor=$!
 printf '%s\\n' "$supervisor" > "$OPENVSCODE_PIDFILE"
 for _ in $(seq 1 50); do [ -s "$MANAGED_PID_FILE" ] && break; sleep 0.02; done
 read -r managed < "$MANAGED_PID_FILE"
+kill_pidfile_subtree "$OPENVSCODE_GENERATION_PIDFILE"
 kill_pidfile_subtree "$OPENVSCODE_PIDFILE"
 sleep 0.3
 if kill -0 "$supervisor" 2>/dev/null; then supervisor_state=alive; else supervisor_state=dead; fi
@@ -630,6 +632,7 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
       CODEFLARE_INIT_FLAG_FILE: flag,
       SESSION_ID: 'abcd1234',
       OPENVSCODE_PIDFILE: pidfile,
+      OPENVSCODE_GENERATION_PIDFILE: generationPidfile,
       MANAGED_CHILD: managedChild,
       MANAGED_PID_FILE: managedPid,
       TERM_LOG: termLog,

@@ -291,11 +291,19 @@ Per-session container isolation, enterprise inspection, and platform guardrails 
 
 ### Browser IDE agent sidebar
 
+**Threat:** A sidebar could expose terminal history, start an unselected process, accept forged webview authority, bypass guarded tools, or leave credential-bearing descendants running.
+
+**Mitigation:** Fixed inventories, exact message schemas, local-only webview assets, host-owned Pi approval, Claude native prompts, isolated state, and bounded process-generation cleanup fail closed. <!-- @impl: openvscode/agent-sidebar/src/webview-security.ts::createWebviewDocument --> <!-- @impl: openvscode/agent-sidebar/src/message-schema.ts::WebviewMessageAuthority --> <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::registerSidebarApproval -->
+
+**Verification:** Browser IDE behavioral suites, host generation-cleanup tests, and complete-image smoke validate the packaged boundary.
+
+**Implements:** [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar)
+
 The selected-agent sidebar adds no network boundary. One Codeflare-owned workspace extension runs in OpenVSCode's existing extension host. Fixed Pi and Claude inventories contain the same root-owned files, the unsupported inventory is empty, and the image build rejects VSIX files and other publishers. The extension does not start until its view is visible.
 
 Its webview loads only local bundled files under a nonce CSP. Network connections, command URIs, navigation, remote images, raw RPC, executable paths, environment changes, and approval-response messages are unavailable. Incoming messages use an exact backend-specific schema with byte and terminal-size limits. Model output is rendered as text or terminal data and cannot become a webview command.
 
-Pi edit, write, and Bash calls are replaced by the sidebar guard only in the fixed RPC child. The guard confines canonical paths to `/home/user/workspace`, rejects symbolic links, hard links, and non-regular targets, serializes same-file approval windows, writes a mode-0600 expiring manifest, and rechecks the original hash before mutation. Edit and write reopen the target through no-follow directory and file descriptors, then write through the verified descriptor rather than the previewed pathname. The extension host validates file ownership, mode, schema, ID, nonce, and expiry before showing a read-only preview and modal confirmation. Unknown and MCP tools also fail closed through a bounded generic approval. Terminal Pi remains a separate process with its existing configuration.
+Pi edit, write, and Bash calls are replaced by the sidebar guard only in the fixed RPC child. The guard confines canonical paths to `/home/user/workspace`, rejects symbolic links, hard links, and non-regular targets, serializes same-file approval windows, writes a mode-0600 expiring manifest, and rechecks the original hash before mutation. Edit and write reopen the target through no-follow descriptors, stage and sync replacement bytes beside it, revalidate the approved base, and atomically replace the path. The extension host validates file ownership, mode, schema, ID, nonce, and expiry before showing a read-only preview and modal confirmation. Unknown and MCP tools also fail closed through a bounded generic approval. Terminal Pi remains a separate process with its existing configuration.
 
 Claude uses the CLI's native TUI permission prompt. Sidebar settings keep Manual mode and explicit ask rules for filesystem, shell, task, network, and MCP tools; they disable bypass and auto modes, Remote Control, and IDE auto-install. A strict PreToolUse hook requests approval during normal operation and exits 2 on malformed input or internal failure. Native ask rules remain independent if the hook times out. The temporary config projection links approved configuration but excludes terminal projects, history, session state, caches, logs, telemetry, and unknown paths. Credential bytes are never copied.
 

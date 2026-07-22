@@ -32,13 +32,37 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### Browser IDE agent sidebar is missing or fails to start
 
-**No sidebar icon:** Confirm the session is advanced and inspect tab 1. Only exact Pi and supported Claude commands receive the extension. Codex, Copilot, Antigravity, OpenCode, Bash, malformed JSON, duplicate tab IDs, and command suffixes intentionally use `/opt/codeflare/openvscode/extensions/none`. Inspect the OpenVSCode process environment for `CODEFLARE_SIDEBAR_AGENT` and check the three inventory directories.
+#### No sidebar icon
 
-**Pi view fails:** A sidebar Pi process must include `--mode rpc --no-session --no-themes` and `CODEFLARE_SIDEBAR=1`. A protocol error closes that child rather than accepting malformed or unsolicited JSONL. Approval manifests live briefly under `/tmp/codeflare-sidebar/pi/approvals` with mode 0600. Wrong ownership, permissive mode, expiry, stale content, a symlink target, or an ID mismatch is a denial, not a reason to loosen the checks.
+**Symptom:** The Activity Bar has no agent-sidebar icon.
 
-**Claude view fails:** Verify the image's `node-pty` loads with `/opt/openvscode-server/node` and reports addon ABI 127. The sidebar command has no `--dangerously-skip-permissions`. Before each process, `/opt/codeflare/openvscode/claude/prepare-sidebar-config.sh` replaces `/tmp/codeflare-sidebar/claude/config`; a non-directory or redirected parent makes startup fail closed. `settings.json` in that root must point to `/etc/codeflare/claude-sidebar/settings.json`.
+**Cause:** The session is not advanced, or terminal tab 1 does not contain an exact supported Pi or Claude command. Unsupported or malformed selections intentionally load the empty inventory.
 
-**Duplicate or orphaned child:** Do not delete pidfiles first. Check `/tmp/openvscode-generation.pid`, then stop or restart OpenVSCode so the supervisor can validate PID, start time, process group, and generation token. It sends TERM and then bounded KILL before replacement. A stale identity mismatch is intentionally left untouched. The complete-image evidence in the `browser-ide-image` CI job records the extension hash, ABI, image size, idle process count, and RSS.
+**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and the three directories under `/opt/codeflare/openvscode/extensions`; do not add extensions to the unsupported inventory.
+
+#### Pi view fails
+
+**Symptom:** Opening the Pi sidebar reports a protocol or approval error.
+
+**Cause:** The fixed RPC child failed, emitted invalid JSONL, or a manifest failed ownership, mode, expiry, identity, path, or stale-content validation.
+
+**Fix:** Confirm the Pi process uses the fixed RPC/no-session flags and sidebar marker. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening validation.
+
+#### Claude view fails
+
+**Symptom:** The embedded Claude terminal does not start.
+
+**Cause:** The native addon does not load on ABI 127, or temporary configuration preparation rejected an unsafe path.
+
+**Fix:** Load `node-pty` with `/opt/openvscode-server/node`. Confirm the fixed Claude config preparer succeeds and the projected `settings.json` points to `/etc/codeflare/claude-sidebar/settings.json`; never add the bypass-permissions flag.
+
+#### Duplicate or orphaned child
+
+**Symptom:** More than one managed OpenVSCode or sidebar process remains after restart.
+
+**Cause:** Generation cleanup did not converge before replacement.
+
+**Fix:** Do not delete pidfiles first. Stop or restart OpenVSCode and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use the `browser-ide-image` evidence for hashes, ABI, process count, and RSS.
 
 See [`openvscode/README.md`](../../openvscode/README.md) and [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar).
 
@@ -58,7 +82,7 @@ See [`openvscode/README.md`](../../openvscode/README.md) and [REQ-IDE-005](../..
 
 **Cause:** Getting-started docs were seeded only by the one-shot bucket-creation gate, and a freshly created bucket is not always immediately writable on the R2 data plane. That single attempt could fail and be swallowed, and because the create-only gate never re-fired, the docs stayed missing. Agent configs survived because they have other reseed paths (the Recreate button, mode-change reconcile, and the preseed-hash upgrade) that getting-started docs lacked.
 
-**Fix (REQ-STOR-009 AC6):** The seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button.
+**Fix:** Under REQ-STOR-009 AC6, the seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button.
 
 **Verify** in Workers logs by querying the worker for:
 
@@ -89,7 +113,7 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 **Symptom:** In onboarding mode (`ONBOARDING_LANDING_PAGE=active`, `SAAS_MODE=inactive`), clicking "Continue with GitHub" lands the user back on the marketing landing, and visiting `/app` shows "Authentication Error: Authentication required. Please refresh the page." `/auth/github/login` itself 302s to GitHub correctly.
 
-**Cause (two independent failure modes):**
+**Cause:** Two independent failure modes apply:
 
 **App-owned session not trusted in onboarding (code).** The onboarding GitHub callback issues a `codeflare_session` cookie. The access layer (`getUserFromRequest` / `validateSessionOidc`), the session-refresh in `src/index.ts`, and the `requireActiveUser` tier gate honour that cookie only in an *app-owned OIDC mode* (`isSessionOidcMode` = `SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active; [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) AC4).
 
@@ -105,7 +129,7 @@ A classic OAuth App allows one callback URL, so each deployment domain needs its
 
 **Symptom:** In a non-enterprise mode, "Connect to Cloudflare" ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)) never completes. The consent screen works and Cloudflare returns a real authorization code, but the server-side token exchange fails with `401 invalid_client` ("Client authentication failed…"), surfaced in the connect logs via Cloudflare's `error_description` (AC1). Re-entering the secret in the Setup wizard, or rotating it in the Cloudflare dashboard, does not help — it stays unconnected.
 
-**Cause (two independent failure modes):**
+**Cause:** Two independent failure modes apply:
 
 **Wrong token-endpoint auth method (config).** codeflare sends the secret in the request body, so the operator's client must be registered with `token_endpoint_auth_method = client_secret_post`. A `none` (public/PKCE) or `client_secret_basic` client is rejected with `401 invalid_client` (REQ-AGENT-064 Constraints). Client *visibility* (private vs public) is orthogonal and does **not** affect secret auth — a public client authenticates with a secret fine.
 

@@ -18,9 +18,10 @@ export interface PiSpawnSpec {
 
 export interface PiChildProcess {
   readonly exited: boolean;
-  write(line: string): void;
+  write(line: string): void | Promise<void>;
   signal(signal: 'SIGINT' | 'SIGTERM' | 'SIGKILL'): void;
   waitForExit(): Promise<void>;
+  waitForSpawn?(): Promise<void>;
   onStdout?(listener: (data: Uint8Array) => void): () => void;
   onStderr?(listener: (data: string) => void): () => void;
   onExit?(listener: () => void): () => void;
@@ -83,7 +84,7 @@ export class PiSession {
     const child = await this.resolveVisible();
     const id = `prompt-${++this.#promptSequence}`;
     beforeWrite?.(id);
-    child.write(`${JSON.stringify({ id, type: 'prompt', message })}\n`);
+    await child.write(`${JSON.stringify({ id, type: 'prompt', message })}\n`);
     return id;
   }
 
@@ -91,7 +92,7 @@ export class PiSession {
     const child = await this.resolveVisible();
     const id = `abort-${++this.#abortSequence}`;
     beforeWrite?.(id);
-    child.write(`${JSON.stringify({ id, type: 'abort' })}\n`);
+    await child.write(`${JSON.stringify({ id, type: 'abort' })}\n`);
     return id;
   }
 
@@ -99,7 +100,7 @@ export class PiSession {
     const child = await this.resolveVisible();
     const id = `model-${++this.#modelSequence}`;
     beforeWrite?.(id);
-    child.write(`${JSON.stringify({ id, type: 'cycle_model' })}\n`);
+    await child.write(`${JSON.stringify({ id, type: 'cycle_model' })}\n`);
     return id;
   }
 
@@ -107,13 +108,13 @@ export class PiSession {
     const child = await this.resolveVisible();
     const id = `thinking-${++this.#thinkingSequence}`;
     beforeWrite?.(id);
-    child.write(`${JSON.stringify({ id, type: 'cycle_thinking_level' })}\n`);
+    await child.write(`${JSON.stringify({ id, type: 'cycle_thinking_level' })}\n`);
     return id;
   }
 
   async writeEnvelope(envelope: Readonly<Record<string, unknown>>): Promise<void> {
     const child = await this.resolveVisible();
-    child.write(`${JSON.stringify(envelope)}\n`);
+    await child.write(`${JSON.stringify(envelope)}\n`);
   }
 
   async newConversation(): Promise<PiChildProcess> {

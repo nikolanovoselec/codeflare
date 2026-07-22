@@ -46,8 +46,8 @@
     "build": "node ./esbuild.mjs",
     "check:dependencies": "node ./scripts/check-dependencies.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --root .. agent-sidebar/test claude/test --coverage.enabled --coverage.provider=v8 --coverage.reporter=text",
-    "test:report": "vitest run --root .. agent-sidebar/test claude/test --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --reporter=json --outputFile=agent-sidebar/browser-ide-report.json"
+    "test": "vitest run --config ./vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=text",
+    "test:report": "vitest run --config ./vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --reporter=json --outputFile=agent-sidebar/browser-ide-report.json"
   },
   "dependencies": {
     "node-pty": "1.1.0"
