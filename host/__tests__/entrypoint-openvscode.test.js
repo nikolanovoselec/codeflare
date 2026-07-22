@@ -39,20 +39,19 @@ function extractOptionalFn(name) {
   }
 }
 
-// Extract the nested walk_kill + kill_pidfile_subtree helpers (4-space indent
-// inside shutdown_handler) as one runnable block.
+// Extract the production cleanup helpers shared by shutdown and each launch
+// generation. Tests execute these functions rather than matching shell source.
 function extractKillHelpers() {
-  const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
-  const startIdx = lines.findIndex((l) => /^ {4}walk_kill\(\) \{/.test(l));
-  if (startIdx === -1) throw new Error('walk_kill() not found');
-  const kpsIdx = lines.findIndex((l, i) => i > startIdx && / {4}kill_pidfile_subtree\(\) \{/.test(l));
-  if (kpsIdx === -1) throw new Error('kill_pidfile_subtree() not found');
-  let endIdx = -1;
-  for (let i = kpsIdx + 1; i < lines.length; i++) {
-    if (/^ {4}\}$/.test(lines[i])) { endIdx = i; break; }
-  }
-  if (endIdx === -1) throw new Error('closing brace of kill_pidfile_subtree() not found');
-  return lines.slice(startIdx, endIdx + 1).join('\n');
+  return [
+    'walk_kill',
+    '_process_start_time',
+    '_process_generation',
+    '_process_group',
+    '_openvscode_generation_members',
+    '_wait_then_kill_pid',
+    '_wait_then_kill_generation',
+    'kill_pidfile_subtree',
+  ].map(extractFn).join('\n');
 }
 
 function mkTmp(prefix) {
@@ -90,9 +89,11 @@ function openvscodeSupervisorScript() {
   // export -f so a setsid/timeout child receives the same production helpers as
   // start_openvscode_supervisor's fresh non-interactive shell.
   return [
+    extractKillHelpers(),
     extractFn('_openvscode_should_launch'),
     openvscodeLaunchScript(),
     extractFn('_openvscode_supervise_loop'),
+    'export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
     'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop',
   ].join('\n');
 }
