@@ -53,6 +53,10 @@ function commandInvocations(command: string, cwd: string): ShellInvocation[] {
     };
     const cd = /^cd(?:\s+--)?\s+(.+)$/.exec(segment.command);
     if (!cd?.[1]) return invocation;
+    if (!invocation.certain) {
+      cwdCertain = false;
+      return invocation;
+    }
 
     const target = unquoteShellToken(cd[1]);
     if (segment.separatorAfter === "&&") {

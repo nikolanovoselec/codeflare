@@ -244,9 +244,12 @@ async function currentReview(
   if (!branch) {
     const localBranch = await (dependencies.queryBranch ?? queryBranch)(context.repo);
     if (!localBranch) return undefined;
-    branch = resolvePushDestination
-      ? await (dependencies.queryPushBranch ?? queryPushBranch)(context.repo, localBranch, pushRemote)
-      : localBranch;
+    if (!resolvePushDestination) branch = localBranch;
+    else if (dependencies.queryPushBranch) {
+      branch = await dependencies.queryPushBranch(context.repo, localBranch, pushRemote);
+    } else {
+      branch = await queryPushBranch(context.repo, localBranch, execFileAsync, pushRemote);
+    }
   }
   if (!branch) return undefined;
   const head = await (dependencies.queryHead ?? queryHead)(context.repo, revision);

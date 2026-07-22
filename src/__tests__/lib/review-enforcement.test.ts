@@ -990,6 +990,7 @@ describe('Pi review reminder and settled enforcement', () => {
     for (const [index, command] of [
       `cd "${pipelineOther.repo}"; git push origin pi`,
       `cd /missing || git push origin pi`,
+      `true || cd "${pipelineOther.repo}" && git push origin pi`,
     ].entries()) {
       const fixture = makeReviewFixture();
       let queries = 0;
