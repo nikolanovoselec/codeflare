@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
 import type { Backend, BackendFactories, BackendKind } from '../src/backend.ts';
-import { SidebarLifecycle, selectBackendKind } from '../src/lifecycle.ts';
+import { resolveVisibleSafely, SidebarLifecycle, selectBackendKind } from '../src/lifecycle.ts';
 
 class RecordingBackend implements Backend {
   readonly kind: BackendKind;
@@ -25,6 +25,12 @@ class RecordingBackend implements Backend {
   }
 }
 
+class FailingBackend extends RecordingBackend {
+  override async start(): Promise<void> {
+    throw new Error('Pi spawn failed');
+  }
+}
+
 function recordingFactories(events: string[]): BackendFactories {
   return {
     pi: () => new RecordingBackend('pi', events),
@@ -44,6 +50,18 @@ test('REQ-IDE-005 AC3: activation is inert until visible resolution starts the s
   assert.equal(backend.kind, 'pi');
   assert.equal(backend.running, true);
   assert.deepEqual(events, ['pi:start']);
+});
+
+test('REQ-IDE-005 AC3: a visibility-triggered start failure is reported without escaping', async () => {
+  const failures: string[] = [];
+  const lifecycle = new SidebarLifecycle('pi', {
+    pi: () => new FailingBackend('pi', []),
+    claude: () => new RecordingBackend('claude', []),
+  });
+
+  await resolveVisibleSafely(lifecycle, (error) => failures.push(error instanceof Error ? error.message : 'unknown'));
+
+  assert.deepEqual(failures, ['Pi spawn failed']);
 });
 
 test('REQ-IDE-005 AC3: Claude selection never constructs the Pi backend', async () => {

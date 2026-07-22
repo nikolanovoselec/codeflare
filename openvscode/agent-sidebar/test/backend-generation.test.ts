@@ -53,7 +53,7 @@ class FakePiChild implements PiChildProcess {
   readonly writes: string[] = [];
   #stdout: ((data: Uint8Array) => void) | undefined;
 
-  write(line: string): void { this.writes.push(line); }
+  write(line: string): void | Promise<void> { this.writes.push(line); }
   signal(): void {}
   async waitForExit(): Promise<void> { this.exited = true; }
   onStdout(listener: (data: Uint8Array) => void): () => void {
@@ -83,6 +83,18 @@ class SpawnFailingPiChild extends FakePiChild {
 class SpawnFailingPiSpawner implements PiProcessSpawner {
   spawn(_spec: PiSpawnSpec): PiChildProcess {
     return new SpawnFailingPiChild();
+  }
+}
+
+class StdinFailingPiChild extends FakePiChild {
+  override write(): Promise<void> {
+    return Promise.reject(new Error('EPIPE'));
+  }
+}
+
+class StdinFailingPiSpawner implements PiProcessSpawner {
+  spawn(_spec: PiSpawnSpec): PiChildProcess {
+    return new StdinFailingPiChild();
   }
 }
 
@@ -119,6 +131,18 @@ test('REQ-IDE-005 AC3+AC7: an asynchronous Pi spawn failure cannot leave a runni
   });
 
   await assert.rejects(backend.start(), /unavailable/);
+  assert.equal(backend.running, false);
+});
+
+test('REQ-IDE-005 AC3+AC7: an asynchronous Pi stdin failure stops the backend without escaping', async () => {
+  const backend = new PiRpcBackend(new StdinFailingPiSpawner(), new ApprovalBridge(new DeferredApprovalHost()), {
+    output: () => undefined,
+    reset: () => undefined,
+    failed: () => undefined,
+  });
+
+  await backend.start();
+  await assert.rejects(backend.prompt('hello'), /EPIPE/);
   assert.equal(backend.running, false);
 });
 
