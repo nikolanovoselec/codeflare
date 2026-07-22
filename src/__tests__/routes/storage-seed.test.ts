@@ -194,6 +194,20 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
     expect(storedPrefs.lastPreseedHash).toBe('test_hash_abc123');
   });
 
+  // REQ-ENTERPRISE-001 AC7: a failed reconcile must not stamp the preference,
+  // so the dashboard upgrade trigger stays armed and retries on the next load.
+  it('enterprise: a failed reconcile returns 500 and does NOT stamp sessionMode or lastPreseedHash', async () => {
+    vi.mocked(reconcileAgentConfigs).mockRejectedValueOnce(new Error('r2 down'));
+    const app = createApp('my-bucket', { ENTERPRISE_MODE: 'active' });
+
+    const res = await app.request('/seed/agent-configs', { method: 'POST' });
+    expect(res.status).toBe(500);
+
+    const putCalls = mockKV.put.mock.calls as [string, string][];
+    const prefsPut = putCalls.find(([key]) => key === 'user-prefs:my-bucket');
+    expect(prefsPut).toBeUndefined();
+  });
+
   it('returns container error when bucket creation fails', async () => {
     testState.createBucketResult = { success: false, error: 'denied' };
     const app = createApp('my-bucket');

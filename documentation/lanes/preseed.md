@@ -95,7 +95,7 @@ dashboard load (same `preseedNeedsUpgrade` UPDATING affordance as a
 release upgrade) — for a pre-existing bucket whose stored preference
 is not yet `advanced` (stamped only after a successful reconcile, so
 a failure retries;
-[REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6).
+[REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6/AC7).
 
 The Settings toggle immediately triggers server-side reconciliation
 as part of the `PATCH /api/preferences` call -- no separate Recreate
