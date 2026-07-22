@@ -16,7 +16,7 @@
     "motion": "^12.42.2"
   },
   "devDependencies": {
-    "happy-dom": "^20.10.5",
+    "happy-dom": "^20.11.1",
     "vitest": "^4.1.10"
   },
   "overrides": {
