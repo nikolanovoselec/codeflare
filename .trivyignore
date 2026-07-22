@@ -753,10 +753,11 @@ CVE-2026-59873
 CVE-2026-59874
 # brace-expansion 5.0.5/5.0.6 — exponential-time DoS; fixed 5.0.7:
 CVE-2026-13149
-# shell-quote 1.8.3 — inefficient-parse DoS; fixed 1.8.5:
+# shell-quote 1.8.3 — inefficient-parse DoS; fixed 1.9.0 (npm has no 1.8.x fix release):
 CVE-2026-13311
 # grpc-go in the apt-distributed gh binary — bundles an xDS RBAC fail-open
-# auth-bypass (HIGH, not DoS-class) plus two HTTP/2 server DoS issues. All
+# auth-bypass (HIGH, not DoS-class) plus two server-side DoS issues (an
+# HTTP/2 rapid-reset bypass and an xDS RBAC engine panic). All
 # three are server-side surfaces and UNREACHABLE here: gh is an outbound-only
 # CLI with no listening gRPC/xDS server. apt re-resolves gh on every deploy,
 # entry drops once Debian ships a rebuilt gh:
