@@ -13,6 +13,7 @@ type BoundarySurfaces = {
   event?: BoundaryEvent;
   pushSource?: string;
   pushTarget?: string;
+  pushRemote?: string;
 };
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
@@ -182,6 +183,7 @@ describe('Claude-equivalent review boundary helpers', () => {
       pushTarget: 'pi',
     };
     const inferredPush = { reminder: true, settled: true, event: 'push' as const };
+    const originPush = { ...inferredPush, pushRemote: 'origin' };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
       ['git push origin pi', push],
@@ -197,9 +199,11 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['printf done; git push origin pi', push],
       ['git push origin HEAD:refs/heads/pi', { ...push, pushSource: 'HEAD' }],
       ['git push', inferredPush],
-      ['git push origin', inferredPush],
-      ['git push origin HEAD', inferredPush],
-      ['git push -u origin HEAD', inferredPush],
+      ['git push origin', originPush],
+      ['git push origin HEAD', originPush],
+      ['git push -u origin HEAD', originPush],
+      ['git push --repo origin HEAD', originPush],
+      ['git push --repo=origin HEAD', originPush],
       ['gh pr create --base main --title review', { reminder: true, settled: true, event: 'pr-create' }],
       ['gh pr edit 42 --base master', none],
       ['gh pr edit 42 --base main && git push origin pi', push],
@@ -207,6 +211,7 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['gh pr update-branch 42', none],
       ['git push origin --delete pi', none],
       ['git push origin :pi', none],
+      ['git push --repo', none],
       ['git push --all origin', none],
       ['git push --mirror origin', none],
       ['git push --tags origin', none],

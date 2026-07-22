@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { effectiveCwdForCommand } from "./graphify-helpers";
-import { shellSegments } from "./review-helpers";
+import { executableShellSegments } from "./review-helpers";
 
 const ACTIVE_REPO_KEY = Symbol.for("codeflare.activeRepo");
 
@@ -40,14 +40,30 @@ function effectivePath(command: string, cwd: string): string {
   return resolve(effectiveCwdForCommand(command, cwd));
 }
 
-export type ShellInvocation = { command: string; cwd: string };
+export type ShellInvocation = { command: string; cwd: string; certain: boolean };
 
 function commandInvocations(command: string, cwd: string): ShellInvocation[] {
   let effectiveCwd = cwd;
-  return shellSegments(command).map((segment) => {
-    const cd = /^cd(?:\s+--)?\s+(.+)$/.exec(segment);
-    if (cd?.[1]) effectiveCwd = resolve(effectiveCwd, unquoteShellToken(cd[1]));
-    return { command: segment, cwd: effectiveCwd };
+  let cwdCertain = true;
+  return executableShellSegments(command).map((segment) => {
+    const invocation = {
+      command: segment.command,
+      cwd: effectiveCwd,
+      certain: cwdCertain && segment.separatorBefore !== "||",
+    };
+    const cd = /^cd(?:\s+--)?\s+(.+)$/.exec(segment.command);
+    if (!cd?.[1]) return invocation;
+
+    const target = unquoteShellToken(cd[1]);
+    if (segment.separatorAfter === "&&") {
+      if (cwdCertain || isAbsolute(target)) {
+        effectiveCwd = resolve(effectiveCwd, target);
+        cwdCertain = true;
+      }
+    } else if (segment.separatorAfter !== "|" && segment.separatorAfter !== "&") {
+      cwdCertain = false;
+    }
+    return invocation;
   });
 }
 
@@ -72,7 +88,7 @@ export function shellInvocations(event: any, sessionCwd: string): ShellInvocatio
 }
 
 export function resolveShellInvocationRepo(invocation: ShellInvocation): string | undefined {
-  return findGitRoot(effectivePath(invocation.command, invocation.cwd));
+  return invocation.certain ? findGitRoot(effectivePath(invocation.command, invocation.cwd)) : undefined;
 }
 
 export function rememberActiveRepoFromToolResult(event: any, sessionCwd: string): string | undefined {

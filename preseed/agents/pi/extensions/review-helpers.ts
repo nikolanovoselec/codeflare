@@ -14,6 +14,7 @@ type BoundarySurfaces = {
   event?: ReviewBoundaryEvent;
   pushSource?: string;
   pushTarget?: string;
+  pushRemote?: string;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
@@ -101,33 +102,69 @@ function stripHeredocBodies(command: string): string {
   return executable.join("\n");
 }
 
-export function shellSegments(command: string): string[] {
-  const segments: string[] = [];
+export type ShellSeparator = "&&" | "||" | "|" | "&" | ";" | "\n";
+export type ExecutableShellSegment = {
+  command: string;
+  separatorBefore?: ShellSeparator;
+  separatorAfter?: ShellSeparator;
+};
+
+export function executableShellSegments(command: string): ExecutableShellSegment[] {
+  const segments: ExecutableShellSegment[] = [];
+  const source = stripHeredocBodies(command);
   let current = "";
   let quote = "";
   let escaped = false;
-  for (const char of stripHeredocBodies(command)) {
+  let separatorBefore: ShellSeparator | undefined;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index] ?? "";
     if (escaped) {
       current += char;
       escaped = false;
-    } else if (char === "\\" && quote !== "'") {
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
       current += char;
       escaped = true;
-    } else if ((char === "'" || char === '"') && !quote) {
+      continue;
+    }
+    if ((char === "'" || char === '"') && !quote) {
       current += char;
       quote = char;
-    } else if (char === quote) {
+      continue;
+    }
+    if (char === quote) {
       current += char;
       quote = "";
-    } else if (!quote && ";&|\n\r".includes(char)) {
-      if (current.trim()) segments.push(current.trim());
-      current = "";
-    } else {
-      current += char;
+      continue;
     }
+    if (!quote && ";&|\n\r".includes(char)) {
+      let separator: ShellSeparator;
+      if ((char === "&" || char === "|") && source[index + 1] === char) {
+        separator = char === "&" ? "&&" : "||";
+        index += 1;
+      } else if (char === "\n" || char === "\r") {
+        separator = "\n";
+        if (char === "\r" && source[index + 1] === "\n") index += 1;
+      } else {
+        separator = char as ShellSeparator;
+      }
+      if (current.trim()) {
+        segments.push({ command: current.trim(), separatorBefore, separatorAfter: separator });
+        current = "";
+        separatorBefore = separator;
+      }
+      continue;
+    }
+    current += char;
   }
-  if (current.trim()) segments.push(current.trim());
+  if (current.trim()) segments.push({ command: current.trim(), separatorBefore });
   return segments;
+}
+
+export function shellSegments(command: string): string[] {
+  return executableShellSegments(command).map((segment) => segment.command);
 }
 
 function shellWords(segment: string): ShellWords {
@@ -176,7 +213,7 @@ function gitSubcommand(words: ShellWords): string | undefined {
   return index === undefined ? undefined : words[index];
 }
 
-const PUSH_OPTIONS_WITH_VALUE = new Set(["--exec", "--push-option", "--receive-pack", "--repo", "-o"]);
+const PUSH_OPTIONS_WITH_VALUE = new Set(["--exec", "--push-option", "--receive-pack", "-o"]);
 const UNSUPPORTED_PUSH_OPTIONS = new Set([
   "--all", "--delete", "--dry-run", "--follow-tags", "--mirror", "--prune", "--tags", "-d", "-n",
 ]);
@@ -188,17 +225,29 @@ function branchRef(value: string): string | undefined {
   return value;
 }
 
-function pushBoundary(words: ShellWords): { source?: string; target?: string } | undefined {
+function pushBoundary(words: ShellWords): { source?: string; target?: string; remote?: string } | undefined {
   const subcommandIndex = gitSubcommandIndex(words);
   if (subcommandIndex === undefined || words[subcommandIndex] !== "push") return undefined;
   const positionals: string[] = [];
   const args = words.slice(subcommandIndex + 1);
+  let optionRemote: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] ?? "";
     if (UNSUPPORTED_PUSH_OPTIONS.has(arg)
       || /^-[^-]*[dn]/.test(arg)
       || [...UNSUPPORTED_PUSH_OPTIONS].some((option) => arg.startsWith(`${option}=`))) {
       return undefined;
+    }
+    if (arg === "--repo") {
+      optionRemote = args[index + 1];
+      if (!optionRemote) return undefined;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--repo=")) {
+      optionRemote = arg.slice("--repo=".length) || undefined;
+      if (!optionRemote) return undefined;
+      continue;
     }
     if (PUSH_OPTIONS_WITH_VALUE.has(arg)) {
       index += 1;
@@ -211,11 +260,12 @@ function pushBoundary(words: ShellWords): { source?: string; target?: string } |
     if (arg.startsWith("-")) continue;
     positionals.push(arg);
   }
-  const refspecs = positionals.slice(1);
-  if (refspecs.length === 0) return {};
+  const remote = optionRemote ?? positionals[0];
+  const refspecs = optionRemote ? positionals : positionals.slice(1);
+  if (refspecs.length === 0) return remote ? { remote } : {};
   if (refspecs.length !== 1) return undefined;
   const refspec = refspecs[0] ?? "";
-  if (refspec === "HEAD") return {};
+  if (refspec === "HEAD") return remote ? { remote } : {};
   const normalizedRefspec = refspec.startsWith("+") ? refspec.slice(1) : refspec;
   if (!normalizedRefspec || normalizedRefspec.startsWith(":")) return undefined;
   const separator = normalizedRefspec.indexOf(":");
@@ -245,6 +295,7 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
           event: "push",
           ...(push.source ? { pushSource: push.source } : {}),
           ...(push.target ? { pushTarget: push.target } : {}),
+          ...(!push.target && push.remote ? { pushRemote: push.remote } : {}),
         };
       }
     }

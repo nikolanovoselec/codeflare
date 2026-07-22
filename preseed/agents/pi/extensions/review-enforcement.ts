@@ -38,7 +38,7 @@ type Dependencies = {
   queryPr(repo: string, target?: string): Promise<PrState | undefined>;
   queryHead?(repo: string, revision?: string): Promise<string | undefined>;
   queryBranch?(repo: string): Promise<string | undefined>;
-  queryPushBranch?(repo: string, branch: string): Promise<string | undefined>;
+  queryPushBranch?(repo: string, branch: string, remote?: string): Promise<string | undefined>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
 };
@@ -236,6 +236,7 @@ async function currentReview(
   revision = "HEAD",
   preferredRepo?: string,
   resolvePushDestination = false,
+  pushRemote?: string,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
   const context = boundaryContext(ctx, preferredRepo);
   if (!context) return undefined;
@@ -244,7 +245,7 @@ async function currentReview(
     const localBranch = await (dependencies.queryBranch ?? queryBranch)(context.repo);
     if (!localBranch) return undefined;
     branch = resolvePushDestination
-      ? await (dependencies.queryPushBranch ?? queryPushBranch)(context.repo, localBranch)
+      ? await (dependencies.queryPushBranch ?? queryPushBranch)(context.repo, localBranch, pushRemote)
       : localBranch;
   }
   if (!branch) return undefined;
@@ -525,6 +526,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       revision,
       eventRepo,
       boundary.classification.event === "push" && !target,
+      boundary.classification.pushRemote,
     );
     if (!review || !isEnforcedPr(review.pr)) return;
 
@@ -653,16 +655,26 @@ export async function queryPushBranch(
   repo: string,
   branch: string,
   runner: QueryPrRunner = execFileAsync,
+  remote?: string,
 ): Promise<string | undefined> {
   try {
     const { stdout } = await runner(
       "git",
-      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{push}`],
+      [
+        ...(remote ? ["-c", `branch.${branch}.pushRemote=${remote}`] : []),
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        `${branch}@{push}`,
+      ],
       { cwd: repo, encoding: "utf8", timeout: 10_000 },
     );
     const pushRefs = String(stdout).trim().split("\n").filter(Boolean);
     const pushRef = pushRefs.length === 1 ? pushRefs[0] : undefined;
     if (!pushRef || pushRef.startsWith("refs/")) return undefined;
+    if (remote) return pushRef.startsWith(`${remote}/`)
+      ? pushRef.slice(remote.length + 1) || undefined
+      : undefined;
     const separator = pushRef.indexOf("/");
     return separator > 0 ? pushRef.slice(separator + 1) || undefined : undefined;
   } catch {
@@ -728,6 +740,6 @@ export default function reviewEnforcement(pi: ExtensionAPI): void {
   registerReviewEnforcement(pi as unknown as ReviewPi, {
     queryPr: (repo, target) => queryPr(repo, execFileAsync, target),
     queryBranch: (repo) => queryBranch(repo, execFileAsync),
-    queryPushBranch: (repo, branch) => queryPushBranch(repo, branch, execFileAsync),
+    queryPushBranch: (repo, branch, remote) => queryPushBranch(repo, branch, execFileAsync, remote),
   });
 }
