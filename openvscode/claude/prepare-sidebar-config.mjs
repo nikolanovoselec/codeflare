@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, realpath, rename, rm, symlink } from "node:fs/promises";
+import { lstat, mkdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -26,15 +26,24 @@ export async function prepareSidebarConfig(options) {
   await rm(stageRoot, { force: true, recursive: true });
   try {
     await mkdir(stageRoot, { mode: 0o700, recursive: false });
+    const projected = [];
     const sourceAvailable = await directoryExists(sourceRoot);
     if (sourceAvailable) {
       const canonicalSource = await realpath(sourceRoot);
       for (const name of SIDEBAR_LINK_ALLOWLIST) {
         const sourcePath = resolve(canonicalSource, name);
-        if (await entryExists(sourcePath)) await symlink(sourcePath, resolve(stageRoot, name));
+        if (await entryExists(sourcePath)) {
+          await symlink(sourcePath, resolve(stageRoot, name));
+          projected.push(name);
+        }
       }
     }
     await symlink(MANAGED_SETTINGS_PATH, resolve(stageRoot, "settings.json"));
+    await writeFile(
+      resolve(stageRoot, ".codeflare-projection.json"),
+      `${JSON.stringify({ version: 1, links: projected, settings: MANAGED_SETTINGS_PATH })}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
 
     const existing = await lstatOrUndefined(targetRoot);
     if (existing?.isSymbolicLink()) throw new Error("target root must not be a symbolic link");

@@ -17,7 +17,14 @@ export class VsCodeApprovalHost implements ApprovalHost {
     const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const stat = await handle.stat();
-      if (!stat.isFile() || stat.size < 2 || stat.size > MAX_MANIFEST_BYTES) {
+      const currentUid = process.getuid?.();
+      if (
+        !stat.isFile() ||
+        stat.size < 2 ||
+        stat.size > MAX_MANIFEST_BYTES ||
+        stat.mode & 0o077 ||
+        (currentUid !== undefined && stat.uid !== currentUid)
+      ) {
         throw new Error('Invalid approval manifest');
       }
       const content = await handle.readFile({ encoding: 'utf8' });

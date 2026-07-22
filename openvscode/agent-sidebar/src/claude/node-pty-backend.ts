@@ -55,6 +55,15 @@ class ManagedNodePty implements ClaudePtyProcess {
     return () => disposable.dispose();
   }
 
+  onExit(listener: () => void): () => void {
+    if (this.exited) {
+      queueMicrotask(listener);
+      return () => undefined;
+    }
+    const disposable = this.#pty.onExit(listener);
+    return () => disposable.dispose();
+  }
+
   write(data: string): void {
     if (this.exited) throw new Error('Claude PTY is not writable');
     this.#pty.write(data);
@@ -91,6 +100,7 @@ export class ClaudePtyBackend implements Backend {
   readonly #session: ClaudePtySession;
   readonly #sink: ClaudePtySink;
   #size = DEFAULT_SIZE;
+  #detachExit: (() => void) | undefined;
   running = false;
 
   constructor(spawner: ClaudePtySpawner, sink: ClaudePtySink) {
@@ -101,7 +111,8 @@ export class ClaudePtyBackend implements Backend {
   async start(): Promise<void> {
     if (this.running) return;
     try {
-      await this.#session.resolveVisible(this.#size);
+      const process = await this.#session.resolveVisible(this.#size);
+      this.#detachExit = process.onExit?.(() => this.#handleExit());
       this.running = true;
     } catch (error) {
       this.#sink.failed(error instanceof Error ? error.message : 'Claude PTY failed to start');
@@ -124,19 +135,28 @@ export class ClaudePtyBackend implements Backend {
   }
 
   async newConversation(): Promise<void> {
-    if (!this.running) {
-      this.#sink.reset();
-      await this.start();
-      return;
-    }
+    const wasRunning = this.running;
+    this.running = false;
+    this.#detachExit?.();
+    this.#detachExit = undefined;
+    if (wasRunning) await this.#session.dispose();
     this.#sink.reset();
-    await this.#session.newConversation(this.#size);
+    await this.start();
   }
 
   async stop(): Promise<void> {
+    this.running = false;
+    this.#detachExit?.();
+    this.#detachExit = undefined;
+    await this.#session.dispose();
+  }
+
+  #handleExit(): void {
     if (!this.running) return;
     this.running = false;
-    await this.#session.dispose();
+    this.#detachExit?.();
+    this.#detachExit = undefined;
+    this.#sink.failed('Claude PTY exited.');
   }
 }
 

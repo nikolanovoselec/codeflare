@@ -32,7 +32,11 @@ async function main() {
     const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
     assert.equal(manifest.name, EXTENSION_NAME);
     assert.equal(manifest.publisher, 'codeflare');
+    assert.equal(manifest.version, '0.0.0');
     assert.equal(manifest.main, './dist/extension.cjs');
+    assert.equal(manifest.engines.vscode, '^1.109.0');
+    assert.deepEqual(manifest.extensionKind, ['workspace']);
+    assert.equal(manifest.capabilities.untrustedWorkspaces.supported, false);
     await assertImmutable(extensionRoot);
     packaged.push(extensionRoot);
   }
@@ -50,7 +54,9 @@ async function main() {
   assert.deepEqual(optSettings, managedSettings);
   assert.deepEqual(etcSettings, managedSettings);
   assert.equal(managedSettings.permissions.defaultMode, 'default');
-  assert.equal(managedSettings.disableBypassPermissionsMode, 'disable');
+  assert.equal(managedSettings.permissions.disableBypassPermissionsMode, 'disable');
+  assert.equal(managedSettings.permissions.disableAutoMode, 'disable');
+  assert.equal(managedSettings.disableRemoteControl, true);
 
   await verifyConfigProjection();
   await verifyPermissionHook();
@@ -80,6 +86,7 @@ async function verifyConfigProjection() {
     assert.equal((await lstat(join(targetRoot, '.credentials.json'))).isSymbolicLink(), true);
     assert.equal(await readlink(join(targetRoot, '.credentials.json')), join(sourceRoot, '.credentials.json'));
     await assert.rejects(lstat(join(targetRoot, 'history.jsonl')), { code: 'ENOENT' });
+    assert.equal(JSON.parse(await readFile(join(targetRoot, '.codeflare-projection.json'), 'utf8')).version, 1);
     assert.equal((await stat(targetRoot)).mode & 0o777, 0o700);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -115,6 +122,7 @@ function verifyNativeAddon(extensionRoot) {
 async function assertImmutable(root) {
   for (const path of await collect(root)) {
     const info = await lstat(path);
+    assert.equal(info.uid, 0, `${path} is not root-owned`);
     assert.equal(info.mode & 0o222, 0, `${path} is writable`);
   }
 }

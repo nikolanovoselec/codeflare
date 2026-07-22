@@ -23,6 +23,7 @@ export interface ClaudePtySpawnSpec {
 export interface ClaudePtyProcess {
   readonly exited: boolean;
   onData(listener: (data: string) => void): () => void;
+  onExit?(listener: () => void): () => void;
   write(data: string): void;
   resize(columns: number, rows: number): void;
   kill(signal: 'SIGTERM' | 'SIGKILL'): void;

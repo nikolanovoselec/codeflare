@@ -108,6 +108,8 @@ function validApprovalId(value: string | undefined): value is string {
 function validManifest(value: ApprovalManifest, expectedId: string): boolean {
   if (!value || value.id !== expectedId || !Number.isSafeInteger(value.expiresAt)) return false;
   if (value.preview) {
+    if (!bounded(value.toolName, 256) || !Number.isSafeInteger(value.createdAt) ||
+      Number(value.createdAt) > value.expiresAt || !hashOrNonce(value.nonce)) return false;
     if (value.preview.kind === 'diff') {
       return bounded(value.preview.path, 4_096) && bounded(value.preview.diff, 1024 * 1024) &&
         bounded(value.preview.beforeSha256, 128) && bounded(value.preview.afterSha256, 128);
@@ -127,6 +129,10 @@ function validManifest(value: ApprovalManifest, expectedId: string): boolean {
 
 function bounded(value: unknown, maxBytes: number): value is string {
   return typeof value === 'string' && value.length > 0 && Buffer.byteLength(value, 'utf8') <= maxBytes;
+}
+
+function hashOrNonce(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:[0-9a-f]{64}|[0-9a-f-]{32,36})$/i.test(value);
 }
 
 function serializesWithin(value: unknown, maxBytes: number): boolean {

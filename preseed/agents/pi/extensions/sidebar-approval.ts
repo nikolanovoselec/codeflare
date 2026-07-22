@@ -42,6 +42,7 @@ export type SidebarApprovalPreview =
 
 export interface SidebarApprovalRequest {
   id: string;
+  nonce: string;
   toolName: string;
   createdAt: number;
   expiresAt: number;
@@ -58,6 +59,8 @@ export interface SidebarPathInfo {
   canonicalPath: string;
   exists: boolean;
   symbolicLink: boolean;
+  regularFile?: boolean;
+  safeAncestors?: boolean;
 }
 
 type MutationQueue = <T>(filePath: string, operation: () => Promise<T>) => Promise<T>;
@@ -129,6 +132,7 @@ export function createSidebarApprovalTools(
     if (!isOpaqueId(id)) return { request: emptyRequest(toolName, preview), approved: false, reason: "Approval ID was invalid." };
     const request: SidebarApprovalRequest = {
       id,
+      nonce: await sha256(`${id}:${createdAt}:nonce`),
       toolName,
       createdAt,
       expiresAt: createdAt + APPROVAL_TTL_MS,
@@ -226,7 +230,12 @@ export function createSidebarApprovalTools(
   const bash: SidebarApprovalTool<BashToolInput> = {
     ...bashBase,
     execute: async (_toolCallId, params, signal, onUpdate, ctx) => {
-      if (typeof params.command !== "string" || params.command.length === 0) return denied("Bash command was invalid.");
+      if (
+        typeof params.command !== "string" ||
+        params.command.length === 0 ||
+        params.command.includes("\0") ||
+        Buffer.byteLength(params.command, "utf8") > MAX_GENERIC_INPUT_BYTES
+      ) return denied("Bash command was invalid.");
       const approval = await approve("bash", { kind: "bash", command: params.command, cwd: workspaceRoot }, ctx);
       if (!approval.approved) return denied(approval.reason ?? "Operation denied.", approval.request.id);
       const chunks: Buffer[] = [];
@@ -282,8 +291,13 @@ export function registerSidebarApproval(
     if (!serialized) return { block: true, reason: "Tool input cannot be safely previewed." };
     const now = dependencies.now ?? Date.now;
     const createdAt = now();
+    const id = (dependencies.randomUUID ?? createRandomUUID)();
+    if (!isOpaqueId(id) || Buffer.byteLength(event.toolName, "utf8") > 256) {
+      return { block: true, reason: "Generic tool identity cannot be safely approved." };
+    }
     const request: SidebarApprovalRequest = {
-      id: (dependencies.randomUUID ?? createRandomUUID)(),
+      id,
+      nonce: hashSha256(`${id}:${createdAt}:nonce`),
       toolName: event.toolName,
       createdAt,
       expiresAt: createdAt + APPROVAL_TTL_MS,
@@ -378,6 +392,8 @@ function createDiff(path: string, before: string, after: string): string {
 
 function validatePath(info: SidebarPathInfo, workspaceRoot: string): string | undefined {
   if (info.symbolicLink) return "Symbolic link targets are not permitted.";
+  if (info.safeAncestors === false) return "Target has a non-directory ancestor.";
+  if (info.exists && info.regularFile === false) return "Target must be a regular file.";
   const canonicalRoot = resolve(workspaceRoot);
   const rel = relative(canonicalRoot, info.canonicalPath);
   if (rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
@@ -387,14 +403,36 @@ function validatePath(info: SidebarPathInfo, workspaceRoot: string): string | un
 }
 
 async function inspectLocalPath(path: string, cwd: string): Promise<SidebarPathInfo> {
-  const absolutePath = resolve(cwd, path);
+  const lexicalRoot = resolve(cwd);
+  const absolutePath = resolve(lexicalRoot, path);
+  const lexicalRelative = relative(lexicalRoot, absolutePath);
+  let symbolicLink = false;
+  let safeAncestors = true;
+  if (lexicalRelative !== "" && !lexicalRelative.startsWith("..") && !isAbsolute(lexicalRelative)) {
+    const parts = lexicalRelative.split(/[\\/]+/);
+    let cursor = lexicalRoot;
+    for (let index = 0; index < parts.length; index += 1) {
+      cursor = resolve(cursor, parts[index]!);
+      try {
+        const component = await lstat(cursor);
+        if (component.isSymbolicLink()) symbolicLink = true;
+        if (index < parts.length - 1 && !component.isDirectory()) safeAncestors = false;
+      } catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") break;
+        throw error;
+      }
+    }
+  }
+
   try {
-    const stat = await lstat(absolutePath);
+    const target = await lstat(absolutePath);
     return {
       absolutePath,
       canonicalPath: await realpath(absolutePath),
       exists: true,
-      symbolicLink: stat.isSymbolicLink(),
+      symbolicLink: symbolicLink || target.isSymbolicLink(),
+      regularFile: target.isFile(),
+      safeAncestors,
     };
   } catch (error) {
     if (!isNodeError(error) || error.code !== "ENOENT") throw error;
@@ -407,7 +445,8 @@ async function inspectLocalPath(path: string, cwd: string): Promise<SidebarPathI
           absolutePath,
           canonicalPath: resolve(canonicalParent, ...missingParts.reverse()),
           exists: false,
-          symbolicLink: false,
+          symbolicLink,
+          safeAncestors,
         };
       } catch (parentError) {
         if (!isNodeError(parentError) || parentError.code !== "ENOENT") throw parentError;
@@ -468,6 +507,7 @@ async function requestHostApproval(
   const manifestPath = resolve(MANIFEST_ROOT, `${request.id}.json`);
   const handle = await open(manifestPath, "wx", 0o600);
   try {
+    await handle.chmod(0o600);
     await handle.writeFile(`${JSON.stringify(request)}\n`, { encoding: "utf8" });
   } finally {
     await handle.close();
@@ -484,8 +524,7 @@ function isTrustedReadOnlyTool(toolName: string, pi: ExtensionAPI): boolean {
   if (!["read", "grep", "find", "ls"].includes(toolName)) return false;
   const info = pi.getAllTools().find((tool) => tool.name === toolName);
   if (!info) return false;
-  const path = info.sourceInfo?.path ?? "";
-  return path.includes("@earendil-works/pi-coding-agent") || path.includes("/core/tools/");
+  return info.sourceInfo?.source === "builtin" && info.sourceInfo.path === `<builtin:${toolName}>`;
 }
 
 function ownsGuardedTool(path: string | undefined): boolean {
@@ -511,7 +550,7 @@ function isOpaqueId(value: string): boolean {
 }
 
 function emptyRequest(toolName: string, preview: SidebarApprovalPreview): SidebarApprovalRequest {
-  return { id: "unavailable", toolName, createdAt: 0, expiresAt: 0, preview };
+  return { id: "unavailable", nonce: "unavailable", toolName, createdAt: 0, expiresAt: 0, preview };
 }
 
 function denied(reason: string, approvalId?: string): AgentToolResult<SidebarApprovalDetails> {
