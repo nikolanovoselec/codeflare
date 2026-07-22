@@ -4,6 +4,8 @@ export type AuthorizedWebviewMessage =
   | Readonly<{ type: 'prompt'; message: string }>
   | Readonly<{ type: 'abort' }>
   | Readonly<{ type: 'newConversation' }>
+  | Readonly<{ type: 'pi.cycleModel' }>
+  | Readonly<{ type: 'pi.cycleThinking' }>
   | Readonly<{ type: 'terminal.input'; data: string }>
   | Readonly<{ type: 'terminal.resize'; columns: number; rows: number }>;
 
@@ -41,6 +43,11 @@ export class WebviewMessageAuthority {
     }
 
     if (value.type === 'abort' || value.type === 'newConversation') {
+      assertExactKeys(value, ['type']);
+      return { type: value.type };
+    }
+
+    if (backend === 'pi' && (value.type === 'pi.cycleModel' || value.type === 'pi.cycleThinking')) {
       assertExactKeys(value, ['type']);
       return { type: value.type };
     }

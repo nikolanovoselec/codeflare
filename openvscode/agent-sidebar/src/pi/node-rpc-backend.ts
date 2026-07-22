@@ -86,6 +86,15 @@ class NodePiChild implements PiChildProcess {
     this.#child.stderr.on('data', wrapped);
     return () => this.#child.stderr.off('data', wrapped);
   }
+
+  onExit(listener: () => void): () => void {
+    if (this.exited) {
+      queueMicrotask(listener);
+      return () => undefined;
+    }
+    this.#child.once('close', listener);
+    return () => this.#child.off('close', listener);
+  }
 }
 
 export class PiRpcBackend implements Backend {
@@ -108,10 +117,11 @@ export class PiRpcBackend implements Backend {
     if (this.running) return;
     this.#transport = createTransport();
     const child = await this.#session.resolveVisible();
-    if (!child.onStdout || !child.onStderr) throw new Error('Pi RPC process does not expose strict stdio');
+    if (!child.onStdout || !child.onStderr || !child.onExit) throw new Error('Pi RPC process does not expose strict stdio');
     this.#detach = [
       child.onStdout((data) => this.#accept(data)),
       child.onStderr((data) => this.#sink.output(data)),
+      child.onExit(() => this.#handleExit()),
     ];
     this.running = true;
   }
@@ -126,6 +136,16 @@ export class PiRpcBackend implements Backend {
     await this.#session.abort((id) => this.#transport.registerRequest(id));
   }
 
+  async cycleModel(): Promise<void> {
+    await this.start();
+    await this.#session.cycleModel((id) => this.#transport.registerRequest(id));
+  }
+
+  async cycleThinkingLevel(): Promise<void> {
+    await this.start();
+    await this.#session.cycleThinkingLevel((id) => this.#transport.registerRequest(id));
+  }
+
   async newConversation(): Promise<void> {
     await this.stop();
     this.#sink.reset();
@@ -133,10 +153,10 @@ export class PiRpcBackend implements Backend {
   }
 
   async stop(): Promise<void> {
-    if (!this.running) return;
+    const wasRunning = this.running;
     this.running = false;
     for (const detach of this.#detach.splice(0)) detach();
-    this.#transport.markExited();
+    if (wasRunning) this.#transport.markExited();
     await this.#session.dispose();
   }
 
@@ -168,6 +188,14 @@ export class PiRpcBackend implements Backend {
     if (text) this.#sink.output(text);
   }
 
+  #handleExit(): void {
+    if (!this.running) return;
+    this.running = false;
+    this.#transport.markExited();
+    for (const detach of this.#detach.splice(0)) detach();
+    this.#sink.failed('Pi RPC process exited.');
+  }
+
   #protocolFailure(error: unknown): void {
     const reason = error instanceof PiProtocolError ? error.code : 'RPC processing failed';
     this.#sink.failed(reason);
@@ -190,6 +218,16 @@ function textFromEnvelope(envelope: PiRpcEnvelope): string | undefined {
   if (isRecord(assistantEvent)) {
     if (typeof assistantEvent.delta === 'string') return assistantEvent.delta;
     if (typeof assistantEvent.text === 'string') return assistantEvent.text;
+  }
+  if (envelope.type === 'response' && envelope.success === true && isRecord(envelope.data)) {
+    const model = envelope.data.model;
+    const thinking = envelope.data.thinkingLevel;
+    if (isRecord(model) && typeof model.id === 'string') {
+      return `\nModel: ${model.id}${typeof thinking === 'string' ? ` (${thinking})` : ''}\n`;
+    }
+    if (envelope.command === 'cycle_thinking_level' && typeof thinking === 'string') {
+      return `\nThinking: ${thinking}\n`;
+    }
   }
   if (envelope.type === 'tool_execution_start' && typeof envelope.toolName === 'string') {
     return `\nRunning ${envelope.toolName}…\n`;

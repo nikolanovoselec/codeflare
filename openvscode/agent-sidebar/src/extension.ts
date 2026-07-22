@@ -152,6 +152,8 @@ async function dispatchMessage(backend: Backend, message: AuthorizedWebviewMessa
   if (backend instanceof PiRpcBackend) {
     if (message.type === 'prompt') await backend.prompt(message.message);
     else if (message.type === 'abort') await backend.abort();
+    else if (message.type === 'pi.cycleModel') await backend.cycleModel();
+    else if (message.type === 'pi.cycleThinking') await backend.cycleThinkingLevel();
     else if (message.type === 'newConversation') await backend.newConversation();
     return;
   }

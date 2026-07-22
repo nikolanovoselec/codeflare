@@ -16,6 +16,7 @@ export interface PiChildProcess {
   waitForExit(): Promise<void>;
   onStdout?(listener: (data: Uint8Array) => void): () => void;
   onStderr?(listener: (data: string) => void): () => void;
+  onExit?(listener: () => void): () => void;
 }
 
 export interface PiProcessSpawner {
@@ -38,6 +39,8 @@ export class PiSession {
   #child: PiChildProcess | undefined;
   #promptSequence = 0;
   #abortSequence = 0;
+  #modelSequence = 0;
+  #thinkingSequence = 0;
 
   constructor(spawner: PiProcessSpawner) {
     this.#spawner = spawner;
@@ -64,6 +67,22 @@ export class PiSession {
     const id = `abort-${++this.#abortSequence}`;
     beforeWrite?.(id);
     child.write(`${JSON.stringify({ id, type: 'abort' })}\n`);
+    return id;
+  }
+
+  async cycleModel(beforeWrite?: (id: string) => void): Promise<string> {
+    const child = await this.resolveVisible();
+    const id = `model-${++this.#modelSequence}`;
+    beforeWrite?.(id);
+    child.write(`${JSON.stringify({ id, type: 'cycle_model' })}\n`);
+    return id;
+  }
+
+  async cycleThinkingLevel(beforeWrite?: (id: string) => void): Promise<string> {
+    const child = await this.resolveVisible();
+    const id = `thinking-${++this.#thinkingSequence}`;
+    beforeWrite?.(id);
+    child.write(`${JSON.stringify({ id, type: 'cycle_thinking_level' })}\n`);
     return id;
   }
 
