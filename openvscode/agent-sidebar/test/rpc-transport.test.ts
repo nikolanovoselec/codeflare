@@ -15,7 +15,7 @@ function transport(): StrictPiJsonlTransport {
   });
 }
 
-test('REQ-IDE-005 AC3+AC5: Pi JSONL preserves split and coalesced LF-delimited records', () => {
+test('Pi JSONL preserves split and coalesced LF-delimited records', () => {
   const rpc = transport();
   const first = rpc.feed(Buffer.from('{"type":"agent_start"}\n{"type":"agent_'));
   const second = rpc.feed(Buffer.from('settled"}\r\n'));
@@ -24,7 +24,7 @@ test('REQ-IDE-005 AC3+AC5: Pi JSONL preserves split and coalesced LF-delimited r
   assert.deepEqual(second, [{ type: 'agent_settled' }]);
 });
 
-test('REQ-IDE-005 AC3: Pi JSONL treats Unicode separators as payload rather than record delimiters', () => {
+test('Pi JSONL treats Unicode separators as payload rather than record delimiters', () => {
   const rpc = transport();
   const beforeLf = rpc.feed(Buffer.from('{"type":"notice","text":"left\u2028right\u2029end"}'));
   const afterLf = rpc.feed(Buffer.from('\n'));
@@ -33,7 +33,7 @@ test('REQ-IDE-005 AC3: Pi JSONL treats Unicode separators as payload rather than
   assert.deepEqual(afterLf, [{ type: 'notice', text: 'left\u2028right\u2029end' }]);
 });
 
-test('REQ-IDE-005 AC3: Pi JSONL rejects malformed records as protocol errors', () => {
+test('Pi JSONL rejects malformed records as protocol errors', () => {
   const rpc = transport();
 
   assert.throws(
@@ -42,7 +42,7 @@ test('REQ-IDE-005 AC3: Pi JSONL rejects malformed records as protocol errors', (
   );
 });
 
-test('REQ-IDE-005 AC3: Pi JSONL rejects an unterminated final record', () => {
+test('Pi JSONL rejects an unterminated final record', () => {
   const rpc = transport();
 
   rpc.feed(Buffer.from('{"type":"agent_start"}'));
@@ -52,7 +52,7 @@ test('REQ-IDE-005 AC3: Pi JSONL rejects an unterminated final record', () => {
   );
 });
 
-test('REQ-IDE-005 AC3: Pi JSONL rejects records beyond the fixed byte limit', () => {
+test('Pi JSONL rejects records beyond the fixed byte limit', () => {
   const rpc = transport();
   const oversized = Buffer.from(`{"type":"notice","text":"${'x'.repeat(150)}"}\n`);
 
@@ -62,7 +62,7 @@ test('REQ-IDE-005 AC3: Pi JSONL rejects records beyond the fixed byte limit', ()
   );
 });
 
-test('REQ-IDE-005 AC3: Pi JSONL rejects an unterminated buffer beyond the fixed byte limit', () => {
+test('Pi JSONL rejects an unterminated buffer beyond the fixed byte limit', () => {
   const rpc = transport();
 
   assert.throws(
@@ -71,7 +71,7 @@ test('REQ-IDE-005 AC3: Pi JSONL rejects an unterminated buffer beyond the fixed 
   );
 });
 
-test('REQ-IDE-005 AC3+AC6: Pi JSONL accepts each correlated response exactly once', () => {
+test('Pi JSONL accepts each correlated response exactly once', () => {
   const rpc = transport();
   rpc.registerRequest('request-1');
 
@@ -91,7 +91,7 @@ test('REQ-IDE-005 AC3+AC6: Pi JSONL accepts each correlated response exactly onc
   );
 });
 
-test('REQ-IDE-005 AC3: Pi JSONL rejects an unsolicited response ID', () => {
+test('Pi JSONL rejects an unsolicited response ID', () => {
   const rpc = transport();
 
   assert.throws(
@@ -103,7 +103,7 @@ test('REQ-IDE-005 AC3: Pi JSONL rejects an unsolicited response ID', () => {
   );
 });
 
-test('REQ-IDE-005 AC7: Pi JSONL rejects responses after process exit', () => {
+test('Pi JSONL rejects responses after process exit', () => {
   const rpc = transport();
 
   rpc.registerRequest('request-2');

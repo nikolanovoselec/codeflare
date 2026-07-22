@@ -38,4 +38,4 @@ The required `browser-ide` CI lane performs a clean install, dependency and lice
 
 This repository's constrained development container does not run these builds or tests locally. Use the GitHub Actions results or an integration deployment.
 
-See [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [AD113](../documentation/decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty), [Container](../documentation/lanes/container.md#openvscode-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-agent-sidebar).
+See [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle), [AD113](../documentation/decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty), [Container](../documentation/lanes/container.md#openvscode-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-agent-sidebar).

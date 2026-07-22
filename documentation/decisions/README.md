@@ -2800,7 +2800,7 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-07-22). Implemented by [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar).
+**Status:** Accepted (2026-07-22). Implemented by [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) and [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle).
 
 **Context:** The Browser IDE needs a conversation separate from terminal tab 1 for the selected Pi or Claude agent. Reusing the terminal process would couple history and control. A Worker bridge or second container would add an unnecessary trust boundary. Anthropic's official VSIX adds a large proprietary artifact and vendor UI behavior that Codeflare does not need because the pinned Claude CLI is already in the image. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
 

@@ -295,9 +295,9 @@ Per-session container isolation, enterprise inspection, and platform guardrails 
 
 **Mitigation:** Fixed inventories, exact message schemas, local-only webview assets, host-owned Pi approval, Claude native prompts, isolated state, and bounded process-generation cleanup fail closed. <!-- @impl: openvscode/agent-sidebar/src/webview-security.ts::createWebviewDocument --> <!-- @impl: openvscode/agent-sidebar/src/message-schema.ts::WebviewMessageAuthority --> <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::registerSidebarApproval -->
 
-**Verification:** Browser IDE behavioral suites, host generation-cleanup tests, and complete-image smoke validate the packaged boundary.
+**Verification:** [Webview security tests](../../openvscode/agent-sidebar/test/webview-security.test.ts), [process-generation tests](../../openvscode/agent-sidebar/test/process-generation.test.ts), [host cleanup tests](../../host/__tests__/entrypoint-openvscode.test.js), and [complete-image smoke](../../scripts/ci/smoke-openvscode-sidebar-image.mjs) validate the packaged boundary.
 
-**Implements:** [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar)
+**Implements:** [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle)
 
 The selected-agent sidebar adds no network boundary. One Codeflare-owned workspace extension runs in OpenVSCode's existing extension host. Fixed Pi and Claude inventories contain the same root-owned files, the unsupported inventory is empty, and the image build rejects VSIX files and other publishers. The extension does not start until its view is visible.
 
@@ -307,7 +307,7 @@ Pi edit, write, and Bash calls are replaced by the sidebar guard only in the fix
 
 Claude uses the CLI's native TUI permission prompt. Sidebar settings keep Manual mode and explicit ask rules for filesystem, shell, task, network, and MCP tools; they disable bypass and auto modes, Remote Control, and IDE auto-install. A strict PreToolUse hook requests approval during normal operation and exits 2 on malformed input or internal failure. Native ask rules remain independent if the hook times out. The temporary config projection links approved configuration but excludes terminal projects, history, session state, caches, logs, telemetry, and unknown paths. Credential bytes are never copied.
 
-These controls govern agent tool calls. They do not sandbox approved shell commands, executable user hooks, plugins, or other trusted code inside the root container. [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty) and [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) define that residual boundary.
+These controls govern agent tool calls. They do not sandbox approved shell commands, executable user hooks, plugins, or other trusted code inside the root container. [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty) and [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle) define that residual boundary.
 
 **Cloudflare Web Analytics CSP allowance:** The default CSP permits the Web Analytics beacon with two narrow additions in `src/index.ts`: `static.cloudflareinsights.com` in `script-src` (the beacon loader `beacon.min.js`) and `cloudflareinsights.com` in `connect-src` (the beacon's telemetry POST endpoint). The beacon is injected as a manually-authored `<script src=...>` tag (gated on `PUBLIC_CF_BEACON_TOKEN`, see [configuration.md](./configuration.md#onboarding-variables-and-secrets)) specifically so the CSP does not have to be weakened with `'unsafe-inline'`: a script element with an allowlisted host is the strict-CSP-compatible alternative to Cloudflare's auto-injected inline snippet.
 
@@ -556,7 +556,8 @@ Every entry carries an inline comment recording the affected package, the impact
 
 ## Specification Coverage
 
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected agent sidebar approval, webview, state-isolation, and cleanup boundaries
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected agent sidebar ownership and availability boundary
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle) - Sidebar approval, webview, state-isolation, and cleanup boundaries
 - [REQ-OPS-009](../../sdd/spec/operations.md#req-ops-009-supply-chain-security-monitoring) - Supply chain security monitoring
 - [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) - Security-posture scanning workflows
 - [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation) - Service token authentication scoped to automation, not user identity (AD68)

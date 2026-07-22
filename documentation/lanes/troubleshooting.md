@@ -30,9 +30,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
 
-### Browser IDE agent sidebar is missing or fails to start
-
-#### No sidebar icon
+### Browser IDE agent sidebar icon is missing
 
 **Symptom:** The Activity Bar has no agent-sidebar icon.
 
@@ -40,7 +38,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and the three directories under `/opt/codeflare/openvscode/extensions`; do not add extensions to the unsupported inventory.
 
-#### Pi view fails
+### Pi Browser IDE sidebar fails
 
 **Symptom:** Opening the Pi sidebar reports a protocol or approval error.
 
@@ -48,7 +46,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Confirm the Pi process uses the fixed RPC/no-session flags and sidebar marker. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening validation.
 
-#### Claude view fails
+### Claude Browser IDE sidebar fails
 
 **Symptom:** The embedded Claude terminal does not start.
 
@@ -56,7 +54,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Load `node-pty` with `/opt/openvscode-server/node`. Confirm the fixed Claude config preparer succeeds and the projected `settings.json` points to `/etc/codeflare/claude-sidebar/settings.json`; never add the bypass-permissions flag.
 
-#### Duplicate or orphaned child
+### Browser IDE sidebar leaves a duplicate or orphaned process
 
 **Symptom:** More than one managed OpenVSCode or sidebar process remains after restart.
 
@@ -64,7 +62,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Do not delete pidfiles first. Stop or restart OpenVSCode and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use the `browser-ide-image` evidence for hashes, ABI, process count, and RSS.
 
-See [`openvscode/README.md`](../../openvscode/README.md) and [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar).
+See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), and [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle).
 
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
@@ -613,7 +611,8 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
 - [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected agent sidebar inventory, process, approval, and generation diagnostics
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected agent sidebar inventory and launch diagnostics
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle) - Sidebar state, approval, and cleanup diagnostics
 - [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
 - [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll (fullscreen alternate-buffer wheel routing for Claude Code `/tui fullscreen` on mobile)
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants

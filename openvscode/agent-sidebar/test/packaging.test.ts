@@ -51,7 +51,7 @@ test('REQ-IDE-005 AC1+AC2: stages only the fixed Pi, Claude, and empty inventori
   }
 });
 
-test('REQ-IDE-005 AC2+AC4: staged extension files are immutable and inventories share content inodes', async () => {
+test('staged extension files are immutable and inventories share content inodes', async () => {
   const { source, target } = await fixture();
   const staged = await stageSidebarExtension({ sourceDirectory: source, rootDirectory: target });
   const relative = join('codeflare-agent-sidebar', 'dist', 'extension.cjs');
@@ -63,7 +63,7 @@ test('REQ-IDE-005 AC2+AC4: staged extension files are immutable and inventories 
   assert.equal((await stat(piFile)).ino, (await stat(claudeFile)).ino);
 });
 
-test('REQ-IDE-005 AC2: refuses VSIX or Anthropic-owned extension input before staging', async () => {
+test('REQ-IDE-005 AC3: refuses VSIX or Anthropic-owned extension input before staging', async () => {
   for (const forbidden of ['vsix', 'publisher']) {
     const { source, target } = await fixture();
     if (forbidden === 'vsix') await writeFile(join(source, 'anthropic.vsix'), 'forbidden\n');

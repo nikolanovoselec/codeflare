@@ -166,7 +166,7 @@ On desktop/tablet the panel expands to 80vh (centered, via `.dashboard-panel:not
     AI hosts continue to route to the LLM interceptor - one host→interceptor map, two WorkerEntrypoints, one responsibility each ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)). Wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing).
 - **Non-enterprise (container transport):** The real token flows to the container as `GH_TOKEN` via the existing deploy-keys→env path, unchanged ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)).
 
-### Browser IDE agent sidebar ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar))
+### Browser IDE agent sidebar ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle))
 
 **Responsibility:** Provide one lazy, session-local sidebar conversation for the supported agent selected in terminal tab 1.
 
@@ -182,7 +182,7 @@ The extension host owns one lazy lifecycle controller. Opening the view resolves
 
 Pi mutation approval crosses a local manifest boundary. The Pi guard writes a mode-0600 manifest and sends its opaque ID through the RPC extension UI request. The OpenVSCode extension host validates and displays it, then returns one correlated decision. Claude stays in Manual mode and displays its own TUI permission prompt. Webview messages are limited to prompt, lifecycle, model-cycle, terminal input, and resize commands; they cannot choose a process or send approval results.
 
-OpenVSCode launch generations record PID, process group, start time, and a random token. Each Pi or Claude conversation gets a second, narrower token. Descendants inherit both relevant tokens, including detached Pi and PTY processes. New conversation and the OpenVSCode supervisor each reap their own token completely before replacement. See [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) and [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty).
+OpenVSCode launch generations record PID, process group, start time, and a random token. Each Pi or Claude conversation gets a second, narrower token. Descendants inherit both relevant tokens, including detached Pi and PTY processes. New conversation and the OpenVSCode supervisor each reap their own token completely before replacement. See [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle) and [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty).
 
 ### Terminal Server (node-pty)
 
@@ -741,7 +741,8 @@ The server output is the complete resting state. Client scripts only enhance it,
 
 ## Specification Coverage
 
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected Pi RPC or Claude PTY sidebar inside the session Browser IDE
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected Pi or Claude sidebar inside the session Browser IDE
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle) - Sidebar conversation isolation, approval, and cleanup lifecycle
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing to customer AI Gateway
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side enterprise routing (CA trust + constant base-URLs)
 - [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) - Container start interception ordering (pre-start `interceptOutboundHttps`)

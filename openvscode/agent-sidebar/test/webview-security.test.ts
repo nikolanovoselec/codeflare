@@ -7,7 +7,7 @@ import {
 } from '../src/message-schema.ts';
 import { createWebviewDocument } from '../src/webview-security.ts';
 
-test('REQ-IDE-005 AC6: webview document uses nonce-only local CSP with no network or navigation authority', () => {
+test('webview document uses nonce-only local CSP with no network or navigation authority', () => {
   const document = createWebviewDocument({
     backend: 'claude',
     cspSource: 'vscode-webview://unit-test',
@@ -29,7 +29,7 @@ test('REQ-IDE-005 AC6: webview document uses nonce-only local CSP with no networ
   assert.equal(document.html.includes('unsafe-inline'), false);
 });
 
-test('REQ-IDE-005 AC3+AC6: webview authority accepts only bounded backend-specific user commands', () => {
+test('webview authority accepts only bounded backend-specific user commands', () => {
   const authority = new WebviewMessageAuthority({ maxPromptBytes: 32, maxTerminalInputBytes: 16 });
 
   assert.deepEqual(authority.parse('pi', { type: 'prompt', message: 'hello' }), {
@@ -49,7 +49,7 @@ test('REQ-IDE-005 AC3+AC6: webview authority accepts only bounded backend-specif
   );
 });
 
-test('REQ-IDE-005 AC6: webview messages cannot forge approval or choose process authority', () => {
+test('REQ-IDE-006 AC5: webview messages cannot forge approval or choose process authority', () => {
   const authority = new WebviewMessageAuthority({ maxPromptBytes: 32, maxTerminalInputBytes: 16 });
   const forbidden = [
     { type: 'extension_ui_response', id: 'approval-1', confirmed: true },
@@ -69,7 +69,7 @@ test('REQ-IDE-005 AC6: webview messages cannot forge approval or choose process 
   }
 });
 
-test('REQ-IDE-005 AC6: webview message bounds and resize dimensions fail closed', () => {
+test('webview message bounds and resize dimensions fail closed', () => {
   const authority = new WebviewMessageAuthority({ maxPromptBytes: 4, maxTerminalInputBytes: 4 });
 
   assert.throws(

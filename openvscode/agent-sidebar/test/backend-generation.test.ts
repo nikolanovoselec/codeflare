@@ -123,7 +123,7 @@ class FakePtySpawner implements ClaudePtySpawner {
   }
 }
 
-test('REQ-IDE-005 AC3+AC7: an asynchronous Pi spawn failure cannot leave a running backend', async () => {
+test('REQ-IDE-005 AC4 + REQ-IDE-006 AC6: an asynchronous Pi spawn failure cannot leave a running backend', async () => {
   const backend = new PiRpcBackend(new SpawnFailingPiSpawner(), new ApprovalBridge(new DeferredApprovalHost()), {
     output: () => undefined,
     reset: () => undefined,
@@ -134,7 +134,7 @@ test('REQ-IDE-005 AC3+AC7: an asynchronous Pi spawn failure cannot leave a runni
   assert.equal(backend.running, false);
 });
 
-test('REQ-IDE-005 AC3+AC7: an asynchronous Pi stdin failure stops the backend without escaping', async () => {
+test('REQ-IDE-005 AC4 + REQ-IDE-006 AC6: an asynchronous Pi stdin failure stops the backend without escaping', async () => {
   const backend = new PiRpcBackend(new StdinFailingPiSpawner(), new ApprovalBridge(new DeferredApprovalHost()), {
     output: () => undefined,
     reset: () => undefined,
@@ -146,7 +146,7 @@ test('REQ-IDE-005 AC3+AC7: an asynchronous Pi stdin failure stops the backend wi
   assert.equal(backend.running, false);
 });
 
-test('REQ-IDE-005 AC3: cycle-thinking renders the correlated Pi response level', async () => {
+test('cycle-thinking renders the correlated Pi response level', async () => {
   const output: string[] = [];
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new DeferredApprovalHost()), {
@@ -168,7 +168,7 @@ test('REQ-IDE-005 AC3: cycle-thinking renders the correlated Pi response level',
   assert.deepEqual(output, ['\nThinking: high\n']);
 });
 
-test('REQ-IDE-005 AC5+AC7: a late Pi approval response cannot enter a replacement conversation', async () => {
+test('REQ-IDE-006 AC6: a late Pi approval response cannot enter a replacement conversation', async () => {
   const host = new DeferredApprovalHost();
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(host), {
@@ -194,7 +194,7 @@ test('REQ-IDE-005 AC5+AC7: a late Pi approval response cannot enter a replacemen
   assert.equal(spawner.children[1]?.writes.some((line) => line.includes('extension_ui_response')), false);
 });
 
-test('REQ-IDE-005 AC5+AC7: a stale Claude exit callback cannot stop a replacement conversation', async () => {
+test('REQ-IDE-006 AC6: a stale Claude exit callback cannot stop a replacement conversation', async () => {
   const spawner = new FakePtySpawner();
   const backend = new ClaudePtyBackend(spawner, {
     output: () => undefined,

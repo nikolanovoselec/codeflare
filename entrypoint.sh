@@ -1456,7 +1456,7 @@ _openvscode_launch_once() {
 # Supervisor loop: wait for the gate, launch each restart in a fresh process
 # group, and reap every process carrying that generation token before replacing
 # it. This reaches node-pty and detached Pi children without sharing terminal
-# state. REQ-IDE-003 AC4, REQ-IDE-005 AC7.
+# state. REQ-IDE-003 AC4, REQ-IDE-006 AC6.
 _openvscode_supervise_loop() {
     local generation_pidfile current_pid="" current_start="" current_generation="" current_pgid="" exit_code
     generation_pidfile="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation-${BASHPID}.pid}"

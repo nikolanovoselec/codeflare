@@ -63,7 +63,7 @@ class RecordingPtySpawner implements ClaudePtySpawner {
   }
 }
 
-test('REQ-IDE-005 AC3+AC4+AC5: Claude starts only the fixed no-shell PTY contract', async () => {
+test('REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: Claude starts only the fixed no-shell PTY contract', async () => {
   const spawner = new RecordingPtySpawner();
   const session = new ClaudePtySession(spawner, () => undefined, {
     generationFactory: () => 'claude-generation-1',
@@ -90,7 +90,7 @@ test('REQ-IDE-005 AC3+AC4+AC5: Claude starts only the fixed no-shell PTY contrac
   assert.equal(spawner.specs[0]?.args.includes('--dangerously-skip-permissions'), false);
 });
 
-test('REQ-IDE-005 AC3: Claude PTY forwards output without interpreting terminal data', async () => {
+test('Claude PTY forwards output without interpreting terminal data', async () => {
   const spawner = new RecordingPtySpawner();
   const output: string[] = [];
   const session = new ClaudePtySession(spawner, (data) => output.push(data));
@@ -101,7 +101,7 @@ test('REQ-IDE-005 AC3: Claude PTY forwards output without interpreting terminal 
   assert.deepEqual(output, ['\u001b[31mλ\u001b[0m\r\n']);
 });
 
-test('REQ-IDE-005 AC3: Claude PTY forwards terminal input exactly', async () => {
+test('Claude PTY forwards terminal input exactly', async () => {
   const spawner = new RecordingPtySpawner();
   const session = new ClaudePtySession(spawner, () => undefined);
 
@@ -111,7 +111,7 @@ test('REQ-IDE-005 AC3: Claude PTY forwards terminal input exactly', async () => 
   assert.deepEqual(spawner.events, ['spawn:1', 'write:1:paste λ\r']);
 });
 
-test('REQ-IDE-005 AC7: Claude PTY abort sends Ctrl+C through terminal input', async () => {
+test('Claude PTY abort sends Ctrl+C through terminal input', async () => {
   const spawner = new RecordingPtySpawner();
   const session = new ClaudePtySession(spawner, () => undefined);
 
@@ -121,7 +121,7 @@ test('REQ-IDE-005 AC7: Claude PTY abort sends Ctrl+C through terminal input', as
   assert.deepEqual(spawner.events, ['spawn:1', 'write:1:\u0003']);
 });
 
-test('REQ-IDE-005 AC3: Claude PTY forwards validated terminal dimensions', async () => {
+test('Claude PTY forwards validated terminal dimensions', async () => {
   const spawner = new RecordingPtySpawner();
   const session = new ClaudePtySession(spawner, () => undefined);
 
@@ -131,7 +131,7 @@ test('REQ-IDE-005 AC3: Claude PTY forwards validated terminal dimensions', async
   assert.deepEqual(spawner.events, ['spawn:1', 'resize:1:132x40']);
 });
 
-test('REQ-IDE-005 AC3: repeated Claude resolution reuses the existing PTY', async () => {
+test('REQ-IDE-005 AC4: repeated Claude resolution reuses the existing PTY', async () => {
   const spawner = new RecordingPtySpawner();
   const session = new ClaudePtySession(spawner, () => undefined);
 
@@ -143,7 +143,7 @@ test('REQ-IDE-005 AC3: repeated Claude resolution reuses the existing PTY', asyn
   assert.deepEqual(spawner.events, ['spawn:1', 'resize:1:100x30']);
 });
 
-test('REQ-IDE-005 AC7: new Claude conversation reaps the old PTY before replacement', async () => {
+test('REQ-IDE-006 AC6: new Claude conversation reaps the old PTY before replacement', async () => {
   const spawner = new RecordingPtySpawner();
   const session = new ClaudePtySession(spawner, () => undefined);
 
@@ -160,7 +160,7 @@ test('REQ-IDE-005 AC7: new Claude conversation reaps the old PTY before replacem
   assert.equal(spawner.children[1]?.exited, false);
 });
 
-test('REQ-IDE-005 AC7: Claude replacement reaps every process carrying the old conversation generation', async () => {
+test('REQ-IDE-006 AC6: Claude replacement reaps every process carrying the old conversation generation', async () => {
   const spawner = new RecordingPtySpawner();
   let generation = 0;
   const session = new ClaudePtySession(spawner, () => undefined, {
@@ -181,7 +181,7 @@ test('REQ-IDE-005 AC7: Claude replacement reaps every process carrying the old c
   assert.equal(spawner.specs[1]?.env[SIDEBAR_PROCESS_GENERATION_ENV], 'claude-generation-2');
 });
 
-test('REQ-IDE-005 AC7: Claude disposal reaps the managed PTY', async () => {
+test('REQ-IDE-006 AC6: Claude disposal reaps the managed PTY', async () => {
   const spawner = new RecordingPtySpawner();
   const session = new ClaudePtySession(spawner, () => undefined);
 

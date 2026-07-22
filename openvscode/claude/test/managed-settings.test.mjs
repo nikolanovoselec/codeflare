@@ -7,7 +7,7 @@ import {
   buildManagedSettings,
 } from "../managed-settings.mjs";
 
-test("REQ-IDE-005: native permission rules independently ask for guarded built-ins and MCP", () => {
+test("REQ-IDE-006 AC4: native permission rules independently ask for guarded built-ins and MCP", () => {
   const settings = buildManagedSettings();
 
   assert.equal(settings.permissions.defaultMode, "default");
@@ -25,7 +25,7 @@ test("REQ-IDE-005: native permission rules independently ask for guarded built-i
   assert.equal(settings.permissions.disableAutoMode, "disable");
 });
 
-test("REQ-IDE-005: hook timeout and non-2 failures stay fail-open while native rules remain independent", () => {
+test("REQ-IDE-006 AC4: hook timeout and non-2 failures stay fail-open while native rules remain independent", () => {
   const settings = buildManagedSettings();
 
   assert.deepEqual(settings.hooks.PreToolUse, [
@@ -49,7 +49,7 @@ test("REQ-IDE-005: hook timeout and non-2 failures stay fail-open while native r
   assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
 });
 
-test("REQ-IDE-005: managed settings disable bypass, Remote Control, IDE auto-install, updates, and telemetry", () => {
+test("REQ-IDE-006 AC4+AC5: managed settings disable bypass, Remote Control, IDE auto-install, updates, and telemetry", () => {
   const settings = buildManagedSettings();
 
   assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");

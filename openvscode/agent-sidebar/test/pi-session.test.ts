@@ -47,7 +47,7 @@ class RecordingPiSpawner implements PiProcessSpawner {
   }
 }
 
-test('REQ-IDE-005 AC3+AC4+AC5: visible Pi resolution uses only the fixed no-session spawn contract', async () => {
+test('REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the fixed no-session spawn contract', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner, {
     generationFactory: () => 'pi-generation-1',
@@ -71,7 +71,7 @@ test('REQ-IDE-005 AC3+AC4+AC5: visible Pi resolution uses only the fixed no-sess
   ]);
 });
 
-test('REQ-IDE-005 AC3: repeated visible Pi resolution reuses one process', async () => {
+test('REQ-IDE-005 AC4: repeated visible Pi resolution reuses one process', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner);
 
@@ -86,7 +86,7 @@ test('REQ-IDE-005 AC3: repeated visible Pi resolution reuses one process', async
   ]);
 });
 
-test('REQ-IDE-005 AC3: Pi model and thinking controls remain closed correlated RPC commands', async () => {
+test('Pi model and thinking controls remain closed correlated RPC commands', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner);
 
@@ -100,7 +100,7 @@ test('REQ-IDE-005 AC3: Pi model and thinking controls remain closed correlated R
   ]);
 });
 
-test('REQ-IDE-005 AC7: Pi abort is sent before the current process remains available', async () => {
+test('Pi abort is sent while the current process remains available', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner);
 
@@ -114,7 +114,7 @@ test('REQ-IDE-005 AC7: Pi abort is sent before the current process remains avail
   assert.equal(spawner.children[0]?.exited, false);
 });
 
-test('REQ-IDE-005 AC5+AC7: new Pi conversation reaps the old no-session process before replacement', async () => {
+test('REQ-IDE-006 AC6: new Pi conversation reaps the old no-session process before replacement', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner);
 
@@ -131,7 +131,7 @@ test('REQ-IDE-005 AC5+AC7: new Pi conversation reaps the old no-session process 
   assert.equal(spawner.children[1]?.exited, false);
 });
 
-test('REQ-IDE-005 AC7: Pi replacement reaps every process carrying the old conversation generation', async () => {
+test('REQ-IDE-006 AC6: Pi replacement reaps every process carrying the old conversation generation', async () => {
   const spawner = new RecordingPiSpawner();
   let generation = 0;
   const session = new PiSession(spawner, {
@@ -152,7 +152,7 @@ test('REQ-IDE-005 AC7: Pi replacement reaps every process carrying the old conve
   assert.equal(spawner.specs[1]?.env[SIDEBAR_PROCESS_GENERATION_ENV], 'pi-generation-2');
 });
 
-test('REQ-IDE-005 AC7: Pi disposal settles and reaps the managed process', async () => {
+test('REQ-IDE-006 AC6: Pi disposal settles and reaps the managed process', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner);
 

@@ -38,7 +38,7 @@ class RecordingApprovalHost implements ApprovalHost {
   }
 }
 
-test('REQ-IDE-005 AC6: Pi approval resolves through extension-host manifest, diff, and confirmation authority', async () => {
+test('REQ-IDE-006 AC4: Pi approval resolves through extension-host manifest, diff, and confirmation authority', async () => {
   const host = new RecordingApprovalHost();
   host.approved = true;
   const bridge = new ApprovalBridge(host);
@@ -63,7 +63,7 @@ test('REQ-IDE-005 AC6: Pi approval resolves through extension-host manifest, dif
   });
 });
 
-test('REQ-IDE-005 AC6: rejected extension-host approval returns a correlated denial', async () => {
+test('REQ-IDE-006 AC5: rejected extension-host approval returns a correlated denial', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);
 
@@ -83,7 +83,7 @@ test('REQ-IDE-005 AC6: rejected extension-host approval returns a correlated den
   assert.equal(host.events.at(-1), `confirm:${manifest.id}`);
 });
 
-test('REQ-IDE-005 AC3: Pi fire-and-forget notifications require no response and never enter approval UI', async () => {
+test('Pi fire-and-forget notifications require no response and never enter approval UI', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);
 
@@ -98,7 +98,7 @@ test('REQ-IDE-005 AC3: Pi fire-and-forget notifications require no response and 
   assert.deepEqual(host.events, []);
 });
 
-test('REQ-IDE-005 AC6: malformed or non-confirm Pi UI requests fail closed before host UI', async () => {
+test('REQ-IDE-006 AC5: malformed or non-confirm Pi UI requests fail closed before host UI', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);
 

@@ -21,7 +21,7 @@ afterEach(() => {
   }
 });
 
-test('REQ-IDE-005 AC7: one sidebar generation reaps a TERM-ignoring descendant in another process group', async () => {
+test('REQ-IDE-006 AC6: one sidebar generation reaps a TERM-ignoring descendant in another process group', async () => {
   const token = `test-${randomUUID()}`;
   const leader = spawn(
     '/bin/sh',
@@ -39,7 +39,7 @@ test('REQ-IDE-005 AC7: one sidebar generation reaps a TERM-ignoring descendant i
   assert.ok(leaderPid);
   startedGroups.push(leaderPid);
 
-  const before = await waitForMembers(token, 2);
+  const before = await waitForDistinctProcessGroups(token, 2);
   assert.ok(new Set(before.map((member) => member.processGroup)).size >= 2);
 
   await reapSidebarGeneration(token, { termGraceMs: 50, killGraceMs: 500, pollMs: 10 });
@@ -47,10 +47,10 @@ test('REQ-IDE-005 AC7: one sidebar generation reaps a TERM-ignoring descendant i
   assert.deepEqual(await listSidebarGenerationMembers(token), []);
 });
 
-async function waitForMembers(token: string, minimum: number) {
+async function waitForDistinctProcessGroups(token: string, minimum: number) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const members = await listSidebarGenerationMembers(token);
-    if (members.length >= minimum) return members;
+    if (new Set(members.map((member) => member.processGroup)).size >= minimum) return members;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return listSidebarGenerationMembers(token);

@@ -34,7 +34,7 @@ function assertAsk(outcome, toolName) {
 }
 
 for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash"]) {
-  test(`REQ-IDE-005: pre-tool-use returns interactive ask for ${toolName}`, async () => {
+  test(`REQ-IDE-006 AC4: pre-tool-use returns interactive ask for ${toolName}`, async () => {
     const outcome = await runPreToolUse(hookInput(toolName, { command: "fixture" }));
 
     assertAsk(outcome, toolName);
@@ -42,12 +42,12 @@ for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash"]) {
 }
 
 for (const toolName of ["mcp__github__create_pull_request", "FutureMutatingTool"]) {
-  test(`REQ-IDE-005: pre-tool-use returns interactive ask for ${toolName}`, async () => {
+  test(`REQ-IDE-006 AC4: pre-tool-use returns interactive ask for ${toolName}`, async () => {
     assertAsk(await runPreToolUse(hookInput(toolName)), toolName);
   });
 }
 
-test("REQ-IDE-005: an internal permission-hook failure blocks with exit 2 and bounded output", async () => {
+test("REQ-IDE-006 AC5: an internal permission-hook failure blocks with exit 2 and bounded output", async () => {
   const rawInput = hookInput("Edit");
   const outcome = await runPreToolUse(rawInput, {
     evaluate: () => {
@@ -61,7 +61,7 @@ test("REQ-IDE-005: an internal permission-hook failure blocks with exit 2 and bo
   assertBounded(outcome);
 });
 
-test("REQ-IDE-005: oversized hook input blocks at the boundary with exit 2 and bounded output", async () => {
+test("REQ-IDE-006 AC5: oversized hook input blocks at the boundary with exit 2 and bounded output", async () => {
   assert.equal(MAX_HOOK_INPUT_BYTES, 64 * 1024);
   assert.equal(MAX_HOOK_OUTPUT_BYTES, 4 * 1024);
   const oversized = "x".repeat(64 * 1024 + 1);
@@ -74,7 +74,7 @@ test("REQ-IDE-005: oversized hook input blocks at the boundary with exit 2 and b
   assertBounded(outcome);
 });
 
-test("REQ-IDE-005: permission-hook output remains bounded for adversarial tool names", async () => {
+test("REQ-IDE-006 AC4: permission-hook output remains bounded for adversarial tool names", async () => {
   const toolName = `mcp__fixture__${"x".repeat(MAX_HOOK_OUTPUT_BYTES * 2)}`;
 
   const outcome = await runPreToolUse(hookInput(toolName));

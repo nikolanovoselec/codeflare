@@ -57,7 +57,7 @@ async function regularFileContents(root) {
   return contents;
 }
 
-test("REQ-IDE-005: prepare-sidebar-config creates a private 0700 config root", async () => {
+test("prepare-sidebar-config creates a private 0700 config root", async () => {
   const { sourceRoot, targetRoot } = await fixture();
 
   await prepareSidebarConfig({ sourceRoot, targetRoot });
@@ -65,7 +65,7 @@ test("REQ-IDE-005: prepare-sidebar-config creates a private 0700 config root", a
   assert.equal((await stat(targetRoot)).mode & 0o777, 0o700);
 });
 
-test("REQ-IDE-005: projection links only allowlisted configuration and never copies secret bytes", async () => {
+test("REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and never copies secret bytes", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   const secret = "sidebar-fixture-secret-must-not-be-copied";
 
@@ -85,7 +85,7 @@ test("REQ-IDE-005: projection links only allowlisted configuration and never cop
   }
 });
 
-test("REQ-IDE-005: projection rejects an allowlisted source entry redirected by a symbolic link", async () => {
+test("REQ-IDE-006 AC3: projection rejects an allowlisted source entry redirected by a symbolic link", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   await writeEntry(sourceRoot, "history.jsonl", "terminal transcript");
   await symlink(join(sourceRoot, "history.jsonl"), join(sourceRoot, "CLAUDE.md"));
@@ -95,7 +95,7 @@ test("REQ-IDE-005: projection rejects an allowlisted source entry redirected by 
   assert.equal((await readdir(targetRoot)).includes("CLAUDE.md"), false);
 });
 
-test("REQ-IDE-005: projection excludes terminal history, runtime state, source settings, and unknown entries", async () => {
+test("REQ-IDE-006 AC3: projection excludes terminal history, runtime state, and unknown entries", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   const excluded = [
     "history.jsonl",
@@ -108,7 +108,6 @@ test("REQ-IDE-005: projection excludes terminal history, runtime state, source s
     "file-history",
     "paste-cache",
     "ide",
-    "settings.json",
     "unknown-runtime",
     "future-entry.json",
   ];
@@ -122,7 +121,7 @@ test("REQ-IDE-005: projection excludes terminal history, runtime state, source s
   }
 });
 
-test("REQ-IDE-005: projection pins settings to the fixed root-owned settings path", async () => {
+test("REQ-IDE-006 AC1+AC2: projection replaces source settings with the fixed managed settings path", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   await writeFile(join(sourceRoot, "settings.json"), JSON.stringify({ permissions: { defaultMode: "bypassPermissions" } }));
 
