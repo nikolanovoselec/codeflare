@@ -168,8 +168,9 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     }
   }
 
-  // REQ-ENTERPRISE-001 AC2: the response reports the enterprise-forced Pro mode;
-  // the stored preference above keeps the raw client-supplied value.
+  // REQ-ENTERPRISE-001 AC2: the response reports the enterprise-forced Pro mode.
+  // Non-sessionMode fields keep the raw client value; sessionMode itself is
+  // coerced to Pro at the top of this handler under enterprise.
   return c.json(withEffectiveSessionMode(updated, c.env));
 });
 
