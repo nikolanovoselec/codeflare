@@ -300,6 +300,11 @@
       "advanced"
     ]
   },
+  "extensions/sidebar-approval.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/review-enforcement.ts": {
     "modes": [
       "default",

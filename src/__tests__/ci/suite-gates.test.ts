@@ -84,6 +84,19 @@ function runCompleteness(lanes: Record<string, string>, cwd: string, artifactRoo
   );
 }
 
+describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
+  it('registers every owned extension test file for fail-closed report reconciliation', () => {
+    expect(SUITES).toContainEqual({
+      name: 'browser-ide',
+      lane: 'browser-ide',
+      dir: 'openvscode',
+      extensions: ['.test.ts', '.test.mjs'],
+      exclude: [],
+      artifacts: ['browser-ide'],
+    });
+  });
+});
+
 describe('REQ-OPS-023 AC3: cross-suite completeness gate', () => {
   it('passes when every backend test file in the tree appears in some report', () => {
     const files = ['src/a.test.ts', 'src/nested/b.test.ts'];

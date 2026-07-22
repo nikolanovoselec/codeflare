@@ -1,0 +1,10 @@
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#app {
+  block-size: 100%;
+  margin: 0;
+}

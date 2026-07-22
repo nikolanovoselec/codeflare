@@ -1,0 +1,63 @@
+{
+  "name": "codeflare-agent-sidebar",
+  "displayName": "Codeflare Agent Sidebar",
+  "description": "Codeflare-owned Pi RPC and Claude PTY sidebar for OpenVSCode Server",
+  "version": "0.0.0",
+  "publisher": "codeflare",
+  "private": true,
+  "type": "module",
+  "main": "./dist/extension.cjs",
+  "engines": {
+    "vscode": "^1.109.0",
+    "node": "22.21.1"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onView:codeflare.agentSidebar"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codeflare.agentSidebarContainer",
+          "title": "Codeflare Agent",
+          "icon": "media/agent.svg"
+        }
+      ]
+    },
+    "views": {
+      "codeflare.agentSidebarContainer": [
+        {
+          "id": "codeflare.agentSidebar",
+          "name": "Agent",
+          "type": "webview"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node ./esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run test/*.test.ts ../claude/test/*.test.mjs",
+    "test:report": "vitest run test/*.test.ts ../claude/test/*.test.mjs --reporter=json --outputFile=browser-ide-report.json"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.12",
+    "@types/vscode": "1.109.0",
+    "esbuild": "0.28.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

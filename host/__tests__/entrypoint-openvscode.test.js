@@ -1,5 +1,5 @@
 // Real behavioral tests for the OpenVSCode supervisor in entrypoint.sh
-// (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003).
+// (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003, REQ-IDE-005).
 //
 // Per tdd-discipline / engineering-constitution mandate 2 we do NOT match
 // source text: we EXTRACT the real shell functions, RUN them with a stubbed
@@ -84,6 +84,37 @@ function openvscodeLaunchScript() {
     extractOptionalFn('_openvscode_extensions_dir'),
     extractFn('_openvscode_launch_once'),
   ].filter(Boolean).join('\n');
+}
+
+function openvscodeSupervisorScript() {
+  // export -f so a setsid/timeout child receives the same production helpers as
+  // start_openvscode_supervisor's fresh non-interactive shell.
+  return [
+    extractFn('_openvscode_should_launch'),
+    openvscodeLaunchScript(),
+    extractFn('_openvscode_supervise_loop'),
+    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop',
+  ].join('\n');
+}
+
+function acceleratedSupervisorScript() {
+  return `${openvscodeSupervisorScript()}
+sleep() { command sleep "\${OPENVSCODE_TEST_SLEEP:-0.05}"; }
+export -f sleep`;
+}
+
+function writeExecutable(dir, name, body) {
+  const executable = join(dir, name);
+  writeFileSync(executable, body);
+  chmodSync(executable, 0o755);
+  return executable;
+}
+
+function writeTermIgnoringChild(dir) {
+  return writeExecutable(dir, 'managed-child', `#!/usr/bin/env bash
+trap 'printf "TERM\\n" >> "$TERM_LOG"' TERM
+while true; do sleep 1; done
+`);
 }
 
 describe('_openvscode_should_launch / REQ-IDE-003 AC1 (lazy-start gate)', () => {
@@ -222,22 +253,10 @@ describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC4 (lazy no-launch, rest
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  function loopScript() {
-    // export -f so the inner `timeout bash -c '_openvscode_supervise_loop'`
-    // inherits the helpers -- the exact mechanism start_openvscode_supervisor
-    // uses for its setsid subshell.
-    return [
-      extractFn('_openvscode_should_launch'),
-      openvscodeLaunchScript(),
-      extractFn('_openvscode_supervise_loop'),
-      'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop',
-    ].join('\n');
-  }
-
   it('never launches while the trigger is absent (lazy start)', () => {
     const stub = writeStub(dir, argsFile);
     // 3s window; the gate polls every 2s and never passes -> stub untouched.
-    runBash(`${loopScript()}\ntimeout 3 bash -c '_openvscode_supervise_loop' || true`, {
+    runBash(`${openvscodeSupervisorScript()}\ntimeout 3 bash -c '_openvscode_supervise_loop' || true`, {
       OPENVSCODE_BIN: stub, SESSION_ID: 'abcd1234',
       CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger,
       OPENVSCODE_DATA_DIR: join(tmpdir(), 'ovsc-d'), OPENVSCODE_WORKSPACE: dir,
@@ -251,13 +270,271 @@ describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC4 (lazy no-launch, rest
     writeFileSync(trigger, '');
     // 8s window; the stub exits immediately and the loop restarts after 5s,
     // so we expect launches at ~0s and ~5s -> at least 2 invocations.
-    runBash(`${loopScript()}\ntimeout 8 bash -c '_openvscode_supervise_loop' || true`, {
+    runBash(`${openvscodeSupervisorScript()}\ntimeout 8 bash -c '_openvscode_supervise_loop' || true`, {
       OPENVSCODE_BIN: stub, SESSION_ID: 'abcd1234',
       CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger,
       OPENVSCODE_DATA_DIR: join(tmpdir(), 'ovsc-d'), OPENVSCODE_WORKSPACE: dir,
     });
     const launches = (readFileSync(argsFile, 'utf8').match(/---/g) || []).length;
     assert.ok(launches >= 2, `expected >=2 relaunches, got ${launches}`);
+  });
+});
+
+describe('OpenVSCode launch generations / REQ-IDE-005 AC7', () => {
+  let dir, flag, trigger;
+  beforeEach(() => {
+    dir = mkTmp('ovsc-generation-');
+    flag = join(dir, 'init-complete');
+    trigger = join(dir, 'requested');
+    writeFileSync(flag, '');
+    writeFileSync(trigger, '');
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('REQ-IDE-003 AC4 + REQ-IDE-005 AC7: each restart creates one separately identifiable launch generation', () => {
+    const launchesFile = join(dir, 'launches.log');
+    const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
+pgid="$(ps -o pgid= -p "$$" | tr -d ' ')"
+start_time="$(awk '{print $22}' "/proc/$$/stat")"
+printf '%s|%s|%s|%s\\n' "$$" "$pgid" "$start_time" "\${CODEFLARE_OPENVSCODE_GENERATION-<unset>}" >> "$LAUNCHES_FILE"
+exit 17
+`);
+
+    const result = runBash(`${acceleratedSupervisorScript()}\ntimeout 1 bash -c '_openvscode_supervise_loop' || true`, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_DATA_DIR: join(dir, 'data'),
+      OPENVSCODE_REQUEST_TRIGGER: trigger,
+      CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234',
+      LAUNCHES_FILE: launchesFile,
+    });
+    assert.equal(result.status, 0, result.stderr);
+
+    const launches = readFileSync(launchesFile, 'utf8').trim().split('\n').map((line) => {
+      const [pid, pgid, startTime, generation] = line.split('|');
+      return { pid, pgid, startTime, generation };
+    });
+    assert.ok(launches.length >= 2, `expected at least two generations, got ${launches.length}`);
+    assert.ok(launches.every(({ pid, pgid, startTime }) => /^\d+$/.test(pid) && /^\d+$/.test(pgid) && /^\d+$/.test(startTime)));
+    assert.ok(launches.every(({ generation }) => generation && generation !== '<unset>'), 'every launch carries a generation identity');
+    assert.equal(new Set(launches.map(({ generation }) => generation)).size, launches.length, 'generation identities are unique');
+    assert.equal(new Set(launches.map(({ pgid }) => pgid)).size, launches.length, 'each generation has its own process group');
+  });
+
+  it('REQ-IDE-003 AC4 + REQ-IDE-005 AC7: restart sends TERM then bounded KILL to a TERM-ignoring managed descendant', () => {
+    const launchCount = join(dir, 'launch-count');
+    const childPid = join(dir, 'managed.pid');
+    const restartProbe = join(dir, 'restart-probe.log');
+    const termLog = join(dir, 'term.log');
+    const managedChild = writeTermIgnoringChild(dir);
+    const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
+count=0
+[ ! -f "$LAUNCH_COUNT" ] || read -r count < "$LAUNCH_COUNT"
+count=$((count + 1))
+printf '%s\\n' "$count" > "$LAUNCH_COUNT"
+if [ "$count" -eq 1 ]; then
+  "$MANAGED_CHILD" >/dev/null 2>&1 &
+  printf '%s\\n' "$!" > "$CHILD_PID_FILE"
+  exit 23
+fi
+read -r prior < "$CHILD_PID_FILE"
+if kill -0 "$prior" 2>/dev/null; then
+  printf 'prior=alive\\n' >> "$RESTART_PROBE"
+else
+  printf 'prior=dead\\n' >> "$RESTART_PROBE"
+fi
+exit 0
+`);
+
+    const result = runBash(`${acceleratedSupervisorScript()}
+timeout 2 bash -c '_openvscode_supervise_loop' || true
+if [ -f "$CHILD_PID_FILE" ]; then
+  read -r child < "$CHILD_PID_FILE"
+  pkill -KILL -P "$child" 2>/dev/null || true
+  kill -KILL "$child" 2>/dev/null || true
+fi`, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_DATA_DIR: join(dir, 'data'),
+      OPENVSCODE_REQUEST_TRIGGER: trigger,
+      CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234',
+      OPENVSCODE_TERM_GRACE_SECONDS: '0.2',
+      LAUNCH_COUNT: launchCount,
+      CHILD_PID_FILE: childPid,
+      RESTART_PROBE: restartProbe,
+      TERM_LOG: termLog,
+      MANAGED_CHILD: managedChild,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(termLog), true, 'managed descendant observes TERM before escalation');
+    assert.equal(readFileSync(restartProbe, 'utf8').trim().split('\n')[0], 'prior=dead', 'TERM-ignoring descendant is KILLed before replacement');
+  });
+
+  it('REQ-IDE-003 AC4 + REQ-IDE-005 AC7: OpenVSCode restart never leaves duplicate Pi or Claude children', () => {
+    const cases = [
+      { agent: 'pi', config: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]) },
+      { agent: 'claude', config: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]) },
+    ];
+
+    const observed = cases.map(({ agent, config }) => {
+      const caseDir = mkTmp(`ovsc-${agent}-dedupe-`);
+      const childPid = join(caseDir, 'managed.pid');
+      const launchCount = join(caseDir, 'launch-count');
+      const probe = join(caseDir, 'probe.log');
+      const stub = writeExecutable(caseDir, 'openvscode-server', `#!/usr/bin/env bash
+count=0
+[ ! -f "$LAUNCH_COUNT" ] || read -r count < "$LAUNCH_COUNT"
+count=$((count + 1))
+printf '%s\\n' "$count" > "$LAUNCH_COUNT"
+if [ "$count" -eq 1 ]; then
+  /bin/sleep 30 >/dev/null 2>&1 &
+  printf '%s\\n' "$!" > "$CHILD_PID_FILE"
+  exit 19
+fi
+read -r prior < "$CHILD_PID_FILE"
+duplicate=0
+kill -0 "$prior" 2>/dev/null && duplicate=1
+printf 'agent=%s duplicate=%s\\n' "\${CODEFLARE_SIDEBAR_AGENT-<unset>}" "$duplicate" >> "$PROBE"
+exit 0
+`);
+      const result = runBash(`${acceleratedSupervisorScript()}
+timeout 1 bash -c '_openvscode_supervise_loop' || true
+read -r child < "$CHILD_PID_FILE"
+kill -KILL "$child" 2>/dev/null || true`, {
+        OPENVSCODE_BIN: stub,
+        OPENVSCODE_WORKSPACE: caseDir,
+        OPENVSCODE_DATA_DIR: join(caseDir, 'data'),
+        OPENVSCODE_REQUEST_TRIGGER: trigger,
+        CODEFLARE_INIT_FLAG_FILE: flag,
+        SESSION_ID: 'abcd1234',
+        TAB_CONFIG: config,
+        LAUNCH_COUNT: launchCount,
+        CHILD_PID_FILE: childPid,
+        PROBE: probe,
+      });
+      assert.equal(result.status, 0, `${agent}: ${result.stderr}`);
+      const firstProbe = readFileSync(probe, 'utf8').trim().split('\n')[0];
+      rmSync(caseDir, { recursive: true, force: true });
+      return firstProbe;
+    });
+
+    assert.deepEqual(observed, ['agent=pi duplicate=0', 'agent=claude duplicate=0']);
+  });
+
+  it('REQ-IDE-005 AC7: cleans one launch generation before restart without signaling an identity-mismatched PID', () => {
+    const launchCount = join(dir, 'launch-count');
+    const managedPid = join(dir, 'managed.pid');
+    const restartProbe = join(dir, 'restart-probe.log');
+    const managedTermLog = join(dir, 'managed-term.log');
+    const unrelatedPidfile = join(dir, 'unrelated.pid');
+    const unrelatedTermLog = join(dir, 'unrelated-term.log');
+    const managedChild = writeTermIgnoringChild(dir);
+    const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
+count=0
+[ ! -f "$LAUNCH_COUNT" ] || read -r count < "$LAUNCH_COUNT"
+count=$((count + 1))
+printf '%s\\n' "$count" > "$LAUNCH_COUNT"
+if [ "$count" -eq 1 ]; then
+  "$MANAGED_CHILD" >/dev/null 2>&1 &
+  printf '%s\\n' "$!" > "$MANAGED_PID_FILE"
+  exit 29
+fi
+read -r prior < "$MANAGED_PID_FILE"
+if kill -0 "$prior" 2>/dev/null; then prior_state=alive; else prior_state=dead; fi
+printf 'launch=%s prior=%s\\n' "$count" "$prior_state" >> "$RESTART_PROBE"
+exit 0
+`);
+
+    const result = runBash(`${acceleratedSupervisorScript()}
+${extractKillHelpers()}
+SIGNAL_LOG="$UNRELATED_TERM_LOG" bash -c '
+  trap '\''printf "TERM\\n" >> "$SIGNAL_LOG"'\'' TERM
+  while true; do sleep 0.1; done
+' >/dev/null 2>&1 &
+unrelated=$!
+printf '%s\\n' "$unrelated" > "$UNRELATED_PIDFILE"
+actual_start="$(awk '{print $22}' "/proc/$unrelated/stat")"
+kill_pidfile_subtree "$UNRELATED_PIDFILE" "$unrelated" "$((actual_start + 1))" wrong-generation
+
+timeout 2 bash -c '_openvscode_supervise_loop' || true
+if kill -0 "$unrelated" 2>/dev/null; then unrelated_state=alive; else unrelated_state=dead; fi
+if [ -s "$UNRELATED_TERM_LOG" ]; then unrelated_signal=TERM; else unrelated_signal=none; fi
+printf 'unrelated=%s signal=%s\\n' "$unrelated_state" "$unrelated_signal"
+
+kill -KILL "$unrelated" 2>/dev/null || true
+if [ -f "$MANAGED_PID_FILE" ]; then
+  read -r managed < "$MANAGED_PID_FILE"
+  pkill -KILL -P "$managed" 2>/dev/null || true
+  kill -KILL "$managed" 2>/dev/null || true
+fi`, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_DATA_DIR: join(dir, 'data'),
+      OPENVSCODE_REQUEST_TRIGGER: trigger,
+      CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234',
+      OPENVSCODE_TERM_GRACE_SECONDS: '0.2',
+      LAUNCH_COUNT: launchCount,
+      MANAGED_PID_FILE: managedPid,
+      RESTART_PROBE: restartProbe,
+      TERM_LOG: managedTermLog,
+      MANAGED_CHILD: managedChild,
+      UNRELATED_PIDFILE: unrelatedPidfile,
+      UNRELATED_TERM_LOG: unrelatedTermLog,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(managedTermLog), true, 'old generation descendants receive TERM');
+    assert.equal(readFileSync(restartProbe, 'utf8').trim().split('\n')[0], 'launch=2 prior=dead', 'TERM-ignoring descendant is KILLed before exactly one replacement starts');
+    assert.equal(result.stdout.trim(), 'unrelated=alive signal=none', 'identity mismatch does not signal or kill an unrelated PID');
+  });
+});
+
+describe('identity-safe OpenVSCode cleanup / REQ-IDE-005 AC7', () => {
+  let dir;
+  beforeEach(() => { dir = mkTmp('ovsc-identity-'); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('REQ-IDE-005 AC7: PID, start-time, or generation mismatch never signals an unrelated process', () => {
+    const result = runBash(`${extractKillHelpers()}
+probe_identity() {
+  local label="$1" expected_pid_mode="$2" expected_start_mode="$3" expected_generation="$4"
+  local pidfile="$FIXTURE/$label.pid" signal_log="$FIXTURE/$label.signal"
+  SIGNAL_LOG="$signal_log" CODEFLARE_OPENVSCODE_GENERATION=actual-generation bash -c '
+    trap '\''printf "TERM\\n" >> "$SIGNAL_LOG"'\'' TERM
+    while true; do sleep 0.1; done
+  ' >/dev/null 2>&1 &
+  local target=$!
+  sleep 0.15
+  local actual_start expected_pid expected_start
+  actual_start="$(awk '{print $22}' "/proc/$target/stat")"
+  expected_pid="$target"
+  expected_start="$actual_start"
+  [ "$expected_pid_mode" = match ] || expected_pid=$((target + 1000000))
+  [ "$expected_start_mode" = match ] || expected_start=$((actual_start + 1))
+  printf '%s\\n' "$target" > "$pidfile"
+
+  kill_pidfile_subtree "$pidfile" "$expected_pid" "$expected_start" "$expected_generation"
+  sleep 0.15
+  if [ -s "$signal_log" ]; then printf '%s=SIGNALED\\n' "$label"; else printf '%s=UNSIGNALED\\n' "$label"; fi
+  pkill -KILL -P "$target" 2>/dev/null || true
+  kill -KILL "$target" 2>/dev/null || true
+  wait "$target" 2>/dev/null || true
+}
+probe_identity matching match match actual-generation
+probe_identity pid mismatch match actual-generation
+probe_identity start match mismatch actual-generation
+probe_identity generation match match other-generation`, { FIXTURE: dir });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.stdout.trim().split('\n'), [
+      'matching=SIGNALED',
+      'pid=UNSIGNALED',
+      'start=UNSIGNALED',
+      'generation=UNSIGNALED',
+    ]);
   });
 });
 
@@ -283,5 +560,51 @@ if kill -0 "$child" 2>/dev/null; then echo "ALIVE"; else echo "DEAD"; fi
 `;
     const r = runBash(script);
     assert.equal(r.stdout.trim(), 'DEAD');
+  });
+
+  it('REQ-IDE-003 AC5 + REQ-IDE-005 AC7: session shutdown removes the current launch group and supervisor', () => {
+    const flag = join(dir, 'init-complete');
+    const trigger = join(dir, 'requested');
+    const managedPid = join(dir, 'managed.pid');
+    const termLog = join(dir, 'term.log');
+    const managedChild = writeTermIgnoringChild(dir);
+    const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
+"$MANAGED_CHILD" >/dev/null 2>&1 &
+printf '%s\\n' "$!" > "$MANAGED_PID_FILE"
+wait
+`);
+    writeFileSync(flag, '');
+    writeFileSync(trigger, '');
+
+    const result = runBash(`${openvscodeSupervisorScript()}
+${extractKillHelpers()}
+setsid bash -c '_openvscode_supervise_loop' >/dev/null 2>&1 &
+supervisor=$!
+printf '%s\\n' "$supervisor" > "$OPENVSCODE_PIDFILE"
+for _ in $(seq 1 50); do [ -s "$MANAGED_PID_FILE" ] && break; sleep 0.02; done
+read -r managed < "$MANAGED_PID_FILE"
+kill_pidfile_subtree "$OPENVSCODE_PIDFILE"
+sleep 0.3
+if kill -0 "$supervisor" 2>/dev/null; then supervisor_state=alive; else supervisor_state=dead; fi
+if kill -0 "$managed" 2>/dev/null; then managed_state=alive; else managed_state=dead; fi
+printf 'supervisor=%s managed=%s\\n' "$supervisor_state" "$managed_state"
+pkill -KILL -P "$managed" 2>/dev/null || true
+kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_DATA_DIR: join(dir, 'data'),
+      OPENVSCODE_REQUEST_TRIGGER: trigger,
+      CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234',
+      OPENVSCODE_PIDFILE: pidfile,
+      MANAGED_CHILD: managedChild,
+      MANAGED_PID_FILE: managedPid,
+      TERM_LOG: termLog,
+      OPENVSCODE_TERM_GRACE_SECONDS: '0.2',
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), 'supervisor=dead managed=dead');
+    assert.equal(existsSync(termLog), true, 'launch group receives TERM before bounded KILL');
   });
 });
