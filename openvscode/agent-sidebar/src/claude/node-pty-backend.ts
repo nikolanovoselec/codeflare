@@ -23,7 +23,7 @@ export interface ClaudePtySink {
 
 export class NodePtySpawner implements ClaudePtySpawner {
   spawn(spec: ClaudePtySpawnSpec): ClaudePtyProcess {
-    prepareConfig(spec);
+    prepareConfig();
     const process = nodePty.spawn(spec.executable, [...spec.args], {
       cwd: spec.cwd,
       env: mergeEnvironment(spec.env),
@@ -140,12 +140,10 @@ export class ClaudePtyBackend implements Backend {
   }
 }
 
-function prepareConfig(spec: ClaudePtySpawnSpec): void {
+function prepareConfig(): void {
   execFileSync('/bin/sh', [CONFIG_PREPARER], {
     env: {
       PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-      SIDEBAR_CLAUDE_SOURCE: '/home/user/.claude',
-      SIDEBAR_CLAUDE_ROOT: spec.env.CLAUDE_CONFIG_DIR,
     },
     shell: false,
     stdio: 'ignore',

@@ -1,5 +1,4 @@
 #!/bin/sh
+set -eu
 
-# REQ-IDE-005 scaffold. Configuration projection is intentionally not implemented.
-printf '%s\n' 'NOT_IMPLEMENTED: REQ-IDE-005 sidebar configuration projection' >&2
-exit 1
+exec /usr/local/bin/node /opt/codeflare/openvscode/claude/prepare-sidebar-config.mjs

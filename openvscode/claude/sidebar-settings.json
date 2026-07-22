@@ -1,23 +1,23 @@
 {
   "permissions": {
-    "defaultMode": "ask",
-    "disableBypassPermissionsMode": "disable",
+    "defaultMode": "default",
     "ask": [
-      "Bash(*)",
-      "Edit(*)",
-      "Write(*)",
-      "WebFetch(*)",
-      "WebSearch(*)"
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Bash",
+      "mcp__*"
     ]
   },
+  "disableBypassPermissionsMode": "disable",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|WebFetch|WebSearch",
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "node /opt/codeflare/openvscode/claude/pre-tool-use.mjs",
+            "command": "node /opt/codeflare/openvscode/claude/pre-tool-use-permission.mjs",
             "timeout": 5
           }
         ]
@@ -26,8 +26,11 @@
   },
   "env": {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_DISABLE_REMOTE_CONTROL": "1",
+    "CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL": "1",
     "DISABLE_AUTOUPDATER": "1",
-    "DISABLE_TELEMETRY": "1",
-    "CLAUDE_CODE_REMOTE_CONTROL": "0"
-  }
+    "DISABLE_TELEMETRY": "1"
+  },
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": []
 }
