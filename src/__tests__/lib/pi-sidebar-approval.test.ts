@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, readFile as readFsFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -211,6 +214,56 @@ describe('REQ-IDE-005: Pi sidebar guarded approvals', () => {
     expect(text(result)).toMatch(/symbolic link|symlink/i);
     expect(h.approvals).toHaveLength(0);
     expect(h.files.get(TARGET)).toBe('before\n');
+  });
+
+  it('REQ-IDE-005: mutation boundary cannot follow a parent symlink swapped in after approval', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'pi-sidebar-workspace-'));
+    const outside = await mkdtemp(join(tmpdir(), 'pi-sidebar-outside-'));
+    const project = join(workspace, 'project');
+    const movedProject = join(workspace, 'project-approved');
+    const target = join(project, 'file.ts');
+    const outsideTarget = join(outside, 'file.ts');
+    await mkdir(project);
+    await writeFile(target, 'before\n');
+    await writeFile(outsideTarget, 'before\n');
+    let inspections = 0;
+
+    try {
+      const guarded = createSidebarApprovalTools({
+        workspaceRoot: workspace,
+        inspectPath: async (path) => {
+          inspections += 1;
+          if (inspections === 2) {
+            await rename(project, movedProject);
+            await symlink(outside, project);
+          }
+          return {
+            absolutePath: path,
+            canonicalPath: path,
+            exists: true,
+            symbolicLink: false,
+            regularFile: true,
+            hardLinked: false,
+            safeAncestors: true,
+          };
+        },
+        requestApproval: async (request) => ({ id: request.id, approved: true }),
+      });
+
+      const result = await guarded.edit.execute(
+        'edit-symlink-swap',
+        { path: target, edits: [{ oldText: 'before', newText: 'after' }] },
+        undefined,
+        undefined,
+        { ...context(), cwd: workspace },
+      );
+
+      expect(text(result)).toMatch(/denied|failed|changed|symbolic/i);
+      expect(await readFsFile(outsideTarget, 'utf8')).toBe('before\n');
+      expect(await readFsFile(join(movedProject, 'file.ts'), 'utf8')).toBe('before\n');
+    } finally {
+      await Promise.all([rm(workspace, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })]);
+    }
   });
 
   it('REQ-IDE-005: target outside workspace is denied before approval', async () => {

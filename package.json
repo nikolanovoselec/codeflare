@@ -51,6 +51,7 @@
     "typebox": "1.2.16",
     "typescript": "^7.0.2",
     "vitest": "4.1.10",
-    "wrangler": "4.111.0"
+    "wrangler": "4.111.0",
+    "yaml": "2.9.0"
   }
 }

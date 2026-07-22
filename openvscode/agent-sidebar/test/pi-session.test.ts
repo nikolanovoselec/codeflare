@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
+import { SIDEBAR_PROCESS_GENERATION_ENV } from '../src/process-generation.ts';
 import {
   PiSession,
   type PiChildProcess,
@@ -48,7 +49,10 @@ class RecordingPiSpawner implements PiProcessSpawner {
 
 test('REQ-IDE-005 AC3+AC4+AC5: visible Pi resolution uses only the fixed no-session spawn contract', async () => {
   const spawner = new RecordingPiSpawner();
-  const session = new PiSession(spawner);
+  const session = new PiSession(spawner, {
+    generationFactory: () => 'pi-generation-1',
+    reapGeneration: async () => undefined,
+  });
 
   await session.resolveVisible();
 
@@ -60,6 +64,7 @@ test('REQ-IDE-005 AC3+AC4+AC5: visible Pi resolution uses only the fixed no-sess
       env: {
         HOME: '/home/user',
         CODEFLARE_SIDEBAR: '1',
+        [SIDEBAR_PROCESS_GENERATION_ENV]: 'pi-generation-1',
       },
       shell: false,
     },
@@ -124,6 +129,27 @@ test('REQ-IDE-005 AC5+AC7: new Pi conversation reaps the old no-session process 
   ]);
   assert.equal(spawner.children[0]?.exited, true);
   assert.equal(spawner.children[1]?.exited, false);
+});
+
+test('REQ-IDE-005 AC7: Pi replacement reaps every process carrying the old conversation generation', async () => {
+  const spawner = new RecordingPiSpawner();
+  let generation = 0;
+  const session = new PiSession(spawner, {
+    generationFactory: () => `pi-generation-${++generation}`,
+    reapGeneration: async (token) => { spawner.events.push(`reap:${token}`); },
+  });
+
+  await session.resolveVisible();
+  await session.newConversation();
+
+  assert.deepEqual(spawner.events, [
+    'spawn:1',
+    'signal:1:SIGTERM',
+    'wait:1',
+    'reap:pi-generation-1',
+    'spawn:2',
+  ]);
+  assert.equal(spawner.specs[1]?.env[SIDEBAR_PROCESS_GENERATION_ENV], 'pi-generation-2');
 });
 
 test('REQ-IDE-005 AC7: Pi disposal settles and reaps the managed process', async () => {

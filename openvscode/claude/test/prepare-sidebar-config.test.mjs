@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, lstat, readFile, readlink, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, lstat, readFile, readlink, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "vitest";
@@ -83,6 +83,16 @@ test("REQ-IDE-005: projection links only allowlisted configuration and never cop
   for (const content of await regularFileContents(targetRoot)) {
     assert.equal(content.includes(secret), false, "the projection copied credential bytes");
   }
+});
+
+test("REQ-IDE-005: projection rejects an allowlisted source entry redirected by a symbolic link", async () => {
+  const { sourceRoot, targetRoot } = await fixture();
+  await writeEntry(sourceRoot, "history.jsonl", "terminal transcript");
+  await symlink(join(sourceRoot, "history.jsonl"), join(sourceRoot, "CLAUDE.md"));
+
+  await prepareSidebarConfig({ sourceRoot, targetRoot });
+
+  assert.equal((await readdir(targetRoot)).includes("CLAUDE.md"), false);
 });
 
 test("REQ-IDE-005: projection excludes terminal history, runtime state, source settings, and unknown entries", async () => {

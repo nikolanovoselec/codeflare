@@ -68,6 +68,19 @@ test('REQ-IDE-005 AC3: repeated visible resolution reuses one backend instance',
   assert.deepEqual(events, ['pi:start']);
 });
 
+test('REQ-IDE-005 AC3+AC7: visible resolution restarts a cached backend after an unexpected exit', async () => {
+  const events: string[] = [];
+  const lifecycle = new SidebarLifecycle('claude', recordingFactories(events));
+
+  const backend = await lifecycle.resolveVisible();
+  await backend.stop();
+  const restarted = await lifecycle.resolveVisible();
+
+  assert.equal(restarted, backend);
+  assert.equal(restarted.running, true);
+  assert.deepEqual(events, ['claude:start', 'claude:stop', 'claude:start']);
+});
+
 test('REQ-IDE-005 AC7: extension deactivation stops the selected backend', async () => {
   const events: string[] = [];
   const lifecycle = new SidebarLifecycle('pi', recordingFactories(events));

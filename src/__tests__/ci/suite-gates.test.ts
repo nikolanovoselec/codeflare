@@ -5,11 +5,12 @@
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 
 import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
@@ -85,6 +86,21 @@ function runCompleteness(lanes: Record<string, string>, cwd: string, artifactRoo
 }
 
 describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
+  it('routes owned Browser IDE paths through the workflow classifier while leaving docs-only changes inert', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: { changes: { steps: Array<{ id?: string; with?: { filters?: string } }> } };
+    };
+    const filterSource = workflow.jobs.changes.steps.find((step) => step.id === 'filter')?.with?.filters;
+    expect(filterSource).toBeTypeOf('string');
+    const filters = parseYaml(filterSource!) as Record<string, unknown[]>;
+    const patterns = flattenPatterns(filters.ide);
+
+    expect(matchesAny('openvscode/agent-sidebar/src/extension.ts', patterns)).toBe(true);
+    expect(matchesAny('preseed/agents/pi/extensions/sidebar-approval.ts', patterns)).toBe(true);
+    expect(matchesAny('.github/workflows/test.yml', patterns)).toBe(true);
+    expect(matchesAny('documentation/lanes/container.md', patterns)).toBe(false);
+  });
+
   it('registers every owned extension test file for fail-closed report reconciliation', () => {
     expect(SUITES).toContainEqual({
       name: 'browser-ide',
@@ -96,6 +112,23 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     });
   });
 });
+
+function flattenPatterns(values: unknown[]): string[] {
+  const patterns: string[] = [];
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') patterns.push(value);
+    else if (Array.isArray(value)) value.forEach(visit);
+  };
+  values.forEach(visit);
+  return patterns;
+}
+
+function matchesAny(path: string, patterns: readonly string[]): boolean {
+  return patterns.some((pattern) => {
+    if (pattern.endsWith('/**')) return path === pattern.slice(0, -3) || path.startsWith(pattern.slice(0, -2));
+    return path === pattern;
+  });
+}
 
 describe('REQ-OPS-023 AC3: cross-suite completeness gate', () => {
   it('passes when every backend test file in the tree appears in some report', () => {

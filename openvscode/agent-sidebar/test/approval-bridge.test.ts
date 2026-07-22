@@ -83,6 +83,21 @@ test('REQ-IDE-005 AC6: rejected extension-host approval returns a correlated den
   assert.equal(host.events.at(-1), `confirm:${manifest.id}`);
 });
 
+test('REQ-IDE-005 AC3: Pi fire-and-forget notifications require no response and never enter approval UI', async () => {
+  const host = new RecordingApprovalHost();
+  const bridge = new ApprovalBridge(host);
+
+  const response = await bridge.handlePiRequest({
+    type: 'extension_ui_request',
+    id: 'ui-notify-1',
+    method: 'notify',
+    message: 'Status updated',
+  });
+
+  assert.equal(response, undefined);
+  assert.deepEqual(host.events, []);
+});
+
 test('REQ-IDE-005 AC6: malformed or non-confirm Pi UI requests fail closed before host UI', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);

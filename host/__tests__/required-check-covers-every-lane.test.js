@@ -41,14 +41,6 @@ function summaryNeeds() {
 }
 
 describe('required status context covers every lane (test.yml summary job)', () => {
-  it('REQ-OPS-003 AC6: declares and routes the required Browser IDE lane', () => {
-    const lanes = jobIds();
-    assert.ok(lanes.includes('browser-ide'), 'test.yml must declare a browser-ide job');
-    assert.match(workflow, /\n {6}ide: \$\{\{ steps\.filter\.outputs\.ide \}\}/, 'changes must expose the ide filter');
-    assert.match(workflow, /- 'openvscode\/\*\*'/, 'the ide filter must route openvscode/** changes');
-    assert.ok(summaryNeeds().includes('browser-ide'), 'browser-ide must reach the required test status');
-  });
-
   it('lists every job except itself in needs, so no lane escapes the merge gate', () => {
     const lanes = jobIds().filter((id) => id !== 'summary');
     const needs = summaryNeeds();

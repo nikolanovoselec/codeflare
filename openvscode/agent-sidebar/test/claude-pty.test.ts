@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
+import { SIDEBAR_PROCESS_GENERATION_ENV } from '../src/process-generation.ts';
 import {
   ClaudePtySession,
   type ClaudePtyProcess,
@@ -64,7 +65,10 @@ class RecordingPtySpawner implements ClaudePtySpawner {
 
 test('REQ-IDE-005 AC3+AC4+AC5: Claude starts only the fixed no-shell PTY contract', async () => {
   const spawner = new RecordingPtySpawner();
-  const session = new ClaudePtySession(spawner, () => undefined);
+  const session = new ClaudePtySession(spawner, () => undefined, {
+    generationFactory: () => 'claude-generation-1',
+    reapGeneration: async () => undefined,
+  });
 
   await session.resolveVisible({ columns: 80, rows: 24 });
 
@@ -77,6 +81,7 @@ test('REQ-IDE-005 AC3+AC4+AC5: Claude starts only the fixed no-shell PTY contrac
         HOME: '/home/user',
         CLAUDE_CONFIG_DIR: '/tmp/codeflare-sidebar/claude/config',
         TERM: 'xterm-256color',
+        [SIDEBAR_PROCESS_GENERATION_ENV]: 'claude-generation-1',
       },
       terminal: { name: 'xterm-256color', columns: 80, rows: 24 },
       shell: false,
@@ -153,6 +158,27 @@ test('REQ-IDE-005 AC7: new Claude conversation reaps the old PTY before replacem
   ]);
   assert.equal(spawner.children[0]?.exited, true);
   assert.equal(spawner.children[1]?.exited, false);
+});
+
+test('REQ-IDE-005 AC7: Claude replacement reaps every process carrying the old conversation generation', async () => {
+  const spawner = new RecordingPtySpawner();
+  let generation = 0;
+  const session = new ClaudePtySession(spawner, () => undefined, {
+    generationFactory: () => `claude-generation-${++generation}`,
+    reapGeneration: async (token) => { spawner.events.push(`reap:${token}`); },
+  });
+
+  await session.resolveVisible({ columns: 80, rows: 24 });
+  await session.newConversation({ columns: 90, rows: 28 });
+
+  assert.deepEqual(spawner.events, [
+    'spawn:1',
+    'kill:1:SIGTERM',
+    'wait:1',
+    'reap:claude-generation-1',
+    'spawn:2',
+  ]);
+  assert.equal(spawner.specs[1]?.env[SIDEBAR_PROCESS_GENERATION_ENV], 'claude-generation-2');
 });
 
 test('REQ-IDE-005 AC7: Claude disposal reaps the managed PTY', async () => {

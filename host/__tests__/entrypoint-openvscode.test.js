@@ -47,6 +47,7 @@ function extractKillHelpers() {
     '_process_start_time',
     '_process_generation',
     '_process_group',
+    '_process_state',
     '_openvscode_generation_members',
     '_wait_then_kill_pid',
     '_wait_then_kill_generation',
@@ -93,7 +94,7 @@ function openvscodeSupervisorScript() {
     extractFn('_openvscode_should_launch'),
     openvscodeLaunchScript(),
     extractFn('_openvscode_supervise_loop'),
-    'export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
+    'export -f walk_kill _process_start_time _process_generation _process_group _process_state _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
     'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop',
   ].join('\n');
 }
@@ -498,7 +499,7 @@ describe('identity-safe OpenVSCode cleanup / REQ-IDE-005 AC7', () => {
   beforeEach(() => { dir = mkTmp('ovsc-identity-'); });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-005 AC7: PID, start-time, or generation mismatch never signals an unrelated process', () => {
+  it('REQ-IDE-005 AC7: token cleanup survives stale leader metadata without signaling an unrelated generation', () => {
     const result = runBash(`${extractKillHelpers()}
 probe_identity() {
   local label="$1" expected_pid_mode="$2" expected_start_mode="$3" expected_generation="$4"
@@ -533,7 +534,7 @@ probe_identity generation match match other-generation`, { FIXTURE: dir });
     assert.deepEqual(result.stdout.trim().split('\n'), [
       'matching=SIGNALED',
       'pid=UNSIGNALED',
-      'start=UNSIGNALED',
+      'start=SIGNALED',
       'generation=UNSIGNALED',
     ]);
   });
