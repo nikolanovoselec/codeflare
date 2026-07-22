@@ -736,3 +736,24 @@ CVE-2026-4800
 # the Foundry Local provider, and the blast radius is that user's own sandboxed
 # session:
 CVE-2026-39244
+
+# 2026-07-22 — DoS-class CVEs in transitive deps vendored inside the agent
+# CLIs (claude-code/codex/copilot/opencode npm trees) and the apt-installed
+# gh binary. All fixable upstream, none rebuilt into a vendored release yet
+# (agent-CLI pins bumped to latest same-day: claude-code 2.1.217,
+# codex 0.145.0, copilot 1.0.73 — entries stay until scans confirm clean,
+# reviewed monthly per policy). Reached-but-confined: worst case is DoS of
+# the user's own CLI process inside their single-tenant ephemeral container.
+#
+# node-tar 7.5.13 — DoS via crafted gzip bomb (CRITICAL) / malformed tar
+# header (HIGH); fixed 7.5.19/7.5.18:
+CVE-2026-59873
+CVE-2026-59874
+# brace-expansion 5.0.5/5.0.6 — exponential-time DoS; fixed 5.0.7:
+CVE-2026-13149
+# shell-quote 1.8.3 — inefficient-parse DoS; fixed 1.9.0:
+CVE-2026-13311
+# grpc-go in the apt-distributed gh binary — xDS RBAC / HTTP/2 issues; gh is
+# an outbound-only CLI here (no listening gRPC/xDS surface); apt re-resolves
+# gh on every deploy, entry drops once Debian ships a rebuilt gh:
+GHSA-hrxh-6v49-42gf
