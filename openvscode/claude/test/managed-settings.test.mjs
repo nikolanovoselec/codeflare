@@ -16,6 +16,9 @@ test("REQ-IDE-005: native permission rules independently ask for guarded built-i
     "Write",
     "NotebookEdit",
     "Bash",
+    "Task",
+    "WebFetch",
+    "WebSearch",
     "mcp__*",
   ]);
   assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
@@ -40,7 +43,9 @@ test("REQ-IDE-005: hook timeout and non-2 failures stay fail-open while native r
   assert.equal(PRE_TOOL_USE_HOOK_PATH, "/opt/codeflare/openvscode/claude/pre-tool-use-permission.mjs");
   assert.equal(PRE_TOOL_USE_TIMEOUT_SECONDS, 5);
   assert.equal(settings.permissions.defaultMode, "default");
-  assert.deepEqual(settings.permissions.ask, ["Edit", "Write", "NotebookEdit", "Bash", "mcp__*"]);
+  assert.deepEqual(settings.permissions.ask, [
+    "Edit", "Write", "NotebookEdit", "Bash", "Task", "WebFetch", "WebSearch", "mcp__*",
+  ]);
   assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
 });
 
