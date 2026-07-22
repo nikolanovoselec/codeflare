@@ -37,6 +37,8 @@ test('REQ-IDE-005 AC3+AC6: webview authority accepts only bounded backend-specif
     message: 'hello',
   });
   assert.deepEqual(authority.parse('pi', { type: 'abort' }), { type: 'abort' });
+  assert.deepEqual(authority.parse('pi', { type: 'pi.cycleModel' }), { type: 'pi.cycleModel' });
+  assert.deepEqual(authority.parse('pi', { type: 'pi.cycleThinking' }), { type: 'pi.cycleThinking' });
   assert.deepEqual(authority.parse('claude', { type: 'terminal.input', data: 'λ\r' }), {
     type: 'terminal.input',
     data: 'λ\r',

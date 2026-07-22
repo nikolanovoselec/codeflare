@@ -81,6 +81,20 @@ test('REQ-IDE-005 AC3: repeated visible Pi resolution reuses one process', async
   ]);
 });
 
+test('REQ-IDE-005 AC3: Pi model and thinking controls remain closed correlated RPC commands', async () => {
+  const spawner = new RecordingPiSpawner();
+  const session = new PiSession(spawner);
+
+  await session.cycleModel();
+  await session.cycleThinkingLevel();
+
+  assert.deepEqual(spawner.events, [
+    'spawn:1',
+    'write:1:{"id":"model-1","type":"cycle_model"}\n',
+    'write:1:{"id":"thinking-1","type":"cycle_thinking_level"}\n',
+  ]);
+});
+
 test('REQ-IDE-005 AC7: Pi abort is sent before the current process remains available', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner);
