@@ -197,7 +197,7 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
         label,
         agent: lines.find((line) => line.startsWith('agent='))?.slice('agent='.length) ?? null,
         directory: extensionsFlag === -1 ? null : lines[extensionsFlag + 1],
-        leakedInput: config === undefined ? false : lines.some((line) => line.includes(config)),
+        leakedInput: config === undefined || config === '' ? false : lines.some((line) => line.includes(config)),
       };
       rmSync(caseDir, { recursive: true, force: true });
       return observed;
@@ -228,9 +228,9 @@ describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC4 (lazy no-launch, rest
     // uses for its setsid subshell.
     return [
       extractFn('_openvscode_should_launch'),
-      extractFn('_openvscode_launch_once'),
+      openvscodeLaunchScript(),
       extractFn('_openvscode_supervise_loop'),
-      'export -f _openvscode_should_launch _openvscode_launch_once _openvscode_supervise_loop',
+      'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop',
     ].join('\n');
   }
 

@@ -155,8 +155,8 @@ A full browser editor for an advanced running session. The editor opens that ses
 
 **Acceptance Criteria:**
 
-1. Exact non-executing tab-1 classification selects only Pi, Claude, or no sidebar. Unsupported, malformed, duplicate, ambiguous, and missing-tab-1 configurations select no sidebar; only an absent `TAB_CONFIG` retains the legacy Claude default.
-2. Pi and Claude load only the fixed Codeflare-owned extension inventory; unsupported selections load an empty inventory, and the image contains no Anthropic Claude extension.
+1. Exact non-executing tab-1 classification selects only Pi, Claude, or no sidebar. Unsupported, malformed, duplicate, ambiguous, and missing-tab-1 configurations select no sidebar; only an absent `TAB_CONFIG` retains the legacy Claude default. <!-- @impl: entrypoint.sh::_openvscode_agent_kind --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-005 AC1+AC2: tab one selects only a fixed sidebar agent inventory) -->
+2. Pi and Claude load only the fixed Codeflare-owned extension inventory; unsupported selections load an empty inventory, and the image contains no Anthropic Claude extension. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-005 AC1+AC2: tab one selects only a fixed sidebar agent inventory) -->
 3. Extension activation starts no agent. Resolving the visible selected sidebar starts exactly one additional process: Pi with fixed RPC arguments or Claude in a fixed PTY. The non-selected backend never starts.
 4. Both backends use `/home/user/workspace`, `HOME=/home/user`, and approved credential, routing, and configuration sources without copying secrets into settings, logs, reports, or webview messages.
 5. Sidebar history remains distinct from terminal history. Pi uses no-session state; Claude stores transcript and runtime state under a temporary config root and cannot list or resume terminal sessions.
@@ -177,4 +177,4 @@ A full browser editor for an advanced running session. The editor opens that ses
 
 **Verification:** Planned behavioral host, extension, complete-image, and deployed integration tests
 
-**Status:** Planned
+**Status:** Partial

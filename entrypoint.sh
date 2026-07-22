@@ -1276,11 +1276,55 @@ _openvscode_should_launch() {
         && [ -f "${OPENVSCODE_REQUEST_TRIGGER:-/tmp/openvscode-requested}" ]
 }
 
+# Closed, non-executing sidebar classification. TAB_CONFIG continues to own
+# terminal autostart under AD15; this helper only maps an exact tab-1 command to
+# one of three fixed extension inventories. Malformed, duplicate, and ambiguous
+# values fail closed. Only a genuinely absent TAB_CONFIG keeps the legacy Claude
+# default. REQ-IDE-005 AC1.
+_openvscode_agent_kind() {
+    if [ "${TAB_CONFIG+x}" != "x" ]; then
+        printf 'claude'
+        return 0
+    fi
+
+    local tab_one_command
+    if ! tab_one_command=$(printf '%s' "$TAB_CONFIG" | jq -er '
+        if type != "array" then error("TAB_CONFIG must be an array")
+        elif any(.[]; type != "object" or (.id | type) != "string" or (.command | type) != "string") then error("invalid tab entry")
+        elif ([.[].id] | length) != ([.[].id] | unique | length) then error("duplicate tab id")
+        elif ([.[] | select(.id == "1")] | length) != 1 then error("tab 1 must be unique")
+        else [.[] | select(.id == "1")][0].command
+        end
+    ' 2>/dev/null); then
+        printf 'none'
+        return 0
+    fi
+
+    case "$tab_one_command" in
+        pi) printf 'pi' ;;
+        claude|claude\ --dangerously-skip-permissions) printf 'claude' ;;
+        *) printf 'none' ;;
+    esac
+}
+
+_openvscode_extensions_dir() {
+    case "${1:-}" in
+        pi) printf '/opt/codeflare/openvscode/extensions/pi' ;;
+        claude) printf '/opt/codeflare/openvscode/extensions/claude' ;;
+        *) printf '/opt/codeflare/openvscode/extensions/none' ;;
+    esac
+}
+
 # Launch OpenVSCode Server once in the foreground (the supervisor loop wraps this
 # in a restart loop). Session-isolated base path, workspace folder, ephemeral
 # per-container data dir; no connection token (the Worker is the auth boundary).
-# REQ-IDE-001, REQ-IDE-002.
+# REQ-IDE-001, REQ-IDE-002, REQ-IDE-005 AC1+AC2.
 _openvscode_launch_once() {
+    local sidebar_agent extensions_dir
+    sidebar_agent="$(_openvscode_agent_kind)"
+    extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
+
+    CODEFLARE_SIDEBAR_AGENT="$sidebar_agent" \
     "${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}" \
         --host "${OPENVSCODE_HOST:-127.0.0.1}" \
         --port "${OPENVSCODE_PORT:-13337}" \
@@ -1288,6 +1332,7 @@ _openvscode_launch_once() {
         --without-connection-token \
         --default-folder "${OPENVSCODE_WORKSPACE:-$HOME/workspace}" \
         --server-data-dir "${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}" \
+        --extensions-dir "$extensions_dir" \
         --telemetry-level off \
         --accept-server-license-terms
 }
@@ -1319,7 +1364,7 @@ start_openvscode_supervisor() {
     # kill the supervisor AND its openvscode child in one kill_pidfile_subtree
     # walk (same reason as the SilverBullet supervisor). export -f makes the loop
     # helpers available inside the fresh non-interactive setsid bash.
-    export -f _openvscode_should_launch _openvscode_launch_once _openvscode_supervise_loop
+    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop
     setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
         >> /tmp/openvscode.log 2>&1 &
 
