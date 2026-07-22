@@ -62,7 +62,13 @@ export function mountClaudeTerminal(root: HTMLElement, api: VsCodeApi = acquireV
       terminal.write(message.data);
       return;
     }
-    if (message.type === 'conversation.reset') terminal.clear();
+    if (message.type === 'conversation.reset') {
+      terminal.clear();
+      return;
+    }
+    if (message.type === 'sidebar.error' && typeof message.message === 'string') {
+      terminal.writeln(`\r\n[Codeflare] ${message.message}`);
+    }
   });
 
   window.addEventListener('beforeunload', () => {

@@ -46,6 +46,10 @@ export function mountPiChat(root: HTMLElement, api: VsCodeApi = acquireVsCodeApi
     }
     if (message.type === 'pi.output' && typeof message.text === 'string') {
       appendTranscript(transcript, 'Pi', message.text);
+      return;
+    }
+    if (message.type === 'sidebar.error' && typeof message.message === 'string') {
+      appendTranscript(transcript, 'System', message.message);
     }
   });
 
