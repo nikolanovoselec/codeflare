@@ -14,6 +14,8 @@ export interface PiChildProcess {
   write(line: string): void;
   signal(signal: 'SIGINT' | 'SIGTERM' | 'SIGKILL'): void;
   waitForExit(): Promise<void>;
+  onStdout?(listener: (data: Uint8Array) => void): () => void;
+  onStderr?(listener: (data: string) => void): () => void;
 }
 
 export interface PiProcessSpawner {
@@ -48,17 +50,26 @@ export class PiSession {
     return this.#child;
   }
 
-  async sendPrompt(message: string): Promise<void> {
+  async sendPrompt(message: string, beforeWrite?: (id: string) => void): Promise<string> {
     if (typeof message !== 'string') throw new TypeError('Pi prompt must be a string');
     const child = await this.resolveVisible();
     const id = `prompt-${++this.#promptSequence}`;
+    beforeWrite?.(id);
     child.write(`${JSON.stringify({ id, type: 'prompt', message })}\n`);
+    return id;
   }
 
-  async abort(): Promise<void> {
+  async abort(beforeWrite?: (id: string) => void): Promise<string> {
     const child = await this.resolveVisible();
     const id = `abort-${++this.#abortSequence}`;
+    beforeWrite?.(id);
     child.write(`${JSON.stringify({ id, type: 'abort' })}\n`);
+    return id;
+  }
+
+  async writeEnvelope(envelope: Readonly<Record<string, unknown>>): Promise<void> {
+    const child = await this.resolveVisible();
+    child.write(`${JSON.stringify(envelope)}\n`);
   }
 
   async newConversation(): Promise<PiChildProcess> {
