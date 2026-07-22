@@ -119,10 +119,14 @@ app.post('/agent-configs', async (c) => {
     // REQ-ENTERPRISE-001 AC6: under enterprise, also stamp the forced Pro mode after
     // the successful reconcile so the dashboard upgrade trigger clears (mirrors the
     // session-start stamp in lifecycle-init).
+    const enterpriseMode = isEnterpriseMode(c.env);
+    const latestPreferences = enterpriseMode
+      ? await c.env.KV.get<UserPreferences>(preferencesKey, 'json')
+      : preferences;
     const updatedPreferences = {
-      ...preferences,
+      ...latestPreferences,
       lastPreseedHash: PRESEED_CONTENT_HASH,
-      ...(isEnterpriseMode(c.env) ? { sessionMode: 'advanced' as const } : {}),
+      ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
     };
     await c.env.KV.put(preferencesKey, JSON.stringify(updatedPreferences));
 

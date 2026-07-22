@@ -292,7 +292,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       expect(stored?.sessionMode).toBe('advanced');
     });
 
-    it('REQ-ENTERPRISE-001 AC6: enterprise upgrade preserves preferences changed while reconciliation is running', async () => {
+    it('REQ-ENTERPRISE-001 constraint: enterprise upgrade preserves preferences changed while reconciliation is running', async () => {
       testState.createBucketResult = { success: true, created: false };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default', workspaceSyncEnabled: false });
       vi.mocked(reconcileAgentConfigs).mockImplementationOnce(async () => {
