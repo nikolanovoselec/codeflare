@@ -15,6 +15,7 @@ import { reconcileAgentConfigs } from '../lib/r2-seed';
 import { isR2SseDisabledForBucket, isBucketMigrating } from '../lib/r2-migration';
 import { getR2Config } from '../lib/r2-config';
 import { getEffectiveTier, getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../lib/subscription';
+import { withEffectiveSessionMode } from '../lib/session-mode';
 import { allowedAgents } from '../lib/agent-allowlist';
 import { createLogger } from '../lib/logger';
 
@@ -80,7 +81,10 @@ app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
   const key = getPreferencesKey(bucketName);
   const stored = await c.env.KV.get<UserPreferences & { lastPresetId?: unknown }>(key, 'json') || {};
-  return c.json(withoutLegacyPresetId(stored));
+  // REQ-ENTERPRISE-001 AC2: surface the enterprise-forced Pro mode to the client
+  // (computed, not stored) so advanced-gated dashboard surfaces render for JIT
+  // users who never wrote a preference. Byte-identical when the flag is unset.
+  return c.json(withEffectiveSessionMode(withoutLegacyPresetId(stored), c.env));
 });
 
 /**
@@ -157,7 +161,9 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     }
   }
 
-  return c.json(updated);
+  // REQ-ENTERPRISE-001 AC2: the response reports the enterprise-forced Pro mode;
+  // the stored preference above keeps the raw client-supplied value.
+  return c.json(withEffectiveSessionMode(updated, c.env));
 });
 
 export default app;

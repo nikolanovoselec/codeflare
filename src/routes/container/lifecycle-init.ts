@@ -12,6 +12,7 @@ import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin 
 import { resolveBucketSseOnEnsure } from '../../lib/r2-migration';
 import { getR2Config } from '../../lib/r2-config';
 import { getPreferencesKey } from '../../lib/kv-keys';
+import { isEnterpriseMode } from '../../lib/subscription';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
 import { BUCKET_NAME_SETTLE_DELAY_MS } from '../../lib/constants';
 import { SetBucketNameBodySchema } from '../../lib/container-config-schema';
@@ -215,6 +216,43 @@ export async function ensureBucketAndSeed(params: {
       bucketName,
       error: toErrorMessage(error),
     });
+  }
+
+  // REQ-ENTERPRISE-001 AC6: one-time enterprise upgrade for pre-existing users.
+  // Enterprise forces Pro (advanced) at resolution (AC2), but buckets seeded
+  // before that forcing carry default-mode agent configs, and the create-time
+  // gate above never re-reconciles an existing bucket. On session start, an
+  // enterprise user whose stored preference is not yet 'advanced' gets a
+  // mode-change reconcile (same overwrite/cleanup semantics as the preferences
+  // PATCH path) and the preference stamped — only after success, so a failed
+  // reconcile retries next session start. Newly created buckets were already
+  // seeded as advanced above, so they only need the stamp.
+  if (isEnterpriseMode(env)) {
+    try {
+      const enterprisePrefsKey = getPreferencesKey(bucketName);
+      const storedPrefs = await env.KV.get<UserPreferences>(enterprisePrefsKey, 'json');
+      if (storedPrefs?.sessionMode !== 'advanced') {
+        if (bucketResult.created !== true) {
+          const upgradeResult = await reconcileAgentConfigs(env, bucketName, r2Config.endpoint, 'advanced', {
+            overwrite: true,
+            cleanup: true,
+            contextModeEnabled,
+            r2SseDisabled,
+          });
+          logger.info('Enterprise upgrade: reconciled agent configs to advanced', {
+            bucketName,
+            writtenCount: upgradeResult.written.length,
+            deletedCount: upgradeResult.deleted.length,
+          });
+        }
+        await env.KV.put(enterprisePrefsKey, JSON.stringify({ ...storedPrefs, sessionMode: 'advanced' }));
+      }
+    } catch (error) {
+      logger.warn('Enterprise advanced-mode upgrade failed; will retry next session', {
+        bucketName,
+        error: toErrorMessage(error),
+      });
+    }
   }
 
   // Always reseed the context-mode plugin subtree on every session start

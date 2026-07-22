@@ -90,7 +90,7 @@ app.post('/agent-configs', async (c) => {
     // Resolve session mode from user preferences
     const preferencesKey = getPreferencesKey(bucketName);
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json');
-    const mode = resolveSessionMode(preferences ?? null);
+    const mode = resolveSessionMode(preferences ?? null, c.env);
 
     const user = c.get('user');
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);

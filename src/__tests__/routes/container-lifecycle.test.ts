@@ -93,12 +93,12 @@ describe('Container Lifecycle Routes', () => {
    * Lifecycle routes use c.executionCtx.waitUntil(), which requires the
    * ExecutionContext parameter in app.fetch().
    */
-  function createLifecycleApp(bucketName = 'test-bucket') {
+  function createLifecycleApp(bucketName = 'test-bucket', extraEnv: Partial<Env> = {}) {
     const app = createTestApp({
       routes: [{ path: '/container', handler: lifecycleRoutes }],
       mockKV,
       bucketName,
-      envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token' } as Partial<Env>,
+      envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', ...extraEnv } as Partial<Env>,
     });
 
     // Return a fetch helper that includes ExecutionContext
@@ -261,6 +261,61 @@ describe('Container Lifecycle Routes', () => {
       expect(setBucketRequest).toBeDefined();
       const body = await setBucketRequest.json() as { workspaceSyncEnabled?: boolean };
       expect(body.workspaceSyncEnabled).toBe(true);
+    });
+
+    it('REQ-ENTERPRISE-001 AC2: enterprise start resolves sessionMode=advanced with no stored preference (JIT user)', async () => {
+      const fetch = createLifecycleApp('my-bucket', { ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12',
+        name: 'Test Session',
+        userId: 'my-bucket',
+        status: 'stopped',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+      // Deliberately NO user-prefs entry: a JIT-provisioned enterprise user has none.
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+        )
+        .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      const setBucketRequest = container().fetch.mock.calls[1]?.[0] as Request;
+      expect(setBucketRequest).toBeDefined();
+      const body = await setBucketRequest.json() as { sessionMode?: string };
+      expect(body.sessionMode).toBe('advanced');
+    });
+
+    it('flag-off: start with no stored preference still resolves sessionMode=default', async () => {
+      const fetch = createLifecycleApp('my-bucket');
+      mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12',
+        name: 'Test Session',
+        userId: 'my-bucket',
+        status: 'stopped',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+        )
+        .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      const setBucketRequest = container().fetch.mock.calls[1]?.[0] as Request;
+      expect(setBucketRequest).toBeDefined();
+      const body = await setBucketRequest.json() as { sessionMode?: string };
+      expect(body.sessionMode).toBe('default');
     });
 
     it('returns error when bucket creation fails', async () => {

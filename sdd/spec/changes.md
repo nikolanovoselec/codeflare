@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-22
+
+- **Enterprise session-mode forcing is now real at every resolution point** ([REQ-ENTERPRISE-001](enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2, anchors corrected; new AC6; [REQ-ENTERPRISE-009](enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) AC6 anchors extended; [REQ-MEM-011](memory.md#req-mem-011-session-mode-storage-resolution-and-propagation) AC3 gains the upgrade trigger; all stay Implemented). AC2 promised Pro for every enterprise user, but `resolveSessionMode` never consulted the flag: JIT-provisioned users — who never store a preference — got default-mode containers, standard-mode seeds, and no advanced-gated dashboard surfaces (browser IDE and Vault buttons). Resolution now honors the flag at the lib, container-start, storage-seed, auth-status, and preferences-response layers without rewriting the stored preference; new AC6 adds the one-time per-user upgrade for pre-existing buckets (reconcile agent configs to Pro at session start, stamp only after success).
+
 ## 2026-07-21
 
 - **The Worker bundle-size gate has a REQ** ([REQ-OPS-024](operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy), new; Implemented). Existing CI behaviour, previously unspecified: the size comes from wrangler's own dry-run output, an over-budget bundle fails the PR rather than the next production deploy, and a missing, multiple or malformed measurement fails rather than guessing.

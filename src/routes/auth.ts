@@ -115,7 +115,8 @@ app.get('/status', requireIdentity, async (c) => {
   // trialUsed = user has already used their free trial (no new trials on plan switch)
   const trialUsed = userData?.trialUsed === true;
 
-  const sessionMode = prefs?.sessionMode === 'advanced' ? 'advanced' : 'default';
+  // REQ-ENTERPRISE-001 AC2: enterprise reports Pro regardless of the stored preference.
+  const sessionMode = isEnterpriseMode(c.env) ? 'advanced' : (prefs?.sessionMode === 'advanced' ? 'advanced' : 'default');
 
   // subscribedMode = what mode the user paid for (gates Settings Pro toggle)
   const subscribedMode = (userData?.subscribedMode === 'advanced' ? 'advanced' : 'default') as string;

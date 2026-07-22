@@ -184,7 +184,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
-    let sessionMode = resolveSessionMode(preferences);
+    let sessionMode = resolveSessionMode(preferences, c.env);
     // Free tier: locked to 15m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     // REQ-SEC-015 AC2/AC3: clamp session mode against effective tier -

@@ -100,11 +100,11 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     });
   });
 
-  function createApp() {
+  function createApp(extraEnv: Partial<Env> = {}) {
     const app = createTestApp({
       routes: [{ path: '/container', handler: lifecycleRoutes }],
       mockKV,
-      envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token' } as Partial<Env>,
+      envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', ...extraEnv } as Partial<Env>,
     });
     return (path: string, init?: RequestInit) => {
       const req = new Request(`http://localhost${path}`, init);
@@ -234,6 +234,74 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         method: 'POST',
       });
       expect(reconcileAgentConfigs).not.toHaveBeenCalled();
+    });
+  });
+
+  // REQ-ENTERPRISE-001 AC6: one-time enterprise upgrade reconcile. Existing
+  // buckets were seeded under default mode before enterprise forcing; the first
+  // session start after deploy reconciles them to advanced and stamps the
+  // stored preference so the upgrade runs exactly once per user.
+  describe('REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users', () => {
+    beforeEach(() => {
+      vi.mocked(reconcileAgentConfigs).mockClear();
+    });
+
+    it('enterprise + existing bucket + no stored preference: reconciles to advanced (overwrite/cleanup) and stamps the preference', async () => {
+      testState.createBucketResult = { success: true, created: false };
+      const fetch = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(reconcileAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(reconcileAgentConfigs).toHaveBeenCalledWith(
+        expect.anything(),
+        'test-bucket',
+        'https://test.r2.cloudflarestorage.com',
+        'advanced',
+        expect.objectContaining({ overwrite: true, cleanup: true }),
+      );
+      const stored = await mockKV.get('user-prefs:test-bucket', 'json') as { sessionMode?: string } | null;
+      expect(stored?.sessionMode).toBe('advanced');
+    });
+
+    it('enterprise + preference already advanced: does not reconcile again (once per user)', async () => {
+      testState.createBucketResult = { success: true, created: false };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'advanced' });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(reconcileAgentConfigs).not.toHaveBeenCalled();
+    });
+
+    it('enterprise + newly created bucket: single create-time seed runs as advanced and the preference is stamped without a second reconcile', async () => {
+      testState.createBucketResult = { success: true, created: true };
+      const fetch = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(reconcileAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(reconcileAgentConfigs).toHaveBeenCalledWith(
+        expect.anything(),
+        'test-bucket',
+        'https://test.r2.cloudflarestorage.com',
+        'advanced',
+        expect.objectContaining({ overwrite: false, cleanup: false }),
+      );
+      const stored = await mockKV.get('user-prefs:test-bucket', 'json') as { sessionMode?: string } | null;
+      expect(stored?.sessionMode).toBe('advanced');
+    });
+
+    it('enterprise: a failed upgrade reconcile does NOT stamp the preference (retries next start) and the start still succeeds', async () => {
+      testState.createBucketResult = { success: true, created: false };
+      vi.mocked(reconcileAgentConfigs).mockRejectedValueOnce(new Error('r2 down'));
+      const fetch = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(res.status).toBe(200);
+      const stored = await mockKV.get('user-prefs:test-bucket', 'json') as { sessionMode?: string } | null;
+      expect(stored?.sessionMode).toBeUndefined();
     });
   });
 });
