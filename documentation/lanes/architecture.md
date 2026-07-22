@@ -317,7 +317,7 @@ sequenceDiagram
 
 **Nested Terminals:** Up to 6 terminal tabs per session. Compound key `sessionId:terminalId`; WebSocket URL `/api/terminal/{sessionId}-{terminalId}/ws`.
 
-**Bucket creation and seeding:** R2 buckets are auto-created on first access from `POST /api/container/start` and `GET /api/storage/browse`. Both paths read `sessionMode` from user preferences via `resolveSessionMode()` and pass it to `reconcileAgentConfigs()`.
+**Bucket creation and seeding:** R2 buckets are auto-created on first access from `POST /api/container/start` and `GET /api/storage/browse`. Both paths read `sessionMode` via `resolveSessionMode(prefs, env)` — the stored preference except under `ENTERPRISE_MODE`, where it forces `'advanced'` regardless of what is stored — and pass it to `reconcileAgentConfigs()`. For a pre-existing enterprise bucket whose stored preference predates the flag, `POST /api/container/start` additionally runs a one-time upgrade reconcile at session start, and the initial dashboard load triggers the same upgrade through the release-upgrade UPDATING flow ([REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6).
 
 See [Architecture Internals](architecture-internals.md) for backend library reference, code structure index, and the CF-NNN code change index.
 

@@ -555,14 +555,14 @@ GET `/api/preferences`, PATCH `/api/preferences`
 | `lastAgentType` | Optional `AgentType`; last selected agent. |
 | `workspaceSyncEnabled` | Boolean, default `false`; workspace sync toggle. |
 | `fastStartEnabled` | Boolean, default `true`; maps to `FAST_CLI_START` in the container DO. See [Fast Start](container.md#fast-start). |
-| `sessionMode` | Optional `SessionMode`; default or advanced. Changes trigger `reconcileAgentConfigs(overwrite: true, cleanup: true)`. |
+| `sessionMode` | Optional `SessionMode`; default or advanced. Changes trigger `reconcileAgentConfigs(overwrite: true, cleanup: true)`. Under `ENTERPRISE_MODE`, GET and PATCH responses report `'advanced'` regardless of the stored value (computed via `withEffectiveSessionMode`, not persisted); see [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2. |
 | `sleepAfter` | Optional `SleepAfterOption`; auto-sleep duration. See [Auto-sleep](container.md#auto-sleep-configurable-sleepafter). |
 | `userTimezone` | Optional valid IANA timezone, max 64 chars; invalid zones return `ValidationError`. |
 | `lastPreseedHash` | Optional SHA-256 prefix of preseed content at last successful reconcile; compared on dashboard load to detect release upgrades. |
 
 `userTimezone` is validated by `Intl.DateTimeFormat` round-trip, persisted to DO storage, and forwarded to the container as `USER_TIMEZONE`; it takes effect on the next session start so memory-capture filenames reflect the user's local time. See [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) and [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC4.
 
-When `sessionMode` changes, `PATCH /api/preferences` seeds the correct preseed set for the new mode. Reconcile failure is non-fatal and does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4-AC5. `lastPreseedHash` supports release-upgrade detection; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release).
+When `sessionMode` changes, `PATCH /api/preferences` seeds the correct preseed set for the new mode. Reconcile failure is non-fatal and does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4-AC5. `lastPreseedHash` supports release-upgrade detection; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release). Under enterprise mode, the response's `sessionMode` is always `'advanced'` even when the client never wrote a preference; the underlying KV record keeps the raw client-supplied (or absent) value, so advanced-gated dashboard surfaces (browser IDE, Vault buttons) render for JIT-provisioned enterprise users.
 
 ### LLM API Keys
 

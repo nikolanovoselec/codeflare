@@ -9,7 +9,7 @@
  *              AC7 (frontend disposal on stopped transition - structural)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Session, UsageRecord } from '../../types';
+import type { Env, Session, UsageRecord } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import {
@@ -67,10 +67,11 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     vi.mocked(advanceMigration).mockResolvedValue(undefined);
   });
 
-  function createApp() {
+  function createApp(envOverrides: Partial<Env> = {}) {
     return createTestApp({
       routes: [{ path: '/sessions', handler: lifecycleRoutes }],
       mockKV,
+      envOverrides,
     });
   }
 
@@ -373,6 +374,27 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     it('returns preseedNeedsUpgrade false when hash matches', async () => {
       mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def' });
       const app = createApp();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    // REQ-ENTERPRISE-001 AC6: a pre-existing enterprise bucket without a stamped
+    // Pro preference upgrades via the same UPDATING flow even when the release
+    // hash already matches.
+    it('enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash', async () => {
+      mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def' });
+      const app = createApp({ ENTERPRISE_MODE: 'active' });
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('enterprise: returns preseedNeedsUpgrade false once the preference is stamped advanced and hash matches', async () => {
+      mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def', sessionMode: 'advanced' });
+      const app = createApp({ ENTERPRISE_MODE: 'active' });
       const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
       expect(res.status).toBe(200);
       const body = await res.json() as { preseedNeedsUpgrade?: boolean };

@@ -51,7 +51,7 @@ describe('Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable
     mockKV = createMockKV();
   });
 
-  function createApp(bucketName = 'test-bucket') {
+  function createApp(bucketName = 'test-bucket', extraEnv: Record<string, string> = {}) {
     return createTestApp({
       routes: [{ path: '/seed', handler: seedRoutes }],
       mockKV,
@@ -60,6 +60,7 @@ describe('Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable
         CLOUDFLARE_API_TOKEN: 'test-token',
         R2_ACCESS_KEY_ID: 'test-key',
         R2_SECRET_ACCESS_KEY: 'test-secret',
+        ...extraEnv,
       },
     });
   }
@@ -116,7 +117,7 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
     mockKV = createMockKV();
   });
 
-  function createApp(bucketName = 'test-bucket') {
+  function createApp(bucketName = 'test-bucket', extraEnv: Record<string, string> = {}) {
     return createTestApp({
       routes: [{ path: '/seed', handler: seedRoutes }],
       mockKV,
@@ -125,6 +126,7 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
         CLOUDFLARE_API_TOKEN: 'test-token',
         R2_ACCESS_KEY_ID: 'test-key',
         R2_SECRET_ACCESS_KEY: 'test-secret',
+        ...extraEnv,
       },
     });
   }
@@ -167,6 +169,29 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
       'default',
       { overwrite: true, cleanup: true, contextModeEnabled: false, r2SseDisabled: false }
     );
+  });
+
+  // REQ-ENTERPRISE-001 AC6: the dashboard-triggered recreate reconciles to the
+  // enterprise-forced Pro mode and stamps it so the upgrade trigger clears.
+  it('enterprise: reconciles as advanced and stamps sessionMode alongside lastPreseedHash', async () => {
+    const app = createApp('my-bucket', { ENTERPRISE_MODE: 'active' });
+
+    const res = await app.request('/seed/agent-configs', { method: 'POST' });
+    expect(res.status).toBe(200);
+
+    expect(reconcileAgentConfigs).toHaveBeenCalledWith(
+      expect.any(Object),
+      'my-bucket',
+      'https://test.r2.cloudflarestorage.com',
+      'advanced',
+      expect.objectContaining({ overwrite: true, cleanup: true }),
+    );
+    const putCalls = mockKV.put.mock.calls as [string, string][];
+    const prefsPut = putCalls.find(([key]) => key === 'user-prefs:my-bucket');
+    expect(prefsPut).toBeDefined();
+    const storedPrefs = JSON.parse(prefsPut![1]);
+    expect(storedPrefs.sessionMode).toBe('advanced');
+    expect(storedPrefs.lastPreseedHash).toBe('test_hash_abc123');
   });
 
   it('returns container error when bucket creation fails', async () => {

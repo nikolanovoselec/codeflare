@@ -17,7 +17,7 @@ import { getContainerSessionsCB } from '../../lib/circuit-breakers';
 import { toApiSession } from '../../lib/session-helpers';
 import { ValidationError } from '../../lib/error-types';
 import { isSaasModeActive } from '../../lib/onboarding';
-import { getTierConfig, getEffectiveTierForUser } from '../../lib/subscription';
+import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../lib/subscription';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
 
@@ -171,7 +171,11 @@ app.get('/batch-status', async (c) => {
   let preseedNeedsUpgrade: boolean | undefined;
   if (c.req.query('includePreseedCheck') === 'true') {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
-    preseedNeedsUpgrade = prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH;
+    preseedNeedsUpgrade = prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH
+      // REQ-ENTERPRISE-001 AC6: a pre-existing enterprise bucket whose stored
+      // preference is not yet Pro upgrades via the same dashboard UPDATING flow
+      // as a release upgrade; the seed route stamps the preference on success.
+      || (isEnterpriseMode(c.env) && prefs?.sessionMode !== 'advanced');
   }
 
   // REQ-ENTERPRISE-020: Governed Mode regime reconcile. Decide synchronously so THIS

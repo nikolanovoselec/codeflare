@@ -75,18 +75,27 @@ Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mod
 **Storage**: `sessionMode?: 'default' | 'advanced'` in
 `UserPreferences` (KV). Undefined = `'default'`.
 
-**Resolver**: `resolveSessionMode(prefs)` in
+**Resolver**: `resolveSessionMode(prefs, env?)` in
 `src/lib/session-mode.ts` -- single source of truth for the
-`?? 'default'` fallback.
+`?? 'default'` fallback. Under `ENTERPRISE_MODE`, it short-circuits to
+`'advanced'` before consulting `prefs`, so a JIT-provisioned enterprise
+user with no stored preference still resolves to Pro
+([REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2).
 
 **When mode takes effect**: On any of: explicit "Recreate AI agent
 skills & rules" click, new bucket creation, Stripe mode change
 (upgrade or downgrade via webhook), subscription termination
 (`customer.subscription.deleted`), Settings toggle of
-`sessionMode`, or automatic upgrade on release (triggered by
+`sessionMode`, automatic upgrade on release (triggered by
 `preseedNeedsUpgrade: true` in the initial dashboard batch-status
 response; see
-[REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)).
+[REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)),
+or the one-time enterprise Pro upgrade — at session start or first
+dashboard load (same `preseedNeedsUpgrade` UPDATING affordance as a
+release upgrade) — for a pre-existing bucket whose stored preference
+is not yet `advanced` (stamped only after a successful reconcile, so
+a failure retries;
+[REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6).
 
 The Settings toggle immediately triggers server-side reconciliation
 as part of the `PATCH /api/preferences` call -- no separate Recreate

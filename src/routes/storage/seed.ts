@@ -11,7 +11,7 @@ import { ContainerError, BucketMigratingError, toErrorMessage } from '../../lib/
 import { createLogger } from '../../lib/logger';
 import { getPreferencesKey } from '../../lib/kv-keys';
 import { resolveSessionMode } from '../../lib/session-mode';
-import { getEffectiveTier } from '../../lib/subscription';
+import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 
 const logger = createLogger('storage-seed');
 
@@ -115,8 +115,15 @@ app.post('/agent-configs', async (c) => {
     // Invalidate storage-stats cache so next poll/fetch gets fresh data
     await c.env.KV.delete(`storage-stats:${bucketName}`);
 
-    // REQ-AGENT-049: persist preseed hash so next batch-status check skips upgrade
-    const updatedPreferences = { ...preferences, lastPreseedHash: PRESEED_CONTENT_HASH };
+    // REQ-AGENT-049: persist preseed hash so next batch-status check skips upgrade.
+    // REQ-ENTERPRISE-001 AC6: under enterprise, also stamp the forced Pro mode after
+    // the successful reconcile so the dashboard upgrade trigger clears (mirrors the
+    // session-start stamp in lifecycle-init).
+    const updatedPreferences = {
+      ...preferences,
+      lastPreseedHash: PRESEED_CONTENT_HASH,
+      ...(isEnterpriseMode(c.env) ? { sessionMode: 'advanced' as const } : {}),
+    };
     await c.env.KV.put(preferencesKey, JSON.stringify(updatedPreferences));
 
     return c.json({

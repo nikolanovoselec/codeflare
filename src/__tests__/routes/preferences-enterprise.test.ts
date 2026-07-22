@@ -182,6 +182,24 @@ describe('Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-EN
     expect(stored?.sessionMode).toBeUndefined();
   });
 
+  it('AC2 (REQ-ENTERPRISE-001): PATCH sessionMode=default under enterprise is coerced — stores advanced and never reconciles as default', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionMode: 'default' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { sessionMode?: string };
+    expect(body.sessionMode).toBe('advanced');
+    const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { sessionMode?: string } | null;
+    expect(stored?.sessionMode).toBe('advanced');
+    // A mode-change reconcile may fire, but never with the client's downgrade.
+    for (const call of mockReconcileAgentConfigs.mock.calls) {
+      expect((call as unknown[])[3]).toBe('advanced');
+    }
+  });
+
   it('flag-off (AC5 byte-identical): GET does not inject sessionMode when ENTERPRISE_MODE is unset', async () => {
     const app = createApp();
     const res = await app.request('/preferences');
