@@ -873,6 +873,10 @@ jobs:
           directory: openvscode/agent-sidebar
           key-prefix: browser-ide
 
+      - name: Audit pinned extension dependencies and licenses
+        run: npm audit --audit-level=high && npm run check:dependencies
+        working-directory: openvscode/agent-sidebar
+
       - name: Typecheck extension
         run: npm run typecheck
         working-directory: openvscode/agent-sidebar

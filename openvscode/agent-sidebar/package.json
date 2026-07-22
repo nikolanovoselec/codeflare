@@ -44,9 +44,10 @@
   },
   "scripts": {
     "build": "node ./esbuild.mjs",
+    "check:dependencies": "node ./scripts/check-dependencies.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run test/*.test.ts ../claude/test/*.test.mjs",
-    "test:report": "vitest run test/*.test.ts ../claude/test/*.test.mjs --reporter=json --outputFile=browser-ide-report.json"
+    "test": "vitest run test/*.test.ts ../claude/test/*.test.mjs --coverage.enabled --coverage.provider=v8 --coverage.reporter=text",
+    "test:report": "vitest run test/*.test.ts ../claude/test/*.test.mjs --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --reporter=json --outputFile=browser-ide-report.json"
   },
   "dependencies": {
     "node-pty": "1.1.0"
@@ -56,6 +57,7 @@
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "@types/vscode": "1.109.0",
+    "@vitest/coverage-v8": "4.1.10",
     "esbuild": "0.28.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
