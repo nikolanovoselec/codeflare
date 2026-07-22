@@ -836,8 +836,9 @@ describe('Pi review reminder and settled enforcement', () => {
   it('REQ-AGENT-036: resolves a remote-only push through the production configured-push fallback', async () => {
     const fixture = makeReviewFixture();
     git(fixture.repo, 'remote', 'add', 'origin', fixture.repo);
-    git(fixture.repo, 'config', 'push.default', 'current');
-    git(fixture.repo, 'update-ref', 'refs/remotes/origin/pi', fixture.head);
+    git(fixture.repo, 'config', 'remote.origin.push', 'refs/heads/pi:refs/heads/review-topic');
+    git(fixture.repo, 'update-ref', 'refs/remotes/origin/review-topic', fixture.head);
+    fixture.pr.headRefName = 'review-topic';
     const queried: Array<{ repo: string; target: string | undefined }> = [];
     const { registerReviewEnforcement } = await plannedEnforcement();
     const harness = makeHarness(fixture.repo, fixture.sessionFile);
@@ -855,7 +856,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent(command, 'production-push-fallback'));
 
-    expect(queried).toEqual([{ repo: fixture.repo, target: 'pi' }]);
+    expect(queried).toEqual([{ repo: fixture.repo, target: 'review-topic' }]);
     expect(harness.sent[0]?.message.details).toMatchObject({
       ...boundaryIdentity(fixture, 'production-push-fallback'),
       head: fixture.head,
