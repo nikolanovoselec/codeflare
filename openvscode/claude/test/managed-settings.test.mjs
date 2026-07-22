@@ -18,7 +18,8 @@ test("REQ-IDE-005: native permission rules independently ask for guarded built-i
     "Bash",
     "mcp__*",
   ]);
-  assert.equal(settings.disableBypassPermissionsMode, "disable");
+  assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
+  assert.equal(settings.permissions.disableAutoMode, "disable");
 });
 
 test("REQ-IDE-005: hook timeout and non-2 failures stay fail-open while native rules remain independent", () => {
@@ -40,15 +41,18 @@ test("REQ-IDE-005: hook timeout and non-2 failures stay fail-open while native r
   assert.equal(PRE_TOOL_USE_TIMEOUT_SECONDS, 5);
   assert.equal(settings.permissions.defaultMode, "default");
   assert.deepEqual(settings.permissions.ask, ["Edit", "Write", "NotebookEdit", "Bash", "mcp__*"]);
+  assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
 });
 
 test("REQ-IDE-005: managed settings disable bypass, Remote Control, IDE auto-install, updates, and telemetry", () => {
   const settings = buildManagedSettings();
 
-  assert.equal(settings.disableBypassPermissionsMode, "disable");
+  assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
+  assert.equal(settings.permissions.disableAutoMode, "disable");
+  assert.equal(settings.disableRemoteControl, true);
+  assert.equal(settings.autoInstallIdeExtension, false);
   assert.deepEqual(settings.env, {
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-    CLAUDE_CODE_DISABLE_REMOTE_CONTROL: "1",
     CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL: "1",
     DISABLE_AUTOUPDATER: "1",
     DISABLE_TELEMETRY: "1",
