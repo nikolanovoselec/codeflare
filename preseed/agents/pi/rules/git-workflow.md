@@ -14,7 +14,7 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 ## Mandatory boundary stop
 
-After either eligible boundary succeeds — creating an open PR to `main`/`master`, or completing a supported explicit or implicit current-branch push whose exact branch and head have an open PR to `main`/`master` — **end the turn immediately** and report only the push result or PR URL. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. Pushes with no open protected-base PR, tag-only pushes, branch deletion/pruning, mirror or multi-ref pushes, and PR edit/update/merge commands are not boundaries and do not require this stop. A plan not yet visible after an eligible boundary is queued, not missing.
+After either eligible boundary succeeds — creating an open PR to `main`/`master`, or completing a supported explicit or implicit configured-branch push whose exact destination and head have an open PR to `main`/`master` — **end the turn immediately** and report only the push result or PR URL. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. Pushes with no open protected-base PR, tag-only pushes, branch deletion/pruning, mirror or multi-ref pushes, and PR edit/update/merge commands are not boundaries and do not require this stop. A plan not yet visible after an eligible boundary is queued, not missing.
 
 ## Execute one boundary plan
 

@@ -38,6 +38,7 @@ type Dependencies = {
   queryPr(repo: string, target?: string): Promise<PrState | undefined>;
   queryHead?(repo: string, revision?: string): Promise<string | undefined>;
   queryBranch?(repo: string): Promise<string | undefined>;
+  queryPushBranch?(repo: string, branch: string): Promise<string | undefined>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
 };
@@ -234,10 +235,18 @@ async function currentReview(
   target: string | undefined,
   revision = "HEAD",
   preferredRepo?: string,
+  resolvePushDestination = false,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
   const context = boundaryContext(ctx, preferredRepo);
   if (!context) return undefined;
-  const branch = target ?? await (dependencies.queryBranch ?? queryBranch)(context.repo);
+  let branch = target;
+  if (!branch) {
+    const localBranch = await (dependencies.queryBranch ?? queryBranch)(context.repo);
+    if (!localBranch) return undefined;
+    branch = resolvePushDestination
+      ? await (dependencies.queryPushBranch ?? queryPushBranch)(context.repo, localBranch)
+      : localBranch;
+  }
   if (!branch) return undefined;
   const head = await (dependencies.queryHead ?? queryHead)(context.repo, revision);
   if (!head) return undefined;
@@ -509,7 +518,14 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const revision = boundary.classification.event === "push"
       ? boundary.classification.pushSource ?? "HEAD"
       : "HEAD";
-    const review = await currentReview(ctx, dependencies, target, revision, eventRepo);
+    const review = await currentReview(
+      ctx,
+      dependencies,
+      target,
+      revision,
+      eventRepo,
+      boundary.classification.event === "push" && !target,
+    );
     if (!review || !isEnforcedPr(review.pr)) return;
 
     const skipReview = bypassSentinelPresent();
@@ -633,6 +649,27 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 }
 
+export async function queryPushBranch(
+  repo: string,
+  branch: string,
+  runner: QueryPrRunner = execFileAsync,
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await runner(
+      "git",
+      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{push}`],
+      { cwd: repo, encoding: "utf8", timeout: 10_000 },
+    );
+    const pushRefs = String(stdout).trim().split("\n").filter(Boolean);
+    const pushRef = pushRefs.length === 1 ? pushRefs[0] : undefined;
+    if (!pushRef || pushRef.startsWith("refs/")) return undefined;
+    const separator = pushRef.indexOf("/");
+    return separator > 0 ? pushRef.slice(separator + 1) || undefined : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function queryBranch(
   repo: string,
   runner: QueryPrRunner = execFileAsync,
@@ -691,5 +728,6 @@ export default function reviewEnforcement(pi: ExtensionAPI): void {
   registerReviewEnforcement(pi as unknown as ReviewPi, {
     queryPr: (repo, target) => queryPr(repo, execFileAsync, target),
     queryBranch: (repo) => queryBranch(repo, execFileAsync),
+    queryPushBranch: (repo, branch) => queryPushBranch(repo, branch, execFileAsync),
   });
 }

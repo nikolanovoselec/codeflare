@@ -101,7 +101,7 @@ function stripHeredocBodies(command: string): string {
   return executable.join("\n");
 }
 
-function shellSegments(command: string): string[] {
+export function shellSegments(command: string): string[] {
   const segments: string[] = [];
   let current = "";
   let quote = "";

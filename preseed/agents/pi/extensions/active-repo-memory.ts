@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { effectiveCwdForCommand } from "./graphify-helpers";
+import { shellSegments } from "./review-helpers";
 
 const ACTIVE_REPO_KEY = Symbol.for("codeflare.activeRepo");
 
@@ -41,22 +42,31 @@ function effectivePath(command: string, cwd: string): string {
 
 export type ShellInvocation = { command: string; cwd: string };
 
+function commandInvocations(command: string, cwd: string): ShellInvocation[] {
+  let effectiveCwd = cwd;
+  return shellSegments(command).map((segment) => {
+    const cd = /^cd(?:\s+--)?\s+(.+)$/.exec(segment);
+    if (cd?.[1]) effectiveCwd = resolve(effectiveCwd, unquoteShellToken(cd[1]));
+    return { command: segment, cwd: effectiveCwd };
+  });
+}
+
 export function shellInvocations(event: any, sessionCwd: string): ShellInvocation[] {
   const input = event?.input ?? event?.args;
   const name = String(event?.toolName ?? "");
   if (!input || typeof input !== "object") return [];
   const cwd = typeof input.cwd === "string" ? resolve(sessionCwd, input.cwd) : sessionCwd;
   if ((name === "bash" || name === "Bash") && typeof input.command === "string") {
-    return [{ command: input.command, cwd }];
+    return commandInvocations(input.command, cwd);
   }
   if (name.endsWith("ctx_execute") && input.language === "shell" && typeof input.code === "string") {
-    return [{ command: input.code, cwd }];
+    return commandInvocations(input.code, cwd);
   }
   if (name.endsWith("ctx_batch_execute") && Array.isArray(input.commands)) {
     return input.commands
       .map((item: Record<string, unknown>) => item?.command)
       .filter((command: unknown): command is string => typeof command === "string")
-      .map((command: string) => ({ command, cwd }));
+      .flatMap((command: string) => commandInvocations(command, cwd));
   }
   return [];
 }

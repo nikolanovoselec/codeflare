@@ -33,6 +33,7 @@ type PlannedReviewEnforcement = {
       queryPr(repo: string, target?: string): Promise<PrState | undefined>;
       queryHead?(repo: string, revision?: string): Promise<string | undefined>;
       queryBranch?(repo: string): Promise<string | undefined>;
+      queryPushBranch?(repo: string, branch: string): Promise<string | undefined>;
       sleep?(delayMs: number): Promise<void>;
       headRetryDelaysMs?: number[];
     },
@@ -46,6 +47,15 @@ type PlannedReviewEnforcement = {
     ) => Promise<{ stdout: string }>,
     target?: string,
   ): Promise<PrState | undefined>;
+  queryPushBranch(
+    repo: string,
+    branch: string,
+    runner?: (
+      command: string,
+      args: string[],
+      options: { cwd: string; encoding: 'utf8'; timeout: number },
+    ) => Promise<{ stdout: string }>,
+  ): Promise<string | undefined>;
 };
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
@@ -342,6 +352,7 @@ async function registerFixture(
       observeQuery?.(repo, target);
       return fixture.pr;
     },
+    queryPushBranch: async (_repo, branch) => branch,
   });
   return harness;
 }
@@ -738,7 +749,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: resolves implicit pushes from the event repository current branch', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063: resolves implicit pushes from the configured push destination', async () => {
     for (const [index, command] of ['git push', 'git push origin', 'git push -u origin HEAD'].entries()) {
       const fixture = makeReviewFixture();
       const queries: Array<{ repo: string; target: string | undefined }> = [];
@@ -761,6 +772,34 @@ describe('Pi review reminder and settled enforcement', () => {
         ciEvent: 'push',
       });
     }
+
+    const renamed = makeReviewFixture();
+    git(renamed.repo, 'branch', '-m', 'topic');
+    renamed.pr.headRefName = 'review-topic';
+    const renamedQueries: Array<{ repo: string; target: string | undefined }> = [];
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const renamedHarness = makeHarness(renamed.repo, renamed.sessionFile);
+    registerReviewEnforcement(renamedHarness.pi, {
+      queryBranch: async () => 'topic',
+      queryPushBranch: async () => 'review-topic',
+      queryPr: async (repo, target) => {
+        renamedQueries.push({ repo, target });
+        return renamed.pr;
+      },
+    });
+    appendSession(renamed.sessionFile,
+      assistantTool('renamed-upstream', 'bash', { command: 'git push' }),
+      toolResult('renamed-upstream', 'bash'),
+    );
+
+    await renamedHarness.emit('tool_result', boundaryEvent('git push', 'renamed-upstream'));
+
+    expect(renamedQueries).toEqual([{ repo: renamed.repo, target: 'review-topic' }]);
+    expect(renamedHarness.sent[0]?.message.details).toMatchObject({
+      ...boundaryIdentity(renamed, 'renamed-upstream'),
+      branch: 'review-topic',
+      head: renamed.head,
+    });
 
     const detached = makeReviewFixture();
     git(detached.repo, 'checkout', '--detach', '-q');
@@ -870,6 +909,41 @@ describe('Pi review reminder and settled enforcement', () => {
       ...boundaryIdentity(boundary, 'batch-cross-repo'),
       head: boundary.head,
     });
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-063: binds compound-shell pushes to their exact repository segment', async () => {
+    const commands = [
+      (ambient: string, boundary: string) => `git -C "${ambient}" status --short; git -C "${boundary}" push origin pi`,
+      (ambient: string, boundary: string) => `cd "${ambient}" && git status --short; cd "${boundary}" && git push origin pi`,
+    ];
+
+    for (const [index, commandForRepos] of commands.entries()) {
+      const ambient = makeReviewFixture();
+      const boundary = makeReviewFixture();
+      const command = commandForRepos(ambient.repo, boundary.repo);
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(ambient.repo, boundary.sessionFile);
+      const queriedRepos: string[] = [];
+      registerReviewEnforcement(harness.pi, {
+        queryPr: async (repo) => {
+          queriedRepos.push(repo);
+          return repo === boundary.repo ? boundary.pr : ambient.pr;
+        },
+      });
+      const toolUseId = `compound-cross-repo-${index}`;
+      appendSession(boundary.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+
+      expect(queriedRepos).toEqual([boundary.repo]);
+      expect(harness.sent[0]?.message.details).toMatchObject({
+        ...boundaryIdentity(boundary, toolUseId),
+        head: boundary.head,
+      });
+    }
   });
 
   it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
@@ -1031,6 +1105,27 @@ describe('Pi review reminder and settled enforcement', () => {
     ]);
 
     await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBeUndefined();
+  });
+
+  it('REQ-AGENT-036: resolves Git configured push destinations without parsing Git config', async () => {
+    const { queryPushBranch } = await plannedEnforcement();
+    const repo = '/tmp/review-push-branch-repo';
+    let observed: { command: string; args: string[]; options: { cwd: string; encoding: 'utf8'; timeout: number } } | undefined;
+
+    await expect(queryPushBranch(repo, 'topic', async (command, args, options) => {
+      observed = { command, args, options };
+      return { stdout: 'origin/review-topic\n' };
+    })).resolves.toBe('review-topic');
+    expect(observed).toEqual({
+      command: 'git',
+      args: ['rev-parse', '--abbrev-ref', '--symbolic-full-name', 'topic@{push}'],
+      options: { cwd: repo, encoding: 'utf8', timeout: 10_000 },
+    });
+
+    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: '\n' }))).resolves.toBeUndefined();
+    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: 'review-topic\n' }))).resolves.toBeUndefined();
+    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: 'refs/remotes/origin/review-topic\n' }))).resolves.toBeUndefined();
+    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: 'origin/a\norigin/b\n' }))).resolves.toBeUndefined();
   });
 
   it('REQ-AGENT-036: performs no PR query when the transcript has no settled boundary', async () => {
