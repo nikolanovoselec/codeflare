@@ -1,5 +1,3 @@
-import { notImplemented } from '../not-implemented.ts';
-
 export interface PiSpawnSpec {
   readonly executable: '/usr/local/bin/pi';
   readonly args: readonly ['--mode', 'rpc', '--no-session', '--no-themes'];
@@ -35,30 +33,48 @@ export const FIXED_PI_SPAWN_SPEC: PiSpawnSpec = Object.freeze({
 
 export class PiSession {
   readonly #spawner: PiProcessSpawner;
+  #child: PiChildProcess | undefined;
+  #promptSequence = 0;
+  #abortSequence = 0;
 
   constructor(spawner: PiProcessSpawner) {
     this.#spawner = spawner;
   }
 
   async resolveVisible(): Promise<PiChildProcess> {
-    void this.#spawner;
-    return notImplemented('fixed Pi process startup');
+    if (!this.#child || this.#child.exited) {
+      this.#child = this.#spawner.spawn(FIXED_PI_SPAWN_SPEC);
+    }
+    return this.#child;
   }
 
   async sendPrompt(message: string): Promise<void> {
-    void message;
-    return notImplemented('Pi prompt transport');
+    if (typeof message !== 'string') throw new TypeError('Pi prompt must be a string');
+    const child = await this.resolveVisible();
+    const id = `prompt-${++this.#promptSequence}`;
+    child.write(`${JSON.stringify({ id, type: 'prompt', message })}\n`);
   }
 
   async abort(): Promise<void> {
-    return notImplemented('Pi abort lifecycle');
+    const child = await this.resolveVisible();
+    const id = `abort-${++this.#abortSequence}`;
+    child.write(`${JSON.stringify({ id, type: 'abort' })}\n`);
   }
 
   async newConversation(): Promise<PiChildProcess> {
-    return notImplemented('Pi no-session process replacement');
+    await this.#reap();
+    return this.resolveVisible();
   }
 
   async dispose(): Promise<void> {
-    return notImplemented('Pi process cleanup');
+    await this.#reap();
+  }
+
+  async #reap(): Promise<void> {
+    const child = this.#child;
+    this.#child = undefined;
+    if (!child || child.exited) return;
+    child.signal('SIGTERM');
+    await child.waitForExit();
   }
 }
