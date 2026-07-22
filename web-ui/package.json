@@ -30,7 +30,7 @@
     "@vitest/coverage-v8": "^4.1.10",
     "fast-check": "^4.8.0",
     "jsdom": "^29.1.1",
-    "knip": "^6.27.0",
+    "knip": "^6.29.0",
     "oxlint": "^1.74.0",
     "typescript": "^7.0.2",
     "vite": "^8.1.4",
