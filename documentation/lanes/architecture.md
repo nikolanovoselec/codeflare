@@ -25,9 +25,11 @@ Codeflare runs AI coding agents in isolated containers, one per browser session 
 graph TD
     B1["Browser Tab 1 (xterm.js)"] -->|WebSocket| W["Cloudflare Worker (Hono router)"]
     B2["Browser Tab 2 (xterm.js)"] -->|WebSocket| W
+    BI["Browser IDE"] -->|"authenticated /api/vscode/session"| W
     W -->|"containerId=bucket-session1"| C1["Container 1"]
     W -->|"containerId=bucket-session2"| C2["Container 2"]
     C1 --- P1["PTY + Agent"]
+    C1 --- O1["OpenVSCode + selected agent sidebar"]
     C2 --- P2["PTY + Agent"]
     P1 -->|"rclone bisync (15min + manual triggers)"| R2["R2 bucket (shared per user)"]
     P2 -->|"rclone bisync (15min + manual triggers)"| R2
@@ -163,6 +165,18 @@ On desktop/tablet the panel expands to 80vh (centered, via `.dashboard-panel:not
 
     AI hosts continue to route to the LLM interceptor - one host→interceptor map, two WorkerEntrypoints, one responsibility each ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)). Wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing).
 - **Non-enterprise (container transport):** The real token flows to the container as `GH_TOKEN` via the existing deploy-keys→env path, unchanged ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)).
+
+### Browser IDE agent sidebar
+
+**Files:** `openvscode/agent-sidebar/`, `openvscode/claude/`, and `preseed/agents/pi/extensions/sidebar-approval.ts`
+
+OpenVSCode stays inside the session container and uses the existing authenticated `/api/vscode/<sessionId>` proxy. The image supplies one Codeflare-owned workspace extension through three fixed inventories. Pi and Claude inventories contain the same package bytes; the unsupported inventory is empty. No public route, listener, marketplace, VSIX, or second container is involved.
+
+The extension host owns one lazy lifecycle controller. Opening the view resolves only the selected backend. Pi starts a fixed `--mode rpc --no-session` child and parses bounded LF-delimited JSONL. Claude starts `/usr/local/bin/claude` directly with `node-pty`; local xterm.js assets render its native TUI. Both use `/home/user/workspace`, but neither can attach to terminal tab 1 or import its transcript.
+
+Pi mutation approval crosses a local manifest boundary. The Pi guard writes a mode-0600 manifest and sends its opaque ID through the RPC extension UI request. The OpenVSCode extension host validates and displays it, then returns one correlated decision. Claude stays in Manual mode and displays its own TUI permission prompt. Webview messages are limited to prompt, lifecycle, model-cycle, terminal input, and resize commands; they cannot choose a process or send approval results.
+
+OpenVSCode launch generations record PID, process group, start time, and a random token. Descendants inherit the token, including detached Pi and PTY processes. The supervisor reaps one token completely before restart. See [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) and [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty).
 
 ### Terminal Server (node-pty)
 
@@ -721,6 +735,7 @@ The server output is the complete resting state. Client scripts only enhance it,
 
 ## Specification Coverage
 
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected Pi RPC or Claude PTY sidebar inside the session Browser IDE
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing to customer AI Gateway
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side enterprise routing (CA trust + constant base-URLs)
 - [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) - Container start interception ordering (pre-start `interceptOutboundHttps`)

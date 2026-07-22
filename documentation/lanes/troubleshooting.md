@@ -30,6 +30,18 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
 
+### Browser IDE agent sidebar is missing or fails to start
+
+**No sidebar icon:** Confirm the session is advanced and inspect tab 1. Only exact Pi and supported Claude commands receive the extension. Codex, Copilot, Antigravity, OpenCode, Bash, malformed JSON, duplicate tab IDs, and command suffixes intentionally use `/opt/codeflare/openvscode/extensions/none`. Inspect the OpenVSCode process environment for `CODEFLARE_SIDEBAR_AGENT` and check the three inventory directories.
+
+**Pi view fails:** A sidebar Pi process must include `--mode rpc --no-session --no-themes` and `CODEFLARE_SIDEBAR=1`. A protocol error closes that child rather than accepting malformed or unsolicited JSONL. Approval manifests live briefly under `/tmp/codeflare-sidebar/pi/approvals` with mode 0600. Wrong ownership, permissive mode, expiry, stale content, a symlink target, or an ID mismatch is a denial, not a reason to loosen the checks.
+
+**Claude view fails:** Verify the image's `node-pty` loads with `/opt/openvscode-server/node` and reports addon ABI 127. The sidebar command has no `--dangerously-skip-permissions`. Before each process, `/opt/codeflare/openvscode/claude/prepare-sidebar-config.sh` replaces `/tmp/codeflare-sidebar/claude/config`; a non-directory or redirected parent makes startup fail closed. `settings.json` in that root must point to `/etc/codeflare/claude-sidebar/settings.json`.
+
+**Duplicate or orphaned child:** Do not delete pidfiles first. Check `/tmp/openvscode-generation.pid`, then stop or restart OpenVSCode so the supervisor can validate PID, start time, process group, and generation token. It sends TERM and then bounded KILL before replacement. A stale identity mismatch is intentionally left untouched. The complete-image evidence in the `browser-ide-image` CI job records the extension hash, ABI, image size, idle process count, and RSS.
+
+See [`openvscode/README.md`](../../openvscode/README.md) and [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar).
+
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
 **Symptom:** In Enterprise Mode, sessions never reach a usable terminal. Worker logs (`codeflare-enterprise-<env>`) show a rapid terminal-WebSocket reconnect storm (~10+ per minute), `Error proxying request to container`, and teardown `Final sync did NOT complete on teardown … The container is not running` — i.e. the container's PID 1 keeps exiting. Plain (non-enterprise) sessions on the same image are unaffected.
@@ -577,6 +589,7 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
 - [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected agent sidebar inventory, process, approval, and generation diagnostics
 - [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
 - [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll (fullscreen alternate-buffer wheel routing for Claude Code `/tui fullscreen` on mobile)
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants

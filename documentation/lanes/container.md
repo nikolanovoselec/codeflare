@@ -101,7 +101,9 @@ CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. 
 
 **File:** `Dockerfile` installs `openvscode-server` (Gitpod build) at a pinned version with a `sha256sum -c` verification, mirroring the SilverBullet install block. Shadow-pinned by the `openvscode-server` job in `bump-shadow-pins.yml`. The supervisor that runs it is described under [Container Startup](#openvscode-server-browser-ide).
 
-Port: 8080 (single port architecture).
+A separate digest-pinned Node 22.21.1 build stage compiles the owned agent sidebar's `node-pty@1.1.0` for OpenVSCode addon ABI 127 and bundles `@xterm/xterm@6.0.0` plus `@xterm/addon-fit@0.11.0`. The final image contains identical root-owned package bytes in fixed Pi and Claude inventories and an empty `none` inventory. The build rejects VSIX files and non-Codeflare publisher metadata. See [`openvscode/README.md`](../../openvscode/README.md).
+
+OpenVSCode listens on container-local `127.0.0.1:13337`; the terminal host remains on the container's exposed port 8080.
 
 ---
 
@@ -147,7 +149,13 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 **Idle activity ([REQ-IDE-004](../../sdd/spec/browser-ide.md#req-ide-004-resilient-editor-activity-transport)):** Every client-to-server editor frame refreshes the host's `lastInputAt` timestamp without protocol parsing. The authoritative `collectMetrics()` idle policy therefore treats continued editing as user input just like PTY keystrokes. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages -->
 
-**Supply-chain posture:** The artifact remains upstream-clean under the explicit risk acceptance in [AD97](../decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk); container isolation reduces but does not eliminate the documented editor risk.
+**Selected agent sidebar ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar)):** `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed extension directories. Invalid or unsupported configurations use the empty directory. The extension starts no child during activation. Its first visible resolution starts one separate Pi RPC or Claude PTY conversation; terminal tab 1 remains a different process and history.
+
+Pi runs `/usr/local/bin/pi --mode rpc --no-session --no-themes`. Claude runs `/usr/local/bin/claude` directly in `node-pty` with no bypass flag and a fresh `/tmp/codeflare-sidebar/claude/config` projection. The projection links approved credentials and configuration, pins root-owned settings, and omits terminal transcripts and runtime state.
+
+**Generation cleanup:** Every OpenVSCode launch runs in a new process group with a random generation token and recorded PID/start identity. Pi, Claude, and PTY descendants inherit the token. Exit, restart, and session shutdown send TERM, wait for the configured grace period, and KILL remaining generation members before replacement. `/tmp/openvscode-generation.pid` is identity-checked so a stale file cannot signal a reused PID.
+
+**Supply-chain posture:** The upstream editor artifact remains clean under the explicit risk acceptance in [AD97](../decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk). The sidebar is an external Codeflare package and contains no Anthropic VSIX. Container isolation reduces but does not eliminate the documented editor risk.
 
 ### Fast Start
 
@@ -220,7 +228,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 ## Claude Code Integration
 
-Claude Code runs directly via the official `@anthropic-ai/claude-code` npm package (`claude` command). Containers run as root, and `IS_SANDBOX=1` (set in the Dockerfile) allows `--dangerously-skip-permissions` to work as root. No wrapper or patcher needed.
+Claude Code runs directly via the official `@anthropic-ai/claude-code` npm package (`claude` command). Terminal tab 1 runs as root and uses `IS_SANDBOX=1` plus its configured `--dangerously-skip-permissions` command. The Browser IDE sidebar is separate: it starts the same binary without the bypass flag, uses a fixed Manual-mode settings overlay, and leaves approval to Claude's native TUI.
 
 **Auto-update control:** `DISABLE_AUTOUPDATER=1` prevents the CLI's internal auto-updater from running, avoiding startup delay. Updates happen at Docker build time via `.cache-bust` layer invalidation. When Fast Start is OFF, `DISABLE_AUTOUPDATER` is unset, allowing the CLI to update to latest on startup.
 
@@ -325,6 +333,7 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ## Specification Coverage
 
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Fixed sidebar inventories, Node 22 addon build, state isolation, and generation cleanup
 - [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) - Graceful container shutdown preserves data
 - [REQ-OPS-011](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim) - Container base image is Debian bookworm-slim
 - [REQ-OPS-016](../../sdd/spec/operations.md#req-ops-016-sleepafter-preference-persistence-and-lifecycle) - sleepAfter preference persistence and lifecycle

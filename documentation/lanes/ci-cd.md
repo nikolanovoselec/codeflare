@@ -93,7 +93,7 @@ Job graph: `verify` → `prepare` → (`build-worker` ∥ `container`) → `depl
 1. **prepare** — blocks production dispatches from non-main branches; resolves the environment name, checkout ref (the exact SHA whose PR Checks ended green), worker name, and cache-bust flag once for all downstream jobs.
 2. **build-worker** — builds frontend, then landing (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), uploads `web-ui/dist` as a 1-day artifact.
 3. **container** — calls `container-image.yml` to build, scan, and push the image, or to reuse an existing one:
-   - Computes the image input hash over every Dockerfile COPY source (`Dockerfile`, `entrypoint.sh`, `host/`, `preseed/`, seed scripts, `src/lib/agent-seed.generated.ts`) plus an ISO-week salt.
+   - Computes the image input hash over every Dockerfile COPY source (`Dockerfile`, `entrypoint.sh`, `host/`, `openvscode/`, `preseed/`, seed and image-smoke scripts, `src/lib/agent-seed.generated.ts`) plus an ISO-week salt.
    - If `in-<hash>` already exists in the target registry, the already-scanned image is reused and build/scan/push are skipped.
    - Otherwise buildx builds with a `type=gha` layer cache; the base image comes from `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits).
    - Trivy scans HIGH/CRITICAL with `ignore-unfixed: true` and `.trivyignore` for consciously accepted fixable CVEs (daily-cached vuln DB) — see [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011).
@@ -115,13 +115,15 @@ Tests are not re-run anywhere in this workflow — the `workflow_run` gate alrea
 
 Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `workflow_dispatch` and the nightly schedule):
 
-- **changes** — `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `workflows`. `changes.outputs.full` (the filter step's own `skipped` outcome) is the single flag meaning "no diff was filtered, run everything".
+- **changes:** `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, and `workflows`. `changes.outputs.full` (the filter step's own `skipped` outcome) is the single flag meaning "no diff was filtered, run everything".
 - **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --audit-level=high --omit=dev` (both), and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
 - **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
 - **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
 - **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
+- **browser-ide:** installs the owned extension from its lockfile under Node 22.21.1, audits dependencies and licenses, typechecks, bundles the extension and local webviews, loads `node-pty`, and runs the extension plus Claude-helper suite with coverage and a gated JSON report.
+- **browser-ide-image:** builds the complete Docker image without pushing it, verifies fixed inventories, no VSIX, root-owned immutable files, OpenVSCode ABI 127 addon loading, Claude config and hook behavior, image size, and idle OpenVSCode process/RSS evidence. It also proves no Pi or Claude child starts before the sidebar is visible.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
 - **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
 - **bundle-size** — `wrangler deploy --dry-run` against a patched config, gated on `scripts/ci/check-bundle-size.mjs` ([REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy)).
@@ -166,7 +168,7 @@ Measured 2026-07-20 on the first run that ever executed them: backend 90.2% stat
 
 **CI workerd crash guard (fail-closed):** `@cloudflare/vitest-pool-workers` crashes `workerd` at pool teardown after all tests pass — a known upstream limitation of WebSockets + Durable Objects under per-file storage isolation, still present on 0.18.x/vitest 4 (the documented alternative `--max-workers=1 --no-isolate` crashes this suite at collection). Serializing the pool never fixed it — the crash is at teardown, not a concurrency race — so the pool runs parallel and the gate, not serialization, is what makes the result trustworthy. The coverage lane tolerates that fingerprint only after it has confirmed a coverage table was produced, no test failed, and no threshold was missed ([REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)).
 
-The composite action `.github/actions/vitest-suite` is how **every** suite runs — backend shards, the Node leg, frontend shards, landing. It invokes the suite's npm script (optionally with `--shard`) with `--reporter=dot --reporter=json`, then gates via `scripts/ci/check-vitest-report.mjs` on the **machine-readable JSON report**, never on reporter prose: a zero exit still requires a parsed report with >0 tests and 0 failures (catches silently-empty runs).
+The composite action `.github/actions/vitest-suite` runs every vitest suite: backend shards, the Node leg, frontend shards, landing, and the Browser IDE extension. It invokes the suite's npm script (optionally with `--shard`) with `--reporter=dot --reporter=json`, then gates via `scripts/ci/check-vitest-report.mjs` on the **machine-readable JSON report**, never on reporter prose: a zero exit still requires a parsed report with >0 tests and 0 failures (catches silently-empty runs).
 
 A non-zero exit is accepted only when the report parses with >0 tests, 0 failed tests, 0 failed suites, AND the log carries the exact fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.`. A missing or corrupt report, an unknown error, or any failed test fails the job. Crash tolerance is opt-in per suite (`tolerate-pool-crash`), because only the Workers pool has that bug ([REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports)) — a non-zero exit from the jsdom or Node suites stays fatal. Deploy does not re-run tests, so the guard lives only here.
 
@@ -240,6 +242,7 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 ## Related Decisions
 
 - [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) - Parallel path-filtered CI lanes, fail-closed JSON test gate, staged deploy with content-addressed container reuse, scripted e2e removal
+- [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty) - Owned Browser IDE extension, Node 22 addon build, and complete-image compatibility lane
 
 ---
 

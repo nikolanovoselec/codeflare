@@ -59,7 +59,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 
 | Path | Synced | Reason |
 |------|--------|--------|
-| `~/.claude/` | Yes | Claude credentials, config, projects |
+| `~/.claude/` | Yes | Claude credentials, config, projects for terminal sessions |
+| `/tmp/codeflare-sidebar/**` | **NO** | Browser IDE Pi approval manifests and Claude sidebar runtime/config state. This path is outside the synced home tree and is removed with the container. |
 | `~/.gitconfig` | Yes | Git configuration |
 | `~/workspace/` | Depends on `SYNC_MODE` | Excluded by default (`none`). Synced when `full` or partially with `metadata`. |
 | `~/.npm/`, `~/.bun/`, `~/.cache/**` | **NO** | Package manager caches, regenerated |

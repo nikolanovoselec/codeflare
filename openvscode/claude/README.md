@@ -1,7 +1,9 @@
-# No-VSIX Claude sidebar contract
+# Claude sidebar runtime
 
-This directory holds the RED contract and inert interfaces for the Claude sidebar selected by REQ-IDE-005. It does not contain an Anthropic VSIX or a working adapter.
+These files support the Claude backend in Codeflare's owned OpenVSCode extension. They do not contain Anthropic's VSIX.
 
-The sidebar must use a fresh `0700` configuration root. Only the explicit projection allowlist may link back to approved terminal-side configuration; the projection must never copy credential bytes. Terminal transcripts, resumable sessions, runtime state, source settings, telemetry state, and unknown entries stay out of the sidebar root. Sidebar settings come from the fixed root-owned path `/etc/codeflare/claude-sidebar/settings.json`.
+`prepare-sidebar-config.sh` recreates `/tmp/codeflare-sidebar/claude/config` before every PTY process. The root is mode 0700. It links only `.credentials.json`, `CLAUDE.md`, `agents`, `commands`, `plugins`, and `skills` from the terminal-side config when those entries exist. `settings.json` points to the root-owned `/etc/codeflare/claude-sidebar/settings.json`. Terminal projects, history, session state, logs, caches, telemetry, source settings, and unknown entries are not projected. `.codeflare-projection.json` records projection schema version 1 without credential bytes.
 
-Claude's hook runner treats a timeout and every non-2 hook failure as fail-open. The configured native permission rules are therefore an independent approval layer, not a fallback implemented by the hook. The hook returns an interactive `ask` decision during normal operation and reserves exit 2 for bounded internal-failure output.
+`sidebar-settings.json` keeps Claude in Manual mode and forces native ask rules for edit, write, notebook edit, Bash, Task, network, and MCP tools. Bypass and auto modes, Remote Control, IDE extension auto-install, updates, and nonessential telemetry are disabled. `pre-tool-use-permission.mjs` adds a bounded PreToolUse decision. It asks for every tool except the fixed local read-only set and exits 2 on malformed input or internal failure. The native ask rules remain independent if the hook times out.
+
+The extension starts `/usr/local/bin/claude` directly through `node-pty`, with no shell and no `--dangerously-skip-permissions`. Claude's native TUI owns permission interaction. See [`../README.md`](../README.md) for selection, lifecycle, build, and verification details.

@@ -63,6 +63,7 @@ Every session comes pre-loaded with your choice of agent:
 
 - Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side within one session).
 - **VS Code in the browser** *(Pro sessions)* — one click in the header opens a full OpenVSCode editor on that session's workspace, in a new tab, behind the same authentication as everything else.
+- Pi and Claude sessions get a separate agent sidebar inside the editor. Pi runs through strict no-session RPC; Claude uses its existing CLI in an embedded terminal with native permission prompts. Neither sidebar attaches to terminal tab 1, and unsupported agents load no extension.
 - The editor lazy-starts on first open (a warming page retries until it's ready), restarts automatically after an interruption, and stops with the session — zero cost until you use it.
 - **MultiView** — view several running sessions side by side in one workspace. It's a virtual view over sessions you already have: no new session is created, and no existing session's lifecycle is affected.
 - One isolated container per session — agents can't escape their sandbox.
@@ -215,7 +216,7 @@ See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite.
 |---|---|---|
 | `deploy.yml` | Green PR Checks on `main` / manual | Staged deploy: worker assets in parallel with the container image (reused when inputs unchanged), then deploy |
 | `container-image.yml` | Called by `deploy.yml` | Reusable container build + Trivy scan + push (Cloudflare registry or Docker Hub bypass) |
-| `test.yml` | Pull requests, push to `main` | Parallel path-filtered lanes: lint, sharded backend tests, typecheck, audits, dependency review |
+| `test.yml` | Pull requests, push to `main`, nightly | Parallel path-filtered lanes: lint, sharded suites, typechecks, audits, dependency review, and complete-image Browser IDE sidebar verification |
 | `zizmor.yml` | Workflow changes | Static security audit of the GitHub Actions workflows |
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
 | `scorecard.yml` | Push to `main`, weekly, manual | OSSF Scorecard |

@@ -97,7 +97,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml --> <!-- @manual -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
-6. Browser IDE extension changes run a required lane covering clean install, typecheck, deterministic build, behavioral tests, dependency audit, fail-closed machine-readable reports, and a relevant-PR complete-image smoke that does not push the image. <!-- @manual -->
+6. Browser IDE extension changes run a required lane covering clean install, typecheck, deterministic build, behavioral tests, dependency audit, fail-closed machine-readable reports, and a relevant-PR complete-image smoke that does not push the image. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (REQ-OPS-003 AC6: declares and routes the required Browser IDE lane) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
 
 **Constraints:**
 
@@ -113,7 +113,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Manual check
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -512,7 +512,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver --> <!-- @manual -->
 2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
-3. Each remaining non-Dependabot pin (bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable, the Graphify plugin, actionlint, each Pi extension, the agent CLIs, OpenVSCode Server, and the Antigravity CLI) bumps in its own PR via a dedicated job or matrix leg; OpenVSCode, Claude CLI, and Pi bumps run their applicable Browser IDE compatibility smoke, while the owned extension's ordinary npm dependencies remain Dependabot-owned. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::openvscode-server --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
+3. Each remaining non-Dependabot pin (bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable, the Graphify plugin, actionlint, each Pi extension, the agent CLIs, OpenVSCode Server, and the Antigravity CLI) bumps in its own PR via a dedicated job or matrix leg; OpenVSCode, Claude CLI, and Pi bumps run their applicable Browser IDE compatibility smoke, while the owned extension's ordinary npm dependencies remain Dependabot-owned. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::openvscode-server --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
 4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, failing the build until the operator verifies it; the actionlint job instead resolves the checksum from the release manifest and re-verifies it against the downloaded artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::sum --> <!-- @manual -->
 5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch --> <!-- @manual -->
 6. The context-mode and pi-extensions jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
@@ -528,7 +528,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** [Automated test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
