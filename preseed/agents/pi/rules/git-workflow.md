@@ -14,7 +14,7 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 ## Mandatory boundary stop
 
-After successful `git push` or `gh pr create`, **end the turn immediately** and report only the push result or PR URL. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. A plan not yet visible is queued, not missing.
+After either eligible boundary succeeds — creating an open PR to `main`/`master`, or pushing one non-deleted branch that has an open PR to `main`/`master` — **end the turn immediately** and report only the push result or PR URL. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. Ordinary branch or tag pushes, branch deletion/pruning, mirror or multi-ref pushes, and PR edit/update/merge commands are not boundaries and do not require this stop. A plan not yet visible after an eligible boundary is queued, not missing.
 
 ## Execute one boundary plan
 
@@ -27,7 +27,7 @@ After successful `git push` or `gh pr create`, **end the turn immediately** and 
 
 3. No stdout means no monitor. Otherwise submit the sole JSON object unchanged once through public `subagent`; CI is the last launch.
 4. Wait for all required reviewers; CI is independent. In a tool-free response after the latest required reviewer notification, publish one table with `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. Reject unsupported proposals, make no file or Git changes, and end the turn immediately.
-5. Settled enforcement acknowledges the reviewed head and queues the FIX follow-up. In that separate turn, apply only the accepted minimal fixes unless approval was requested.
+5. Agent-end enforcement acknowledges the reviewed head from live session state and queues the FIX follow-up; settled enforcement is the fallback. In that separate turn, apply only the accepted minimal fixes unless approval was requested.
 
 A plan may contain reviewers, CI, or both. Vibe-coding repositories receive eligible CI only. No request is returned when launch order is unresolved, cwd is absent, or no PR targets `main`/`master`. Never relaunch an aborted monitor automatically.
 

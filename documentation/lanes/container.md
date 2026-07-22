@@ -149,7 +149,7 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 **Idle activity ([REQ-IDE-004](../../sdd/spec/browser-ide.md#req-ide-004-resilient-editor-activity-transport)):** Every client-to-server editor frame refreshes the host's `lastInputAt` timestamp without protocol parsing. The authoritative `collectMetrics()` idle policy therefore treats continued editing as user input just like PTY keystrokes. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages -->
 
-**Selected agent sidebar ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle)):** `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed extension directories. Invalid or unsupported configurations use the empty directory. The extension starts no child during activation. Its first visible resolution starts one separate Pi RPC or Claude PTY conversation; terminal tab 1 remains a different process and history.
+**Selected agent sidebar ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle)):** `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed extension directories. Invalid or unsupported configurations use the empty directory. The extension starts no child during activation. Its first visible resolution starts one separate Pi RPC or Claude PTY conversation; terminal tab 1 remains a different process and history.
 
 Pi runs `/usr/local/bin/pi --mode rpc --no-session --no-themes`. Claude runs `/usr/local/bin/claude` directly in `node-pty` with no bypass flag and a fresh `/tmp/codeflare-sidebar/claude/config` projection. The projection links approved credentials and configuration, pins root-owned settings, and omits terminal transcripts and runtime state.
 
@@ -334,7 +334,9 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 ## Specification Coverage
 
 - [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Fixed sidebar inventories and Node 22 addon build
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-isolation-and-guarded-lifecycle) - Sidebar state isolation and generation cleanup
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation) - Sidebar state isolation
+- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval) - Sidebar guarded approvals
+- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle) - Sidebar generation cleanup
 - [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) - Graceful container shutdown preserves data
 - [REQ-OPS-011](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim) - Container base image is Debian bookworm-slim
 - [REQ-OPS-016](../../sdd/spec/operations.md#req-ops-016-sleepafter-preference-persistence-and-lifecycle) - sleepAfter preference persistence and lifecycle

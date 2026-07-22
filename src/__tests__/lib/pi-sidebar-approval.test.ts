@@ -132,8 +132,8 @@ function registered(harness = makeHarness()): { harness: Harness; pi: FakePi } {
   return { harness, pi };
 }
 
-describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
-  it('REQ-IDE-006 AC4: previews an edit diff before the first mutation', async () => {
+describe('REQ-IDE-007: Pi sidebar guarded approvals', () => {
+  it('REQ-IDE-007 AC1: previews an edit diff before the first mutation', async () => {
     const h = makeHarness();
     h.setApproval((request) => {
       expect(h.events.some((event) => event.startsWith('edit-write:'))).toBe(false);
@@ -147,7 +147,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('after\n');
   });
 
-  it('REQ-IDE-006 AC4: previews a write diff before mkdir or write', async () => {
+  it('REQ-IDE-007 AC1: previews a write diff before mkdir or write', async () => {
     const target = `${WORKSPACE}/new/created.ts`;
     const h = makeHarness({});
     h.setApproval((request) => {
@@ -161,7 +161,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(target)).toBe('created\n');
   });
 
-  it('REQ-IDE-006 AC5: rejection leaves targets unchanged and does not mkdir', async () => {
+  it('REQ-IDE-007 AC2: rejection leaves targets unchanged and does not mkdir', async () => {
     const target = `${WORKSPACE}/rejected/new.ts`;
     const h = makeHarness();
     h.setApproval((request) => ({ id: request.id, approved: false }));
@@ -172,7 +172,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.events.some((event) => /^(mkdir|write):/.test(event))).toBe(false);
   });
 
-  it('REQ-IDE-006 AC5: preview failure denies without approval or mutation', async () => {
+  it('REQ-IDE-007 AC2: preview failure denies without approval or mutation', async () => {
     const h = makeHarness();
     h.dependencies.editOperations = { ...h.dependencies.editOperations!, readFile: async () => { throw new Error('preview unavailable'); } };
     const result = await tools(h).edit.execute('edit-preview-failed', { path: TARGET, edits: [{ oldText: 'before', newText: 'after' }] }, undefined, undefined, context());
@@ -181,7 +181,20 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('before\n');
   });
 
-  it('REQ-IDE-006 AC5: stale content after approval is not overwritten', async () => {
+  it('REQ-IDE-007 AC2: an oversized serialized preview is denied before approval or mutation', async () => {
+    const before = `${'a'.repeat(600 * 1024)}\n`;
+    const after = `${'b'.repeat(600 * 1024)}\n`;
+    const h = makeHarness({ [TARGET]: before });
+
+    const result = await tools(h).write.execute('write-oversized-preview', { path: TARGET, content: after }, undefined, undefined, context());
+
+    expect(text(result)).toMatch(/preview.*size|size.*preview/i);
+    expect(h.approvals).toHaveLength(0);
+    expect(h.files.get(TARGET)).toBe(before);
+    expect(h.events.some((event) => event.startsWith('write:'))).toBe(false);
+  });
+
+  it('REQ-IDE-007 AC2: stale content after approval is not overwritten', async () => {
     const h = makeHarness();
     h.setApproval((request) => { h.files.set(TARGET, 'newer\n'); return { id: request.id, approved: true }; });
     const result = await tools(h).edit.execute('edit-stale', { path: TARGET, edits: [{ oldText: 'before', newText: 'after' }] }, undefined, undefined, context());
@@ -190,7 +203,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.events.some((event) => event.startsWith('edit-write:'))).toBe(false);
   });
 
-  it('REQ-IDE-006 AC5: expired approval cannot mutate', async () => {
+  it('REQ-IDE-007 AC2: expired approval cannot mutate', async () => {
     const h = makeHarness();
     h.setApproval((request, harness) => { harness.setNow(request.expiresAt + 1); return { id: request.id, approved: true }; });
     const result = await tools(h).write.execute('write-expired', { path: TARGET, content: 'after\n' }, undefined, undefined, context());
@@ -198,7 +211,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('before\n');
   });
 
-  it('REQ-IDE-006 AC5: approval is bound to an opaque generated ID', async () => {
+  it('REQ-IDE-007 AC2: approval is bound to an opaque generated ID', async () => {
     const h = makeHarness();
     h.setApproval(() => ({ id: 'forged-readable-id', approved: true }));
     const result = await tools(h).write.execute('write-forged', { path: TARGET, content: 'after\n' }, undefined, undefined, context());
@@ -208,7 +221,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('before\n');
   });
 
-  it('REQ-IDE-006 AC5: symlink target is denied before approval', async () => {
+  it('REQ-IDE-007 AC2: symlink target is denied before approval', async () => {
     const h = makeHarness();
     h.dependencies.inspectPath = async (path) => ({ absolutePath: path, canonicalPath: TARGET, exists: true, symbolicLink: true });
     const result = await tools(h).write.execute('write-symlink', { path: TARGET, content: 'after\n' }, undefined, undefined, context());
@@ -217,7 +230,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('before\n');
   });
 
-  it('REQ-IDE-006 AC5: a failed staged replacement leaves the approved existing file intact', async () => {
+  it('REQ-IDE-007 AC2: a failed staged replacement leaves the approved existing file intact', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'pi-sidebar-atomic-'));
     const project = join(workspace, 'project');
     const movedProject = join(workspace, 'project-moved');
@@ -259,7 +272,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     }
   });
 
-  it('REQ-IDE-006 AC5: mutation boundary cannot follow a parent symlink swapped in after approval', async () => {
+  it('REQ-IDE-007 AC2: mutation boundary cannot follow a parent symlink swapped in after approval', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'pi-sidebar-workspace-'));
     const outside = await mkdtemp(join(tmpdir(), 'pi-sidebar-outside-'));
     const project = join(workspace, 'project');
@@ -309,7 +322,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     }
   });
 
-  it('REQ-IDE-006 AC5: target outside workspace is denied before approval', async () => {
+  it('REQ-IDE-007 AC2: target outside workspace is denied before approval', async () => {
     const h = makeHarness();
     h.dependencies.inspectPath = async (path) => ({ absolutePath: path, canonicalPath: '/tmp/escaped.ts', exists: true, symbolicLink: false });
     const result = await tools(h).edit.execute('edit-outside', { path: TARGET, edits: [{ oldText: 'before', newText: 'after' }] }, undefined, undefined, context());
@@ -318,7 +331,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('before\n');
   });
 
-  it('REQ-IDE-006 AC5: mutation is denied outside sidebar RPC owner mode', async () => {
+  it('REQ-IDE-007 AC2: mutation is denied outside sidebar RPC owner mode', async () => {
     const h = makeHarness();
     const result = await tools(h).write.execute('write-mode', { path: TARGET, content: 'after\n' }, undefined, undefined, context({ mode: 'tui' }));
     expect(text(result)).toMatch(/rpc|sidebar|mode/i);
@@ -326,7 +339,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('before\n');
   });
 
-  it('REQ-IDE-006 AC5: same-file approval windows serialize', async () => {
+  it('REQ-IDE-007 AC2: same-file approval windows serialize', async () => {
     const h = makeHarness();
     let ordinal = 0;
     h.setApproval(async (request) => {
@@ -345,14 +358,14 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.files.get(TARGET)).toBe('two\n');
   });
 
-  it('REQ-IDE-006 AC4: successful mutation reports the post-write hash', async () => {
+  it('REQ-IDE-007 AC1: successful mutation reports the post-write hash', async () => {
     const h = makeHarness();
     const result = await tools(h).write.execute('write-hash', { path: TARGET, content: 'after\n' }, undefined, undefined, context());
     expect(h.files.get(TARGET)).toBe('after\n');
     expect(result.details).toMatchObject({ approvalId: OPAQUE_ID, postWriteSha256: sha256('after\n') });
   });
 
-  it('REQ-IDE-006 AC4: Bash preserves the exact approved command and cwd', async () => {
+  it('REQ-IDE-007 AC1: Bash preserves the exact approved command and cwd', async () => {
     const h = makeHarness();
     const command = 'printf "%s" "$HOME" && pwd';
     h.setApproval((request) => {
@@ -364,7 +377,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(result.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'text', text: expect.stringContaining('command output') })]));
   });
 
-  it('REQ-IDE-006 AC5: rejected Bash starts no process', async () => {
+  it('REQ-IDE-007 AC2: rejected Bash starts no process', async () => {
     const h = makeHarness();
     h.setApproval((request) => ({ id: request.id, approved: false }));
     const result = await tools(h).bash.execute('bash-rejected', { command: 'touch should-not-exist' }, undefined, undefined, context());
@@ -372,7 +385,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(h.events.some((event) => event.startsWith('exec:'))).toBe(false);
   });
 
-  it('REQ-IDE-006 AC5: guarded-name replacement by another source is blocked', async () => {
+  it('REQ-IDE-007 AC2: guarded-name replacement by another source is blocked', async () => {
     const fixture = registered();
     fixture.pi.setSource('edit', { path: '/tmp/untrusted.ts', source: 'third-party', scope: 'project', origin: 'package' });
     const decision = await fixture.pi.emit({ type: 'tool_call', toolName: 'edit', toolCallId: 'replacement', input: { path: TARGET } });
@@ -382,7 +395,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     expect(fixture.harness.files.get(TARGET)).toBe('before\n');
   });
 
-  it('REQ-IDE-006 AC4: unknown and MCP tools use generic approval', async () => {
+  it('REQ-IDE-007 AC1: unknown and MCP tools use generic approval', async () => {
     for (const toolName of ['third_party_action', 'mcp__example__mutate']) {
       const fixture = registered();
       fixture.harness.setApproval((request) => {
@@ -395,7 +408,7 @@ describe('REQ-IDE-006: Pi sidebar guarded approvals', () => {
     }
   });
 
-  it('REQ-IDE-006 AC5: no-UI and nested approval attempts fail closed', async () => {
+  it('REQ-IDE-007 AC2: no-UI and nested approval attempts fail closed', async () => {
     const fixture = registered();
     const noUi = await fixture.pi.emit({ type: 'tool_call', toolName: 'mcp__example__mutate', toolCallId: 'no-ui', input: {} }, context({ hasUI: false, mode: 'json' }));
     expect(noUi).toMatchObject({ block: true });

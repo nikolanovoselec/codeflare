@@ -37,6 +37,7 @@ const MANIFEST_ROOT = "/tmp/codeflare-sidebar/pi/approvals";
 const APPROVAL_TTL_MS = 30_000;
 const MAX_GENERIC_INPUT_BYTES = 64 * 1024;
 const MAX_PREVIEW_BYTES = 768 * 1024;
+const MAX_APPROVAL_MANIFEST_BYTES = 1024 * 1024;
 const MAX_BASH_OUTPUT_BYTES = 1024 * 1024;
 
 export type SidebarApprovalPreview =
@@ -145,6 +146,9 @@ export function createSidebarApprovalTools(
       expiresAt: createdAt + APPROVAL_TTL_MS,
       preview,
     };
+    if (serializeApprovalRequest(request) === undefined) {
+      return { request, approved: false, reason: "Approval preview exceeds the sidebar size limit." };
+    }
     const decision = await requestApproval(request, ctx);
     if (decision.id !== request.id) return { request, approved: false, reason: "Approval ID was invalid." };
     if (!decision.approved) return { request, approved: false, reason: "Operation was rejected." };
@@ -730,10 +734,12 @@ async function requestHostApproval(
   }
   await chmod(MANIFEST_ROOT, 0o700);
   const manifestPath = resolve(MANIFEST_ROOT, `${request.id}.json`);
+  const serialized = serializeApprovalRequest(request);
+  if (serialized === undefined) throw new Error("Approval preview exceeds the sidebar size limit");
   const handle = await open(manifestPath, "wx", 0o600);
   try {
     await handle.chmod(0o600);
-    await handle.writeFile(`${JSON.stringify(request)}\n`, { encoding: "utf8" });
+    await handle.writeFile(serialized, { encoding: "utf8" });
   } finally {
     await handle.close();
   }
@@ -754,6 +760,15 @@ function isTrustedReadOnlyTool(toolName: string, pi: ExtensionAPI): boolean {
 
 function ownsGuardedTool(path: string | undefined): boolean {
   return typeof path === "string" && (path === SIDEBAR_APPROVAL_SOURCE || path.endsWith(`/${SIDEBAR_APPROVAL_SOURCE}`));
+}
+
+function serializeApprovalRequest(request: SidebarApprovalRequest): string | undefined {
+  try {
+    const serialized = `${JSON.stringify(request)}\n`;
+    return Buffer.byteLength(serialized, "utf8") <= MAX_APPROVAL_MANIFEST_BYTES ? serialized : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function safeSerialize(value: unknown): string | undefined {

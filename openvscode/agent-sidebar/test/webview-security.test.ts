@@ -49,7 +49,7 @@ test('webview authority accepts only bounded backend-specific user commands', ()
   );
 });
 
-test('REQ-IDE-006 AC5: webview messages cannot forge approval or choose process authority', () => {
+test('REQ-IDE-007 AC2: webview messages cannot forge approval or choose process authority', () => {
   const authority = new WebviewMessageAuthority({ maxPromptBytes: 32, maxTerminalInputBytes: 16 });
   const forbidden = [
     { type: 'extension_ui_response', id: 'approval-1', confirmed: true },

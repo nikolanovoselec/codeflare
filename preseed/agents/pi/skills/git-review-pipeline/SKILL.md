@@ -19,12 +19,11 @@ The Pi extension emits one structured launch plan after a supported successful b
 
 | Boundary | Review behavior |
 |---|---|
-| Successful `git push` with an open PR to `main`/`master` | Extension may name the required lanes |
-| Successful `gh pr create --base main|master` | Extension may name required lanes and an independent CI wave |
-| Successful protected-base `gh pr edit` | Extension may name the required lanes |
-| Successful `gh pr merge` | Settled boundary only; there is no pre-command merge interceptor |
+| Successful single-branch push whose destination has an open PR to `main`/`master` | Extension may name the required lanes |
+| Successful `gh pr create` whose resulting open PR targets `main`/`master` | Extension may name required lanes and an independent CI wave |
 | PR into `develop` / `staging` | Review deferred |
-| Push with no open main-bound PR | No PR-boundary review |
+| Push with no open protected-base PR | No PR-boundary review |
+| Branch deletion, tag/multi-ref push, or PR edit/update/merge | No PR-boundary review |
 
 ## Root main-session action
 
@@ -36,7 +35,7 @@ When the reminder or follow-up lists lanes:
 4. If the same extension plan includes a CI wave, submit that independent CI request last without waiting for review completion. Do not infer a second CI trigger from the Git command.
 5. Wait for every required reviewer notification, regardless of completion order.
 6. Publish one consolidated triage summary. For every finding, decide independently whether the finding is evidence-backed and in scope, whether its proposed fix is proportional, and what smallest correction reuses existing machinery.
-7. Reject false positives and overengineered proposals with evidence. Make no file or Git changes after triage; end the turn immediately so settled enforcement can acknowledge the reviewed head.
+7. Reject false positives and overengineered proposals with evidence. Make no file or Git changes after triage; end the turn immediately so agent-end enforcement can acknowledge the reviewed head from live session state; settled enforcement is the fallback.
 8. In the separate FIX follow-up turn, apply only the accepted legitimate minimal fixes unless the user explicitly requested approval or validation.
 9. The root main session alone commits and pushes. Reviewers and other subagents never push.
 

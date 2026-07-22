@@ -75,7 +75,7 @@ test('REQ-IDE-005 AC4: Claude selection never constructs the Pi backend', async 
   assert.deepEqual(events, ['claude:start']);
 });
 
-test('REQ-IDE-005 AC4: repeated visible resolution reuses one backend instance', async () => {
+test('REQ-IDE-005 AC5: repeated visible resolution reuses one backend instance', async () => {
   const events: string[] = [];
   const lifecycle = new SidebarLifecycle('pi', recordingFactories(events));
 
@@ -86,7 +86,7 @@ test('REQ-IDE-005 AC4: repeated visible resolution reuses one backend instance',
   assert.deepEqual(events, ['pi:start']);
 });
 
-test('REQ-IDE-005 AC4 + REQ-IDE-006 AC6: visible resolution restarts a cached backend after an unexpected exit', async () => {
+test('REQ-IDE-005 AC5 + REQ-IDE-008 AC4: visible resolution restarts a cached backend after an unexpected exit', async () => {
   const events: string[] = [];
   const lifecycle = new SidebarLifecycle('claude', recordingFactories(events));
 
@@ -99,7 +99,7 @@ test('REQ-IDE-005 AC4 + REQ-IDE-006 AC6: visible resolution restarts a cached ba
   assert.deepEqual(events, ['claude:start', 'claude:stop', 'claude:start']);
 });
 
-test('REQ-IDE-006 AC6: extension deactivation stops the selected backend', async () => {
+test('REQ-IDE-008 AC3: extension deactivation stops the selected backend', async () => {
   const events: string[] = [];
   const lifecycle = new SidebarLifecycle('pi', recordingFactories(events));
 

@@ -1,5 +1,5 @@
 // Real behavioral tests for the OpenVSCode supervisor in entrypoint.sh
-// (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003, REQ-IDE-005, REQ-IDE-006).
+// (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003, REQ-IDE-005, REQ-IDE-008).
 //
 // Per tdd-discipline / engineering-constitution mandate 2 we do NOT match
 // source text: we EXTRACT the real shell functions, RUN them with a stubbed
@@ -115,6 +115,15 @@ function writeTermIgnoringChild(dir) {
   return writeExecutable(dir, 'managed-child', `#!/usr/bin/env bash
 trap 'printf "TERM\\n" >> "$TERM_LOG"' TERM
 while true; do sleep 1; done
+`);
+}
+
+function writeSignalRecordingChild(dir) {
+  return writeExecutable(dir, 'signal-recording-child', `#!/usr/bin/env node
+const { appendFileSync, writeFileSync } = require('node:fs');
+process.on('SIGTERM', () => appendFileSync(process.env.SIGNAL_LOG, "TERM\\n"));
+writeFileSync(process.env.ACTUAL_PID_FILE, String(process.pid) + "\\n");
+setInterval(() => {}, 1_000);
 `);
 }
 
@@ -281,7 +290,7 @@ describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC4 (lazy no-launch, rest
   });
 });
 
-describe('OpenVSCode launch generations / REQ-IDE-006 AC6', () => {
+describe('OpenVSCode launch generations / REQ-IDE-008 AC5', () => {
   let dir, flag, trigger;
   beforeEach(() => {
     dir = mkTmp('ovsc-generation-');
@@ -292,7 +301,7 @@ describe('OpenVSCode launch generations / REQ-IDE-006 AC6', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-003 AC4 + REQ-IDE-006 AC6: each restart creates one separately identifiable launch generation', () => {
+  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC5: each restart creates one separately identifiable launch generation', () => {
     const launchesFile = join(dir, 'launches.log');
     const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
 pgid="$(ps -o pgid= -p "$$" | tr -d ' ')"
@@ -323,7 +332,7 @@ exit 17
     assert.equal(new Set(launches.map(({ pgid }) => pgid)).size, launches.length, 'each generation has its own process group');
   });
 
-  it('REQ-IDE-003 AC4 + REQ-IDE-006 AC6: restart sends TERM then bounded KILL to a TERM-ignoring managed descendant', () => {
+  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC5: restart sends TERM then bounded KILL to a TERM-ignoring managed descendant', () => {
     const launchCount = join(dir, 'launch-count');
     const childPid = join(dir, 'managed.pid');
     const restartProbe = join(dir, 'restart-probe.log');
@@ -373,7 +382,7 @@ fi`, {
     assert.equal(readFileSync(restartProbe, 'utf8').trim().split('\n')[0], 'prior=dead', 'TERM-ignoring descendant is KILLed before replacement');
   });
 
-  it('REQ-IDE-003 AC4 + REQ-IDE-006 AC6: OpenVSCode restart never leaves duplicate Pi or Claude children', () => {
+  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC5: OpenVSCode restart never leaves duplicate Pi or Claude children', () => {
     const cases = [
       { agent: 'pi', config: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]) },
       { agent: 'claude', config: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]) },
@@ -424,7 +433,7 @@ kill -KILL "$child" 2>/dev/null || true`, {
     assert.deepEqual(observed, ['agent=pi duplicate=0', 'agent=claude duplicate=0']);
   });
 
-  it('REQ-IDE-006 AC6: cleans one launch generation before restart without signaling an identity-mismatched PID', () => {
+  it('REQ-IDE-008 AC5: cleans one launch generation before restart without signaling an identity-mismatched PID', () => {
     const launchCount = join(dir, 'launch-count');
     const managedPid = join(dir, 'managed.pid');
     const restartProbe = join(dir, 'restart-probe.log');
@@ -432,6 +441,7 @@ kill -KILL "$child" 2>/dev/null || true`, {
     const unrelatedPidfile = join(dir, 'unrelated.pid');
     const unrelatedTermLog = join(dir, 'unrelated-term.log');
     const managedChild = writeTermIgnoringChild(dir);
+    const signalChild = writeSignalRecordingChild(dir);
     const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
 count=0
 [ ! -f "$LAUNCH_COUNT" ] || read -r count < "$LAUNCH_COUNT"
@@ -451,11 +461,7 @@ exit 0
     const result = runBash(`${acceleratedSupervisorScript()}
 ${extractKillHelpers()}
 unrelated_actual_pidfile="$UNRELATED_PIDFILE.actual"
-SIGNAL_LOG="$UNRELATED_TERM_LOG" ACTUAL_PID_FILE="$unrelated_actual_pidfile" setsid --fork --wait bash -c '
-  printf "%s\\n" "$BASHPID" > "$ACTUAL_PID_FILE"
-  trap '\''printf "TERM\\n" >> "$SIGNAL_LOG"'\'' TERM
-  while true; do sleep 0.1; done
-' >/dev/null 2>&1 &
+SIGNAL_LOG="$UNRELATED_TERM_LOG" ACTUAL_PID_FILE="$unrelated_actual_pidfile" setsid --fork --wait "$SIGNAL_CHILD" >/dev/null 2>&1 &
 unrelated_launcher=$!
 cleanup_unrelated_fixture() {
   local actual=""
@@ -501,6 +507,7 @@ fi`, {
       RESTART_PROBE: restartProbe,
       TERM_LOG: managedTermLog,
       MANAGED_CHILD: managedChild,
+      SIGNAL_CHILD: signalChild,
       UNRELATED_PIDFILE: unrelatedPidfile,
       UNRELATED_TERM_LOG: unrelatedTermLog,
     });
@@ -512,22 +519,19 @@ fi`, {
   });
 });
 
-describe('identity-safe OpenVSCode cleanup / REQ-IDE-006 AC6', () => {
+describe('identity-safe OpenVSCode cleanup / REQ-IDE-008 AC5', () => {
   let dir;
   beforeEach(() => { dir = mkTmp('ovsc-identity-'); });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-006 AC6: token cleanup survives stale leader metadata without signaling an unrelated generation', () => {
+  it('REQ-IDE-008 AC5: token cleanup survives stale leader metadata without signaling an unrelated generation', () => {
+    const signalChild = writeSignalRecordingChild(dir);
     const result = runBash(`${extractKillHelpers()}
 probe_identity() {
   local label="$1" expected_pid_mode="$2" expected_start_mode="$3" expected_generation="$4"
   local pidfile="$FIXTURE/$label.pid" signal_log="$FIXTURE/$label.signal"
   local actual_pid_file="$FIXTURE/$label.actual-pid"
-  SIGNAL_LOG="$signal_log" ACTUAL_PID_FILE="$actual_pid_file" CODEFLARE_OPENVSCODE_GENERATION=actual-generation setsid --fork --wait bash -c '
-    printf "%s\\n" "$BASHPID" > "$ACTUAL_PID_FILE"
-    trap '\''printf "TERM\\n" >> "$SIGNAL_LOG"'\'' TERM
-    while true; do sleep 0.1; done
-  ' >/dev/null 2>&1 &
+  SIGNAL_LOG="$signal_log" ACTUAL_PID_FILE="$actual_pid_file" CODEFLARE_OPENVSCODE_GENERATION=actual-generation setsid --fork --wait "$SIGNAL_CHILD" >/dev/null 2>&1 &
   local launcher=$!
   cleanup_probe_fixture() {
     local actual=""
@@ -568,6 +572,7 @@ probe_identity pid mismatch match actual-generation
 probe_identity start match mismatch actual-generation
 probe_identity generation match match other-generation`, {
       FIXTURE: dir,
+      SIGNAL_CHILD: signalChild,
       OPENVSCODE_TERM_GRACE_SECONDS: '0.2',
     });
 
@@ -580,7 +585,7 @@ probe_identity generation match match other-generation`, {
     ]);
   });
 
-  it('REQ-IDE-006 AC6: generation cleanup rescans children forked between signal snapshots', () => {
+  it('REQ-IDE-008 AC5: generation cleanup rescans children forked between signal snapshots', () => {
     const forker = writeExecutable(dir, 'fork-on-term', `#!/usr/bin/env bash
 trap '
   (
@@ -634,7 +639,7 @@ if kill -0 "$child" 2>/dev/null; then echo "ALIVE"; else echo "DEAD"; fi
     assert.equal(r.stdout.trim(), 'DEAD');
   });
 
-  it('REQ-IDE-003 AC5 + REQ-IDE-006 AC6: session shutdown removes the current launch group and supervisor', () => {
+  it('REQ-IDE-003 AC5 + REQ-IDE-008 AC5: session shutdown removes the current launch group and supervisor', () => {
     const flag = join(dir, 'init-complete');
     const trigger = join(dir, 'requested');
     const managedPid = join(dir, 'managed.pid');

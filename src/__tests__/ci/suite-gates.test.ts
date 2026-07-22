@@ -111,6 +111,53 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       artifacts: ['browser-ide'],
     });
   });
+
+  it('REQ-OPS-003 AC6: requires non-publishing complete-image smoke in the required status', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: Record<string, {
+        if?: string;
+        needs?: string | string[];
+        'continue-on-error'?: boolean;
+        steps?: Array<{
+          name?: string;
+          if?: string;
+          run?: string;
+          uses?: string;
+          with?: Record<string, unknown>;
+          'continue-on-error'?: boolean;
+        }>;
+      }>;
+    };
+    const extensionJob = workflow.jobs['browser-ide'];
+    const imageJob = workflow.jobs['browser-ide-image'];
+    const summaryJob = workflow.jobs.summary;
+
+    expect(extensionJob).toBeDefined();
+    expect(imageJob).toBeDefined();
+    expect(imageJob.needs).toEqual(['changes', 'browser-ide']);
+    expect(imageJob['continue-on-error']).not.toBe(true);
+    expect(imageJob.if?.replace(/\s+/g, ' ').trim()).toBe(
+      "(needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') && needs.browser-ide.result == 'success'",
+    );
+
+    const imageSteps = imageJob.steps ?? [];
+    const criticalSteps = imageSteps.filter((step) => step.name !== 'Upload image evidence');
+    expect(criticalSteps.every((step) => step.if === undefined && step['continue-on-error'] !== true)).toBe(true);
+    const imageCommands = imageSteps.flatMap((step) => step.run ?? []).join('\n');
+    expect(imageCommands).toContain('docker build --tag "$IMAGE" .');
+    expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
+    expect(imageSteps.flatMap((step) => step.uses ?? [])).toEqual([
+      'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0',
+      'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+    ]);
+    expect(imageCommands).not.toMatch(
+      /\b(?:docker|podman)\s+(?:(?:image|manifest)\s+)?(?:login|push)\b|\bdocker\s+(?:buildx\s+build|build)\b[^;&]*--push\b|\b(?:npm\s+publish|oras\s+push|skopeo\s+copy)\b/i,
+    );
+    expect(JSON.stringify(imageSteps)).not.toMatch(/(?:login|build-push)-action/i);
+
+    const requiredJobs = Array.isArray(summaryJob.needs) ? summaryJob.needs : [summaryJob.needs];
+    expect(requiredJobs).toEqual(expect.arrayContaining(['browser-ide', 'browser-ide-image']));
+  });
 });
 
 function flattenPatterns(values: unknown[]): string[] {

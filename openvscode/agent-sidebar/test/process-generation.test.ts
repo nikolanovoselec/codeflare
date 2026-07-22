@@ -21,7 +21,7 @@ afterEach(() => {
   }
 });
 
-test('REQ-IDE-006 AC6: one sidebar generation reaps a TERM-ignoring descendant in another process group', async () => {
+test('REQ-IDE-008 AC5: one sidebar generation reaps a TERM-ignoring descendant in another process group', async () => {
   const token = `test-${randomUUID()}`;
   const leader = spawn(
     '/bin/sh',

@@ -29,8 +29,7 @@ type PrState = {
 
 type Dependencies = {
   queryPr(repo: string, target?: string): Promise<PrState | undefined>;
-  queryHead?(repo: string): Promise<string | undefined>;
-  fetchPrHead?(repo: string, pr: PrState): Promise<boolean>;
+  queryHead?(repo: string, revision?: string): Promise<string | undefined>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
 };
@@ -39,12 +38,13 @@ type ReviewContext = {
   cwd: string;
   sessionManager: {
     getSessionFile(): string | undefined;
+    getEntries?(): Record<string, any>[];
     getHeader?(): { parentSession?: string } | undefined;
   };
 };
 
 type ReviewPi = ToolActivationPi & {
-  on(event: "tool_result" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  on(event: "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -120,14 +120,6 @@ function readAck(repo: string): string | undefined {
     return fullSha(value) ? value : undefined;
   } catch {
     return undefined;
-  }
-}
-
-function clearAck(repo: string): void {
-  try {
-    unlinkSync(ackPath(repo));
-  } catch {
-    // Missing acknowledgement is the normal unreviewed state.
   }
 }
 
@@ -213,37 +205,15 @@ function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-async function fetchPrHead(
-  repo: string,
-  pr: PrState,
-  runner: QueryPrRunner = execFileAsync,
-): Promise<boolean> {
-  try {
-    await runner(
-      "git",
-      ["fetch", "--no-tags", "--quiet", "origin", `refs/pull/${pr.number}/head`],
-      { cwd: repo, encoding: "utf8", timeout: 15_000 },
-    );
-    const result = await runner(
-      "git",
-      ["rev-parse", "FETCH_HEAD"],
-      { cwd: repo, encoding: "utf8", timeout: 5_000 },
-    );
-    return String(result.stdout).trim() === pr.headRefOid;
-  } catch {
-    return false;
-  }
-}
-
 async function currentReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
   target: string | undefined,
-  remoteHeadAuthoritative = false,
+  revision = "HEAD",
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
   const context = boundaryContext(ctx);
   if (!context) return undefined;
-  const head = await (dependencies.queryHead ?? queryHead)(context.repo);
+  const head = await (dependencies.queryHead ?? queryHead)(context.repo, revision);
   if (!head) return undefined;
   const delays = dependencies.headRetryDelaysMs ?? [0, 250, 1_000];
   const sleep = dependencies.sleep ?? defaultSleep;
@@ -251,12 +221,8 @@ async function currentReview(
     if (delayMs > 0) await sleep(delayMs);
     const pr = await dependencies.queryPr(context.repo, target);
     if (!isProtectedPr(pr)) continue;
-    if (!remoteHeadAuthoritative && head === pr.headRefOid) return { ...context, pr };
-    if (remoteHeadAuthoritative
-      && head !== pr.headRefOid
-      && await (dependencies.fetchPrHead ?? fetchPrHead)(context.repo, pr)) {
-      return { ...context, pr };
-    }
+    if (target && pr.headRefName !== target) continue;
+    if (head === pr.headRefOid) return { ...context, pr };
   }
   return undefined;
 }
@@ -274,7 +240,6 @@ type LaunchMessage = {
 };
 
 function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
-  if (event === "pr-update-branch") return "push";
   return event === "push" || event === "pr-create" ? event : undefined;
 }
 
@@ -416,6 +381,77 @@ function sendFixFollowUp(pi: ReviewPi, pr: PrState, range: string | undefined): 
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
+function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
+  try {
+    return ctx.sessionManager.getEntries?.();
+  } catch {
+    return undefined;
+  }
+}
+
+function transcriptFacts(
+  ctx: ReviewContext,
+  file: string,
+  requiredLanes: ReviewLane[],
+  ciHead?: string,
+) {
+  return reviewTranscriptFacts({
+    sessionFile: file,
+    entries: liveEntries(ctx),
+    requiredLanes,
+    ciHead,
+  });
+}
+
+async function acknowledgeCompletedReview(
+  pi: ReviewPi,
+  ctx: ReviewContext,
+  dependencies: Dependencies,
+): Promise<boolean> {
+  const context = boundaryContext(ctx);
+  if (!context) return false;
+  const preview = transcriptFacts(ctx, context.file, []);
+  if (!preview.boundary || !fullSha(preview.reviewHead)) return false;
+  const classification = classifyReviewBoundaryCommand(preview.boundary.command);
+  const target = classification.event === "push" ? classification.pushTarget : undefined;
+  const reviewedPr = await dependencies.queryPr(context.repo, target);
+  if (!isEnforcedPr(reviewedPr)
+    || (target && reviewedPr.headRefName !== target)
+    || reviewedPr.headRefOid !== preview.reviewHead
+    || !reviewEnabled(context.repo)
+    || preview.bypassed
+    || bypassSentinelPresent()) return false;
+
+  const reviewedHead = preview.reviewHead;
+  const reviewedAck = readAck(context.repo);
+  if (reviewedAck === reviewedHead) return false;
+  const reviewedRange = reviewRange({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
+  const reviewedLanes = requiredReviewLanes({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
+  const reviewedFacts = transcriptFacts(ctx, context.file, reviewedLanes, reviewedHead);
+  const allReviewedLanesTerminal = reviewedLanes.length > 0
+    && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
+  if (reviewedFacts.reviewHead !== reviewedHead
+    || reviewedFacts.reviewRange !== reviewedRange
+    || !allReviewedLanesTerminal
+    || !reviewedFacts.triageComplete) return false;
+
+  acknowledge(context.repo, reviewedHead);
+  const ciEvent = ciBoundaryEvent(classification.event);
+  if (!reviewedFacts.ciLaunched && ciEvent) {
+    sendLaunchMessage(pi, {
+      phase: "follow-up",
+      repo: context.repo,
+      pr: reviewedPr,
+      ackHead: reviewedHead,
+      range: reviewedRange,
+      reviewers: [],
+      ciEvent,
+    });
+  }
+  sendFixFollowUp(pi, reviewedPr, reviewedRange);
+  return true;
+}
+
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   pi.on("tool_result", async (event, ctx) => {
     if (!successful(event)) return;
@@ -424,20 +460,17 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       .map((command) => ({ command, classification: classifyReviewBoundaryCommand(command) }))
       .find(({ classification }) => classification.reminder);
     if (!boundary) return;
-    const target = boundary.classification.event === "pr-update-branch"
-      ? boundary.classification.prTarget
+    const target = boundary.classification.event === "push"
+      ? boundary.classification.pushTarget
       : undefined;
-    const review = await currentReview(
-      ctx,
-      dependencies,
-      target,
-      boundary.classification.event === "pr-update-branch",
-    );
+    const revision = boundary.classification.event === "push"
+      ? boundary.classification.pushSource ?? "HEAD"
+      : "HEAD";
+    const review = await currentReview(ctx, dependencies, target, revision);
     if (!review || !isEnforcedPr(review.pr)) return;
 
     const skipReview = bypassSentinelPresent();
     if (skipReview && !boundary.classification.settled) consumeBypassSentinel();
-    if (boundary.classification.protectedRetarget) clearAck(review.repo);
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const requiredLanes = reviewEnabled(review.repo) && !skipReview && ackHead !== review.pr.headRefOid
@@ -457,52 +490,25 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     });
   });
 
+  pi.on("agent_end", async (_event, ctx) => {
+    await acknowledgeCompletedReview(pi, ctx, dependencies);
+  });
+
   pi.on("agent_settled", async (_event, ctx) => {
+    if (await acknowledgeCompletedReview(pi, ctx, dependencies)) return;
     const context = boundaryContext(ctx);
     if (!context) return;
-    const preview = reviewTranscriptFacts({ sessionFile: context.file, requiredLanes: [] });
-    if (!preview.boundary) return;
+    const preview = transcriptFacts(ctx, context.file, []);
+    if (!preview.boundary || !fullSha(preview.reviewHead)) return;
 
     const boundaryClassification = classifyReviewBoundaryCommand(preview.boundary.command);
-    if (boundaryClassification.event !== "pr-merge" && !fullSha(preview.reviewHead)) return;
-    const target = boundaryClassification.event === "pr-update-branch"
-      ? boundaryClassification.prTarget
+    const target = boundaryClassification.event === "push"
+      ? boundaryClassification.pushTarget
       : undefined;
-    const reviewedPr = await dependencies.queryPr(context.repo, target);
-    if (fullSha(preview.reviewHead) && reviewedPr?.headRefOid !== preview.reviewHead) return;
-    const reviewedHead = preview.reviewHead;
-    const reviewedAck = readAck(context.repo);
-    if (isEnforcedPr(reviewedPr)
-      && reviewEnabled(context.repo)
-      && !preview.bypassed
-      && !bypassSentinelPresent()
-      && fullSha(reviewedHead)
-      && reviewedHead === reviewedPr.headRefOid
-      && reviewedAck !== reviewedHead) {
-      const reviewedRange = reviewRange({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
-      const reviewedLanes = requiredReviewLanes({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
-      const reviewedFacts = reviewTranscriptFacts({
-        sessionFile: context.file,
-        requiredLanes: reviewedLanes,
-        ciHead: reviewedHead,
-      });
-      const allReviewedLanesTerminal = reviewedLanes.length > 0
-        && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
-      if (reviewedFacts.reviewHead === reviewedHead
-        && reviewedFacts.reviewRange === reviewedRange
-        && allReviewedLanesTerminal
-        && reviewedFacts.triageComplete) {
-        acknowledge(context.repo, reviewedHead);
-        sendFixFollowUp(pi, reviewedPr, reviewedRange);
-      }
-    }
-
-    const review = await currentReview(
-      ctx,
-      dependencies,
-      target,
-      boundaryClassification.event === "pr-update-branch",
-    );
+    const revision = boundaryClassification.event === "push"
+      ? boundaryClassification.pushSource ?? "HEAD"
+      : "HEAD";
+    const review = await currentReview(ctx, dependencies, target, revision);
     if (!review) return;
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
@@ -514,11 +520,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const requiredLanes = shouldReview
       ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
       : [];
-    const facts = reviewTranscriptFacts({
-      sessionFile: review.file,
-      requiredLanes,
-      ciHead: review.pr.headRefOid,
-    });
+    const facts = transcriptFacts(ctx, review.file, requiredLanes, review.pr.headRefOid);
     if (!facts.boundary) return;
     if (review.pr.state !== "OPEN") {
       if (reviewEnabled(review.repo) && !facts.closedNotified && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
@@ -580,11 +582,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 }
 
-export async function queryHead(repo: string, runner: QueryPrRunner = execFileAsync): Promise<string | undefined> {
+export async function queryHead(
+  repo: string,
+  revision = "HEAD",
+  runner: QueryPrRunner = execFileAsync,
+): Promise<string | undefined> {
   try {
     const { stdout } = await runner(
       "git",
-      ["rev-parse", "HEAD"],
+      ["rev-parse", revision],
       { cwd: repo, encoding: "utf8", timeout: 10_000 },
     );
     const value = String(stdout).trim();

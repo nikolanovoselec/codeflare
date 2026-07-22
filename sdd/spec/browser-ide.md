@@ -158,7 +158,8 @@ A full browser editor for an advanced running session. The editor opens that ses
 1. Sidebar availability matches terminal tab 1 exactly: Pi enables Pi, Claude enables Claude, and every unsupported, malformed, duplicate, ambiguous, or missing selection enables no sidebar. <!-- @impl: entrypoint.sh::_openvscode_agent_kind --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-005 AC1+AC2: tab one selects only a fixed sidebar agent inventory) -->
 2. Every available agent sidebar is Codeflare-owned. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1+AC2: stages only the fixed Pi, Claude, and empty inventories) -->
 3. The editor contains no Anthropic extension or VSIX package. <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC3: refuses VSIX or Anthropic-owned extension input before staging) -->
-4. No sidebar agent runs before its view is visible; afterward exactly one selected agent runs and the unselected agent does not. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/lifecycle.ts::SidebarLifecycle --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC4: activation is inert until visible resolution starts the selected backend) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC4: a visibility-triggered start failure is reported without escaping) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC4: Claude selection never constructs the Pi backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC6: an asynchronous Pi spawn failure cannot leave a running backend) -->
+4. No sidebar agent runs before its view is visible; afterward exactly one selected agent runs and the unselected agent does not. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/lifecycle.ts::SidebarLifecycle --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC4: activation is inert until visible resolution starts the selected backend) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC4: a visibility-triggered start failure is reported without escaping) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC4: Claude selection never constructs the Pi backend) -->
+5. Repeated visible resolution reuses one selected backend; a failed or unexpectedly exited backend leaves no duplicate and can be started once again. <!-- @impl: openvscode/agent-sidebar/src/lifecycle.ts::SidebarLifecycle --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5: repeated visible resolution reuses one backend instance) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-008 AC4: visible resolution restarts a cached backend after an unexpected exit) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-008 AC4: an asynchronous Pi spawn failure cannot leave a running backend) -->
 
 **Constraints:**
 
@@ -176,32 +177,83 @@ A full browser editor for an advanced running session. The editor opens that ses
 
 ---
 
-### REQ-IDE-006: Sidebar conversation isolation and guarded lifecycle
+### REQ-IDE-006: Sidebar conversation and credential isolation
 
-**Intent:** A sidebar conversation can use the selected session without exposing terminal history, copying secrets, bypassing confirmation, or leaving work behind.
+**Intent:** A sidebar conversation can use approved session configuration without copying credentials or exposing terminal history.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Each selected agent can work in the current session workspace using the approved credentials, routing, and configuration. <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @impl: openvscode/agent-sidebar/src/claude/pty-session.ts::ClaudePtySession --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the fixed no-session spawn contract) --> <!-- @test: openvscode/agent-sidebar/test/claude-pty.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: Claude starts only the fixed no-shell PTY contract) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and never copies secret bytes) -->
+1. Each selected agent can work in the current session workspace using approved credentials, routing, and configuration. <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @impl: openvscode/agent-sidebar/src/claude/pty-session.ts::ClaudePtySession --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-005 AC5 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the fixed no-session spawn contract) --> <!-- @test: openvscode/agent-sidebar/test/claude-pty.test.ts (REQ-IDE-005 AC5 + REQ-IDE-006 AC1+AC3: Claude starts only the fixed no-shell PTY contract) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and never copies secret bytes) -->
 2. Preparing sidebar configuration links approved credential sources without copying their values into generated files. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and never copies secret bytes) -->
-3. Every new sidebar conversation starts without terminal conversation history and cannot list, attach to, or resume it. <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::PiSession --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::SIDEBAR_LINK_ALLOWLIST --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the fixed no-session spawn contract) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC3: projection excludes terminal history, runtime state, and unknown entries) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC3: projection rejects an allowlisted source entry redirected by a symbolic link) -->
-4. A guarded action changes a target or starts a command only after explicit user confirmation. <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::registerSidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildManagedSettings --> <!-- @test: src/__tests__/lib/pi-sidebar-approval.test.ts (REQ-IDE-006: Pi sidebar guarded approvals) --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-006 AC4: Pi approval resolves through extension-host manifest, diff, and confirmation authority) --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-006 AC4: native permission rules independently ask for guarded built-ins and MCP) -->
-5. If confirmation is absent, rejected, expired, stale, or unrelated to the request, the target remains unchanged and no command starts. <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::registerSidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @test: src/__tests__/lib/pi-sidebar-approval.test.ts (REQ-IDE-006 AC5: mutation boundary cannot follow a parent symlink swapped in after approval) --> <!-- @test: src/__tests__/lib/pi-sidebar-approval.test.ts (REQ-IDE-006 AC5: a failed staged replacement leaves the approved existing file intact) --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-006 AC5: rejected extension-host approval returns a correlated denial) --> <!-- @test: openvscode/agent-sidebar/test/webview-security.test.ts (REQ-IDE-006 AC5: webview messages cannot forge approval or choose process authority) -->
-6. Abort, new conversation, extension deactivation, editor interruption, restart, and session stop leave no pending sidebar work or surviving sidebar-created process before replacement. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @impl: entrypoint.sh::kill_pidfile_subtree --> <!-- @impl: openvscode/agent-sidebar/src/process-generation.ts::reapSidebarGeneration --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/claude/node-pty-backend.ts::ClaudePtyBackend --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (OpenVSCode launch generations / REQ-IDE-006 AC6) --> <!-- @test: openvscode/agent-sidebar/test/process-generation.test.ts (REQ-IDE-006 AC6: one sidebar generation reaps a TERM-ignoring descendant in another process group) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC6: an asynchronous Pi stdin failure stops the backend without escaping) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-006 AC6: a late Pi approval response cannot enter a replacement conversation) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-006 AC6: a stale Claude exit callback cannot stop a replacement conversation) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-006 AC6: new Pi conversation reaps the old no-session process before replacement) --> <!-- @test: openvscode/agent-sidebar/test/claude-pty.test.ts (REQ-IDE-006 AC6: new Claude conversation reaps the old PTY before replacement) -->
+3. Every new sidebar conversation starts without terminal conversation history and cannot list, attach to, or resume it. <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::PiSession --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::SIDEBAR_LINK_ALLOWLIST --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-005 AC5 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the fixed no-session spawn contract) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC3: projection excludes terminal history, runtime state, and unknown entries) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC3: projection rejects an allowlisted source entry redirected by a symbolic link) -->
 
 **Constraints:**
 
-- Approval governs guarded agent tool calls, not arbitrary trusted code or an approved command inside the shared container.
 - The integration does not copy credential values into settings, logs, reports, or sidebar messages.
-- The sidebar exposes no public process-control surface.
 - Pi and Claude sidebars remain separate from terminal tab 1 and from each other.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-005](#req-ide-005-selected-agent-sidebar), [REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-agent-sidebar), [REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** [Host lifecycle tests](../../host/__tests__/entrypoint-openvscode.test.js); [extension tests](../../openvscode/agent-sidebar/test); [Pi guard tests](../../src/__tests__/lib/pi-sidebar-approval.test.ts); [Claude isolation tests](../../openvscode/claude/test); complete-image smoke in `.github/workflows/test.yml`
+**Verification:** [Pi session tests](../../openvscode/agent-sidebar/test/pi-session.test.ts); [Claude PTY tests](../../openvscode/agent-sidebar/test/claude-pty.test.ts); [Claude isolation tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs); complete-image smoke in `.github/workflows/test.yml`
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-007: Sidebar guarded approval
+
+**Intent:** Guarded sidebar actions require a bounded, request-specific user decision before any mutation or command starts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A guarded action changes a target or starts a command only after explicit user confirmation through the owning Pi extension host or Claude's native permission flow. <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::registerSidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildManagedSettings --> <!-- @test: src/__tests__/lib/pi-sidebar-approval.test.ts (REQ-IDE-007: Pi sidebar guarded approvals) --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-007 AC1: Pi approval resolves through extension-host manifest, diff, and confirmation authority) --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-007 AC1: native permission rules independently ask for guarded built-ins and MCP) -->
+2. If a preview is oversized or confirmation is absent, rejected, expired, stale, malformed, or unrelated to the request, the target remains unchanged and no command starts. <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::registerSidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @test: src/__tests__/lib/pi-sidebar-approval.test.ts (REQ-IDE-007 AC2: an oversized serialized preview is denied before approval or mutation) --> <!-- @test: src/__tests__/lib/pi-sidebar-approval.test.ts (REQ-IDE-007 AC2: mutation boundary cannot follow a parent symlink swapped in after approval) --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-007 AC2: rejected extension-host approval returns a correlated denial) --> <!-- @test: openvscode/agent-sidebar/test/webview-security.test.ts (REQ-IDE-007 AC2: webview messages cannot forge approval or choose process authority) -->
+
+**Constraints:**
+
+- Pi serializes one protected approval manifest and rejects it before host approval when it exceeds 1 MiB.
+- Approval governs guarded agent tool calls, not arbitrary trusted code or an approved command inside the shared container.
+- The sidebar exposes no public process-control surface.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](#req-ide-006-sidebar-conversation-and-credential-isolation)
+
+**Verification:** [Pi guard tests](../../src/__tests__/lib/pi-sidebar-approval.test.ts); [approval bridge tests](../../openvscode/agent-sidebar/test/approval-bridge.test.ts); [Claude permission tests](../../openvscode/claude/test)
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-008: Sidebar process lifecycle
+
+**Intent:** Sidebar abort, replacement, failure, and shutdown leave no stale callback, pending action, or surviving sidebar-created process.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Aborting a conversation sends the selected agent's native interrupt without replacing the active backend. <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::PiSession --> <!-- @impl: openvscode/agent-sidebar/src/claude/pty-session.ts::ClaudePtySession --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-008 AC1: Pi abort is sent while the current process remains available) --> <!-- @test: openvscode/agent-sidebar/test/claude-pty.test.ts (REQ-IDE-008 AC1: Claude PTY abort sends Ctrl+C through terminal input) -->
+2. Starting a new conversation reaps every process carrying the previous conversation generation before replacement. <!-- @impl: openvscode/agent-sidebar/src/process-generation.ts::reapSidebarGeneration --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/claude/node-pty-backend.ts::ClaudePtyBackend --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-008 AC2: new Pi conversation reaps the old no-session process before replacement) --> <!-- @test: openvscode/agent-sidebar/test/claude-pty.test.ts (REQ-IDE-008 AC2: new Claude conversation reaps the old PTY before replacement) -->
+3. Extension deactivation and backend disposal reap the selected managed process. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/claude/node-pty-backend.ts::ClaudePtyBackend --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-008 AC3: extension deactivation stops the selected backend) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-008 AC3: Pi disposal settles and reaps the managed process) --> <!-- @test: openvscode/agent-sidebar/test/claude-pty.test.ts (REQ-IDE-008 AC3: Claude disposal reaps the managed PTY) -->
+4. Asynchronous start, input, approval, or exit callbacks from an old generation cannot survive or alter its replacement. <!-- @impl: openvscode/agent-sidebar/src/lifecycle.ts::SidebarLifecycle --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/claude/node-pty-backend.ts::ClaudePtyBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-008 AC4: an asynchronous Pi stdin failure stops the backend without escaping) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-007 AC2 + REQ-IDE-008 AC4: a late Pi approval response cannot enter a replacement conversation) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-008 AC4: a stale Claude exit callback cannot stop a replacement conversation) -->
+5. Editor restart and session stop reap all process groups carrying the OpenVSCode or sidebar generation before replacement or shutdown completes. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @impl: entrypoint.sh::kill_pidfile_subtree --> <!-- @impl: openvscode/agent-sidebar/src/process-generation.ts::reapSidebarGeneration --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (OpenVSCode launch generations / REQ-IDE-008 AC5) --> <!-- @test: openvscode/agent-sidebar/test/process-generation.test.ts (REQ-IDE-008 AC5: one sidebar generation reaps a TERM-ignoring descendant in another process group) -->
+
+**Constraints:**
+
+- Cleanup uses bounded TERM/KILL rescans and refuses replacement while matching descendants survive.
+- Process generations are local to the shared session container; no public process-control surface is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-005](#req-ide-005-selected-agent-sidebar)
+
+**Verification:** [Host lifecycle tests](../../host/__tests__/entrypoint-openvscode.test.js); [sidebar lifecycle tests](../../openvscode/agent-sidebar/test)
 
 **Status:** Implemented

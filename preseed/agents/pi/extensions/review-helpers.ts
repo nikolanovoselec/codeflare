@@ -7,13 +7,13 @@ export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPO
 export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-update-branch" | "pr-merge";
+export type ReviewBoundaryEvent = "push" | "pr-create";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: ReviewBoundaryEvent;
-  protectedRetarget?: true;
-  prTarget?: string;
+  pushSource?: string;
+  pushTarget?: string;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
@@ -159,71 +159,92 @@ function commandWords(command: string): ShellWords[] {
   });
 }
 
-function gitSubcommand(words: ShellWords): string | undefined {
+function gitSubcommandIndex(words: ShellWords): number | undefined {
   if (words[0] !== "git") return undefined;
   let index = 1;
   while (words[index] === "-C" && words[index + 1]) index += 2;
-  return words[index];
+  return index < words.length ? index : undefined;
 }
 
-function protectedEdit(words: ShellWords): boolean {
-  if (words[0] !== "gh" || words[1] !== "pr" || words[2] !== "edit") return false;
-  return words.some((word, index) =>
-    ["--base=main", "--base=master", "-B=main", "-B=master"].includes(word)
-    || (["--base", "-B"].includes(word) && ["main", "master"].includes(words[index + 1] ?? "")),
-  );
+function gitSubcommand(words: ShellWords): string | undefined {
+  const index = gitSubcommandIndex(words);
+  return index === undefined ? undefined : words[index];
 }
 
-function updateBranchTarget(words: ShellWords): { supported: boolean; prTarget?: string } {
-  const args = words.slice(3);
-  if (args.some((word) => word === "--repo" || word.startsWith("--repo=") || word.startsWith("-R"))) {
-    return { supported: false };
+const PUSH_OPTIONS_WITH_VALUE = new Set(["--exec", "--push-option", "--receive-pack", "--repo", "-o"]);
+const UNSUPPORTED_PUSH_OPTIONS = new Set([
+  "--all", "--delete", "--dry-run", "--follow-tags", "--force", "--force-if-includes", "--force-with-lease", "--mirror", "--prune", "--tags", "-d", "-f", "-n",
+]);
+
+function branchRef(value: string): string | undefined {
+  if (!value || value === "HEAD") return undefined;
+  if (value.startsWith("refs/heads/")) return value.slice("refs/heads/".length) || undefined;
+  if (value.startsWith("refs/") || value.includes("*") || value.startsWith(":")) return undefined;
+  return value;
+}
+
+function pushBoundary(words: ShellWords): { source?: string; target?: string } | undefined {
+  const subcommandIndex = gitSubcommandIndex(words);
+  if (subcommandIndex === undefined || words[subcommandIndex] !== "push") return undefined;
+  const positionals: string[] = [];
+  const args = words.slice(subcommandIndex + 1);
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+    if (UNSUPPORTED_PUSH_OPTIONS.has(arg)
+      || /^-[^-]*[dfn]/.test(arg)
+      || [...UNSUPPORTED_PUSH_OPTIONS].some((option) => arg.startsWith(`${option}=`))) {
+      return undefined;
+    }
+    if (PUSH_OPTIONS_WITH_VALUE.has(arg)) {
+      index += 1;
+      continue;
+    }
+    if (arg === "--") {
+      positionals.push(...args.slice(index + 1));
+      break;
+    }
+    if (arg.startsWith("-")) continue;
+    positionals.push(arg);
   }
-  const prTarget = args.find((word) => !word.startsWith("-"));
-  if (prTarget && /^https?:\/\//i.test(prTarget)) return { supported: false };
-  return { supported: true, ...(prTarget ? { prTarget } : {}) };
+  const refspecs = positionals.slice(1);
+  if (refspecs.length !== 1) return undefined;
+  const refspec = refspecs[0] ?? "";
+  if (!refspec || refspec.startsWith("+") || refspec.startsWith(":")) return undefined;
+  const separator = refspec.indexOf(":");
+  const sourceRaw = separator === -1 ? refspec : refspec.slice(0, separator);
+  const targetRaw = separator === -1 ? refspec : refspec.slice(separator + 1);
+  if (!sourceRaw || !targetRaw || targetRaw === "HEAD") return undefined;
+  const sourceBranch = sourceRaw === "HEAD" ? undefined : branchRef(sourceRaw);
+  const source = sourceRaw === "HEAD"
+    ? "HEAD"
+    : sourceBranch
+      ? `refs/heads/${sourceBranch}`
+      : undefined;
+  const target = branchRef(targetRaw);
+  if (!source || !target) return undefined;
+  return { source, target };
 }
 
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  let reminder = false;
-  let settled = false;
-  let protectedRetarget = false;
-  let event: ReviewBoundaryEvent | undefined;
-  let prTarget: string | undefined;
+  let boundary: BoundarySurfaces = { reminder: false, settled: false };
   for (const words of commandWords(command)) {
     if (gitSubcommand(words) === "push") {
-      reminder = settled = true;
-      event = "push";
-    }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
-      reminder = settled = true;
-      event = "pr-create";
-    }
-    if (protectedEdit(words)) {
-      reminder = settled = true;
-      protectedRetarget = true;
-      event = "pr-edit";
-    }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "update-branch") {
-      const target = updateBranchTarget(words);
-      if (target.supported) {
-        reminder = settled = true;
-        event = "pr-update-branch";
-        prTarget = target.prTarget;
+      const push = pushBoundary(words);
+      if (push) {
+        boundary = {
+          reminder: true,
+          settled: true,
+          event: "push",
+          ...(push.source ? { pushSource: push.source } : {}),
+          ...(push.target ? { pushTarget: push.target } : {}),
+        };
       }
     }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
-      settled = true;
-      event = "pr-merge";
+    if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
+      boundary = { reminder: true, settled: true, event: "pr-create" };
     }
   }
-  return {
-    reminder,
-    settled,
-    ...(event ? { event } : {}),
-    ...(protectedRetarget ? { protectedRetarget: true as const } : {}),
-    ...(event === "pr-update-branch" && prTarget ? { prTarget } : {}),
-  };
+  return boundary;
 }
 
 function firstExisting(paths: string[]): string | undefined {
@@ -349,10 +370,11 @@ function reviewWindow(entry: Record<string, any>): { head?: string; range?: stri
 
 export function reviewTranscriptFacts(input: {
   sessionFile: string;
+  entries?: Record<string, any>[];
   requiredLanes: ReviewLane[];
   ciHead?: string;
 }): TranscriptFacts {
-  const entries = readEntries(input.sessionFile);
+  const entries = input.entries ?? readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));

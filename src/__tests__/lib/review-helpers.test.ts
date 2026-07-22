@@ -6,13 +6,13 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
-type BoundaryEvent = 'push' | 'pr-create' | 'pr-edit' | 'pr-update-branch' | 'pr-merge';
+type BoundaryEvent = 'push' | 'pr-create';
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: BoundaryEvent;
-  protectedRetarget?: true;
-  prTarget?: string;
+  pushSource?: string;
+  pushTarget?: string;
 };
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
@@ -29,6 +29,7 @@ type PlannedReviewHelpers = {
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[];
   reviewTranscriptFacts(input: {
     sessionFile: string;
+    entries?: Record<string, unknown>[];
     requiredLanes: ReviewLane[];
     ciHead?: string;
   }): TranscriptFacts;
@@ -158,9 +159,15 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063: distinguishes supported reminder and settled command surfaces', async () => {
+  it('REQ-AGENT-063: recognizes only PR creation and non-destructive single-branch pushes', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
-    const push = { reminder: true, settled: true, event: 'push' as const };
+    const push = {
+      reminder: true,
+      settled: true,
+      event: 'push' as const,
+      pushSource: 'refs/heads/pi',
+      pushTarget: 'pi',
+    };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
       ['git push origin pi', push],
@@ -174,15 +181,25 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['cat <<EOF-TEXT\ngit push origin pi\nEOF-TEXT', none],
       ['cat <<A <<B\nfirst\nA\ngit push origin pi\nB\ngit push origin pi', push],
       ['printf done; git push origin pi', push],
+      ['git push origin HEAD:refs/heads/pi', { ...push, pushSource: 'HEAD' }],
+      ['git push', none],
       ['gh pr create --base main --title review', { reminder: true, settled: true, event: 'pr-create' }],
-      ['gh pr edit 42 --base master', { reminder: true, settled: true, event: 'pr-edit', protectedRetarget: true }],
-      ['gh pr edit 42 --base main && git push origin pi', { reminder: true, settled: true, event: 'push', protectedRetarget: true }],
-      ['gh pr merge 42', { reminder: false, settled: true, event: 'pr-merge' }],
-      ['gh pr edit 42 --base develop', none],
-      ['gh pr update-branch 42', { reminder: true, settled: true, event: 'pr-update-branch', prTarget: '42' }],
-      ['gh pr update-branch 42 --repo other/repository', none],
-      ['gh pr update-branch -Rother/repository 42', none],
-      ['gh pr update-branch https://github.com/other/repository/pull/42', none],
+      ['gh pr edit 42 --base master', none],
+      ['gh pr edit 42 --base main && git push origin pi', push],
+      ['gh pr merge 42', none],
+      ['gh pr update-branch 42', none],
+      ['git push origin --delete pi', none],
+      ['git push origin :pi', none],
+      ['git push --all origin', none],
+      ['git push --mirror origin', none],
+      ['git push --tags origin', none],
+      ['git push --force origin pi', none],
+      ['git push --dry-run origin pi', none],
+      ['git push --follow-tags origin pi', none],
+      ['git push -fu origin pi', none],
+      ['git push origin +pi', none],
+      ['git push origin refs/tags/v1:refs/heads/pi', none],
+      ['git push origin pi:HEAD', none],
       ['git -C /tmp/repo push origin pi', push],
     ];
 

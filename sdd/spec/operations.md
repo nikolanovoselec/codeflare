@@ -504,21 +504,19 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-020: Shadow-pin version bump automation
 
-**Intent:** Pinned versions living outside package.json — Dockerfile binaries, globally installed npm packages, and workflow-embedded tool pins — are invisible to Dependabot. A weekly workflow checks upstream releases and opens one PR per tool when a newer version is available, with SHA256 intentionally invalidated to force manual checksum verification before merge.
+**Intent:** Every release pin outside a package manifest has one explicit weekly update owner and a fail-closed verification path.
 
 **Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver --> <!-- @manual -->
-2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
-3. Every remaining non-Dependabot pin has dedicated bump ownership; OpenVSCode and agent CLI bumps run Browser IDE compatibility smoke, while the owned extension's npm dependencies remain Dependabot-owned. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::openvscode-server --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
-4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, failing the build until the operator verifies it; the actionlint job instead resolves the checksum from the release manifest and re-verifies it against the downloaded artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::sum --> <!-- @manual -->
-5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch --> <!-- @manual -->
-6. The context-mode and pi-extensions jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
-7. The same jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
+1. Zoxide, yazi, lazygit, and SilverBullet each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @manual -->
+2. Actionlint and Antigravity each have a dedicated release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
+3. OpenVSCode and supported agent CLI pins each have a dedicated bump job whose PR runs Browser IDE compatibility smoke; the owned extension's npm dependencies remain Dependabot-owned. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::openvscode-server --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
+4. A Dockerfile bump invalidates its SHA256 until an operator verifies it; actionlint instead resolves the release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
+5. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
 
-**Notes:** Workflow execution (AC1-AC5, AC7) is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); AC6's lockfile regeneration additionally carries automated lifecycle-suppression coverage.
+**Notes:** Workflow execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md).
 
 **Constraints:** None.
 
@@ -526,7 +524,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js)
+**Verification:** Manual workflow check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-025: Pi preseed bump artifact coherence
+
+**Intent:** Updating a Pi-owned package pin cannot leave its lockfile or embedded seed stale, and regeneration cannot execute dependency lifecycle scripts.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The context-mode job bumps its Claude-plugin and Pi-prewarm pins atomically in one PR, and generated-artifact validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
+2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
+3. Those jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+
+**Verification:** [Automated lockfile test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js); workflow execution manual
 
 **Status:** Implemented
 
