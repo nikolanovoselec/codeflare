@@ -144,3 +144,37 @@ A full browser editor for an advanced running session. The editor opens that ses
 **Verification:** [Behavioral host proxy tests](../../host/__tests__/openvscode-proxy.test.js)
 
 **Status:** Implemented
+
+---
+
+### REQ-IDE-005: Selected agent sidebar
+
+**Intent:** An advanced-session user can open a separate sidebar conversation for the Pi or Claude agent selected in terminal tab 1 without exposing terminal history or bypassing guarded approvals.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Exact non-executing tab-1 classification selects only Pi, Claude, or no sidebar. Unsupported, malformed, duplicate, ambiguous, and missing-tab-1 configurations select no sidebar; only an absent `TAB_CONFIG` retains the legacy Claude default.
+2. Pi and Claude load only the fixed Codeflare-owned extension inventory; unsupported selections load an empty inventory, and the image contains no Anthropic Claude extension.
+3. Extension activation starts no agent. Resolving the visible selected sidebar starts exactly one additional process: Pi with fixed RPC arguments or Claude in a fixed PTY. The non-selected backend never starts.
+4. Both backends use `/home/user/workspace`, `HOME=/home/user`, and approved credential, routing, and configuration sources without copying secrets into settings, logs, reports, or webview messages.
+5. Sidebar history remains distinct from terminal history. Pi uses no-session state; Claude stores transcript and runtime state under a temporary config root and cannot list or resume terminal sessions.
+6. Pi guarded actions require the extension-host approval path. Claude guarded actions require its native interactive permission prompt. Rejection starts no guarded command and leaves the guarded target unchanged; webview messages cannot forge approval.
+7. Abort, new conversation, extension deactivation, OpenVSCode crash or restart, and session stop settle pending work and remove managed descendants before another generation starts. No Worker or public process route is added.
+
+**Constraints:**
+
+- The sidebar is available only in advanced sessions and only for Pi or Claude.
+- One Codeflare-owned extension contains the Pi RPC and Claude PTY adapters; Anthropic's VSIX and ACP are not used.
+- Approval governs guarded agent tool calls, not arbitrary trusted code or an approved command inside the shared container.
+- The sidebar classifier does not execute or rewrite `TAB_CONFIG`; generic terminal-command behavior remains owned by [AD15](../../documentation/decisions/README.md#ad15-tabconfigschema-allows-arbitrary-command-strings).
+- OpenVSCode remains upstream-clean under [AD97](../../documentation/decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-004](#req-ide-004-resilient-editor-activity-transport), [REQ-AGENT-003](agents.md#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation)
+
+**Verification:** Planned behavioral host, extension, complete-image, and deployed integration tests
+
+**Status:** Planned
