@@ -1,5 +1,3 @@
-import { notImplemented } from '../not-implemented.ts';
-
 export interface TerminalSize {
   readonly columns: number;
   readonly rows: number;
@@ -40,6 +38,9 @@ export type ClaudeOutputSink = (data: string) => void;
 export class ClaudePtySession {
   readonly #spawner: ClaudePtySpawner;
   readonly #output: ClaudeOutputSink;
+  #process: ClaudePtyProcess | undefined;
+  #detachOutput: (() => void) | undefined;
+  #size: TerminalSize | undefined;
 
   constructor(spawner: ClaudePtySpawner, output: ClaudeOutputSink) {
     this.#spawner = spawner;
@@ -47,32 +48,85 @@ export class ClaudePtySession {
   }
 
   async resolveVisible(size: TerminalSize): Promise<ClaudePtyProcess> {
-    void size;
-    void this.#spawner;
-    void this.#output;
-    return notImplemented('fixed Claude node-pty startup');
+    assertTerminalSize(size);
+    if (this.#process && !this.#process.exited) {
+      if (!this.#size || this.#size.columns !== size.columns || this.#size.rows !== size.rows) {
+        this.#process.resize(size.columns, size.rows);
+        this.#size = { ...size };
+      }
+      return this.#process;
+    }
+
+    const spec = spawnSpec(size);
+    const process = this.#spawner.spawn(spec);
+    this.#process = process;
+    this.#size = { ...size };
+    this.#detachOutput = process.onData(this.#output);
+    return process;
   }
 
   writeInput(data: string): void {
-    void data;
-    return notImplemented('Claude PTY input forwarding');
+    if (typeof data !== 'string') throw new TypeError('Claude PTY input must be a string');
+    this.#requireProcess().write(data);
   }
 
   resize(size: TerminalSize): void {
-    void size;
-    return notImplemented('Claude PTY resize forwarding');
+    assertTerminalSize(size);
+    this.#requireProcess().resize(size.columns, size.rows);
+    this.#size = { ...size };
   }
 
   abort(): void {
-    return notImplemented('Claude PTY Ctrl+C forwarding');
+    this.#requireProcess().write('\u0003');
   }
 
   async newConversation(size: TerminalSize): Promise<ClaudePtyProcess> {
-    void size;
-    return notImplemented('Claude PTY replacement lifecycle');
+    await this.#reap();
+    return this.resolveVisible(size);
   }
 
   async dispose(): Promise<void> {
-    return notImplemented('Claude PTY cleanup');
+    await this.#reap();
   }
+
+  #requireProcess(): ClaudePtyProcess {
+    if (!this.#process || this.#process.exited) throw new Error('Claude PTY is not running');
+    return this.#process;
+  }
+
+  async #reap(): Promise<void> {
+    const process = this.#process;
+    this.#process = undefined;
+    this.#size = undefined;
+    this.#detachOutput?.();
+    this.#detachOutput = undefined;
+    if (!process || process.exited) return;
+    process.kill('SIGTERM');
+    await process.waitForExit();
+  }
+}
+
+function spawnSpec(size: TerminalSize): ClaudePtySpawnSpec {
+  return {
+    executable: '/usr/local/bin/claude',
+    args: ['--settings', '/opt/codeflare/openvscode/claude/sidebar-settings.json'],
+    cwd: '/home/user/workspace',
+    env: {
+      HOME: '/home/user',
+      CLAUDE_CONFIG_DIR: '/tmp/codeflare-sidebar/claude/config',
+      TERM: 'xterm-256color',
+    },
+    terminal: { name: 'xterm-256color', columns: size.columns, rows: size.rows },
+    shell: false,
+  };
+}
+
+function assertTerminalSize(size: TerminalSize): void {
+  if (!validDimension(size.columns) || !validDimension(size.rows)) {
+    throw new RangeError('Invalid Claude PTY size');
+  }
+}
+
+function validDimension(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 1 && value <= 1_000;
 }
