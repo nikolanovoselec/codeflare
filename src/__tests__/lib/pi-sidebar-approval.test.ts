@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { renameSync, watch } from 'node:fs';
 import { mkdir, mkdtemp, readFile as readFsFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -178,6 +179,34 @@ describe('REQ-IDE-007: Pi sidebar guarded approvals', () => {
     const result = await tools(h).edit.execute('edit-preview-failed', { path: TARGET, edits: [{ oldText: 'before', newText: 'after' }] }, undefined, undefined, context());
     expect(text(result)).toMatch(/preview/i);
     expect(h.approvals).toHaveLength(0);
+    expect(h.files.get(TARGET)).toBe('before\n');
+  });
+
+  it('REQ-IDE-007 AC1: host approval request carries the serialized manifest digest', async () => {
+    const h = makeHarness();
+    delete h.dependencies.requestApproval;
+    const ctx = {
+      ...context(),
+      ui: {
+        confirm: async (_title: string, message: string | undefined) => {
+          const manifestPath = `/tmp/codeflare-sidebar/pi/approvals/${OPAQUE_ID}.json`;
+          const serialized = await readFsFile(manifestPath, 'utf8');
+          const digest = createHash('sha256').update(serialized).digest('hex');
+          expect(message).toBe(`${OPAQUE_ID}:${digest}`);
+          return false;
+        },
+      },
+    } as unknown as ToolContext;
+
+    const result = await tools(h).write.execute(
+      'write-digest-bound',
+      { path: TARGET, content: 'after\n' },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(text(result)).toMatch(/rejected|denied/i);
     expect(h.files.get(TARGET)).toBe('before\n');
   });
 

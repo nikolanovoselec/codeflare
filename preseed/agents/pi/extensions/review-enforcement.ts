@@ -509,7 +509,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       ? boundaryClassification.pushSource ?? "HEAD"
       : "HEAD";
     const review = await currentReview(ctx, dependencies, target, revision);
-    if (!review) return;
+    if (!review || review.pr.headRefOid !== preview.reviewHead) return;
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const bypassed = preview.bypassed || consumeBypassSentinel();

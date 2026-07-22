@@ -86,7 +86,7 @@ test('REQ-IDE-005 AC5: repeated visible resolution reuses one backend instance',
   assert.deepEqual(events, ['pi:start']);
 });
 
-test('REQ-IDE-005 AC5 + REQ-IDE-008 AC4: visible resolution restarts a cached backend after an unexpected exit', async () => {
+test('REQ-IDE-005 AC6 + REQ-IDE-008 AC4: visible resolution restarts a cached backend after an unexpected exit', async () => {
   const events: string[] = [];
   const lifecycle = new SidebarLifecycle('claude', recordingFactories(events));
 

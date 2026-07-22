@@ -112,7 +112,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     });
   });
 
-  it('REQ-OPS-003 AC6: requires non-publishing complete-image smoke in the required status', () => {
+  it('REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: Record<string, {
         if?: string;

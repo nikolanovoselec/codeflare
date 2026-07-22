@@ -30,7 +30,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
 
-### Browser IDE agent sidebar icon is missing
+### Browser IDE agent sidebar icon is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar))
 
 **Symptom:** The Activity Bar has no agent-sidebar icon.
 
@@ -38,15 +38,15 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and the three directories under `/opt/codeflare/openvscode/extensions`; do not add extensions to the unsupported inventory.
 
-### Pi Browser IDE sidebar fails
+### Pi Browser IDE sidebar fails ([REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval))
 
 **Symptom:** Opening the Pi sidebar reports a protocol or approval error.
 
-**Cause:** The fixed RPC child failed, emitted invalid JSONL, or a manifest failed ownership, mode, expiry, identity, path, or stale-content validation.
+**Cause:** The fixed RPC child failed, emitted invalid JSONL, or a manifest failed ownership, mode, request-digest, expiry, identity, path, or stale-content validation.
 
 **Fix:** Confirm the Pi process uses the fixed RPC/no-session flags and sidebar marker. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening validation.
 
-### Claude Browser IDE sidebar fails
+### Claude Browser IDE sidebar fails ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation))
 
 **Symptom:** The embedded Claude terminal does not start.
 
@@ -54,7 +54,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Load `node-pty` with `/opt/openvscode-server/node`. Confirm the fixed Claude config preparer succeeds and the projected `settings.json` points to `/etc/codeflare/claude-sidebar/settings.json`; never add the bypass-permissions flag.
 
-### Browser IDE sidebar leaves a duplicate or orphaned process
+### Browser IDE sidebar leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle))
 
 **Symptom:** More than one managed OpenVSCode or sidebar process remains after restart.
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'vitest';
 
 import {
@@ -18,14 +19,19 @@ const manifest: ApprovalManifest = {
   expiresAt: 4_102_444_800_000,
   nonce: 'nonce-1',
 };
+const manifestContent = JSON.stringify(manifest);
+const manifestDigest = createHash('sha256').update(manifestContent).digest('hex');
+const approvalReference = `${manifest.id}:${manifestDigest}`;
 
 class RecordingApprovalHost implements ApprovalHost {
   readonly events: string[] = [];
   approved = false;
 
-  async loadManifest(opaqueId: string): Promise<ApprovalManifest> {
+  manifestContent = JSON.stringify(manifest);
+
+  async loadManifest(opaqueId: string): Promise<string> {
     this.events.push(`load:${opaqueId}`);
-    return manifest;
+    return this.manifestContent;
   }
 
   async openDiff(value: ApprovalManifest): Promise<void> {
@@ -48,7 +54,7 @@ test('REQ-IDE-007 AC1: Pi approval resolves through extension-host manifest, dif
     id: 'ui-request-1',
     method: 'confirm',
     title: 'Guarded operation',
-    message: manifest.id,
+    message: approvalReference,
   });
 
   assert.deepEqual(host.events, [
@@ -72,7 +78,7 @@ test('REQ-IDE-007 AC2: rejected extension-host approval returns a correlated den
     id: 'ui-request-2',
     method: 'confirm',
     title: 'Guarded operation',
-    message: manifest.id,
+    message: approvalReference,
   });
 
   assert.deepEqual(response, {
@@ -81,6 +87,23 @@ test('REQ-IDE-007 AC2: rejected extension-host approval returns a correlated den
     confirmed: false,
   });
   assert.equal(host.events.at(-1), `confirm:${manifest.id}`);
+});
+
+test('REQ-IDE-007 AC2: substituted approval manifest content is rejected before preview or confirmation', async () => {
+  const host = new RecordingApprovalHost();
+  host.manifestContent = JSON.stringify({ ...manifest, canonicalTarget: '/home/user/workspace/substituted.ts' });
+  const bridge = new ApprovalBridge(host);
+
+  await assert.rejects(
+    bridge.handlePiRequest({
+      type: 'extension_ui_request',
+      id: 'ui-request-substituted',
+      method: 'confirm',
+      message: approvalReference,
+    }),
+    (error: unknown) => error instanceof ApprovalBridgeError && error.code === 'INVALID_MANIFEST',
+  );
+  assert.deepEqual(host.events, [`load:${manifest.id}`]);
 });
 
 test('Pi fire-and-forget notifications require no response and never enter approval UI', async () => {

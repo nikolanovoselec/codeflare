@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 const FIRE_AND_FORGET_METHODS = new Set(['notify', 'setStatus', 'setWidget', 'setTitle', 'set_editor_text']);
@@ -22,7 +23,7 @@ export interface ApprovalManifest {
 }
 
 export interface ApprovalHost {
-  loadManifest(opaqueId: string): Promise<ApprovalManifest>;
+  loadManifest(opaqueId: string): Promise<string>;
   openDiff(manifest: ApprovalManifest): Promise<void>;
   confirm(manifest: ApprovalManifest): Promise<boolean>;
 }
@@ -71,17 +72,16 @@ export class ApprovalBridge {
     if (!validRpcId(request.id)) throw new ApprovalBridgeError('INVALID_APPROVAL_ID');
     if (FIRE_AND_FORGET_METHODS.has(request.method)) return undefined;
     if (request.method !== 'confirm') throw new ApprovalBridgeError('UNSUPPORTED_UI_REQUEST');
-    if (!validApprovalId(request.message)) {
-      throw new ApprovalBridgeError('INVALID_APPROVAL_ID');
-    }
-    const approvalId = request.message;
+    const approvalReference = parseApprovalReference(request.message);
+    if (!approvalReference) throw new ApprovalBridgeError('INVALID_APPROVAL_ID');
+    const { approvalId, manifestDigest } = approvalReference;
     if (this.#pending.has(approvalId) || this.#consumed.has(approvalId)) {
       throw new ApprovalBridgeError('INVALID_APPROVAL_ID');
     }
 
     this.#pending.add(approvalId);
     try {
-      const manifest = await this.#loadAndValidate(approvalId);
+      const manifest = await this.#loadAndValidate(approvalId, manifestDigest);
       if (manifest.expiresAt < Date.now()) throw new ApprovalBridgeError('EXPIRED_APPROVAL');
       await this.#host.openDiff(manifest);
       const confirmed = await this.#host.confirm(manifest);
@@ -97,10 +97,19 @@ export class ApprovalBridge {
     }
   }
 
-  async #loadAndValidate(approvalId: string): Promise<ApprovalManifest> {
+  async #loadAndValidate(approvalId: string, expectedDigest: string): Promise<ApprovalManifest> {
+    let content: string;
+    try {
+      content = await this.#host.loadManifest(approvalId);
+    } catch {
+      throw new ApprovalBridgeError('INVALID_MANIFEST');
+    }
+    if (createHash('sha256').update(content).digest('hex') !== expectedDigest) {
+      throw new ApprovalBridgeError('INVALID_MANIFEST');
+    }
     let manifest: ApprovalManifest;
     try {
-      manifest = await this.#host.loadManifest(approvalId);
+      manifest = JSON.parse(content) as ApprovalManifest;
     } catch {
       throw new ApprovalBridgeError('INVALID_MANIFEST');
     }
@@ -115,6 +124,16 @@ function validRpcId(value: string): boolean {
 
 function validApprovalId(value: string | undefined): value is string {
   return typeof value === 'string' && /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.test(value);
+}
+
+function parseApprovalReference(value: string | undefined): { approvalId: string; manifestDigest: string } | undefined {
+  if (typeof value !== 'string') return undefined;
+  const separator = value.lastIndexOf(':');
+  if (separator < 1) return undefined;
+  const approvalId = value.slice(0, separator);
+  const manifestDigest = value.slice(separator + 1);
+  if (!validApprovalId(approvalId) || !sha256(manifestDigest)) return undefined;
+  return { approvalId, manifestDigest: manifestDigest.toLowerCase() };
 }
 
 function validManifest(value: ApprovalManifest, expectedId: string): boolean {

@@ -285,7 +285,7 @@ describe('Claude-equivalent review boundary helpers', () => {
 });
 
 describe('native Pi transcript review facts', () => {
-  it('REQ-AGENT-055: uses only public subagent calls after the latest successful settled boundary', async () => {
+  it('REQ-AGENT-055: ignores non-boundary PR commands when correlating later public reviewer calls', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
       assistantTool('push-old', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
@@ -298,9 +298,9 @@ describe('native Pi transcript review facts', () => {
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
-    expect(facts.boundary).toEqual({ toolUseId: 'push-new', command: 'gh pr merge 42' });
+    expect(facts.boundary).toEqual({ toolUseId: 'push-old', command: 'git push origin pi' });
     expect(facts.lanes).toEqual({
-      'code-reviewer': { state: 'missing' },
+      'code-reviewer': { state: 'terminal', toolUseId: 'code-old' },
       'spec-reviewer': { state: 'missing' },
       'doc-updater': { state: 'in-flight', toolUseId: 'doc-new' },
     });

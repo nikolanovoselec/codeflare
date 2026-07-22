@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { setImmediate as waitForImmediate } from 'node:timers/promises';
 import { test } from 'vitest';
 
@@ -7,6 +8,19 @@ import type { ClaudePtyProcess, ClaudePtySpawnSpec, ClaudePtySpawner } from '../
 import { ApprovalBridge, type ApprovalHost, type ApprovalManifest } from '../src/pi/approval-bridge.ts';
 import { PiRpcBackend } from '../src/pi/node-rpc-backend.ts';
 import type { PiChildProcess, PiProcessSpawner, PiSpawnSpec } from '../src/pi/session.ts';
+
+const DEFERRED_APPROVAL_ID = '00112233445566778899aabbccddeeff';
+const DEFERRED_MANIFEST = JSON.stringify({
+  id: DEFERRED_APPROVAL_ID,
+  operation: 'edit',
+  canonicalTarget: '/home/user/workspace/file.ts',
+  baseHash: 'base',
+  resultHash: 'result',
+  previewId: 'preview',
+  expiresAt: 4_102_444_800_000,
+  nonce: 'a'.repeat(64),
+} satisfies ApprovalManifest);
+const DEFERRED_APPROVAL_REFERENCE = `${DEFERRED_APPROVAL_ID}:${createHash('sha256').update(DEFERRED_MANIFEST).digest('hex')}`;
 
 class DeferredApprovalHost implements ApprovalHost {
   readonly entered: Promise<void>;
@@ -27,17 +41,8 @@ class DeferredApprovalHost implements ApprovalHost {
     this.#resolveDecision(approved);
   }
 
-  async loadManifest(opaqueId: string): Promise<ApprovalManifest> {
-    return {
-      id: opaqueId,
-      operation: 'edit',
-      canonicalTarget: '/home/user/workspace/file.ts',
-      baseHash: 'base',
-      resultHash: 'result',
-      previewId: 'preview',
-      expiresAt: Date.now() + 60_000,
-      nonce: 'a'.repeat(64),
-    };
+  async loadManifest(): Promise<string> {
+    return DEFERRED_MANIFEST;
   }
 
   async openDiff(): Promise<void> {}
@@ -123,7 +128,7 @@ class FakePtySpawner implements ClaudePtySpawner {
   }
 }
 
-test('REQ-IDE-005 AC5 + REQ-IDE-008 AC4: an asynchronous Pi spawn failure cannot leave a running backend', async () => {
+test('REQ-IDE-005 AC6 + REQ-IDE-008 AC4: an asynchronous Pi spawn failure cannot leave a running backend', async () => {
   const backend = new PiRpcBackend(new SpawnFailingPiSpawner(), new ApprovalBridge(new DeferredApprovalHost()), {
     output: () => undefined,
     reset: () => undefined,
@@ -134,7 +139,7 @@ test('REQ-IDE-005 AC5 + REQ-IDE-008 AC4: an asynchronous Pi spawn failure cannot
   assert.equal(backend.running, false);
 });
 
-test('REQ-IDE-005 AC5 + REQ-IDE-008 AC4: an asynchronous Pi stdin failure stops the backend without escaping', async () => {
+test('REQ-IDE-005 AC6 + REQ-IDE-008 AC4: an asynchronous Pi stdin failure stops the backend without escaping', async () => {
   const backend = new PiRpcBackend(new StdinFailingPiSpawner(), new ApprovalBridge(new DeferredApprovalHost()), {
     output: () => undefined,
     reset: () => undefined,
@@ -176,14 +181,12 @@ test('REQ-IDE-007 AC2 + REQ-IDE-008 AC4: a late Pi approval response cannot ente
     reset: () => undefined,
     failed: () => undefined,
   });
-  const approvalId = '00112233445566778899aabbccddeeff';
-
   await backend.start();
   spawner.children[0]?.emit({
     type: 'extension_ui_request',
     id: 'approval-request-1',
     method: 'confirm',
-    message: approvalId,
+    message: DEFERRED_APPROVAL_REFERENCE,
   });
   await host.entered;
   await backend.newConversation();

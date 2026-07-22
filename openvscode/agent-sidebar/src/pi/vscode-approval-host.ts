@@ -10,7 +10,7 @@ const MANIFEST_ROOT = '/tmp/codeflare-sidebar/pi/approvals';
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 
 export class VsCodeApprovalHost implements ApprovalHost {
-  async loadManifest(opaqueId: string): Promise<ApprovalManifest> {
+  async loadManifest(opaqueId: string): Promise<string> {
     const path = resolve(MANIFEST_ROOT, `${opaqueId}.json`);
     if (!path.startsWith(`${MANIFEST_ROOT}/`)) throw new Error('Invalid manifest path');
     if (await realpath(MANIFEST_ROOT) !== MANIFEST_ROOT) throw new Error('Invalid manifest root');
@@ -27,8 +27,7 @@ export class VsCodeApprovalHost implements ApprovalHost {
       ) {
         throw new Error('Invalid approval manifest');
       }
-      const content = await handle.readFile({ encoding: 'utf8' });
-      return JSON.parse(content) as ApprovalManifest;
+      return handle.readFile({ encoding: 'utf8' });
     } finally {
       await handle.close();
       await unlink(path).catch(() => undefined);

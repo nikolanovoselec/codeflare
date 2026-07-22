@@ -744,7 +744,10 @@ async function requestHostApproval(
     await handle.close();
   }
   try {
-    const approved = await ctx.ui.confirm("Approve guarded operation", request.id);
+    const approved = await ctx.ui.confirm(
+      "Approve guarded operation",
+      `${request.id}:${hashSha256(serialized)}`,
+    );
     return { id: request.id, approved };
   } finally {
     await rm(manifestPath, { force: true });

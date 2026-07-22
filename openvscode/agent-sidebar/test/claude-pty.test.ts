@@ -63,7 +63,7 @@ class RecordingPtySpawner implements ClaudePtySpawner {
   }
 }
 
-test('REQ-IDE-005 AC5 + REQ-IDE-006 AC1+AC3: Claude starts only the fixed no-shell PTY contract', async () => {
+test('REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: Claude starts only the fixed no-shell PTY contract', async () => {
   const spawner = new RecordingPtySpawner();
   const session = new ClaudePtySession(spawner, () => undefined, {
     generationFactory: () => 'claude-generation-1',

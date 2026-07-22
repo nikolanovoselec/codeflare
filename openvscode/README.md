@@ -20,7 +20,7 @@ The Pi and Claude inventories contain hard-linked copies of the same Codeflare-o
 
 The extension activates when its view is requested, but activation itself starts no child. The first visible resolution creates one selected backend and reuses it until a new conversation or teardown.
 
-Pi uses strict LF-delimited JSONL with bounded records and correlated request IDs. It has no session file. The sidebar guard replaces edit, write, and Bash with approval-aware tools, keeps same-file approval windows serialized, atomically replaces a revalidated target from a synced sibling file, and sends only an opaque manifest ID through Pi's extension UI request. The OpenVSCode extension host reads the mode-0600 manifest, displays the preview, and owns the confirmation.
+Pi uses strict LF-delimited JSONL with bounded records and correlated request IDs. It has no session file. The sidebar guard replaces edit, write, and Bash with approval-aware tools, keeps same-file approval windows serialized, atomically replaces a revalidated target from a synced sibling file, and sends an opaque manifest ID with its SHA-256 digest through Pi's extension UI request. The OpenVSCode extension host verifies the mode-0600 manifest against that digest, displays the preview, and owns the confirmation.
 
 Claude runs as the existing pinned CLI in a real PTY rendered by locally bundled xterm.js. It receives raw terminal input, output, resize events, and Ctrl+C. It does not receive `--dangerously-skip-permissions`. Its fixed settings keep Manual mode, explicit ask rules, and the native permission dialog. Each launch recreates `/tmp/codeflare-sidebar/claude/config` as a mode-0700 allowlisted projection. Terminal history, resumable projects, caches, logs, and runtime state are excluded.
 

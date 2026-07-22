@@ -292,6 +292,33 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       expect(stored?.sessionMode).toBe('advanced');
     });
 
+    it('REQ-ENTERPRISE-001 AC6: enterprise upgrade preserves preferences changed while reconciliation is running', async () => {
+      testState.createBucketResult = { success: true, created: false };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default', workspaceSyncEnabled: false });
+      vi.mocked(reconcileAgentConfigs).mockImplementationOnce(async () => {
+        mockKV._set('user-prefs:test-bucket', {
+          sessionMode: 'default',
+          workspaceSyncEnabled: true,
+          userTimezone: 'Europe/Belgrade',
+        });
+        return { written: [], skipped: [], deleted: [], warnings: [] };
+      });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      const stored = await mockKV.get('user-prefs:test-bucket', 'json') as {
+        sessionMode?: string;
+        workspaceSyncEnabled?: boolean;
+        userTimezone?: string;
+      } | null;
+      expect(stored).toMatchObject({
+        sessionMode: 'advanced',
+        workspaceSyncEnabled: true,
+        userTimezone: 'Europe/Belgrade',
+      });
+    });
+
     it('enterprise: a failed upgrade reconcile does NOT stamp the preference (retries next start) and the start still succeeds', async () => {
       testState.createBucketResult = { success: true, created: false };
       vi.mocked(reconcileAgentConfigs).mockRejectedValueOnce(new Error('r2 down'));
