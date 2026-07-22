@@ -31,6 +31,14 @@ function extractFn(name) {
   throw new Error(`Could not locate ${name}() in entrypoint.sh`);
 }
 
+function extractOptionalFn(name) {
+  try {
+    return extractFn(name);
+  } catch {
+    return '';
+  }
+}
+
 // Extract the nested walk_kill + kill_pidfile_subtree helpers (4-space indent
 // inside shutdown_handler) as one runnable block.
 function extractKillHelpers() {
@@ -59,8 +67,23 @@ function writeStub(dir, argsFile) {
   return stub;
 }
 
+function writeSelectionStub(dir, argsFile) {
+  const stub = join(dir, 'openvscode-server');
+  writeFileSync(stub, `#!/usr/bin/env bash\nprintf 'agent=%s\\n' "\${CODEFLARE_SIDEBAR_AGENT-<unset>}" > "${argsFile}"\nprintf '%s\\n' "$@" >> "${argsFile}"\nexit 0\n`);
+  chmodSync(stub, 0o755);
+  return stub;
+}
+
 function runBash(script, env = {}) {
   return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, ...env } });
+}
+
+function openvscodeLaunchScript() {
+  return [
+    extractOptionalFn('_openvscode_agent_kind'),
+    extractOptionalFn('_openvscode_extensions_dir'),
+    extractFn('_openvscode_launch_once'),
+  ].filter(Boolean).join('\n');
 }
 
 describe('_openvscode_should_launch / REQ-IDE-003 AC1 (lazy-start gate)', () => {
@@ -115,7 +138,7 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
   it('passes --server-base-path=/api/vscode/<SESSION_ID>, the ephemeral /tmp data dir, the workspace, and no connection token', () => {
     const stub = writeStub(dir, argsFile);
     // OPENVSCODE_DATA_DIR is intentionally NOT set, so the real default applies.
-    const r = runBash(`${extractFn('_openvscode_launch_once')}\n_openvscode_launch_once`, {
+    const r = runBash(`${openvscodeLaunchScript()}\n_openvscode_launch_once`, {
       OPENVSCODE_BIN: stub,
       SESSION_ID: 'abcd1234',
       OPENVSCODE_WORKSPACE: workspace,
@@ -135,6 +158,57 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
     assert.ok(args.includes(workspace), 'opens the workspace folder');
     // Bound to localhost only.
     assert.ok(args.includes('127.0.0.1'), 'binds localhost');
+  });
+
+  it('REQ-IDE-005 AC1+AC2: tab one selects only a fixed sidebar agent inventory', () => {
+    const cases = [
+      { label: 'absent config keeps the legacy Claude default', config: undefined, expected: 'claude' },
+      { label: 'exact Pi', config: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]), expected: 'pi' },
+      { label: 'exact Claude', config: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]), expected: 'claude' },
+      { label: 'exact legacy Claude command', config: JSON.stringify([{ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' }]), expected: 'claude' },
+      { label: 'unsupported agent', config: JSON.stringify([{ id: '1', command: 'codex', label: 'Terminal 1' }]), expected: 'none' },
+      { label: 'missing tab one', config: JSON.stringify([{ id: '2', command: 'pi', label: 'Terminal 2' }]), expected: 'none' },
+      { label: 'duplicate tab one', config: JSON.stringify([{ id: '1', command: 'pi', label: 'One' }, { id: '1', command: 'pi', label: 'Duplicate' }]), expected: 'none' },
+      { label: 'ambiguous duplicate commands', config: JSON.stringify([{ id: '1', command: 'pi', label: 'One' }, { id: '1', command: 'claude', label: 'Duplicate' }]), expected: 'none' },
+      { label: 'empty configured value is not absent', config: '', expected: 'none' },
+      { label: 'malformed JSON', config: '[{"id":', expected: 'none' },
+      { label: 'non-array JSON', config: '{"id":"1","command":"pi"}', expected: 'none' },
+      { label: 'injected Pi suffix', config: JSON.stringify([{ id: '1', command: 'pi; touch /tmp/sidebar-owned', label: 'Terminal 1' }]), expected: 'none' },
+    ];
+
+    const helpers = openvscodeLaunchScript();
+
+    const actual = cases.map(({ label, config }) => {
+      const caseDir = mkTmp('ovsc-selection-');
+      const caseArgs = join(caseDir, 'args.log');
+      const stub = writeSelectionStub(caseDir, caseArgs);
+      const configSetup = config === undefined ? 'unset TAB_CONFIG' : ':';
+      const env = {
+        OPENVSCODE_BIN: stub,
+        OPENVSCODE_WORKSPACE: workspace,
+        SESSION_ID: 'abcd1234',
+        ...(config === undefined ? {} : { TAB_CONFIG: config }),
+      };
+      const r = runBash(`${helpers}\n${configSetup}\n_openvscode_launch_once`, env);
+      assert.equal(r.status, 0, `${label}: launch exits successfully`);
+      const lines = readFileSync(caseArgs, 'utf8').split('\n');
+      const extensionsFlag = lines.indexOf('--extensions-dir');
+      const observed = {
+        label,
+        agent: lines.find((line) => line.startsWith('agent='))?.slice('agent='.length) ?? null,
+        directory: extensionsFlag === -1 ? null : lines[extensionsFlag + 1],
+        leakedInput: config === undefined ? false : lines.some((line) => line.includes(config)),
+      };
+      rmSync(caseDir, { recursive: true, force: true });
+      return observed;
+    });
+
+    assert.deepEqual(actual, cases.map(({ label, expected }) => ({
+      label,
+      agent: expected,
+      directory: `/opt/codeflare/openvscode/extensions/${expected}`,
+      leakedInput: false,
+    })));
   });
 });
 
