@@ -450,11 +450,31 @@ exit 0
 
     const result = runBash(`${acceleratedSupervisorScript()}
 ${extractKillHelpers()}
-SIGNAL_LOG="$UNRELATED_TERM_LOG" setsid bash -c '
+unrelated_actual_pidfile="$UNRELATED_PIDFILE.actual"
+SIGNAL_LOG="$UNRELATED_TERM_LOG" ACTUAL_PID_FILE="$unrelated_actual_pidfile" setsid --fork --wait bash -c '
+  printf "%s\\n" "$BASHPID" > "$ACTUAL_PID_FILE"
   trap '\''printf "TERM\\n" >> "$SIGNAL_LOG"'\'' TERM
   while true; do sleep 0.1; done
 ' >/dev/null 2>&1 &
-unrelated=$!
+unrelated_launcher=$!
+cleanup_unrelated_fixture() {
+  local actual=""
+  if [ -s "$unrelated_actual_pidfile" ]; then
+    read -r actual < "$unrelated_actual_pidfile"
+    pkill -KILL -P "$actual" 2>/dev/null || true
+    kill -KILL "$actual" 2>/dev/null || true
+  fi
+  pkill -KILL -P "$unrelated_launcher" 2>/dev/null || true
+  kill -KILL "$unrelated_launcher" 2>/dev/null || true
+  wait "$unrelated_launcher" 2>/dev/null || true
+}
+trap cleanup_unrelated_fixture EXIT
+for _ in $(seq 1 100); do
+  [ -s "$unrelated_actual_pidfile" ] && break
+  sleep 0.01
+done
+[ -s "$unrelated_actual_pidfile" ] || { echo "unrelated fixture did not start" >&2; exit 1; }
+read -r unrelated < "$unrelated_actual_pidfile"
 printf '%s\\n' "$unrelated" > "$UNRELATED_PIDFILE"
 actual_start="$(awk '{print $22}' "/proc/$unrelated/stat")"
 kill_pidfile_subtree "$UNRELATED_PIDFILE" "$unrelated" "$((actual_start + 1))" wrong-generation
@@ -464,7 +484,6 @@ if kill -0 "$unrelated" 2>/dev/null; then unrelated_state=alive; else unrelated_
 if [ -s "$UNRELATED_TERM_LOG" ]; then unrelated_signal=TERM; else unrelated_signal=none; fi
 printf 'unrelated=%s signal=%s\\n' "$unrelated_state" "$unrelated_signal"
 
-kill -KILL "$unrelated" 2>/dev/null || true
 if [ -f "$MANAGED_PID_FILE" ]; then
   read -r managed < "$MANAGED_PID_FILE"
   pkill -KILL -P "$managed" 2>/dev/null || true
@@ -503,13 +522,35 @@ describe('identity-safe OpenVSCode cleanup / REQ-IDE-006 AC6', () => {
 probe_identity() {
   local label="$1" expected_pid_mode="$2" expected_start_mode="$3" expected_generation="$4"
   local pidfile="$FIXTURE/$label.pid" signal_log="$FIXTURE/$label.signal"
-  SIGNAL_LOG="$signal_log" CODEFLARE_OPENVSCODE_GENERATION=actual-generation setsid bash -c '
+  local actual_pid_file="$FIXTURE/$label.actual-pid"
+  SIGNAL_LOG="$signal_log" ACTUAL_PID_FILE="$actual_pid_file" CODEFLARE_OPENVSCODE_GENERATION=actual-generation setsid --fork --wait bash -c '
+    printf "%s\\n" "$BASHPID" > "$ACTUAL_PID_FILE"
     trap '\''printf "TERM\\n" >> "$SIGNAL_LOG"'\'' TERM
     while true; do sleep 0.1; done
   ' >/dev/null 2>&1 &
-  local target=$!
-  sleep 0.15
-  local actual_start expected_pid expected_start
+  local launcher=$!
+  cleanup_probe_fixture() {
+    local actual=""
+    if [ -s "$actual_pid_file" ]; then
+      read -r actual < "$actual_pid_file"
+      pkill -KILL -P "$actual" 2>/dev/null || true
+      kill -KILL "$actual" 2>/dev/null || true
+    fi
+    pkill -KILL -P "$launcher" 2>/dev/null || true
+    kill -KILL "$launcher" 2>/dev/null || true
+    wait "$launcher" 2>/dev/null || true
+  }
+  for _ in $(seq 1 100); do
+    [ -s "$actual_pid_file" ] && break
+    sleep 0.01
+  done
+  if [ ! -s "$actual_pid_file" ]; then
+    cleanup_probe_fixture
+    echo "$label fixture did not start" >&2
+    return 1
+  fi
+  local target actual_start expected_pid expected_start
+  read -r target < "$actual_pid_file"
   actual_start="$(awk '{print $22}' "/proc/$target/stat")"
   expected_pid="$target"
   expected_start="$actual_start"
@@ -520,9 +561,7 @@ probe_identity() {
   kill_pidfile_subtree "$pidfile" "$expected_pid" "$expected_start" "$expected_generation"
   sleep 0.15
   if [ -s "$signal_log" ]; then printf '%s=SIGNALED\\n' "$label"; else printf '%s=UNSIGNALED\\n' "$label"; fi
-  pkill -KILL -P "$target" 2>/dev/null || true
-  kill -KILL "$target" 2>/dev/null || true
-  wait "$target" 2>/dev/null || true
+  cleanup_probe_fixture
 }
 probe_identity matching match match actual-generation
 probe_identity pid mismatch match actual-generation
