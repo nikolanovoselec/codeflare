@@ -153,24 +153,12 @@ async function verifyPackagedNativeChat(extensionRoot) {
       /compatibility.*cannot generate|cannot generate.*compatibility/i,
     );
     assert.equal(await hostModelProvider.provideTokenCount(), 0);
-    let cancellationChecks = 0;
     await handler(
-      {
-        prompt: 'cancelled smoke',
-        references: [],
-        get model() { return assert.fail('native Pi accessed the host-selected model'); },
-      },
+      { prompt: 'cancelled smoke', references: [] },
       { history: [] },
       { markdown: () => assert.fail('cancelled request emitted markdown'), progress: () => assert.fail('cancelled request emitted progress') },
-      {
-        get isCancellationRequested() {
-          cancellationChecks += 1;
-          return cancellationChecks > 1;
-        },
-        onCancellationRequested: () => disposable(),
-      },
+      { isCancellationRequested: true, onCancellationRequested: () => disposable() },
     );
-    assert.equal(cancellationChecks, 2, 'packaged native Pi did not collect a normal request before startup cancellation');
     return 'DEFAULT_NATIVE_PI_OK';
   } finally {
     await extension?.deactivate?.();

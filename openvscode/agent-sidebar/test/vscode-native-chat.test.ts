@@ -108,6 +108,24 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
   assert.doesNotMatch(JSON.stringify(input), /outside-workspace-canary|escaped\.ts|stale-alias-canary|alias\.ts/);
 });
 
+test('REQ-IDE-005 AC7: native Pi context collection ignores the host-selected model', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'native-chat-model-independent-'));
+  roots.push(root);
+  let modelReads = 0;
+
+  const input = await collectNativePiPromptInput({
+    prompt: 'Inspect this workspace.',
+    references: [],
+    get model() {
+      modelReads += 1;
+      throw new Error('host-selected model was accessed');
+    },
+  } as never, { history: [] } as never, root);
+
+  assert.equal(input.prompt, 'Inspect this workspace.');
+  assert.equal(modelReads, 0);
+});
+
 test('REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary', async () => {
   const root = await mkdtemp(join(tmpdir(), 'native-chat-malformed-reference-'));
   roots.push(root);
