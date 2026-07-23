@@ -1,55 +1,22 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { setImmediate as waitForImmediate } from 'node:timers/promises';
 import { test } from 'vitest';
 
-import { ClaudePtyBackend } from '../src/claude/node-pty-backend.ts';
-import type { ClaudePtyProcess, ClaudePtySpawnSpec, ClaudePtySpawner } from '../src/claude/pty-session.ts';
 import { ApprovalBridge, type ApprovalHost, type ApprovalManifest } from '../src/pi/approval-bridge.ts';
 import { PiRpcBackend } from '../src/pi/node-rpc-backend.ts';
 import type { PiChildProcess, PiProcessSpawner, PiSpawnSpec } from '../src/pi/session.ts';
 
-const DEFERRED_APPROVAL_ID = '00112233445566778899aabbccddeeff';
-const DEFERRED_MANIFEST = JSON.stringify({
-  id: DEFERRED_APPROVAL_ID,
-  operation: 'edit',
-  canonicalTarget: '/home/user/workspace/file.ts',
-  baseHash: 'base',
-  resultHash: 'result',
-  previewId: 'preview',
-  expiresAt: 4_102_444_800_000,
-  nonce: 'a'.repeat(64),
-} satisfies ApprovalManifest);
-const DEFERRED_APPROVAL_REFERENCE = `${DEFERRED_APPROVAL_ID}:${createHash('sha256').update(DEFERRED_MANIFEST).digest('hex')}`;
-
-class DeferredApprovalHost implements ApprovalHost {
-  readonly entered: Promise<void>;
-  readonly #markEntered: () => void;
-  readonly #decision: Promise<boolean>;
-  readonly #resolveDecision: (approved: boolean) => void;
-
-  constructor() {
-    let markEntered = (): void => undefined;
-    let resolveDecision = (_approved: boolean): void => undefined;
-    this.entered = new Promise((resolve) => { markEntered = resolve; });
-    this.#decision = new Promise((resolve) => { resolveDecision = resolve; });
-    this.#markEntered = markEntered;
-    this.#resolveDecision = resolveDecision;
-  }
-
-  resolve(approved: boolean): void {
-    this.#resolveDecision(approved);
-  }
-
+class UnexpectedApprovalHost implements ApprovalHost {
   async loadManifest(): Promise<string> {
-    return DEFERRED_MANIFEST;
+    throw new Error('Approval was not expected');
   }
 
-  async openDiff(): Promise<void> {}
+  async openDiff(_manifest: ApprovalManifest): Promise<void> {
+    throw new Error('Approval was not expected');
+  }
 
-  async confirm(): Promise<boolean> {
-    this.#markEntered();
-    return this.#decision;
+  async confirm(_manifest: ApprovalManifest): Promise<boolean> {
+    throw new Error('Approval was not expected');
   }
 }
 
@@ -79,6 +46,34 @@ class FakePiSpawner implements PiProcessSpawner {
   }
 }
 
+class DelayedSpawnPiChild extends FakePiChild {
+  readonly #spawned: Promise<void>;
+  readonly #releaseSpawn: () => void;
+
+  constructor() {
+    super();
+    let releaseSpawn = (): void => undefined;
+    this.#spawned = new Promise((resolve) => { releaseSpawn = resolve; });
+    this.#releaseSpawn = releaseSpawn;
+  }
+
+  releaseSpawn(): void {
+    this.#releaseSpawn();
+  }
+
+  async waitForSpawn(): Promise<void> {
+    await this.#spawned;
+  }
+}
+
+class DelayedSpawnPiSpawner implements PiProcessSpawner {
+  readonly child = new DelayedSpawnPiChild();
+
+  spawn(_spec: PiSpawnSpec): PiChildProcess {
+    return this.child;
+  }
+}
+
 class SpawnFailingPiChild extends FakePiChild {
   async waitForSpawn(): Promise<void> {
     throw new Error('Pi executable is unavailable');
@@ -103,90 +98,73 @@ class StdinFailingPiSpawner implements PiProcessSpawner {
   }
 }
 
-class FakePty implements ClaudePtyProcess {
-  exited = false;
-  readonly writes: string[] = [];
-  exitListener: (() => void) | undefined;
-
-  onData(): () => void { return () => undefined; }
-  onExit(listener: () => void): () => void {
-    this.exitListener = listener;
-    return () => undefined;
-  }
-  write(data: string): void { this.writes.push(data); }
-  resize(): void {}
-  kill(): void {}
-  async waitForExit(): Promise<void> { this.exited = true; }
-}
-
-class FakePtySpawner implements ClaudePtySpawner {
-  readonly children: FakePty[] = [];
-  spawn(_spec: ClaudePtySpawnSpec): ClaudePtyProcess {
-    const child = new FakePty();
-    this.children.push(child);
-    return child;
-  }
-}
-
-test('REQ-IDE-005 AC6 + REQ-IDE-008 AC4: an asynchronous Pi spawn failure cannot leave a running backend', async () => {
-  const backend = new PiRpcBackend(new SpawnFailingPiSpawner(), new ApprovalBridge(new DeferredApprovalHost()), {
-    output: () => undefined,
-    reset: () => undefined,
-    failed: () => undefined,
-  });
-
-  await assert.rejects(backend.start(), /unavailable/);
-  assert.equal(backend.running, false);
-});
-
-test('REQ-IDE-005 AC6 + REQ-IDE-008 AC4: an asynchronous Pi stdin failure stops the backend without escaping', async () => {
-  const backend = new PiRpcBackend(new StdinFailingPiSpawner(), new ApprovalBridge(new DeferredApprovalHost()), {
-    output: () => undefined,
-    reset: () => undefined,
-    failed: () => undefined,
-  });
-
-  await backend.start();
-  await assert.rejects(backend.prompt('hello'), /EPIPE/);
-  assert.equal(backend.running, false);
-});
-
-test('cycle-thinking renders the correlated Pi response level', async () => {
-  const output: string[] = [];
-  const spawner = new FakePiSpawner();
-  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new DeferredApprovalHost()), {
-    output: (text) => output.push(text),
-    reset: () => undefined,
-    failed: () => undefined,
-  });
-
-  await backend.cycleThinkingLevel();
-  spawner.children[0]?.emit({
-    id: 'thinking-1',
-    type: 'response',
-    command: 'cycle_thinking_level',
-    success: true,
-    data: { level: 'high' },
-  });
+test('REQ-IDE-008 AC1: cancellation during Pi startup cannot send a prompt after spawn completes', async () => {
+  const spawner = new DelayedSpawnPiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  let failure: Error | undefined;
+  const turn = backend.runPrompt('must-not-run', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  }).catch((error: Error) => { failure = error; });
   await waitForImmediate();
 
-  assert.deepEqual(output, ['\nThinking: high\n']);
+  await backend.abort();
+  spawner.child.releaseSpawn();
+  await waitForImmediate();
+  await backend.stop();
+  await turn;
+
+  assert.deepEqual(spawner.child.writes, []);
+  assert.equal(failure, undefined);
+  assert.equal(backend.running, false);
+});
+
+test('REQ-IDE-008 AC2+AC3: disposal during Pi startup cannot resurrect the backend', async () => {
+  const spawner = new DelayedSpawnPiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  let failure: Error | undefined;
+  const turn = backend.runPrompt('must-not-run', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  }).catch((error: Error) => { failure = error; });
+  await waitForImmediate();
+
+  await backend.stop();
+  spawner.child.releaseSpawn();
+  await waitForImmediate();
+  await backend.stop();
+  await turn;
+
+  assert.deepEqual(spawner.child.writes, []);
+  assert.match(failure?.message ?? '', /stopped/i);
+  assert.equal(backend.running, false);
+});
+
+test('REQ-IDE-008 AC3: an asynchronous Pi spawn failure cannot leave a running backend', async () => {
+  const backend = new PiRpcBackend(new SpawnFailingPiSpawner(), new ApprovalBridge(new UnexpectedApprovalHost()));
+
+  await assert.rejects(backend.runPrompt('hello', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  }), /unavailable/);
+  assert.equal(backend.running, false);
+});
+
+test('REQ-IDE-008 AC3: an asynchronous Pi stdin failure stops the backend without escaping', async () => {
+  const backend = new PiRpcBackend(new StdinFailingPiSpawner(), new ApprovalBridge(new UnexpectedApprovalHost()));
+
+  await assert.rejects(backend.runPrompt('hello', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  }), /EPIPE/);
+  assert.equal(backend.running, false);
 });
 
 test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled', async () => {
   const markdown: string[] = [];
   const progress: string[] = [];
   const spawner = new FakePiSpawner();
-  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new DeferredApprovalHost()), {
-    output: () => undefined,
-    reset: () => undefined,
-    failed: () => undefined,
-  }) as PiRpcBackend & {
-    runPrompt(message: string, observer: {
-      markdown(value: string): void;
-      progress(value: string): void;
-    }): Promise<void>;
-  };
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
 
   let settled = false;
   const turn = backend.runPrompt('inspect the active file', {
@@ -225,44 +203,3 @@ test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports too
   await backend.stop();
 });
 
-test('REQ-IDE-007 AC2 + REQ-IDE-008 AC4: a late Pi approval response cannot enter a replacement conversation', async () => {
-  const host = new DeferredApprovalHost();
-  const spawner = new FakePiSpawner();
-  const backend = new PiRpcBackend(spawner, new ApprovalBridge(host), {
-    output: () => undefined,
-    reset: () => undefined,
-    failed: () => undefined,
-  });
-  await backend.start();
-  spawner.children[0]?.emit({
-    type: 'extension_ui_request',
-    id: 'approval-request-1',
-    method: 'confirm',
-    message: DEFERRED_APPROVAL_REFERENCE,
-  });
-  await host.entered;
-  await backend.newConversation();
-  host.resolve(true);
-  await waitForImmediate();
-
-  assert.equal(spawner.children.length, 2);
-  assert.equal(spawner.children[1]?.writes.some((line) => line.includes('extension_ui_response')), false);
-});
-
-test('REQ-IDE-008 AC4: a stale Claude exit callback cannot stop a replacement conversation', async () => {
-  const spawner = new FakePtySpawner();
-  const backend = new ClaudePtyBackend(spawner, {
-    output: () => undefined,
-    reset: () => undefined,
-    failed: () => undefined,
-  });
-
-  await backend.start();
-  const staleExit = spawner.children[0]?.exitListener;
-  await backend.newConversation();
-  staleExit?.();
-  backend.write('still-current');
-
-  assert.equal(backend.running, true);
-  assert.deepEqual(spawner.children[1]?.writes, ['still-current']);
-});

@@ -71,7 +71,7 @@ test('REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the
   ]);
 });
 
-test('REQ-IDE-005 AC5: repeated visible Pi resolution reuses one process', async () => {
+test('REQ-IDE-005 AC4: one request-scoped Pi session reuses only its one child', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner);
 
@@ -83,20 +83,6 @@ test('REQ-IDE-005 AC5: repeated visible Pi resolution reuses one process', async
   assert.deepEqual(spawner.events, [
     'spawn:1',
     'write:1:{"id":"prompt-1","type":"prompt","message":"hello"}\n',
-  ]);
-});
-
-test('Pi model and thinking controls remain closed correlated RPC commands', async () => {
-  const spawner = new RecordingPiSpawner();
-  const session = new PiSession(spawner);
-
-  await session.cycleModel();
-  await session.cycleThinkingLevel();
-
-  assert.deepEqual(spawner.events, [
-    'spawn:1',
-    'write:1:{"id":"model-1","type":"cycle_model"}\n',
-    'write:1:{"id":"thinking-1","type":"cycle_thinking_level"}\n',
   ]);
 });
 
@@ -114,51 +100,21 @@ test('REQ-IDE-008 AC1: Pi abort is sent while the current process remains availa
   assert.equal(spawner.children[0]?.exited, false);
 });
 
-test('REQ-IDE-008 AC2: new Pi conversation reaps the old no-session process before replacement', async () => {
+test('REQ-IDE-008 AC2: Pi disposal settles and reaps the request generation', async () => {
   const spawner = new RecordingPiSpawner();
-  const session = new PiSession(spawner);
-
-  await session.resolveVisible();
-  await session.newConversation();
-
-  assert.deepEqual(spawner.events, [
-    'spawn:1',
-    'signal:1:SIGTERM',
-    'wait:1',
-    'spawn:2',
-  ]);
-  assert.equal(spawner.children[0]?.exited, true);
-  assert.equal(spawner.children[1]?.exited, false);
-});
-
-test('REQ-IDE-008 AC2: Pi replacement reaps every process carrying the old conversation generation', async () => {
-  const spawner = new RecordingPiSpawner();
-  let generation = 0;
   const session = new PiSession(spawner, {
-    generationFactory: () => `pi-generation-${++generation}`,
+    generationFactory: () => 'pi-generation-1',
     reapGeneration: async (token) => { spawner.events.push(`reap:${token}`); },
   });
 
   await session.resolveVisible();
-  await session.newConversation();
+  await session.dispose();
 
   assert.deepEqual(spawner.events, [
     'spawn:1',
     'signal:1:SIGTERM',
     'wait:1',
     'reap:pi-generation-1',
-    'spawn:2',
   ]);
-  assert.equal(spawner.specs[1]?.env[SIDEBAR_PROCESS_GENERATION_ENV], 'pi-generation-2');
-});
-
-test('REQ-IDE-008 AC3: Pi disposal settles and reaps the managed process', async () => {
-  const spawner = new RecordingPiSpawner();
-  const session = new PiSession(spawner);
-
-  await session.resolveVisible();
-  await session.dispose();
-
-  assert.deepEqual(spawner.events, ['spawn:1', 'signal:1:SIGTERM', 'wait:1']);
   assert.equal(spawner.children[0]?.exited, true);
 });
