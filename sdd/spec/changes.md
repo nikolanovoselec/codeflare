@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-23
 
-- **The Browser IDE agent view now conforms to the pinned OpenVSCode host contract** ([REQ-IDE-005](browser-ide.md#req-ide-005-selected-agent-sidebar) AC7, Implemented). Its Activity Bar identifier is host-valid, its nonce-only document accepts the host's safe quoted CSP source, and complete-image smoke resolves the packaged provider before release.
+- **The Browser IDE agent view now conforms to the pinned OpenVSCode host contract** ([REQ-IDE-005](browser-ide.md#req-ide-005-selected-agent-sidebar) AC2 and AC7, Implemented). Its Activity Bar identifier is host-valid, its nonce-only document accepts the host's safe quoted CSP source, and complete-image smoke resolves the packaged provider before release.
 
 ## 2026-07-22
 
