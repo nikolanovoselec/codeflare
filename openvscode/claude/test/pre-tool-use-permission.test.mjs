@@ -50,7 +50,11 @@ test("REQ-IDE-005 AC2: official Claude may read native editor diagnostics withou
   assertBounded(outcome);
 });
 
-for (const toolName of ["mcp__ide__executeCode", "mcp__github__create_pull_request", "FutureMutatingTool"]) {
+test("REQ-IDE-007 AC2: pre-tool-use returns interactive ask for mcp__ide__executeCode", async () => {
+  assertAsk(await runPreToolUse(hookInput("mcp__ide__executeCode")), "mcp__ide__executeCode");
+});
+
+for (const toolName of ["mcp__github__create_pull_request", "FutureMutatingTool"]) {
   test(`REQ-IDE-007 AC1: pre-tool-use returns interactive ask for ${toolName}`, async () => {
     assertAsk(await runPreToolUse(hookInput(toolName)), toolName);
   });

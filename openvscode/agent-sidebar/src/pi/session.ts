@@ -130,11 +130,9 @@ export class PiSession {
     const previous = this.#reaping;
     const reaping = (async () => {
       await previous;
-      if (child && !child.exited) {
-        child.signal('SIGTERM');
-        await child.waitForExit();
-      }
+      if (child && !child.exited) child.signal('SIGTERM');
       if (generation) await this.#reapGeneration(generation);
+      else if (child && !child.exited) await child.waitForExit();
     })();
     this.#reaping = reaping;
     return reaping;

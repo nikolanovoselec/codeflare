@@ -56,7 +56,7 @@ async function stageFixture(source: string, claudeSource: string, target: string
   });
 }
 
-test('REQ-IDE-005 AC1+AC2: stages native Pi, official Claude, and empty unsupported inventories', async () => {
+test('REQ-IDE-005 AC1+AC3: stages native Pi, official Claude, and empty unsupported inventories', async () => {
   const { source, claudeSource, target } = await fixture();
   const staged = await stageFixture(source, claudeSource, target);
 

@@ -396,11 +396,14 @@ function shellCommands(call: Record<string, any>): string[] {
   return [];
 }
 
-function messageText(entry: Record<string, any>, role: "assistant" | "user"): string {
-  if (entry.type !== "message" || entry.message?.role !== role) return "";
-  const content = entry.message.content;
+function messageContentText(entry: Record<string, any>): string {
+  const content = entry.message?.content;
   if (typeof content === "string") return content;
   return Array.isArray(content) ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n") : "";
+}
+
+function messageText(entry: Record<string, any>, role: "assistant" | "user"): string {
+  return entry.type === "message" && entry.message?.role === role ? messageContentText(entry) : "";
 }
 
 function userText(entry: Record<string, any>): string {
@@ -473,6 +476,29 @@ export function reviewTranscriptFacts(input: {
   if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, triageComplete: false, closedNotified: false, lanes };
   const later = entries.slice(boundaryIndex + 1);
   const terminalIndexes = new Map<ReviewLane, number>();
+  const resultRequests = new Map<string, string>();
+  for (const entry of later) {
+    for (const call of toolCalls(entry)) {
+      if (call.name === "get_subagent_result" && typeof call.arguments?.agent_id === "string") {
+        resultRequests.set(call.id, call.arguments.agent_id);
+      }
+    }
+  }
+  const completedAgents = new Map<string, { lane: ReviewLane; index: number }>();
+  later.forEach((entry, index) => {
+    if (entry.type !== "message"
+      || entry.message?.role !== "toolResult"
+      || entry.message?.toolName !== "get_subagent_result"
+      || entry.message?.isError === true) return;
+    const requestedAgent = resultRequests.get(entry.message.toolCallId);
+    const text = messageContentText(entry);
+    const returnedAgent = /^Agent:\s*([^\r\n]+)$/mi.exec(text)?.[1]?.trim();
+    const result = /^Type:\s*([^|\r\n]+)\s*\|\s*Status:\s*(completed|done)\b/mi.exec(text);
+    const lane = result?.[1]?.trim() as ReviewLane | undefined;
+    if (requestedAgent && returnedAgent === requestedAgent && lane && ALL_REVIEW_LANES.includes(lane)) {
+      completedAgents.set(requestedAgent, { lane, index });
+    }
+  });
   const window = later.reduce<ReviewWindow | undefined>((current, entry) => {
     const candidate = reviewWindow(entry);
     if (!candidate) return current;
@@ -488,11 +514,24 @@ export function reviewTranscriptFacts(input: {
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
         .filter((candidate) => candidate.value?.toolUseId === call.id);
-      const terminal = notifications.filter((candidate) => candidate.value?.succeeded === true).at(-1);
+      const nativeTerminal = notifications.filter((candidate) => candidate.value?.succeeded === true).at(-1);
+      const launchResult = later.find((candidate) => candidate.type === "message"
+        && candidate.message?.role === "toolResult"
+        && candidate.message?.toolCallId === call.id
+        && candidate.message?.toolName === "subagent"
+        && candidate.message?.isError !== true
+        && candidate.message?.details?.subagentType === lane);
+      const launchedAgent = typeof launchResult?.message?.details?.agentId === "string"
+        ? launchResult.message.details.agentId
+        : undefined;
+      const publicTerminal = launchedAgent && completedAgents.get(launchedAgent)?.lane === lane
+        ? completedAgents.get(launchedAgent)
+        : undefined;
+      const terminalIndex = Math.max(nativeTerminal?.index ?? -1, publicTerminal?.index ?? -1);
       const failed = notifications.some((candidate) => candidate.value?.succeeded === false);
-      if (terminal) {
+      if (terminalIndex >= 0) {
         lanes[lane] = { state: "terminal", toolUseId: call.id };
-        terminalIndexes.set(lane, Math.max(terminalIndexes.get(lane) ?? -1, terminal.index));
+        terminalIndexes.set(lane, Math.max(terminalIndexes.get(lane) ?? -1, terminalIndex));
       } else if (failed && lanes[lane].state !== "terminal") lanes[lane] = { state: "missing" };
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }

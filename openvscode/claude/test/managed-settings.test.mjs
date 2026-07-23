@@ -8,7 +8,7 @@ import {
   buildOpenVscodeSettings,
 } from "../managed-settings.mjs";
 
-test("REQ-IDE-007 AC1: native permission rules independently ask for guarded built-ins and MCP", () => {
+test("REQ-IDE-007 AC2: native permission rules independently ask for guarded built-ins and MCP", () => {
   const settings = buildManagedSettings();
 
   assert.equal(settings.permissions.defaultMode, "default");
@@ -26,7 +26,7 @@ test("REQ-IDE-007 AC1: native permission rules independently ask for guarded bui
   assert.equal(settings.permissions.disableAutoMode, "disable");
 });
 
-test("REQ-IDE-007 AC1: hook timeout and non-2 failures stay fail-open while native rules remain independent", () => {
+test("REQ-IDE-007 AC2: hook timeout and non-2 failures stay fail-open while native rules remain independent", () => {
   const settings = buildManagedSettings();
 
   assert.deepEqual(settings.hooks.PreToolUse, [

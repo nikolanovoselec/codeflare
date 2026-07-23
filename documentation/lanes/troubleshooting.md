@@ -44,7 +44,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** The active URI may be outside the canonical workspace or use a symbolic-link alias, editor context may exceed its bound, the fixed RPC child may have emitted invalid JSONL, or an approval manifest may have failed ownership, mode, digest, expiry, identity, path, or stale-content validation.
 
-**Fix:** Confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening context or approval validation. `agent_end` is not completion; the native handler must wait for `agent_settled`.
+**Fix:** Confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening context or approval validation. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
 
 ### Official Claude panel fails ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
 
@@ -52,7 +52,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** The exact official extension or bundled linux-x64 binary is missing, the temporary config/settings preparation failed, approved credentials/routing are unavailable, or Anthropic's loopback IDE MCP lock directory was rejected.
 
-**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings were restored with the isolated `CLAUDE_CONFIG_DIR`, Manual mode, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Never enable bypass permissions or expose the MCP port.
+**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings were restored with the isolated `CLAUDE_CONFIG_DIR`, Anthropic Manual (`"default"`) permission mode, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Never enable bypass permissions or expose the MCP port.
 
 ### Browser IDE agent leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle))
 

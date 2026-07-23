@@ -171,8 +171,6 @@ test('REQ-IDE-008 AC2: Pi disposal settles and reaps the request generation', as
   assert.deepEqual(spawner.events, [
     'spawn:1',
     'signal:1:SIGTERM',
-    'wait:1',
     'reap:pi-generation-1',
   ]);
-  assert.equal(spawner.children[0]?.exited, true);
 });
