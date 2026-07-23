@@ -11,6 +11,7 @@ export function buildOpenVscodeSettings(claudeConfigDirectory) {
   const normalized = resolve(claudeConfigDirectory);
   if (normalized === "/") throw new TypeError("Claude config directory cannot be root");
   return {
+    "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: normalized },
     ],
