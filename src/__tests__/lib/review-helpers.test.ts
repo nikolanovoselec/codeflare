@@ -418,6 +418,10 @@ describe('native Pi transcript review facts', () => {
       notification('doc-1'),
       triageMessage(),
       notification('code-1'),
+      assistantTool('code-2', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+      }),
+      notification('code-2'),
     ]);
 
     expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
