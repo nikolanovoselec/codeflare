@@ -409,13 +409,24 @@ describe('native Pi transcript review facts', () => {
       notification('doc-1'),
       triageMessage(),
     ]);
+    const afterDuplicateNotification = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...calls,
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageMessage(),
+      notification('code-1'),
+    ]);
 
     expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
+    expect(reviewTranscriptFacts({ sessionFile: afterDuplicateNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
   });
 
-  it('REQ-AGENT-098: public reviewer results complete triage before a late native notification', async () => {
+  it('REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const lanes: Array<{ lane: ReviewLane; callId: string; agentId: string; resultId: string }> = [
       { lane: 'code-reviewer', callId: 'code-1', agentId: 'agent-code', resultId: 'result-code' },
@@ -437,6 +448,10 @@ describe('native Pi transcript review facts', () => {
         }),
       ]),
       triageMessage(),
+      assistantTool('result-code-late', 'get_subagent_result', { agent_id: 'agent-code', wait: true, verbose: false }),
+      toolResult('result-code-late', 'get_subagent_result', false, {
+        text: 'Agent: agent-code\nType: code-reviewer | Status: completed\nResult: reviewed again',
+      }),
       notification('code-1'),
     ]);
 
