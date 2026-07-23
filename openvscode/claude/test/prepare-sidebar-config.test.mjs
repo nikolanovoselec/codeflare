@@ -6,8 +6,10 @@ import { afterEach, test } from "vitest";
 
 import {
   MANAGED_SETTINGS_PATH,
+  prepareOfficialClaudeIde,
   prepareSidebarConfig,
 } from "../prepare-sidebar-config.mjs";
+import { buildOpenVscodeSettings } from "../managed-settings.mjs";
 
 const EXPECTED_LINK_ALLOWLIST = Object.freeze([
   ".credentials.json",
@@ -119,6 +121,39 @@ test("REQ-IDE-006 AC3: projection excludes terminal history, runtime state, and 
   for (const name of excluded) {
     assert.equal(projectedNames.has(name), false, `${name} leaked into the sidebar config`);
   }
+});
+
+test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: official Claude launch writes isolated OpenVSCode settings", async () => {
+  const { sourceRoot, targetRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+
+  await prepareOfficialClaudeIde({ sourceRoot, targetRoot, serverDataRoot });
+
+  const settingsPath = join(serverDataRoot, "data", "User", "settings.json");
+  assert.deepEqual(
+    JSON.parse(await readFile(settingsPath, "utf8")),
+    buildOpenVscodeSettings(targetRoot),
+  );
+  assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
+});
+
+test("REQ-IDE-007 AC2: official Claude restart restores the externally managed safe settings", async () => {
+  const { sourceRoot, targetRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+  const settingsPath = join(serverDataRoot, "data", "User", "settings.json");
+
+  await prepareOfficialClaudeIde({ sourceRoot, targetRoot, serverDataRoot });
+  await writeFile(settingsPath, JSON.stringify({
+    "claudeCode.initialPermissionMode": "bypassPermissions",
+    "claudeCode.allowDangerouslySkipPermissions": true,
+  }));
+  await prepareOfficialClaudeIde({ sourceRoot, targetRoot, serverDataRoot });
+
+  assert.deepEqual(
+    JSON.parse(await readFile(settingsPath, "utf8")),
+    buildOpenVscodeSettings(targetRoot),
+  );
+  assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
 });
 
 test("REQ-IDE-006 AC1+AC2: projection replaces source settings with the fixed managed settings path", async () => {
