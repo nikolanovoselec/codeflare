@@ -14,7 +14,7 @@ An absent `TAB_CONFIG` keeps the existing Claude default. Malformed JSON, duplic
 
 ## Native Pi Chat
 
-The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned host's default native Chat participant. It calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication, Copilot, or `request.model`, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
+The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned host's default native Chat participant. OpenVSCode 1.109.5 requires a model before invoking any participant, so the extension also registers one hidden, account-free compatibility model that cannot generate responses. Pi never reads `request.model` or sends inference through that provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
 
 Every request receives bounded native Chat history plus the active workspace document, selected text, open workspace documents, diagnostics, and explicit references. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 512 KiB.
 
@@ -27,6 +27,8 @@ The image build fetches Anthropic's exact unmodified `linux-x64` VSIX from Open 
 Before Claude OpenVSCode starts, Codeflare creates `/tmp/codeflare-sidebar/claude/config` as an allowlisted projection of approved credentials and configuration. Terminal projects, history, runtime state, caches, and logs are excluded. Ephemeral OpenVSCode settings select Anthropic's native UI, Anthropic Manual (`"default"`) permission mode, no bypass or automatic edit mode, no login prompt, and the right sidebar. OpenVSCode does not launch if preparation fails.
 
 Anthropic's official extension runs its documented IDE MCP server on `127.0.0.1` with a random port and fresh authorization token under the private temporary config. This owner-approved local exception supplies active-file context, selections, native diffs, and diagnostics without adding a Codeflare relay or public listener. Read-only diagnostics may proceed; mutations and Jupyter execution retain interactive approval.
+
+The official package contributes its own Claude Code webview, not an OpenVSCode `chatParticipant` or language-model provider. Main-Chat actions such as the editor's built-in **Code Review** therefore do not route to Claude and can open Microsoft/GitHub/Copilot setup. Use the Claude Code panel with a selection or `@` reference; putting Claude directly in main Chat would require a separate Codeflare-owned adapter alongside the unchanged official extension.
 
 ## Build and verification
 

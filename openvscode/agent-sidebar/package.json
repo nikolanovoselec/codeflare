@@ -18,6 +18,7 @@
     "onChatParticipant:codeflare.pi"
   ],
   "enabledApiProposals": [
+    "chatProvider",
     "defaultChatParticipant"
   ],
   "capabilities": {
@@ -26,6 +27,12 @@
     }
   },
   "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "codeflare-pi-rpc",
+        "displayName": "Codeflare Pi (Local RPC)"
+      }
+    ],
     "chatParticipants": [
       {
         "id": "codeflare.pi",

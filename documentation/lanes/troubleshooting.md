@@ -40,19 +40,19 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
 
-**Symptom:** Codeflare Pi cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
+**Symptom:** Codeflare Pi reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
 
-**Cause:** The active URI may be outside the canonical workspace or use a symbolic-link alias, editor context may exceed its bound, the fixed RPC child may have emitted invalid JSONL, or an approval manifest may have failed ownership, mode, digest, expiry, identity, path, or stale-content validation.
+**Cause:** `Language model unavailable` means OpenVSCode rejected the request before entering the participant because the owned hidden compatibility model was not registered as its default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, the fixed RPC child emitted invalid JSONL, or an approval manifest failed ownership, mode, digest, expiry, identity, path, or stale-content validation.
 
-**Fix:** Confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening context or approval validation. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
+**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes vendor `codeflare-pi-rpc`, and complete-image smoke confirms a hidden default model whose generation path rejects. Do not sign into Copilot. For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening context or approval validation. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
 
 ### Official Claude panel fails ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
 
-**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, or cannot connect to editor context.
+**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, cannot connect to editor context, or an editor **Code Review** action opens Microsoft/GitHub/Copilot setup instead of Claude.
 
-**Cause:** The exact official extension or bundled linux-x64 binary is missing, the temporary config/settings preparation failed, approved credentials/routing are unavailable, or Anthropic's loopback IDE MCP lock directory was rejected.
+**Cause:** The exact official extension or bundled linux-x64 binary may be missing, the temporary config/settings preparation may have failed, approved credentials/routing may be unavailable, or Anthropic's loopback IDE MCP lock directory may have been rejected. The login shown by main Chat is different: Anthropic's official package contributes a separate Claude Code webview and no native Chat participant or language-model provider, so OpenVSCode's built-in Chat action cannot route to it.
 
-**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings were restored with the isolated `CLAUDE_CONFIG_DIR`, Anthropic Manual (`"default"`) permission mode, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Never enable bypass permissions or expose the MCP port.
+**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings were restored with the isolated `CLAUDE_CONFIG_DIR`, Anthropic Manual (`"default"`) permission mode, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Use the Claude Code panel with the selection or an `@` reference rather than signing into Copilot. Never enable bypass permissions or expose the MCP port.
 
 ### Browser IDE agent leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle))
 

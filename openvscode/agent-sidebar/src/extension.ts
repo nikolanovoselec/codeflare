@@ -1,11 +1,14 @@
 import {
   Uri,
   chat,
+  lm,
   type CancellationToken,
   type ChatContext,
   type ChatRequest,
   type ChatResponseStream,
   type ExtensionContext,
+  type LanguageModelChatInformation,
+  type LanguageModelChatProvider,
 } from 'vscode';
 
 import { ApprovalBridge } from './pi/approval-bridge.ts';
@@ -18,10 +21,36 @@ import { VsCodeApprovalHost } from './pi/vscode-approval-host.ts';
 import { collectNativePiPromptInput } from './pi/vscode-native-chat.ts';
 
 const PARTICIPANT_ID = 'codeflare.pi';
+const HOST_MODEL_VENDOR = 'codeflare-pi-rpc';
+const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
+  readonly isDefault: true;
+  readonly isUserSelectable: false;
+} = Object.freeze({
+  id: 'host-compatibility',
+  name: 'Codeflare Pi',
+  family: HOST_MODEL_VENDOR,
+  version: '1',
+  maxInputTokens: 1,
+  maxOutputTokens: 1,
+  capabilities: Object.freeze({}),
+  isDefault: true,
+  isUserSelectable: false,
+});
+const HOST_COMPATIBILITY_PROVIDER: LanguageModelChatProvider = Object.freeze({
+  provideLanguageModelChatInformation: () => [HOST_COMPATIBILITY_MODEL],
+  provideLanguageModelChatResponse: async () => {
+    throw new Error('Codeflare Pi host compatibility model cannot generate responses');
+  },
+  provideTokenCount: async () => 0,
+});
 let activeRuntime: NativePiRuntime | undefined;
 
 export function activate(context: ExtensionContext): void {
   const runtime = new NativePiRuntime();
+  const hostModelProvider = lm.registerLanguageModelChatProvider(
+    HOST_MODEL_VENDOR,
+    HOST_COMPATIBILITY_PROVIDER,
+  );
   const participant = chat.createChatParticipant(
     PARTICIPANT_ID,
     (request, chatContext, response, cancellation) => runtime.handle(
@@ -34,6 +63,7 @@ export function activate(context: ExtensionContext): void {
   participant.iconPath = Uri.joinPath(context.extensionUri, 'media', 'agent.svg');
   activeRuntime = runtime;
   context.subscriptions.push(
+    hostModelProvider,
     participant,
     { dispose: () => { void runtime.dispose(); } },
   );
