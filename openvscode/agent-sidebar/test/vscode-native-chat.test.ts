@@ -40,9 +40,11 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
   const activePath = join(root, 'active.ts');
   const referencePath = join(root, 'reference.ts');
   const escapedPath = join(root, 'escaped.ts');
+  const aliasPath = join(root, 'alias.ts');
   await writeFile(activePath, 'const selected = broken;\n');
   await writeFile(referencePath, 'export const reference = true;\n');
   await symlink('/etc/hosts', escapedPath);
+  await symlink(referencePath, aliasPath);
 
   const selection = {
     isEmpty: false,
@@ -59,8 +61,9 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
   const activeDocument = document(activePath, 'const selected = broken;\n');
   const referenceDocument = document(referencePath, 'export const reference = true;\n');
   const escapedDocument = document(escapedPath, 'outside-workspace-canary');
+  const aliasDocument = document(aliasPath, 'stale-alias-canary');
   host.activeTextEditor = { document: activeDocument, selection };
-  host.documents = [activeDocument, referenceDocument, escapedDocument];
+  host.documents = [activeDocument, referenceDocument, escapedDocument, aliasDocument];
   host.diagnostics = [{
     severity: 0,
     range: { start: { line: 0, character: 17 } },
@@ -69,13 +72,22 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
 
   const input = await collectNativePiPromptInput({
     prompt: 'Fix this file.',
-    references: [{
-      value: {
-        uri: referenceDocument.uri,
-        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 29 } },
+    references: [
+      {
+        value: {
+          uri: referenceDocument.uri,
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 29 } },
+        },
+        modelDescription: 'Attached reference',
       },
-      modelDescription: 'Attached reference',
-    }],
+      {
+        value: {
+          uri: aliasDocument.uri,
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 18 } },
+        },
+        modelDescription: 'Aliased reference',
+      },
+    ],
   } as never, {
     history: [
       { prompt: 'Earlier question' },
@@ -93,5 +105,31 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
     { role: 'assistant', text: 'Earlier answer' },
   ]);
   assert.equal(input.diagnostics[0]?.message, 'Cannot find name broken.');
-  assert.doesNotMatch(JSON.stringify(input), /outside-workspace-canary|escaped\.ts/);
+  assert.doesNotMatch(JSON.stringify(input), /outside-workspace-canary|escaped\.ts|stale-alias-canary|alias\.ts/);
+});
+
+test('REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'native-chat-malformed-reference-'));
+  roots.push(root);
+  const referencePath = join(root, 'reference.ts');
+  await writeFile(referencePath, 'export const reference = true;\n');
+  const referenceDocument = {
+    uri: { scheme: 'file', fsPath: referencePath },
+    languageId: 'typescript',
+    isDirty: false,
+    isClosed: false,
+    getText: () => 'export const reference = true;\n',
+  };
+  host.documents = [referenceDocument];
+
+  const input = await collectNativePiPromptInput({
+    prompt: 'Inspect references.',
+    references: [
+      { value: { uri: referenceDocument.uri, range: {} } },
+      { value: { uri: referenceDocument.uri, range: { start: { line: -1 }, end: null } } },
+      { value: 42 },
+    ],
+  } as never, { history: [] } as never, root);
+
+  assert.deepEqual(input.references, []);
 });
