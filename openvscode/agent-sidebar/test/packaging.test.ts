@@ -56,7 +56,7 @@ async function stageFixture(source: string, claudeSource: string, target: string
   });
 }
 
-test('REQ-IDE-005 AC1+AC3: stages native Pi, official Claude, and empty unsupported inventories', async () => {
+test('REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories', async () => {
   const { source, claudeSource, target } = await fixture();
   const staged = await stageFixture(source, claudeSource, target);
 
@@ -119,7 +119,7 @@ test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat parti
   assert.equal(manifest.contributes.views, undefined);
 });
 
-test('REQ-IDE-005 AC3: refuses VSIX or substituted owned and official extension identities', async () => {
+test('REQ-IDE-005 AC6: refuses VSIX or substituted owned and official extension identities', async () => {
   for (const forbidden of ['vsix', 'owned-publisher', 'official-publisher', 'official-version']) {
     const { source, claudeSource, target } = await fixture();
     if (forbidden === 'vsix') await writeFile(join(source, 'anthropic.vsix'), 'forbidden\n');

@@ -28,7 +28,7 @@ Before Claude OpenVSCode starts, Codeflare creates `/tmp/codeflare-sidebar/claud
 
 Anthropic's official extension runs its documented IDE MCP server on `127.0.0.1` with a random port and fresh authorization token under the private temporary config. This owner-approved local exception supplies active-file context, selections, native diffs, and diagnostics without adding a Codeflare relay or public listener. Read-only diagnostics may proceed; mutations and Jupyter execution retain interactive approval.
 
-The official package contributes its own Claude Code webview, not an OpenVSCode `chatParticipant` or language-model provider. Claude settings therefore disable the unrelated native Chat and Copilot setup before launch. Use the Claude Code panel with a selection or `@` reference. The upstream Accounts control may still create a memory-only manual authentication session for the current workbench, but Codeflare does not use, bridge, or persist it.
+The official package contributes its own Claude Code webview, not an OpenVSCode `chatParticipant` or language-model provider. Claude settings therefore disable the unrelated native Chat and Copilot setup before launch. Use the Claude Code panel with a selection or `@` reference. The upstream Accounts control may still offer manual authentication, but it is separate from Claude and Codeflare adds no credential request, bridge, export, persistence, or sync path.
 
 ## Build and verification
 

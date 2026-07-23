@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-23
 
-- **Claude-selected Browser IDEs now suppress OpenVSCode's unrelated Chat/Copilot setup** ([REQ-IDE-005](browser-ide.md#req-ide-005-selected-native-ide-agent), Implemented). Anthropic's official panel remains the sole Claude conversation surface, while the missing `GitHub.copilot-chat` flow is disabled before launch. Generic upstream Accounts authentication remains optional and memory-only for the current workbench; Codeflare neither bridges nor persists it.
+- **Claude-selected Browser IDEs now suppress OpenVSCode's unrelated Chat/Copilot setup** ([REQ-IDE-005](browser-ide.md#req-ide-005-selected-native-ide-agent), Implemented). Anthropic's official panel remains the sole Claude conversation surface, while the missing `GitHub.copilot-chat` flow is disabled before launch. Generic upstream Accounts authentication remains separate; Codeflare adds no credential request, bridge, export, persistence, or sync path.
 
 - **Account-free Pi native Chat now satisfies OpenVSCode's mandatory model boundary without moving inference into VS Code** ([REQ-IDE-005](browser-ide.md#req-ide-005-selected-native-ide-agent), Implemented). The owned extension publishes one hidden, inert, panel-only compatibility model because OpenVSCode 1.109.5 resolves a non-optional request model before invoking any participant; Codeflare Pi still ignores `request.model`, performs every turn through the fixed local RPC child, requests no account authorization, and fails closed if the compatibility model is invoked for generation.
 
