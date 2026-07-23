@@ -33,7 +33,7 @@ When the reminder or follow-up lists lanes:
 2. Set `run_in_background: true` and `inherit_context: false` on every call. Every reviewer prompt carries `scope=diff`: a PR review is a change-set review, never whole-tree enforcement. When the reminder supplies `review_range=<acknowledged>..<current>`, include that exact marker in each prompt; otherwise use the full protected-base PR diff.
 3. Do not duplicate any unmatched reviewer call; it remains in flight until a correlated successful native notification or public result retrieval.
 4. If the same extension plan includes a CI wave, submit that independent CI request last without waiting for review completion. Do not infer a second CI trigger from the Git command.
-5. Wait for every required reviewer notification, regardless of completion order.
+5. Wait until every required reviewer has a correlated successful native notification or public result retrieval, regardless of completion order.
 6. Publish one consolidated triage summary. For every finding, decide independently whether the finding is evidence-backed and in scope, whether its proposed fix is proportional, and what smallest correction reuses existing machinery.
 7. Reject false positives and overengineered proposals with evidence. Make no file or Git changes after triage; end the turn immediately so agent-end enforcement can acknowledge the reviewed head from live session state; settled enforcement is the fallback.
 8. In the separate FIX follow-up turn, apply only the accepted legitimate minimal fixes unless the user explicitly requested approval or validation.
