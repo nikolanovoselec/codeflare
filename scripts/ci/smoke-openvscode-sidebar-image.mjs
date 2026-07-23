@@ -221,10 +221,9 @@ async function verifyOpenVscodeSettings() {
     const preparation = await import(pathToFileURL(join(ROOT, 'claude', 'prepare-sidebar-config.mjs')).href);
     const managed = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
     await preparation.prepareOpenVscodeSettings({ serverDataRoot, claudeConfigRoot });
-    assert.deepEqual(
-      JSON.parse(await readFile(join(serverDataRoot, 'data', 'User', 'settings.json'), 'utf8')),
-      managed.buildOpenVscodeSettings(claudeConfigRoot),
-    );
+    const settings = JSON.parse(await readFile(join(serverDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
+    assert.deepEqual(settings, managed.buildOpenVscodeSettings(claudeConfigRoot));
+    assert.equal(settings['chat.disableAIFeatures'], true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

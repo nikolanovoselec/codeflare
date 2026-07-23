@@ -50,8 +50,15 @@ test("REQ-IDE-007 AC2: hook timeout and non-2 failures stay fail-open while nati
   assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
 });
 
+test("REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup", () => {
+  const settings = buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config");
+
+  assert.equal(settings["chat.disableAIFeatures"], true);
+});
+
 test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude with isolated config and guarded native UI", () => {
   assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"), {
+    "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: "/tmp/codeflare-sidebar/claude/config" },
     ],
