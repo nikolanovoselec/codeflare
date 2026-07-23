@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { buildOpenVscodeSettings } from "./managed-settings.mjs";
 
 export const MANAGED_SETTINGS_PATH = "/etc/codeflare/claude-sidebar/settings.json";
 
@@ -52,6 +54,57 @@ export async function prepareSidebarConfig(options) {
   } catch (error) {
     await rm(stageRoot, { force: true, recursive: true });
     throw error;
+  }
+}
+
+export async function prepareOfficialClaudeIde(options) {
+  const sourceRoot = validateRoot(options?.sourceRoot, "source");
+  const targetRoot = validateRoot(options?.targetRoot, "target");
+  const serverDataRoot = validateRoot(options?.serverDataRoot, "OpenVSCode data");
+  const existing = await lstatOrUndefined(targetRoot);
+  if (existing) await validatePreparedSidebarConfig(targetRoot);
+  else await prepareSidebarConfig({ sourceRoot, targetRoot });
+  await prepareOpenVscodeSettings({ serverDataRoot, claudeConfigRoot: targetRoot });
+}
+
+export async function prepareOpenVscodeSettings(options) {
+  const serverDataRoot = validateRoot(options?.serverDataRoot, "OpenVSCode data");
+  const claudeConfigRoot = validateRoot(options?.claudeConfigRoot, "Claude config");
+  const settingsDirectory = resolve(serverDataRoot, "data", "User");
+  const settingsPath = resolve(settingsDirectory, "settings.json");
+  await mkdir(settingsDirectory, { mode: 0o700, recursive: true });
+  if (await realpath(settingsDirectory) !== settingsDirectory) {
+    throw new Error("OpenVSCode settings directory must not be redirected");
+  }
+  const existing = await lstatOrUndefined(settingsPath);
+  if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
+    throw new Error("OpenVSCode settings must be a real file");
+  }
+  const temporary = `${settingsPath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(
+      temporary,
+      `${JSON.stringify(buildOpenVscodeSettings(claudeConfigRoot), null, 2)}\n`,
+      { encoding: "utf8", flag: "wx", mode: 0o600 },
+    );
+    await rename(temporary, settingsPath);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+async function validatePreparedSidebarConfig(targetRoot) {
+  const root = await lstat(targetRoot);
+  if (!root.isDirectory() || root.isSymbolicLink() || await realpath(targetRoot) !== targetRoot) {
+    throw new Error("prepared Claude config must be a real directory");
+  }
+  const settings = await lstat(resolve(targetRoot, "settings.json"));
+  if (!settings.isSymbolicLink() || await readlink(resolve(targetRoot, "settings.json")) !== MANAGED_SETTINGS_PATH) {
+    throw new Error("prepared Claude settings are not managed");
+  }
+  const marker = JSON.parse(await readFile(resolve(targetRoot, ".codeflare-projection.json"), "utf8"));
+  if (marker?.version !== 1 || !Array.isArray(marker.links) || marker.settings !== MANAGED_SETTINGS_PATH) {
+    throw new Error("prepared Claude projection is invalid");
   }
 }
 
@@ -129,9 +182,15 @@ async function lstatOrUndefined(path) {
 }
 
 async function main() {
-  await prepareSidebarConfig({
+  const managedSettings = await lstat(MANAGED_SETTINGS_PATH);
+  if (!managedSettings.isFile() || managedSettings.isSymbolicLink() ||
+      managedSettings.uid !== 0 || (managedSettings.mode & 0o222) !== 0) {
+    throw new Error("managed Claude settings must be a root-owned immutable file");
+  }
+  await prepareOfficialClaudeIde({
     sourceRoot: "/home/user/.claude",
     targetRoot: "/tmp/codeflare-sidebar/claude/config",
+    serverDataRoot: process.argv[2],
   });
 }
 

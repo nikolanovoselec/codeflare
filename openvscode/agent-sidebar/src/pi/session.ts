@@ -21,7 +21,7 @@ export interface PiChildProcess {
   write(line: string): void | Promise<void>;
   signal(signal: 'SIGINT' | 'SIGTERM' | 'SIGKILL'): void;
   waitForExit(): Promise<void>;
-  waitForSpawn?(): Promise<void>;
+  waitForSpawn?(signal?: AbortSignal): Promise<void>;
   onStdout?(listener: (data: Uint8Array) => void): () => void;
   onStderr?(listener: (data: string) => void): () => void;
   onExit?(listener: () => void): () => void;
@@ -54,10 +54,9 @@ export class PiSession {
   #child: PiChildProcess | undefined;
   #generation: string | undefined;
   #reaping = Promise.resolve();
+  #disposed = false;
   #promptSequence = 0;
   #abortSequence = 0;
-  #modelSequence = 0;
-  #thinkingSequence = 0;
 
   constructor(spawner: PiProcessSpawner, options: PiSessionOptions = {}) {
     this.#spawner = spawner;
@@ -66,8 +65,11 @@ export class PiSession {
   }
 
   async resolveVisible(): Promise<PiChildProcess> {
+    this.#assertActive();
     await this.#reaping;
+    this.#assertActive();
     if (this.#child?.exited) await this.#reap();
+    this.#assertActive();
     if (!this.#child) {
       const generation = this.#generationFactory();
       this.#generation = generation;
@@ -82,6 +84,7 @@ export class PiSession {
   async sendPrompt(message: string, beforeWrite?: (id: string) => void): Promise<string> {
     if (typeof message !== 'string') throw new TypeError('Pi prompt must be a string');
     const child = await this.resolveVisible();
+    this.#assertActive();
     const id = `prompt-${++this.#promptSequence}`;
     beforeWrite?.(id);
     await child.write(`${JSON.stringify({ id, type: 'prompt', message })}\n`);
@@ -90,45 +93,31 @@ export class PiSession {
 
   async abort(beforeWrite?: (id: string) => void): Promise<string> {
     const child = await this.resolveVisible();
+    this.#assertActive();
     const id = `abort-${++this.#abortSequence}`;
     beforeWrite?.(id);
     await child.write(`${JSON.stringify({ id, type: 'abort' })}\n`);
     return id;
   }
 
-  async cycleModel(beforeWrite?: (id: string) => void): Promise<string> {
-    const child = await this.resolveVisible();
-    const id = `model-${++this.#modelSequence}`;
-    beforeWrite?.(id);
-    await child.write(`${JSON.stringify({ id, type: 'cycle_model' })}\n`);
-    return id;
-  }
-
-  async cycleThinkingLevel(beforeWrite?: (id: string) => void): Promise<string> {
-    const child = await this.resolveVisible();
-    const id = `thinking-${++this.#thinkingSequence}`;
-    beforeWrite?.(id);
-    await child.write(`${JSON.stringify({ id, type: 'cycle_thinking_level' })}\n`);
-    return id;
-  }
-
   async writeEnvelope(envelope: Readonly<Record<string, unknown>>): Promise<void> {
     const child = await this.resolveVisible();
+    this.#assertActive();
     await child.write(`${JSON.stringify(envelope)}\n`);
   }
 
-  async newConversation(): Promise<PiChildProcess> {
-    await this.#reap();
-    return this.resolveVisible();
-  }
-
   async dispose(): Promise<void> {
+    this.#disposed = true;
     await this.#reap();
   }
 
   async reapExitedProcess(child: PiChildProcess): Promise<void> {
     if (this.#child !== child) return;
     await this.#reap();
+  }
+
+  #assertActive(): void {
+    if (this.#disposed) throw new Error('Pi request session is disposed');
   }
 
   #reap(): Promise<void> {

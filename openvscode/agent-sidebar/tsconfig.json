@@ -16,12 +16,12 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
   "include": [
     "src/**/*.ts",
-    "webview/**/*.ts",
     "test/**/*.ts"
   ],
   "exclude": [

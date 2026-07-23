@@ -122,8 +122,8 @@ Parallel jobs, all gated by a `changes` path-filter job (every lane runs on `wor
 - **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
 - **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
-- **browser-ide:** clean-installs under Node 22.21.1, audits dependencies and licenses, typechecks, bundles local assets, loads `node-pty`, and runs extension and Claude-helper behavior with coverage plus a gated JSON report.
-- **browser-ide-image:** builds without pushing; verifies inventories, no VSIX, ownership, ABI 127, Claude controls, and lazy startup, while [`verifyPackagedView`](../../scripts/ci/smoke-openvscode-sidebar-image.mjs) exercises host-compatible view registration and CSP resolution ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) AC2 and AC7); then records image size, idle process count, and RSS.
+- **browser-ide:** clean-installs under Node 22.21.1, audits the owned extension's pinned dependencies and licenses, typechecks, deterministically bundles native Pi Chat, and runs Pi context/RPC/approval plus official-Claude configuration behavior with coverage and a gated JSON report.
+- **browser-ide-image:** builds without pushing; checksum-verifies and installs Anthropic's exact official VSIX, validates immutable Pi/Claude/empty inventories, has the pinned OpenVSCode CLI positively discover both extension IDs, registers packaged Pi against a guarded API mock without authentication or language-model access, checks official Claude's identity/binary/production config/permissions, starts both host inventories, and proves no agent child starts before use ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) AC6). It then records image size, idle process count, and RSS.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
 - **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
 - **bundle-size** — `wrangler deploy --dry-run` against a patched config, gated on `scripts/ci/check-bundle-size.mjs` ([REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy)).
@@ -243,7 +243,7 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 ## Related Decisions
 
 - [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) - Parallel path-filtered CI lanes, fail-closed JSON test gate, staged deploy with content-addressed container reuse, scripted e2e removal
-- [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty) - Owned Browser IDE extension, Node 22 addon build, and complete-image compatibility lane
+- [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) - Native Pi Chat, exact official Claude package, and complete-image compatibility lane
 
 ---
 

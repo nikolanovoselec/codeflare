@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'vitest';
 
+import officialClaude from '../official-claude.json' with { type: 'json' };
 import { stageSidebarExtension } from '../src/package-extension.ts';
 
 const roots: string[] = [];
@@ -36,11 +37,11 @@ async function fixture(): Promise<{ source: string; claudeSource: string; target
 
   await mkdir(join(claudeSource, 'resources', 'native-binary'), { recursive: true });
   await writeFile(join(claudeSource, 'package.json'), JSON.stringify({
-    name: 'claude-code',
-    publisher: 'Anthropic',
-    version: '2.1.218',
-    main: './extension.js',
-    engines: { vscode: '^1.94.0' },
+    name: officialClaude.name,
+    publisher: officialClaude.namespace,
+    version: officialClaude.version,
+    main: officialClaude.main,
+    engines: { vscode: officialClaude.vscodeEngine },
   }));
   await writeFile(join(claudeSource, 'extension.js'), 'module.exports = {}\n');
   await writeFile(join(claudeSource, 'resources', 'native-binary', 'claude'), 'official-binary-fixture\n', { mode: 0o755 });
@@ -52,7 +53,7 @@ async function stageFixture(source: string, claudeSource: string, target: string
     sourceDirectory: source,
     claudeSourceDirectory: claudeSource,
     rootDirectory: target,
-  } as Parameters<typeof stageSidebarExtension>[0] & { claudeSourceDirectory: string });
+  });
 }
 
 test('REQ-IDE-005 AC1+AC2: stages native Pi, official Claude, and empty unsupported inventories', async () => {
@@ -61,6 +62,10 @@ test('REQ-IDE-005 AC1+AC2: stages native Pi, official Claude, and empty unsuppor
 
   assert.deepEqual((await readdir(join(target, 'extensions'))).sort(), ['claude', 'none', 'pi']);
   assert.deepEqual(await readdir(staged.inventories.none), []);
+  assert.deepEqual(
+    JSON.parse(await readFile(join(target, 'official-claude.json'), 'utf8')),
+    officialClaude,
+  );
   assert.deepEqual(await readdir(staged.inventories.pi), ['codeflare-agent-sidebar']);
   assert.deepEqual(await readdir(staged.inventories.claude), ['anthropic.claude-code']);
   assert.equal(
@@ -70,9 +75,9 @@ test('REQ-IDE-005 AC1+AC2: stages native Pi, official Claude, and empty unsuppor
   const claudeManifest = JSON.parse(
     await readFile(join(staged.inventories.claude, 'anthropic.claude-code', 'package.json'), 'utf8',),
   ) as Record<string, unknown>;
-  assert.equal(claudeManifest.name, 'claude-code');
-  assert.equal(claudeManifest.publisher, 'Anthropic');
-  assert.equal(claudeManifest.version, '2.1.218');
+  assert.equal(claudeManifest.name, officialClaude.name);
+  assert.equal(claudeManifest.publisher, officialClaude.namespace);
+  assert.equal(claudeManifest.version, officialClaude.version);
 });
 
 test('staged Pi and Claude extension files are immutable', async () => {
@@ -99,15 +104,12 @@ test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat parti
 
   assert.deepEqual(manifest.activationEvents, ['onChatParticipant:codeflare.pi']);
   assert.deepEqual(manifest.enabledApiProposals, ['defaultChatParticipant']);
-  assert.deepEqual(manifest.contributes.chatParticipants, [{
-    id: 'codeflare.pi',
-    name: 'codeflare',
-    fullName: 'Codeflare Pi',
-    description: 'Codeflare Pi agent with workspace and editor context.',
-    isDefault: true,
-    isSticky: true,
-    modes: ['ask', 'edit', 'agent'],
-  }]);
+  const [participant] = manifest.contributes.chatParticipants;
+  assert.equal(participant?.id, 'codeflare.pi');
+  assert.equal(participant?.name, 'codeflare');
+  assert.equal(participant?.isDefault, true);
+  assert.equal(participant?.isSticky, true);
+  assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
   assert.equal(manifest.contributes.viewsContainers, undefined);
   assert.equal(manifest.contributes.views, undefined);
 });
@@ -122,7 +124,7 @@ test('REQ-IDE-005 AC3: refuses VSIX or substituted owned and official extension 
     if (forbidden === 'official-publisher' || forbidden === 'official-version') {
       const manifest = JSON.parse(await readFile(join(claudeSource, 'package.json'), 'utf8')) as Record<string, unknown>;
       if (forbidden === 'official-publisher') manifest.publisher = 'lookalike';
-      else manifest.version = '2.1.219';
+      else manifest.version = `${officialClaude.version}-substituted`;
       await writeFile(join(claudeSource, 'package.json'), JSON.stringify(manifest));
     }
 

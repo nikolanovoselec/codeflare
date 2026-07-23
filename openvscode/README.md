@@ -1,41 +1,39 @@
-# Browser IDE agent sidebar
+# Browser IDE agents
 
-Codeflare packages one workspace extension for OpenVSCode Server. It provides an Activity Bar view for the agent selected in terminal tab 1. The sidebar starts a new conversation and never attaches to the terminal process.
+Codeflare gives the agent selected in terminal tab 1 an editor-native OpenVSCode integration. The IDE agent remains a separate process and conversation from terminal tab 1.
 
-## Selection
+## Selection and UI
 
-`entrypoint.sh` classifies tab 1 without executing or rewriting its command:
-
-| Tab 1 | Extension inventory | Sidebar backend |
+| Tab 1 | Immutable inventory | IDE experience |
 |---|---|---|
-| Exact `pi` | `/opt/codeflare/openvscode/extensions/pi` | `/usr/local/bin/pi --mode rpc --no-session --no-themes` |
-| Exact supported Claude command | `/opt/codeflare/openvscode/extensions/claude` | `/usr/local/bin/claude` in `node-pty` |
-| Unsupported or invalid configuration | `/opt/codeflare/openvscode/extensions/none` | None |
+| Exact `pi` | `/opt/codeflare/openvscode/extensions/pi` | Codeflare Pi is the default participant in OpenVSCode's main native Chat |
+| Exact supported Claude command | `/opt/codeflare/openvscode/extensions/claude` | Anthropic's official Claude Code panel in the right sidebar |
+| Unsupported or invalid configuration | `/opt/codeflare/openvscode/extensions/none` | No agent extension |
 
-An absent `TAB_CONFIG` keeps the existing Claude default. Malformed JSON, duplicate tab IDs, a missing tab 1, command suffixes, and other agents select the empty inventory.
+An absent `TAB_CONFIG` keeps the existing Claude default. Malformed JSON, duplicate tab IDs, a missing tab 1, command suffixes, and other agents select the empty inventory. Classification never executes or rewrites the terminal command.
 
-The Pi and Claude inventories contain hard-linked copies of the same Codeflare-owned package. The image contains no Anthropic VSIX and does not use a marketplace, ACP, a relay, or another container.
+## Native Pi Chat
 
-## Runtime
+The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned host's default native Chat participant. It calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication, Copilot, or `request.model`, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
 
-The extension activates when its view is requested, but activation itself starts no child. The first visible resolution creates one selected backend and reuses it until a new conversation or teardown.
+Every request receives bounded native Chat history plus the active workspace document, selected text, open workspace documents, diagnostics, and explicit references. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 512 KiB.
 
-Pi uses strict LF-delimited JSONL with bounded records and correlated request IDs. It has no session file. The sidebar guard replaces edit, write, and Bash with approval-aware tools, keeps same-file approval windows serialized, atomically replaces a revalidated target from a synced sibling file, and sends an opaque manifest ID with its SHA-256 digest through Pi's extension UI request. The OpenVSCode extension host verifies the mode-0600 manifest against that digest, displays the preview, and owns the confirmation.
+Each request owns a fresh process generation. Pi streams assistant text and tool progress into native Chat, completes only at `agent_settled`, and is then reaped. Cancellation during startup prevents the prompt; after acceptance it sends Pi's correlated abort and denies any pending approval before cleanup. The existing guarded edit, write, and Bash tools still require the OpenVSCode extension host to verify the protected manifest digest, display the preview, and own confirmation.
 
-Claude runs as the existing pinned CLI in a real PTY rendered by locally bundled xterm.js. It receives raw terminal input, output, resize events, and Ctrl+C. It does not receive `--dangerously-skip-permissions`. Its fixed settings keep Manual mode, explicit ask rules, and the native permission dialog. Each launch recreates `/tmp/codeflare-sidebar/claude/config` as a mode-0700 allowlisted projection. Terminal history, resumable projects, caches, logs, and runtime state are excluded.
+## Official Claude Code
 
-Both backends use `/home/user/workspace` and inherit the container's approved credentials and routing environment. The webview cannot choose an executable, working directory, environment, settings path, raw RPC command, or approval response.
+The image build fetches Anthropic's exact unmodified `linux-x64` VSIX from Open VSX, verifies its pinned SHA-256 and package identity, extracts the official files into the Claude-only inventory, deletes the archive, and makes the installed tree root-owned and immutable. Codeflare applies settings externally and does not patch or serve Anthropic's package. The owner accepts its all-rights-reserved license ambiguity for server-image inclusion.
 
-## Lifecycle
+Before Claude OpenVSCode starts, Codeflare creates `/tmp/codeflare-sidebar/claude/config` as an allowlisted projection of approved credentials and configuration. Terminal projects, history, runtime state, caches, and logs are excluded. Ephemeral OpenVSCode settings select Anthropic's native UI, Manual mode, no bypass or automatic edit mode, no login prompt, and the right sidebar. OpenVSCode does not launch if preparation fails.
 
-Each OpenVSCode launch has a fresh generation token plus recorded PID, process group, and start time. Every Pi or Claude conversation also gets its own descendant token. New conversation, restart, and shutdown send TERM, wait for the bounded grace period, then send KILL to every process that still carries the token before starting a replacement. Token scans remain safe when the recorded leader exits, becomes a zombie, changes groups, or has its PID reused.
+Anthropic's official extension runs its documented IDE MCP server on `127.0.0.1` with a random port and fresh authorization token under the private temporary config. This owner-approved local exception supplies active-file context, selections, native diffs, and diagnostics without adding a Codeflare relay or public listener. Read-only diagnostics may proceed; mutations and Jupyter execution retain interactive approval.
 
 ## Build and verification
 
-`openvscode/agent-sidebar/package-lock.json` pins `node-pty`, xterm.js, and build dependencies. Docker compiles `node-pty` in a digest-pinned Node 22.21.1 stage for OpenVSCode's addon ABI 127. The runtime image stages fixed immutable inventories and a root-owned Claude settings overlay.
+The owned Pi package is built under Node 22.21.1 for the pinned OpenVSCode host. It has no native addon or runtime npm dependency. The official Claude package is version- and checksum-pinned independently. Fixed staging validates both package identities, creates the Pi, Claude, and empty inventories atomically, rejects symbolic links and retained VSIX archives, and removes write permission.
 
-The required `browser-ide` CI lane performs a clean install, dependency and license checks, typecheck, deterministic build, coverage, behavioral tests, and report reconciliation. `browser-ide-image` builds the complete image without pushing it, loads the native addon with OpenVSCode's Node binary, validates the host-compatible Activity Bar contribution, resolves the packaged provider against OpenVSCode's actual CSP-source contract, checks the inventories and Claude projection, and records image size plus idle process and RSS evidence.
+The required `browser-ide` lane performs dependency and license checks for owned code, typecheck, deterministic build, behavioral tests, and report reconciliation. `browser-ide-image` builds the complete image, has the pinned host discover both extension IDs, verifies packaged native Pi registration, official Claude identity/binary and production preparation, isolated settings, permissions, inventory immutability, and process laziness, then records image size and idle resources.
 
-This repository's constrained development container does not run these builds or tests locally. Use the GitHub Actions results or an integration deployment.
+This constrained development container does not run builds or tests locally. Use GitHub Actions and an exact reviewed integration deployment.
 
-See [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation), [REQ-IDE-007](../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval), [REQ-IDE-008](../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle), [AD113](../documentation/decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty), [Container](../documentation/lanes/container.md#openvscode-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-agent-sidebar).
+See [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [AD114](../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [Container](../documentation/lanes/container.md#openvscode-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-native-agents).

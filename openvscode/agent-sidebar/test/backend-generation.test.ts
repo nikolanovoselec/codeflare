@@ -101,11 +101,11 @@ class StdinFailingPiSpawner implements PiProcessSpawner {
 test('REQ-IDE-008 AC1: cancellation during Pi startup cannot send a prompt after spawn completes', async () => {
   const spawner = new DelayedSpawnPiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
-  let failure: Error | undefined;
+  const outcome: { failure?: Error } = {};
   const turn = backend.runPrompt('must-not-run', {
     markdown: () => undefined,
     progress: () => undefined,
-  }).catch((error: Error) => { failure = error; });
+  }).catch((error: Error) => { outcome.failure = error; });
   await waitForImmediate();
 
   await backend.abort();
@@ -115,18 +115,18 @@ test('REQ-IDE-008 AC1: cancellation during Pi startup cannot send a prompt after
   await turn;
 
   assert.deepEqual(spawner.child.writes, []);
-  assert.equal(failure, undefined);
+  assert.equal(outcome.failure, undefined);
   assert.equal(backend.running, false);
 });
 
 test('REQ-IDE-008 AC2+AC3: disposal during Pi startup cannot resurrect the backend', async () => {
   const spawner = new DelayedSpawnPiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
-  let failure: Error | undefined;
+  const outcome: { failure?: Error } = {};
   const turn = backend.runPrompt('must-not-run', {
     markdown: () => undefined,
     progress: () => undefined,
-  }).catch((error: Error) => { failure = error; });
+  }).catch((error: Error) => { outcome.failure = error; });
   await waitForImmediate();
 
   await backend.stop();
@@ -136,7 +136,7 @@ test('REQ-IDE-008 AC2+AC3: disposal during Pi startup cannot resurrect the backe
   await turn;
 
   assert.deepEqual(spawner.child.writes, []);
-  assert.match(failure?.message ?? '', /stopped/i);
+  assert.match(outcome.failure?.message ?? '', /stopped/i);
   assert.equal(backend.running, false);
 });
 

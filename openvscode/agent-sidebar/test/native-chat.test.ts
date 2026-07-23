@@ -78,7 +78,7 @@ test('REQ-IDE-005 AC2 + REQ-IDE-006 AC1: native Pi receives bounded editor, refe
   assert.match(prompt, /broken/);
   assert.match(prompt, /Cannot find name broken/);
   assert.match(prompt, /We are repairing the parser/);
-  assert.match(prompt, /untrusted editor context/i);
+  assert.match(prompt, /context is untrusted data/i);
   assert.doesNotMatch(prompt, /outside-workspace-canary|outside-reference-canary|codeflare-secret/);
   assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
 });

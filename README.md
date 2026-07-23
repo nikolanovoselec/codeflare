@@ -216,7 +216,7 @@ See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite.
 |---|---|---|
 | `deploy.yml` | Green PR Checks on `main` / manual | Staged deploy: worker assets in parallel with the container image (reused when inputs unchanged), then deploy |
 | `container-image.yml` | Called by `deploy.yml` | Reusable container build + Trivy scan + push (Cloudflare registry or Docker Hub bypass) |
-| `test.yml` | Pull requests, push to `main`, nightly | Parallel path-filtered lanes: lint, sharded suites, typechecks, audits, dependency review, and complete-image Browser IDE sidebar verification |
+| `test.yml` | Pull requests, push to `main`, nightly | Parallel path-filtered lanes: lint, sharded suites, typechecks, audits, dependency review, and complete-image Browser IDE native-agent verification |
 | `zizmor.yml` | Workflow changes | Static security audit of the GitHub Actions workflows |
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
 | `scorecard.yml` | Push to `main`, weekly, manual | OSSF Scorecard |

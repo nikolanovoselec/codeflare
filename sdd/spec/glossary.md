@@ -9,7 +9,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Bucket | A per-user R2 storage bucket (`codeflare-{bucketName}`) holding all persistent files. |
 | Agent | An AI coding CLI tool (Claude Code, Codex, Antigravity, Copilot, OpenCode, Pi, or plain bash). |
 | Browser IDE | A per-session OpenVSCode editor served from the session container, isolated by session and available to advanced running sessions. |
-| Agent sidebar | A Browser IDE view contributed by Codeflare's owned extension that starts a separate Pi RPC or Claude PTY conversation matching terminal tab 1 without attaching to that terminal conversation. |
+| IDE agent | The editor-native integration matching terminal tab 1: Codeflare Pi in native OpenVSCode Chat, Anthropic's official Claude panel, or no extension for unsupported selections. Its conversation and process remain separate from terminal tab 1. |
 | Editor activity | Any message sent from the Browser IDE to its session; each message refreshes the input-based idle timer without inspecting its content. |
 | Session Mode | Standard (default) or Pro (advanced). Controls which preseed configs are deployed. |
 | Preseed | Pre-configured rules, skills, agents, commands, and plugins deployed to a container on start. |

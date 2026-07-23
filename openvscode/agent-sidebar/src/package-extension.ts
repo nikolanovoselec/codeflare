@@ -10,11 +10,24 @@ import {
   rename,
   rm,
   stat,
+  writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
+import officialClaude from '../official-claude.json' with { type: 'json' };
+
+export const OFFICIAL_CLAUDE_EXTENSION = Object.freeze({
+  directoryName: `${officialClaude.namespace.toLowerCase()}.${officialClaude.name}`,
+  name: officialClaude.name,
+  publisher: officialClaude.namespace,
+  version: officialClaude.version,
+  main: officialClaude.main,
+  vscodeEngine: officialClaude.vscodeEngine,
+});
+
 export interface StageSidebarExtensionOptions {
   readonly sourceDirectory: string;
+  readonly claudeSourceDirectory: string;
   readonly rootDirectory: string;
 }
 
@@ -31,9 +44,17 @@ export async function stageSidebarExtension(
   options: StageSidebarExtensionOptions,
 ): Promise<StagedSidebarExtension> {
   const sourceDirectory = absoluteDirectory(options.sourceDirectory, 'source');
+  const claudeSourceDirectory = absoluteDirectory(options.claudeSourceDirectory, 'official Claude source');
   const rootDirectory = absoluteDirectory(options.rootDirectory, 'root');
-  if (!separatePaths(sourceDirectory, rootDirectory)) throw new Error('Source and staging root must be separate');
+  if (
+    !separatePaths(sourceDirectory, rootDirectory) ||
+    !separatePaths(claudeSourceDirectory, rootDirectory) ||
+    !separatePaths(sourceDirectory, claudeSourceDirectory)
+  ) {
+    throw new Error('Extension sources and staging root must be separate');
+  }
   await validateOwnedSource(sourceDirectory);
+  await validateOfficialClaudeSource(claudeSourceDirectory);
 
   const stageRoot = join(dirname(rootDirectory), `.${basename(rootDirectory)}.stage-${randomUUID()}`);
   const sharedExtension = join(stageRoot, 'extension');
@@ -55,7 +76,15 @@ export async function stageSidebarExtension(
     });
     await Promise.all(Object.values(inventories).map((directory) => mkdir(directory, { recursive: true, mode: 0o755 })));
     await hardlinkTree(sharedExtension, join(inventories.pi, 'codeflare-agent-sidebar'));
-    await hardlinkTree(sharedExtension, join(inventories.claude, 'codeflare-agent-sidebar'));
+    await hardlinkTree(
+      claudeSourceDirectory,
+      join(inventories.claude, OFFICIAL_CLAUDE_EXTENSION.directoryName),
+    );
+    await writeFile(
+      join(stageRoot, 'official-claude.json'),
+      `${JSON.stringify(officialClaude, null, 2)}\n`,
+      { encoding: 'utf8', mode: 0o444 },
+    );
     await makeImmutable(stageRoot);
     await rm(rootDirectory, { recursive: true, force: true });
     await rename(stageRoot, rootDirectory);
@@ -93,11 +122,40 @@ async function validateOwnedSource(sourceDirectory: string): Promise<void> {
   await rejectForbiddenEntries(sourceDirectory);
 }
 
+async function validateOfficialClaudeSource(sourceDirectory: string): Promise<void> {
+  const source = await lstat(sourceDirectory);
+  if (!source.isDirectory() || source.isSymbolicLink()) {
+    throw new Error('Official Claude extension source must be a real directory');
+  }
+  const packagePath = join(sourceDirectory, 'package.json');
+  const packageStat = await lstat(packagePath);
+  if (!packageStat.isFile() || packageStat.isSymbolicLink() || packageStat.size > 256 * 1024) {
+    throw new Error('Invalid official Claude extension package');
+  }
+  const manifest = JSON.parse(await readFile(packagePath, 'utf8')) as Record<string, unknown>;
+  const engines = manifest.engines as Record<string, unknown> | undefined;
+  if (
+    manifest.name !== OFFICIAL_CLAUDE_EXTENSION.name ||
+    manifest.publisher !== OFFICIAL_CLAUDE_EXTENSION.publisher ||
+    manifest.version !== OFFICIAL_CLAUDE_EXTENSION.version ||
+    manifest.main !== OFFICIAL_CLAUDE_EXTENSION.main ||
+    engines?.vscode !== OFFICIAL_CLAUDE_EXTENSION.vscodeEngine
+  ) {
+    throw new Error('Official Claude extension identity or version is invalid');
+  }
+  const main = await lstat(join(sourceDirectory, 'extension.js'));
+  const binary = await lstat(join(sourceDirectory, 'resources', 'native-binary', 'claude'));
+  if (!main.isFile() || main.isSymbolicLink() || !binary.isFile() || binary.isSymbolicLink() || !(binary.mode & 0o111)) {
+    throw new Error('Official Claude extension entry point or binary is invalid');
+  }
+  await rejectForbiddenEntries(sourceDirectory);
+}
+
 async function rejectForbiddenEntries(directory: string): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.name.toLowerCase().endsWith('.vsix')) throw new Error('VSIX files are forbidden');
-    if (entry.isSymbolicLink()) throw new Error('Symbolic links are forbidden in the owned extension source');
+    if (entry.isSymbolicLink()) throw new Error('Symbolic links are forbidden in extension sources');
     if (entry.isDirectory()) await rejectForbiddenEntries(path);
   }
 }

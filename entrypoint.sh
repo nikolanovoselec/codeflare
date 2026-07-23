@@ -1392,7 +1392,7 @@ _openvscode_should_launch() {
         && [ -f "${OPENVSCODE_REQUEST_TRIGGER:-/tmp/openvscode-requested}" ]
 }
 
-# Closed, non-executing sidebar classification. TAB_CONFIG continues to own
+# Closed, non-executing IDE-agent classification. TAB_CONFIG continues to own
 # terminal autostart under AD15; this helper only maps an exact tab-1 command to
 # one of three fixed extension inventories. Malformed, duplicate, and ambiguous
 # values fail closed. Only a genuinely absent TAB_CONFIG keeps the legacy Claude
@@ -1431,14 +1431,28 @@ _openvscode_extensions_dir() {
     esac
 }
 
+_openvscode_prepare_claude() {
+    [ "${1:-}" = "claude" ] || return 0
+    /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh "$2"
+}
+
 # Launch OpenVSCode Server once in the foreground (the supervisor loop wraps this
 # in a restart loop). Session-isolated base path, workspace folder, ephemeral
 # per-container data dir; no connection token (the Worker is the auth boundary).
 # REQ-IDE-001, REQ-IDE-002, REQ-IDE-005 AC1+AC2.
 _openvscode_launch_once() {
-    local sidebar_agent extensions_dir
+    local sidebar_agent extensions_dir data_dir
+    local -a proposed_api_args=()
     sidebar_agent="$(_openvscode_agent_kind)"
     extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
+    data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
+    if ! _openvscode_prepare_claude "$sidebar_agent" "$data_dir"; then
+        echo "[openvscode] Claude IDE state preparation failed; refusing launch" >&2
+        return 1
+    fi
+    if [ "$sidebar_agent" = "pi" ]; then
+        proposed_api_args=(--enable-proposed-api codeflare.codeflare-agent-sidebar)
+    fi
 
     CODEFLARE_SIDEBAR_AGENT="$sidebar_agent" \
     exec "${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}" \
@@ -1447,16 +1461,17 @@ _openvscode_launch_once() {
         --server-base-path "/api/vscode/${SESSION_ID}" \
         --without-connection-token \
         --default-folder "${OPENVSCODE_WORKSPACE:-$HOME/workspace}" \
-        --server-data-dir "${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}" \
+        --server-data-dir "$data_dir" \
         --extensions-dir "$extensions_dir" \
+        "${proposed_api_args[@]}" \
         --telemetry-level off \
         --accept-server-license-terms
 }
 
 # Supervisor loop: wait for the gate, launch each restart in a fresh process
 # group, and reap every process carrying that generation token before replacing
-# it. This reaches node-pty and detached Pi children without sharing terminal
-# state. REQ-IDE-003 AC4, REQ-IDE-006 AC6.
+# it. This reaches native Pi and official Claude descendants without sharing
+# terminal state. REQ-IDE-003 AC4, REQ-IDE-008 AC4.
 _openvscode_supervise_loop() {
     local generation_pidfile current_pid="" current_start="" current_generation="" current_pgid="" exit_code
     generation_pidfile="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation-${BASHPID}.pid}"
@@ -1526,7 +1541,7 @@ start_openvscode_supervisor() {
     # helpers available inside the fresh non-interactive setsid bash.
     export OPENVSCODE_GENERATION_PIDFILE="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
     export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree
-    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop
+    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_claude _openvscode_launch_once _openvscode_supervise_loop
     setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
         >> /tmp/openvscode.log 2>&1 &
 

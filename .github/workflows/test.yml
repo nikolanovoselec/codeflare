@@ -852,7 +852,7 @@ jobs:
         timeout-minutes: 5
 
   browser-ide:
-    name: Browser IDE sidebar
+    name: Browser IDE agents
     needs: changes
     if: >-
       needs.changes.outputs.full == 'true' ||
@@ -894,11 +894,7 @@ jobs:
           find dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/sidebar-dist-second.sha256"
           diff -u "$RUNNER_TEMP/sidebar-dist-first.sha256" "$RUNNER_TEMP/sidebar-dist-second.sha256"
 
-      - name: Verify OpenVSCode Node ABI addon
-        run: node -e "const pty = require('node-pty'); if (typeof pty.spawn !== 'function') process.exit(1)"
-        working-directory: openvscode/agent-sidebar
-
-      - name: Run sidebar suite (fail-closed gate)
+      - name: Run Browser IDE agent suite (fail-closed gate)
         uses: ./.github/actions/vitest-suite
         with:
           working-directory: openvscode/agent-sidebar
@@ -922,7 +918,7 @@ jobs:
           IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
         run: docker build --tag "$IMAGE" .
 
-      - name: Verify packaged sidebar and native ABI
+      - name: Verify packaged native Pi Chat and official Claude
         env:
           IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
         run: |
@@ -939,6 +935,19 @@ jobs:
           IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
         run: |
           set -euo pipefail
+          claude_extension_version=$(jq -r '.version' openvscode/agent-sidebar/official-claude.json)
+          pi_extensions=$(docker run --rm --entrypoint /usr/local/bin/openvscode-server "$IMAGE" \
+            --extensions-dir /opt/codeflare/openvscode/extensions/pi \
+            --list-extensions --show-versions)
+          claude_extensions=$(docker run --rm --entrypoint /usr/local/bin/openvscode-server "$IMAGE" \
+            --extensions-dir /opt/codeflare/openvscode/extensions/claude \
+            --list-extensions --show-versions)
+          printf '%s\n' "$pi_extensions" | grep -Fxi 'codeflare.codeflare-agent-sidebar@0.0.0'
+          printf '%s\n' "$claude_extensions" | grep -Fxi "anthropic.claude-code@${claude_extension_version}"
+          printf 'host_discovery=pi:%s claude:%s\n' \
+            'codeflare.codeflare-agent-sidebar@0.0.0' "anthropic.claude-code@${claude_extension_version}" \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+
           container=$(docker run -d --entrypoint /usr/local/bin/openvscode-server "$IMAGE" \
             --host 127.0.0.1 --port 13337 \
             --server-base-path /api/vscode/smoke \
@@ -946,6 +955,7 @@ jobs:
             --default-folder /home/user/workspace \
             --server-data-dir /tmp/openvscode-smoke-data \
             --extensions-dir /opt/codeflare/openvscode/extensions/pi \
+            --enable-proposed-api codeflare.codeflare-agent-sidebar \
             --telemetry-level off --accept-server-license-terms)
           trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
           ready=0
@@ -957,11 +967,54 @@ jobs:
           STATS=$(docker exec "$container" sh -c \
             'printf "processes=%s rss_kib=%s" "$(ps -e --no-headers | wc -l)" "$(ps -e -o rss= | awk '\''{s+=$1} END {print s+0}'\'')"')
           printf '%s\n' "$STATS" | tee -a /tmp/browser-ide-image-evidence.txt
-          if docker exec "$container" pgrep -af '/usr/local/bin/(pi|claude)' >/tmp/sidebar-agents.txt; then
+          if docker exec "$container" pgrep -af '(/usr/local/bin/pi|/usr/local/bin/claude|anthropic\.claude-code/.*/claude)' >/tmp/sidebar-agents.txt; then
             cat /tmp/sidebar-agents.txt
-            echo 'Agent process started before the sidebar became visible.' >&2
+            echo 'Agent process started before native Chat or the Claude panel was used.' >&2
             exit 1
           fi
+          if docker logs "$container" 2>&1 | grep -E 'CANNOT use API proposal|Failed to register participant codeflare\.pi'; then
+            docker logs "$container"
+            echo 'Native Pi Chat contribution was rejected by the pinned host.' >&2
+            exit 1
+          fi
+
+          docker rm -f "$container" >/dev/null
+          container=$(docker run -d --entrypoint /bin/sh "$IMAGE" -c '
+            /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh /tmp/openvscode-claude-smoke-data &&
+            exec /usr/local/bin/openvscode-server "$@"
+          ' openvscode-claude-smoke \
+            --host 127.0.0.1 --port 13337 \
+            --server-base-path /api/vscode/claude-smoke \
+            --without-connection-token \
+            --default-folder /home/user/workspace \
+            --server-data-dir /tmp/openvscode-claude-smoke-data \
+            --extensions-dir /opt/codeflare/openvscode/extensions/claude \
+            --telemetry-level off --accept-server-license-terms)
+          ready=0
+          for _ in $(seq 1 60); do
+            if docker exec "$container" curl -fsS http://127.0.0.1:13337/api/vscode/claude-smoke/ >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
+          docker exec "$container" /usr/local/bin/node -e '
+            const settings = require("/tmp/openvscode-claude-smoke-data/data/User/settings.json");
+            if (settings["claudeCode.initialPermissionMode"] !== "default" ||
+                settings["claudeCode.allowDangerouslySkipPermissions"] !== false ||
+                settings["claudeCode.environmentVariables"]?.[0]?.value !== "/tmp/codeflare-sidebar/claude/config") process.exit(1);
+          '
+          sleep 3
+          if docker logs "$container" 2>&1 | grep -E 'Unsupported platform|Extension activation failed.*[Aa]nthropic|anthropic\.claude-code.*(error|failed)'; then
+            docker logs "$container"
+            echo 'Official Claude extension failed against the pinned OpenVSCode host.' >&2
+            exit 1
+          fi
+          if docker exec "$container" pgrep -af 'anthropic\.claude-code/.*/claude' >/tmp/claude-agent.txt; then
+            cat /tmp/claude-agent.txt
+            echo 'Official Claude process started before its panel was used.' >&2
+            exit 1
+          fi
+          printf 'official_claude_host=ready lazy_process=true\n' \
+            | tee -a /tmp/browser-ide-image-evidence.txt
 
       - name: Upload image evidence
         if: always()

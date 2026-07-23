@@ -68,7 +68,10 @@ export class ApprovalBridge {
     this.#host = host;
   }
 
-  async handlePiRequest(request: PiExtensionUiRequest): Promise<PiExtensionUiResponse | undefined> {
+  async handlePiRequest(
+    request: PiExtensionUiRequest,
+    signal?: AbortSignal,
+  ): Promise<PiExtensionUiResponse | undefined> {
     if (!validRpcId(request.id)) throw new ApprovalBridgeError('INVALID_APPROVAL_ID');
     if (FIRE_AND_FORGET_METHODS.has(request.method)) return undefined;
     if (request.method !== 'confirm') throw new ApprovalBridgeError('UNSUPPORTED_UI_REQUEST');
@@ -81,20 +84,28 @@ export class ApprovalBridge {
 
     this.#pending.add(approvalId);
     try {
-      const manifest = await this.#loadAndValidate(approvalId, manifestDigest);
+      if (signal?.aborted) return this.#consume(approvalId, request.id, false);
+      const loaded = await raceWithAbort(this.#loadAndValidate(approvalId, manifestDigest), signal);
+      if (loaded.cancelled) return this.#consume(approvalId, request.id, false);
+      const manifest = loaded.value;
       if (manifest.expiresAt < Date.now()) throw new ApprovalBridgeError('EXPIRED_APPROVAL');
-      await this.#host.openDiff(manifest);
-      const confirmed = await this.#host.confirm(manifest);
-      this.#consumed.add(approvalId);
-      this.#consumedOrder.push(approvalId);
-      while (this.#consumedOrder.length > 4_096) {
-        const expired = this.#consumedOrder.shift();
-        if (expired) this.#consumed.delete(expired);
-      }
-      return { type: 'extension_ui_response', id: request.id, confirmed };
+      const previewed = await raceWithAbort(this.#host.openDiff(manifest), signal);
+      if (previewed.cancelled) return this.#consume(approvalId, request.id, false);
+      const decision = await raceWithAbort(this.#host.confirm(manifest), signal);
+      return this.#consume(approvalId, request.id, decision.cancelled ? false : decision.value);
     } finally {
       this.#pending.delete(approvalId);
     }
+  }
+
+  #consume(approvalId: string, requestId: string, confirmed: boolean): PiExtensionUiResponse {
+    this.#consumed.add(approvalId);
+    this.#consumedOrder.push(approvalId);
+    while (this.#consumedOrder.length > 4_096) {
+      const expired = this.#consumedOrder.shift();
+      if (expired) this.#consumed.delete(expired);
+    }
+    return { type: 'extension_ui_response', id: requestId, confirmed };
   }
 
   async #loadAndValidate(approvalId: string, expectedDigest: string): Promise<ApprovalManifest> {
@@ -115,6 +126,27 @@ export class ApprovalBridge {
     }
     if (!validManifest(manifest, approvalId)) throw new ApprovalBridgeError('INVALID_MANIFEST');
     return manifest;
+  }
+}
+
+async function raceWithAbort<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+): Promise<{ cancelled: true } | { cancelled: false; value: T }> {
+  if (!signal) return { cancelled: false, value: await operation };
+  if (signal.aborted) return { cancelled: true };
+  let abort = (): void => undefined;
+  const cancelled = new Promise<{ cancelled: true }>((resolve) => {
+    abort = () => resolve({ cancelled: true });
+    signal.addEventListener('abort', abort, { once: true });
+  });
+  try {
+    return await Promise.race([
+      operation.then((value) => ({ cancelled: false as const, value })),
+      cancelled,
+    ]);
+  } finally {
+    signal.removeEventListener('abort', abort);
   }
 }
 

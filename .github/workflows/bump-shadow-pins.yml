@@ -8,6 +8,7 @@ name: Bump Shadow Pins
 # - graphify PyPI package graphifyy (plugin.json; Dockerfile reads the pin via jq,
 #   so no Dockerfile literal to bump)
 # - zoxide, yazi, lazygit, silverbullet, openvscode-server (GitHub release binaries pinned in Dockerfile)
+# - Anthropic's official Claude Code Open VSX package (version + linux-x64 SHA-256 metadata)
 # - bun npm package (pinned `npm install -g` literal in Dockerfile for context-mode speed)
 # - consult-llm-mcp npm package (pinned `npm install -g` literal in Dockerfile)
 # - chrome-devtools-mcp npm package (Dockerfile-baked npx cache + stable bin)
@@ -1693,6 +1694,136 @@ jobs:
             --head "$BRANCH" \
             --title "chore(deps): bump @modelcontextprotocol/sdk (browser-run-mcp) $CUR -> $LAT" \
             --body "$BODY"
+
+  claude-vscode-extension:
+    # The official extension is a privileged proprietary package bundled into
+    # the server image from Open VSX. Its metadata file is the one source of
+    # truth for Docker, staging validation, and complete-image smoke.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve newest Open VSX release past cooldown
+        id: version
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const request = (url) => fetch(url, { signal: AbortSignal.timeout(30_000) });
+          (async () => {
+          const pin = JSON.parse(fs.readFileSync('openvscode/agent-sidebar/official-claude.json', 'utf8'));
+          const base = `https://open-vsx.org/api/${pin.namespace}/${pin.name}`;
+          const latestResponse = await request(`${base}/latest`);
+          if (!latestResponse.ok) throw new Error(`latest metadata fetch failed: ${latestResponse.status}`);
+          const latest = await latestResponse.json();
+          const versions = Object.keys(latest.allVersions ?? {})
+            .filter((value) => /^\d+\.\d+\.\d+$/.test(value))
+            .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }));
+          const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+          let candidate;
+          for (const version of versions) {
+            const response = await request(`${base}/${pin.targetPlatform}/${version}`);
+            if (!response.ok) continue;
+            const metadata = await response.json();
+            if (metadata.namespace !== pin.namespace || metadata.name !== pin.name ||
+                metadata.version !== version || metadata.targetPlatform !== pin.targetPlatform ||
+                metadata.verified !== true) {
+              throw new Error(`invalid Open VSX identity for ${version}`);
+            }
+            const publishedAt = Date.parse(metadata.timestamp);
+            if (!Number.isFinite(publishedAt)) throw new Error(`invalid publication timestamp for ${version}`);
+            if (publishedAt > cutoff) continue;
+            const checksumUrl = new URL(metadata.files?.sha256);
+            if (checksumUrl.origin !== 'https://open-vsx.org' ||
+                !checksumUrl.pathname.startsWith(`/api/${pin.namespace}/${pin.name}/`)) {
+              throw new Error(`untrusted checksum URL for ${version}`);
+            }
+            const checksumResponse = await request(checksumUrl);
+            if (!checksumResponse.ok) throw new Error(`checksum fetch failed for ${version}`);
+            const sha256 = (await checksumResponse.text()).trim();
+            if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error(`invalid checksum for ${version}`);
+            candidate = { version, sha256, timestamp: new Date(publishedAt).toISOString() };
+            break;
+          }
+          if (!candidate) throw new Error('No cooldown-eligible Claude VS Code extension found');
+          const output = process.env.GITHUB_OUTPUT;
+          const forward = candidate.version.localeCompare(pin.version, undefined, { numeric: true });
+          fs.appendFileSync(output, `current=${pin.version}\nlatest=${candidate.version}\nsha256=${candidate.sha256}\npublished=${candidate.timestamp}\n`);
+          if (forward <= 0) fs.appendFileSync(output, 'skip=true\n');
+          })().catch((error) => { console.error(error); process.exit(1); });
+          NODE
+
+      - name: Skip existing branch
+        if: steps.version.outputs.skip != 'true'
+        id: branch
+        env:
+          LATEST: ${{ steps.version.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BRANCH="bump/claude-vscode-$LATEST"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.version.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          LAT: ${{ steps.version.outputs.latest }}
+          SHA: ${{ steps.version.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "$BRANCH"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'openvscode/agent-sidebar/official-claude.json';
+          const pin = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pin.version = process.env.LAT;
+          pin.sha256 = process.env.SHA;
+          fs.writeFileSync(path, `${JSON.stringify(pin, null, 2)}\n`);
+          NODE
+          git add openvscode/agent-sidebar/official-claude.json
+          git commit -m "chore: bump Claude VS Code extension $LAT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+
+      - name: Open PR
+        if: steps.version.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          CUR: ${{ steps.version.outputs.current }}
+          LAT: ${{ steps.version.outputs.latest }}
+          SHA: ${{ steps.version.outputs.sha256 }}
+          PUBLISHED: ${{ steps.version.outputs.published }}
+        run: |
+          set -euo pipefail
+          gh pr create \
+            --base develop \
+            --head "$BRANCH" \
+            --title "chore: bump Claude VS Code extension $CUR -> $LAT" \
+            --body "$(cat <<EOF
+          Bumps Anthropic's official linux-x64 Open VSX extension from \`$CUR\` to \`$LAT\` after the seven-day cooldown.
+
+          - Published: \`$PUBLISHED\`
+          - SHA-256: \`$SHA\`
+          - Single pin: \`openvscode/agent-sidebar/official-claude.json\`
+
+          CI downloads the exact package, verifies this digest and identity, and runs complete-image host smoke before merge.
+          EOF
+          )"
 
   agent-clis:
     # The five coding-agent CLIs baked into the image. They used to install at

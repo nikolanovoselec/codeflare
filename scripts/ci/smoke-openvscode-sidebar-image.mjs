@@ -25,29 +25,32 @@ async function main() {
   assert.deepEqual((await readdir(inventoriesRoot)).sort(), ['claude', 'none', 'pi']);
   assert.deepEqual(await readdir(join(inventoriesRoot, 'none')), []);
 
-  const packaged = [];
-  for (const inventory of ['pi', 'claude']) {
-    const inventoryRoot = join(inventoriesRoot, inventory);
-    assert.deepEqual(await readdir(inventoryRoot), [EXTENSION_NAME]);
-    const extensionRoot = join(inventoryRoot, EXTENSION_NAME);
-    const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
-    assert.equal(manifest.name, EXTENSION_NAME);
-    assert.equal(manifest.publisher, 'codeflare');
-    assert.equal(manifest.version, '0.0.0');
-    assert.equal(manifest.main, './dist/extension.cjs');
-    assert.equal(manifest.engines.vscode, '^1.109.0');
-    assert.deepEqual(manifest.extensionKind, ['workspace']);
-    assert.equal(manifest.capabilities.untrustedWorkspaces.supported, false);
-    await assertImmutable(extensionRoot);
-    packaged.push(extensionRoot);
-  }
+  const officialPinPath = join(ROOT, 'official-claude.json');
+  const officialPin = JSON.parse(await readFile(officialPinPath, 'utf8'));
+  assert.equal((await stat(officialPinPath)).uid, 0);
+  assert.equal((await stat(officialPinPath)).mode & 0o222, 0);
+  const piInventory = join(inventoriesRoot, 'pi');
+  const claudeInventory = join(inventoriesRoot, 'claude');
+  assert.deepEqual(await readdir(piInventory), [EXTENSION_NAME]);
+  assert.deepEqual(await readdir(claudeInventory), ['anthropic.claude-code']);
+  const piRoot = join(piInventory, EXTENSION_NAME);
+  const claudeRoot = join(claudeInventory, 'anthropic.claude-code');
+  const piManifest = JSON.parse(await readFile(join(piRoot, 'package.json'), 'utf8'));
+  assert.equal(piManifest.name, EXTENSION_NAME);
+  assert.equal(piManifest.publisher, 'codeflare');
+  assert.equal(piManifest.version, '0.0.0');
+  assert.equal(piManifest.main, './dist/extension.cjs');
+  assert.equal(piManifest.engines.vscode, '^1.109.0');
+  assert.deepEqual(piManifest.extensionKind, ['workspace']);
+  assert.equal(piManifest.capabilities.untrustedWorkspaces.supported, false);
+  await assertImmutable(piRoot);
+  await assertImmutable(claudeRoot);
 
-  const piMain = join(packaged[0], 'dist', 'extension.cjs');
-  const claudeMain = join(packaged[1], 'dist', 'extension.cjs');
-  assert.equal((await stat(piMain)).ino, (await stat(claudeMain)).ino);
+  const piMain = join(piRoot, 'dist', 'extension.cjs');
   const extensionHash = createHash('sha256').update(await readFile(piMain)).digest('hex');
   assert.equal((await collect(ROOT)).some((path) => path.toLowerCase().endsWith('.vsix')), false);
-  const viewContract = await verifyPackagedView(packaged[0]);
+  const nativeChat = await verifyPackagedNativeChat(piRoot);
+  const officialClaude = verifyOfficialClaudeExtension(claudeRoot, officialPin);
 
   const managedModule = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
   const managedSettings = managedModule.buildManagedSettings();
@@ -61,51 +64,62 @@ async function main() {
   assert.equal(managedSettings.disableRemoteControl, true);
 
   await verifyConfigProjection();
+  await verifyOpenVscodeSettings();
   await verifyPermissionHook();
-  const abi = verifyNativeAddon(packaged[0]);
   const claudeVersion = execFileSync('/usr/local/bin/claude', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
   const piVersion = execFileSync('/usr/local/bin/pi', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
 
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
     extensionHash,
-    viewContract,
-    abi,
+    nativeChat,
+    officialClaude,
     claudeVersion,
     piVersion,
   })}\n`);
 }
 
-async function verifyPackagedView(extensionRoot) {
+async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
-  const containers = manifest.contributes?.viewsContainers?.activitybar ?? [];
-  assert.equal(containers.length, 1);
-  const container = containers[0];
-  assert.match(container.id, /^[A-Za-z0-9_-]+$/);
-  assert.ok((manifest.contributes?.views?.[container.id] ?? []).some(
-    (view) => view.id === 'codeflare.agentSidebar' && view.type === 'webview',
-  ));
+  assert.deepEqual(manifest.enabledApiProposals, ['defaultChatParticipant']);
+  const [participant] = manifest.contributes?.chatParticipants ?? [];
+  assert.equal(participant?.id, 'codeflare.pi');
+  assert.equal(participant?.name, 'codeflare');
+  assert.equal(participant?.isDefault, true);
+  assert.equal(participant?.isSticky, true);
+  assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
+  assert.equal(manifest.contributes?.views, undefined);
 
   const require = createRequire(import.meta.url);
   const Module = require('node:module');
   const originalLoad = Module._load;
-  const originalBackend = process.env.CODEFLARE_SIDEBAR_AGENT;
-  let provider;
+  let handler;
   const disposable = () => ({ dispose() {} });
-  const uri = (path) => ({ path, fsPath: path, toString: () => `file://${path}` });
-  const vscode = {
+  const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
+  const vscode = new Proxy({
     Uri: { joinPath: (base, ...parts) => uri(join(base.fsPath ?? base.path, ...parts)) },
-    window: {
-      registerWebviewViewProvider: (id, candidate) => {
-        assert.equal(id, 'codeflare.agentSidebar');
-        provider = candidate;
+    DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
+    chat: {
+      createChatParticipant: (id, candidate) => {
+        assert.equal(id, 'codeflare.pi');
+        handler = candidate;
         return disposable();
       },
+    },
+    languages: { getDiagnostics: () => [] },
+    window: {
+      activeTextEditor: undefined,
       showWarningMessage: async () => undefined,
       showTextDocument: async () => undefined,
     },
-    workspace: { openTextDocument: async () => ({}) },
-  };
+    workspace: { textDocuments: [], openTextDocument: async () => ({}) },
+  }, {
+    get(target, property, receiver) {
+      assert.notEqual(property, 'authentication');
+      assert.notEqual(property, 'lm');
+      return Reflect.get(target, property, receiver);
+    },
+  });
   let extension;
 
   try {
@@ -113,38 +127,48 @@ async function verifyPackagedView(extensionRoot) {
       if (request === 'vscode') return vscode;
       return originalLoad.call(this, request, parent, isMain);
     };
-    process.env.CODEFLARE_SIDEBAR_AGENT = 'pi';
     extension = require(join(extensionRoot, String(manifest.main).replace(/^\.\//, '')));
     const subscriptions = [];
     extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
-    assert.ok(provider, 'packaged extension did not register its view provider');
-
-    const webview = {
-      cspSource: "'self' https://*.vscode-cdn.net",
-      options: {},
-      html: '',
-      asWebviewUri: (resource) => ({
-        toString: () => `https://file+.vscode-resource.vscode-cdn.net${resource.path}`,
-      }),
-      onDidReceiveMessage: () => disposable(),
-    };
-    const view = {
-      webview,
-      visible: false,
-      onDidChangeVisibility: () => disposable(),
-      onDidDispose: () => disposable(),
-    };
-    await provider.resolveWebviewView(view);
-    assert.equal(webview.options.enableScripts, true);
-    assert.match(webview.html, /style-src 'self' https:\/\/\*\.vscode-cdn\.net/);
-    assert.match(webview.html, /<main id="app"/);
-    return 'OPENVSCODE_VIEW_OK';
+    assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
+    await handler(
+      { prompt: 'cancelled smoke', references: [] },
+      { history: [] },
+      { markdown: () => assert.fail('cancelled request emitted markdown'), progress: () => assert.fail('cancelled request emitted progress') },
+      { isCancellationRequested: true, onCancellationRequested: () => disposable() },
+    );
+    return 'DEFAULT_NATIVE_PI_OK';
   } finally {
     await extension?.deactivate?.();
     Module._load = originalLoad;
-    if (originalBackend === undefined) delete process.env.CODEFLARE_SIDEBAR_AGENT;
-    else process.env.CODEFLARE_SIDEBAR_AGENT = originalBackend;
   }
+}
+
+function verifyOfficialClaudeExtension(extensionRoot, pin) {
+  const manifest = JSON.parse(execFileSync('/usr/local/bin/node', [
+    '-e',
+    'const p=require(process.argv[1]); process.stdout.write(JSON.stringify(p))',
+    join(extensionRoot, 'package.json'),
+  ], { encoding: 'utf8', timeout: 10_000 }));
+  assert.equal(pin.targetPlatform, 'linux-x64');
+  assert.match(pin.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(manifest.name, pin.name);
+  assert.equal(manifest.publisher, pin.namespace);
+  assert.equal(manifest.version, pin.version);
+  assert.equal(manifest.main, pin.main);
+  assert.equal(manifest.engines.vscode, pin.vscodeEngine);
+  assert.match(manifest.license, /Anthropic PBC.*All rights reserved/i);
+  const bundledVersion = execFileSync(join(extensionRoot, 'resources', 'native-binary', 'claude'), ['--version'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+    env: {
+      ...process.env,
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      DISABLE_AUTOUPDATER: '1',
+    },
+  }).trim();
+  assert.match(bundledVersion, new RegExp(pin.version.replaceAll('.', '\\.')));
+  return { result: 'OFFICIAL_CLAUDE_OK', version: manifest.version, bundledVersion, archiveSha256: pin.sha256 };
 }
 
 async function verifyConfigProjection() {
@@ -167,30 +191,37 @@ async function verifyConfigProjection() {
   }
 }
 
+async function verifyOpenVscodeSettings() {
+  const root = await mkdtemp(join(tmpdir(), 'claude-vscode-settings-smoke-'));
+  try {
+    const serverDataRoot = join(root, 'openvscode-data');
+    const claudeConfigRoot = join(root, 'claude-config');
+    const preparation = await import(pathToFileURL(join(ROOT, 'claude', 'prepare-sidebar-config.mjs')).href);
+    const managed = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
+    await preparation.prepareOpenVscodeSettings({ serverDataRoot, claudeConfigRoot });
+    assert.deepEqual(
+      JSON.parse(await readFile(join(serverDataRoot, 'data', 'User', 'settings.json'), 'utf8')),
+      managed.buildOpenVscodeSettings(claudeConfigRoot),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
 async function verifyPermissionHook() {
   const hook = await import(pathToFileURL(join(ROOT, 'claude', 'pre-tool-use-permission.mjs')).href);
   const input = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} });
   const outcome = await hook.runPreToolUse(input);
   assert.equal(outcome.exitCode, 0);
   assert.equal(JSON.parse(outcome.stdout).hookSpecificOutput.permissionDecision, 'ask');
+  const diagnostics = await hook.runPreToolUse(JSON.stringify({
+    hook_event_name: 'PreToolUse',
+    tool_name: 'mcp__ide__getDiagnostics',
+    tool_input: {},
+  }));
+  assert.equal(JSON.parse(diagnostics.stdout).hookSpecificOutput.permissionDecision, 'allow');
   const failed = await hook.runPreToolUse(input, { evaluate: () => { throw new Error('canary'); } });
   assert.equal(failed.exitCode, 2);
-}
-
-function verifyNativeAddon(extensionRoot) {
-  const node = '/opt/openvscode-server/node';
-  const script = String.raw`
-    const { createRequire } = require('node:module');
-    const packagePath = process.argv[1];
-    if (process.versions.modules !== '127') throw new Error('unexpected ABI ' + process.versions.modules);
-    const pty = createRequire(packagePath)('node-pty');
-    if (typeof pty.spawn !== 'function') throw new Error('node-pty did not load');
-    process.stdout.write(process.version + ' ABI=' + process.versions.modules);
-  `;
-  return execFileSync(node, ['-e', script, join(extensionRoot, 'package.json')], {
-    encoding: 'utf8',
-    timeout: 10_000,
-  }).trim();
 }
 
 async function assertImmutable(root) {

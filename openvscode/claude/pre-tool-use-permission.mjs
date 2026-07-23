@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 export const MAX_HOOK_INPUT_BYTES = 64 * 1024;
 export const MAX_HOOK_OUTPUT_BYTES = 4 * 1024;
 
-const READ_ONLY_TOOLS = new Set(["Read", "Glob", "Grep", "Ls"]);
+const READ_ONLY_TOOLS = new Set(["Read", "Glob", "Grep", "Ls", "mcp__ide__getDiagnostics"]);
 const FAILURE_MESSAGE = "Claude sidebar permission check failed.\n";
 
 export function evaluatePreToolUse(input) {

@@ -1,6 +1,29 @@
+import { isAbsolute, resolve } from "node:path";
+
 export const PRE_TOOL_USE_HOOK_PATH =
   "/opt/codeflare/openvscode/claude/pre-tool-use-permission.mjs";
 export const PRE_TOOL_USE_TIMEOUT_SECONDS = 5;
+
+export function buildOpenVscodeSettings(claudeConfigDirectory) {
+  if (typeof claudeConfigDirectory !== "string" || !isAbsolute(claudeConfigDirectory) || claudeConfigDirectory.includes("\0")) {
+    throw new TypeError("Claude config directory must be absolute");
+  }
+  const normalized = resolve(claudeConfigDirectory);
+  if (normalized === "/") throw new TypeError("Claude config directory cannot be root");
+  return {
+    "claudeCode.environmentVariables": [
+      { name: "CLAUDE_CONFIG_DIR", value: normalized },
+    ],
+    "claudeCode.useTerminal": false,
+    "claudeCode.initialPermissionMode": "default",
+    "claudeCode.disableLoginPrompt": true,
+    "claudeCode.allowDangerouslySkipPermissions": false,
+    "claudeCode.autosave": true,
+    "claudeCode.preferredLocation": "sidebar",
+    "claudeCode.hideOnboarding": true,
+    "claudeCode.usePythonEnvironment": false,
+  };
+}
 
 export function buildManagedSettings() {
   return {

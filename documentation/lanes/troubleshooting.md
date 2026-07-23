@@ -24,45 +24,45 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Symptom:** OpenVSCode connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
 
-**Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC7).
+**Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC6).
 
 **Fix:** Deploy a host build where `createVscodeWebSocketServer` gives the IDE its dedicated bounded payload limit. Do not raise `WS_MAX_PAYLOAD`; that 64 KiB limit still protects terminal and Vault traffic.
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
 
-### Browser IDE agent sidebar icon is missing or its view fails ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar))
+### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent))
 
-**Symptom:** The Activity Bar has no Codeflare robot icon, the Agent view is relocated under Explorer, or opening it reports `An error occurred while loading view: codeflare.agentSidebar`.
+**Symptom:** A Pi session shows Copilot setup instead of Codeflare in the main Chat, a Claude session has no Anthropic Spark panel, or an unsupported agent unexpectedly has an agent extension.
 
-**Cause:** The session may be non-advanced or tab 1 may not contain an exact supported Pi or Claude command; those cases intentionally load the empty inventory. If the Window log reports an invalid contribution `id` or `Unsafe webview document option`, the packaged extension does not conform to the pinned OpenVSCode container-ID or CSP-source contract.
+**Cause:** The session may be non-advanced, tab 1 may not contain an exact supported command, the wrong immutable inventory may be selected, Pi's extension-qualified proposal may be absent, or the official Claude package may have failed identity/host validation.
 
-**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and the three directories under `/opt/codeflare/openvscode/extensions`; do not add extensions to the unsupported inventory. For a host-contract error, deploy a package whose Activity Bar container uses only the host-accepted identifier characters and whose double-quoted document attributes accept OpenVSCode's safe `'self'` CSP token without weakening nonce-only script authority. The complete-image provider-resolution smoke must pass before deployment.
+**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and `/opt/codeflare/openvscode/extensions/{pi,claude,none}`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports both host-discovered extension IDs, `DEFAULT_NATIVE_PI_OK`, and `OFFICIAL_CLAUDE_OK`.
 
-### Pi Browser IDE sidebar fails ([REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval))
+### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
 
-**Symptom:** Opening the Pi sidebar reports a protocol or approval error.
+**Symptom:** Codeflare Pi cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
 
-**Cause:** The fixed RPC child failed, emitted invalid JSONL, or a manifest failed ownership, mode, request-digest, expiry, identity, path, or stale-content validation.
+**Cause:** The active URI may be outside the canonical workspace or use a symbolic-link alias, editor context may exceed its bound, the fixed RPC child may have emitted invalid JSONL, or an approval manifest may have failed ownership, mode, digest, expiry, identity, path, or stale-content validation.
 
-**Fix:** Confirm the Pi process uses the fixed RPC/no-session flags and sidebar marker. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening validation.
+**Fix:** Confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening context or approval validation. `agent_end` is not completion; the native handler must wait for `agent_settled`.
 
-### Claude Browser IDE sidebar fails ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation))
+### Official Claude panel fails ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
 
-**Symptom:** The embedded Claude terminal does not start.
+**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, or cannot connect to editor context.
 
-**Cause:** The native addon does not load on ABI 127, or temporary configuration preparation rejected an unsafe path.
+**Cause:** The exact official extension or bundled linux-x64 binary is missing, the temporary config/settings preparation failed, approved credentials/routing are unavailable, or Anthropic's loopback IDE MCP lock directory was rejected.
 
-**Fix:** Load `node-pty` with `/opt/openvscode-server/node`. Confirm the fixed Claude config preparer succeeds and the projected `settings.json` points to `/etc/codeflare/claude-sidebar/settings.json`; never add the bypass-permissions flag.
+**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings were restored with the isolated `CLAUDE_CONFIG_DIR`, Manual mode, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Never enable bypass permissions or expose the MCP port.
 
-### Browser IDE sidebar leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle))
+### Browser IDE agent leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle))
 
-**Symptom:** More than one managed OpenVSCode or sidebar process remains after restart.
+**Symptom:** A Pi request child or official Claude bundled process remains after cancellation, editor restart, or shutdown.
 
-**Cause:** Generation cleanup did not converge before replacement.
+**Cause:** Request or launch-generation cleanup did not converge before replacement.
 
-**Fix:** Do not delete pidfiles first. Stop or restart OpenVSCode and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use the `browser-ide-image` evidence for hashes, ABI, process count, and RSS.
+**Fix:** Do not delete pidfiles first. Stop or restart OpenVSCode and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
 
-See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle).
+See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
@@ -611,10 +611,10 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
 - [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected agent sidebar inventory and launch diagnostics
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation) - Sidebar state-isolation diagnostics
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval) - Sidebar approval diagnostics
-- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle) - Sidebar cleanup diagnostics
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Native agent inventory and launch diagnostics
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor-context and isolation diagnostics
+- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE approval diagnostics
+- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent cleanup diagnostics
 - [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
 - [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll (fullscreen alternate-buffer wheel routing for Claude Code `/tui fullscreen` on mobile)
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants

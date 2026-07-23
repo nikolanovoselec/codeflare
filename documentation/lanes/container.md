@@ -34,17 +34,18 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 ### Global NPM Packages
 
-AI CLI packages install with `@latest` -- each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). The Dockerfile is the source of truth for exact versions. Exception: `bun` is pinned to a specific version because context-mode autodetects it as the JS/TS subprocess runtime; an upstream regression would silently break `ctx_execute` for every user.
+Privileged agent CLIs install at exact Dockerfile versions. `.cache-bust` still invalidates their install layer on each deploy, but it never resolves mutable `@latest`; weekly shadow-pin jobs move each reviewed version after the supply-chain cooldown, and the image asserts the installed package matches its pin.
 
-**Known trade-off:** Installing CLIs via `@latest` means each new container may run a different CLI version. Major version jumps between deploys have caused regressions (e.g., cursor rendering, xterm integration). Users in long-lived sessions will see the old version; new sessions after a deploy will see the new version. Monitor for unexpected behavior after deploys.
+**Known trade-off:** Long-lived sessions keep the image version they started with while a later reviewed image may carry newer CLIs. Version changes remain a compatibility risk, but they now pass PR checks and image smoke instead of entering an arbitrary deploy through mutable resolution.
 
-| Package | Version | Provides |
-|---------|---------|----------|
-| `@anthropic-ai/claude-code` | `@latest` | `claude` command. Runs with `IS_SANDBOX=1` + `--dangerously-skip-permissions` for root container support. |
-| `@openai/codex` | `@latest` | `codex` command |
-| Antigravity (agy) | beta | `agy` command. Installed via `curl -fsSL https://antigravity.google/cli/install.sh \| bash` (Go-native binary, not npm). Runs with `--dangerously-skip-permissions`. |
-| `opencode-ai` | `@latest` | `opencode` command |
-| `@github/copilot` | `@latest` | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
+| Package | Current pin | Provides |
+|---------|-------------|----------|
+| `@anthropic-ai/claude-code` | `CLAUDE_CODE_VERSION` Docker ARG | Terminal `claude` command. Runs with `IS_SANDBOX=1` plus the tab-1 permission mode. The Browser IDE official extension has its own Open VSX pin. |
+| `@openai/codex` | `CODEX_VERSION` Docker ARG | `codex` command |
+| Antigravity (agy) | installer SHA-256 pinned | `agy` command. The reviewed installer hash is verified before execution. |
+| `opencode-ai` | `OPENCODE_VERSION` Docker ARG | `opencode` command |
+| `@github/copilot` | `COPILOT_VERSION` Docker ARG | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
+| `@earendil-works/pi-coding-agent` | `PI_CODING_AGENT_VERSION` Docker ARG | `pi` command and local RPC backend used by native Pi Chat. |
 | `bun` | pinned | JS/TS subprocess runtime autodetected by context-mode. The shadow-pin workflow owns the Dockerfile version. Image cleanup retains only the linux-x64 executable and strips non-Linux packages. |
 | `consult-llm-mcp` | pinned | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. |
 | `browser-run-mcp` | `@modelcontextprotocol/sdk` pinned exact in `preseed/agents/claude/browser-run-mcp/package.json` | Claude Code's cheap one-shot Browser Run READ surface. |
@@ -64,7 +65,7 @@ Pi extensions (`@gotgenes/pi-subagents`, `context-mode`) are preinstalled at Doc
 
 Neither `entrypoint.sh` nor the preseeded `context-mode-runtime.ts` extension forces `CONTEXT_MODE_BRIDGE_IDLE_MS=0` globally. Package assembly installs context-mode with `extensions: []` (skills remain available), and `context-mode-runtime.ts` loads the installed Pi adapter once for the process-wide foreground owner. In-process subagent ResourceLoaders therefore never initialize context-mode or spawn `server.bundle.mjs`; they use native fallbacks. The owner is released on `session_shutdown`, so root reload/toggle cycles clean up and reattach one bridge without modifying either upstream package ([AD101](../decisions/README.md#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC7, [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
 
-**Pi SDK version bridge (build-time):** `@earendil-works/pi-coding-agent` is only a *transitive* dep of the prewarm extensions, so a frozen lockfile would pin it independently of the `@latest` runtime agent and drift (Trivy flagged the stale copy as CVE-2026-54328). A dedicated Dockerfile layer — below the `.cache-bust` COPY, so it re-runs every deploy — reads the exact version the global `@latest` agent resolved, forces it across the prewarm tree via an npm `overrides` entry, drops the lockfile and reinstalls (`npm install --omit=dev`), so the prewarm SDK is always identical to the runtime agent.
+**Pi SDK version bridge (build-time):** `@earendil-works/pi-coding-agent` is only a *transitive* dependency of the prewarm extensions, so a frozen lockfile would pin it independently of the Dockerfile-pinned runtime agent and drift (Trivy flagged the stale copy as CVE-2026-54328). A dedicated Dockerfile layer sits below the `.cache-bust` COPY and therefore runs on every deploy. It reads the exact installed version of the global pinned agent, applies that version through an npm `overrides` entry, drops the lockfile, and reinstalls with `npm install --omit=dev`. The prewarm SDK and runtime agent therefore stay on the same version.
 
 The build **fails closed**: an empty resolved version aborts before reinstall, and a post-install assertion confirms the override actually pinned the transitive copy. The committed `overrides` value in `preseed/agents/pi/package.json` is a build-time placeholder the layer overwrites on every deploy.
 
@@ -101,7 +102,7 @@ CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. 
 
 **File:** `Dockerfile` installs `openvscode-server` (Gitpod build) at a pinned version with a `sha256sum -c` verification, mirroring the SilverBullet install block. Shadow-pinned by the `openvscode-server` job in `bump-shadow-pins.yml`. The supervisor that runs it is described under [Container Startup](#openvscode-server-browser-ide).
 
-A separate digest-pinned Node 22.21.1 build stage compiles the owned agent sidebar's `node-pty@1.1.0` for OpenVSCode addon ABI 127 and bundles `@xterm/xterm@6.0.0` plus `@xterm/addon-fit@0.11.0`. The final image contains identical root-owned package bytes in fixed Pi and Claude inventories and an empty `none` inventory. The build rejects VSIX files and non-Codeflare publisher metadata. See [`openvscode/README.md`](../../openvscode/README.md).
+A digest-pinned Node 22.21.1 stage builds Codeflare's native Pi Chat participant with no runtime npm dependency or native addon. A separate stage fetches Anthropic's exact official `linux-x64` VSIX from Open VSX, verifies its fixed SHA-256 and package identity, extracts its files unchanged, and deletes the archive. The final image contains a root-owned Codeflare Pi inventory, an immutable official Claude inventory, and an empty `none` inventory. See [`openvscode/README.md`](../../openvscode/README.md) and [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
 
 OpenVSCode listens on container-local `127.0.0.1:13337`; the terminal host remains on the container's exposed port 8080.
 
@@ -149,13 +150,15 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 **Idle activity ([REQ-IDE-004](../../sdd/spec/browser-ide.md#req-ide-004-resilient-editor-activity-transport)):** Every client-to-server editor frame refreshes the host's `lastInputAt` timestamp without protocol parsing. The authoritative `collectMetrics()` idle policy therefore treats continued editing as user input just like PTY keystrokes. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages -->
 
-**Selected agent sidebar ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle)):** `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed extension directories. Invalid or unsupported configurations use the empty directory. The extension starts no child during activation. Its first visible resolution starts one separate Pi RPC or Claude PTY conversation; terminal tab 1 remains a different process and history.
+**Selected native IDE agent ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle)):** `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed immutable extension directories. Invalid or unsupported configurations use the empty directory.
 
-Pi runs `/usr/local/bin/pi --mode rpc --no-session --no-themes`. Claude runs `/usr/local/bin/claude` directly in `node-pty` with no bypass flag and a fresh `/tmp/codeflare-sidebar/claude/config` projection. The projection links approved credentials and configuration, pins root-owned settings, and omits terminal transcripts and runtime state.
+Pi uses Codeflare's default native Chat participant. Each request snapshots bounded canonical-workspace editor context and native Chat history, then runs one fresh `/usr/local/bin/pi --mode rpc --no-session --no-themes` process. It streams assistant text, completes at `agent_settled`, and is reaped. It calls no VS Code authentication or language-model provider.
 
-**Generation cleanup:** Every OpenVSCode launch runs in a new process group with a random generation token and recorded PID/start identity. Pi, Claude, and PTY descendants inherit the token. Exit, restart, and session shutdown send TERM, wait for the configured grace period, and KILL remaining generation members before replacement. `/tmp/openvscode-generation.pid` is identity-checked so a stale file cannot signal a reused PID.
+Claude uses Anthropic's exact official `linux-x64` Open VSX extension, installed unchanged during the image build under the owner risk acceptance in [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration). Before launch, Codeflare prepares a dedicated `/tmp/codeflare-sidebar/claude/config` and ephemeral OpenVSCode settings for Manual mode, no bypass, no login prompt, and the right sidebar. Anthropic's loopback-only authenticated IDE MCP supplies selections, native diffs, and diagnostics. Terminal history and runtime state are not projected.
 
-**Supply-chain posture:** The upstream editor artifact remains clean under the explicit risk acceptance in [AD97](../decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk). The sidebar is an external Codeflare package and contains no Anthropic VSIX. Container isolation reduces but does not eliminate the documented editor risk.
+**Generation cleanup:** Every OpenVSCode launch runs in a new process group with a random generation token and recorded PID/start identity. Native Pi and official Claude descendants inherit the launch token; Pi requests also carry a narrower request token. Exit, restart, cancellation, and session shutdown send TERM, wait for the bounded grace period, and KILL remaining generation members before replacement. `/tmp/openvscode-generation.pid` is identity-checked so a stale file cannot signal a reused PID.
+
+**Supply-chain posture:** OpenVSCode remains upstream-clean under [AD97](../decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk). The owned Pi package has no runtime npm dependency or native addon. The build checksum- and identity-verifies Anthropic's exact official VSIX, deletes the archive after extracting unchanged files, and stages both inventories root-owned and immutable. Container isolation reduces but does not eliminate the accepted editor and proprietary-extension risks.
 
 ### Fast Start
 
@@ -228,7 +231,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 ## Claude Code Integration
 
-Claude Code runs directly via the official `@anthropic-ai/claude-code` npm package (`claude` command). Terminal tab 1 runs as root and uses `IS_SANDBOX=1` plus its configured `--dangerously-skip-permissions` command. The Browser IDE sidebar is separate: it starts the same binary without the bypass flag, uses a fixed Manual-mode settings overlay, and leaves approval to Claude's native TUI.
+Terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI, restores a fixed Manual-mode settings overlay on each launch, and leaves guarded decisions to the native graphical approval flow.
 
 **Auto-update control:** `DISABLE_AUTOUPDATER=1` prevents the CLI's internal auto-updater from running, avoiding startup delay. Updates happen at Docker build time via `.cache-bust` layer invalidation. When Fast Start is OFF, `DISABLE_AUTOUPDATER` is unset, allowing the CLI to update to latest on startup.
 
@@ -333,10 +336,10 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ## Specification Coverage
 
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Fixed sidebar inventories and Node 22 addon build
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation) - Sidebar state isolation
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval) - Sidebar guarded approvals
-- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle) - Sidebar generation cleanup
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Fixed native Pi, official Claude, and empty inventories
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor context and conversation isolation
+- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE guarded approvals
+- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent generation cleanup
 - [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) - Graceful container shutdown preserves data
 - [REQ-OPS-011](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim) - Container base image is Debian bookworm-slim
 - [REQ-OPS-016](../../sdd/spec/operations.md#req-ops-016-sleepafter-preference-persistence-and-lifecycle) - sleepAfter preference persistence and lifecycle

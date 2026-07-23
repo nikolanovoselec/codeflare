@@ -29,7 +29,7 @@ graph TD
     W -->|"containerId=bucket-session1"| C1["Container 1"]
     W -->|"containerId=bucket-session2"| C2["Container 2"]
     C1 --- P1["PTY + Agent"]
-    C1 --- O1["OpenVSCode + selected agent sidebar"]
+    C1 --- O1["OpenVSCode + native Pi / official Claude"]
     C2 --- P2["PTY + Agent"]
     P1 -->|"rclone bisync (15min + manual triggers)"| R2["R2 bucket (shared per user)"]
     P2 -->|"rclone bisync (15min + manual triggers)"| R2
@@ -166,23 +166,25 @@ On desktop/tablet the panel expands to 80vh (centered, via `.dashboard-panel:not
     AI hosts continue to route to the LLM interceptor - one host→interceptor map, two WorkerEntrypoints, one responsibility each ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)). Wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing).
 - **Non-enterprise (container transport):** The real token flows to the container as `GH_TOKEN` via the existing deploy-keys→env path, unchanged ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)).
 
-### Browser IDE agent sidebar ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle))
+### Browser IDE native agents ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle))
 
-**Responsibility:** Provide one lazy, session-local sidebar conversation for the supported agent selected in terminal tab 1.
+**Responsibility:** Give the supported agent selected in terminal tab 1 a lazy editor-native conversation that remains separate from that terminal process.
 
-**Inputs:** The closed sidebar-agent selection, view visibility, approved session configuration, and schema-validated webview messages.
+**Inputs:** The closed agent selection, native Chat request/history, canonical workspace editor state, approved configuration, and guarded approval events.
 
-**Outputs:** A fixed extension inventory, one isolated Pi RPC or Claude PTY backend, guarded approvals, and complete descendant cleanup before replacement.
+**Outputs:** Fixed Pi, official Claude, or empty inventories; native editor context; guarded mutations; and complete descendant cleanup.
 
-**Source:** `openvscode/agent-sidebar/`, `openvscode/claude/`, and `preseed/agents/pi/extensions/sidebar-approval.ts`. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @impl: openvscode/agent-sidebar/src/claude/pty-session.ts::ClaudePtySession --> <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::registerSidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/process-generation.ts::reapSidebarGeneration --> <!-- @impl: entrypoint.sh::_openvscode_supervise_loop -->
+**Source:** `openvscode/agent-sidebar/`, `openvscode/claude/`, and `preseed/agents/pi/extensions/sidebar-approval.ts`. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::registerSidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/process-generation.ts::reapSidebarGeneration --> <!-- @impl: entrypoint.sh::_openvscode_supervise_loop -->
 
-OpenVSCode stays inside the session container and uses the existing authenticated `/api/vscode/<sessionId>` proxy. The image supplies one Codeflare-owned workspace extension through three fixed inventories. Pi and Claude inventories contain the same package bytes; the unsupported inventory is empty. No public route, listener, marketplace, VSIX, or second container is involved.
+OpenVSCode stays inside the session container behind the existing authenticated `/api/vscode/<sessionId>` proxy. The Pi inventory contains Codeflare's owned default native Chat participant. The Claude inventory contains Anthropic's exact official Open VSX extension; the unsupported inventory is empty. No Codeflare relay, public process API, second container, Copilot login, or VS Code Authentication bridge is introduced.
 
-The extension host owns one lazy lifecycle controller. Opening the view resolves only the selected backend. Pi starts a fixed `--mode rpc --no-session` child and parses bounded LF-delimited JSONL. Claude starts `/usr/local/bin/claude` directly with `node-pty`; local xterm.js assets render its native TUI. Both use `/home/user/workspace`, but neither can attach to terminal tab 1 or import its transcript.
+Every native Pi request snapshots bounded active-document content, selection, open workspace files, diagnostics, explicit references, and native Chat history. Canonical path checks reject outside-workspace and symbolic-link escapes. A fresh `--mode rpc --no-session` child handles that request, streams assistant text and tool progress, completes only at `agent_settled`, and is reaped. The participant never uses `request.model` or an authentication provider.
 
-Pi mutation approval crosses a local manifest boundary. The Pi guard writes a mode-0600 manifest and sends its opaque ID plus SHA-256 digest through the RPC extension UI request. The OpenVSCode extension host validates the request-bound content, displays it, and returns one correlated decision. Claude stays in Manual mode and displays its own TUI permission prompt. Webview messages are limited to prompt, lifecycle, model-cycle, terminal input, and resize commands; they cannot choose a process or send approval results.
+Official Claude is installed unchanged at image build from a version- and checksum-pinned `linux-x64` VSIX. External settings point its bundled CLI at an isolated allowlisted config projection and Manual mode. Anthropic's documented loopback IDE MCP uses a fresh private token to supply active selection, native diffs, and diagnostics. The owner accepts that local MCP and proprietary-package boundary under [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
 
-OpenVSCode launch generations record PID, process group, start time, and a random token. Each Pi or Claude conversation gets a second, narrower token. Descendants inherit both relevant tokens, including detached Pi and PTY processes. New conversation and the OpenVSCode supervisor each reap their own token completely before replacement. See [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle) and [AD113](../decisions/README.md#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty).
+Pi mutation approval keeps the protected local manifest boundary: the guard sends one opaque ID plus SHA-256 digest, and the OpenVSCode extension host validates, previews, and returns one correlated decision. Cancellation races pending confirmation to denial, so a late modal result cannot enter another request. Claude's managed settings disable bypass and automatic edit modes; mutations ask, read-only IDE diagnostics may proceed, and Jupyter execution retains Anthropic's native confirmation.
+
+OpenVSCode launch generations record PID, process group, start time, and a random token. Native Pi requests add a narrower process token, while official Claude descendants inherit the launch token. Cancellation, completion, editor restart, and session shutdown reap the applicable generation completely before replacement. See [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
 ### Terminal Server (node-pty)
 
@@ -741,10 +743,10 @@ The server output is the complete resting state. Client scripts only enhance it,
 
 ## Specification Coverage
 
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar) - Selected Pi or Claude sidebar inside the session Browser IDE
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-sidebar-conversation-and-credential-isolation) - Sidebar conversation and credential isolation
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval) - Sidebar guarded approval
-- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-sidebar-process-lifecycle) - Sidebar process lifecycle
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Selected native Pi or official Claude IDE integration
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor context and conversation isolation
+- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - IDE guarded approval
+- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent process lifecycle
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing to customer AI Gateway
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side enterprise routing (CA trust + constant base-URLs)
 - [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) - Container start interception ordering (pre-start `interceptOutboundHttps`)

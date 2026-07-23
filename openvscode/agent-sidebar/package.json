@@ -1,7 +1,7 @@
 {
   "name": "codeflare-agent-sidebar",
-  "displayName": "Codeflare Agent Sidebar",
-  "description": "Codeflare-owned Pi RPC and Claude PTY sidebar for OpenVSCode Server",
+  "displayName": "Codeflare Pi Chat",
+  "description": "Codeflare-owned native Pi Chat participant for OpenVSCode Server",
   "version": "0.0.0",
   "publisher": "codeflare",
   "private": true,
@@ -15,7 +15,10 @@
     "workspace"
   ],
   "activationEvents": [
-    "onView:codeflare.agentSidebar"
+    "onChatParticipant:codeflare.pi"
+  ],
+  "enabledApiProposals": [
+    "defaultChatParticipant"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
@@ -23,24 +26,21 @@
     }
   },
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "codeflareAgentSidebarContainer",
-          "title": "Codeflare Agent",
-          "icon": "media/agent.svg"
-        }
-      ]
-    },
-    "views": {
-      "codeflareAgentSidebarContainer": [
-        {
-          "id": "codeflare.agentSidebar",
-          "name": "Agent",
-          "type": "webview"
-        }
-      ]
-    }
+    "chatParticipants": [
+      {
+        "id": "codeflare.pi",
+        "name": "codeflare",
+        "fullName": "Codeflare Pi",
+        "description": "Codeflare Pi agent with workspace and editor context.",
+        "isDefault": true,
+        "isSticky": true,
+        "modes": [
+          "ask",
+          "edit",
+          "agent"
+        ]
+      }
+    ]
   },
   "scripts": {
     "build": "node ./esbuild.mjs",
@@ -49,13 +49,8 @@
     "test": "vitest run --config ./vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=text",
     "test:report": "vitest run --config ./vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --reporter=json --outputFile=agent-sidebar/browser-ide-report.json"
   },
-  "dependencies": {
-    "node-pty": "1.1.0"
-  },
   "devDependencies": {
     "@types/node": "22.18.12",
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/xterm": "6.0.0",
     "@types/vscode": "1.109.0",
     "@vitest/coverage-v8": "4.1.10",
     "esbuild": "0.28.1",

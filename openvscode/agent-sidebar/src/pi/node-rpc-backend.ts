@@ -1,16 +1,26 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
-import type { Backend } from '../backend.ts';
 import type { ApprovalBridge, PiExtensionUiRequest } from './approval-bridge.ts';
 import { PiProtocolError, StrictPiJsonlTransport, type PiRpcEnvelope } from './rpc-client.ts';
 import { PiSession, type PiChildProcess, type PiProcessSpawner, type PiSpawnSpec } from './session.ts';
 
 const TERM_GRACE_MS = 2_000;
 
-export interface PiRpcSink {
-  output(text: string): void;
-  reset(): void;
-  failed(reason: string): void;
+export interface PiTurnObserver {
+  markdown(value: string): void;
+  progress(value: string): void;
+}
+
+interface ActiveTurn {
+  promptId: string | undefined;
+  accepted: boolean;
+  settled: boolean;
+  completed: boolean;
+  readonly observer: PiTurnObserver;
+  readonly cancellation: AbortController;
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+  readonly reject: (error: Error) => void;
 }
 
 export class NodePiProcessSpawner implements PiProcessSpawner {
@@ -81,8 +91,22 @@ class NodePiChild implements PiChildProcess {
     this.#child.kill(signal);
   }
 
-  async waitForSpawn(): Promise<void> {
-    await this.#spawnReady;
+  async waitForSpawn(signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      await this.#spawnReady;
+      return;
+    }
+    if (signal.aborted) throw new Error('Pi RPC startup cancelled');
+    let onAbort = (): void => undefined;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new Error('Pi RPC startup cancelled'));
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      await Promise.race([this.#spawnReady, aborted]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
   }
 
   async waitForExit(): Promise<void> {
@@ -122,89 +146,144 @@ class NodePiChild implements PiChildProcess {
   }
 }
 
-export class PiRpcBackend implements Backend {
-  readonly kind = 'pi' as const;
+export class PiRpcBackend {
   readonly #session: PiSession;
   readonly #approvalBridge: ApprovalBridge;
-  readonly #sink: PiRpcSink;
   #transport = createTransport();
   #detach: Array<() => void> = [];
   #eventTail = Promise.resolve();
   #generation = 0;
+  #turn: ActiveTurn | undefined;
+  #promptWrite: Promise<void> | undefined;
+  #abortRequested = false;
+  #abortSent = false;
+  #stopRequested = false;
+  #starting = false;
+  readonly #startupCancellation = new AbortController();
   running = false;
 
-  constructor(spawner: PiProcessSpawner, approvalBridge: ApprovalBridge, sink: PiRpcSink) {
+  constructor(spawner: PiProcessSpawner, approvalBridge: ApprovalBridge) {
     this.#session = new PiSession(spawner);
     this.#approvalBridge = approvalBridge;
-    this.#sink = sink;
   }
 
-  async start(): Promise<void> {
+  async #start(): Promise<void> {
     if (this.running) return;
+    if (this.#stopRequested) throw new Error('Pi RPC process stopped');
+    if (this.#abortRequested) throw new Error('Pi RPC startup cancelled');
+    const generation = ++this.#generation;
     this.#transport = createTransport();
-    const child = await this.#session.resolveVisible();
+    this.#starting = true;
     try {
-      await child.waitForSpawn?.();
+      const child = await this.#session.resolveVisible();
+      await child.waitForSpawn?.(this.#startupCancellation.signal);
+      if (this.#stopRequested || generation !== this.#generation) {
+        throw new Error('Pi RPC process stopped');
+      }
+      if (this.#abortRequested) throw new Error('Pi RPC startup cancelled');
       if (!child.onStdout || !child.onStderr || !child.onExit) {
         throw new Error('Pi RPC process does not expose strict stdio');
       }
+      this.#eventTail = Promise.resolve();
+      this.running = true;
+      this.#detach = [
+        child.onStdout((data) => this.#accept(data, generation)),
+        child.onStderr(() => undefined),
+        child.onExit(() => this.#handleExit(child, generation)),
+      ];
     } catch (error) {
       await this.#session.dispose().catch(() => undefined);
+      if (this.#stopRequested || generation !== this.#generation) {
+        throw new Error('Pi RPC process stopped');
+      }
       throw error;
+    } finally {
+      this.#starting = false;
     }
-    const generation = ++this.#generation;
-    let stderrReported = false;
-    this.#eventTail = Promise.resolve();
-    this.running = true;
-    this.#detach = [
-      child.onStdout((data) => this.#accept(data, generation)),
-      child.onStderr(() => {
-        if (generation === this.#generation && !stderrReported) {
-          stderrReported = true;
-          this.#sink.failed('Pi RPC process reported an error.');
-        }
-      }),
-      child.onExit(() => this.#handleExit(child, generation)),
-    ];
   }
 
-  async prompt(message: string): Promise<void> {
-    await this.start();
-    await this.#runWrite(() => this.#session.sendPrompt(message, (id) => this.#transport.registerRequest(id)));
+  async runPrompt(message: string, observer: PiTurnObserver): Promise<void> {
+    if (this.#turn) throw new Error('Pi RPC turn is already active');
+    let resolveTurn = (): void => undefined;
+    let rejectTurn = (_error: Error): void => undefined;
+    const promise = new Promise<void>((resolve, reject) => {
+      resolveTurn = resolve;
+      rejectTurn = reject;
+    });
+    void promise.catch(() => undefined);
+    const turn: ActiveTurn = {
+      promptId: undefined,
+      accepted: false,
+      settled: false,
+      completed: false,
+      observer,
+      cancellation: new AbortController(),
+      promise,
+      resolve: resolveTurn,
+      reject: rejectTurn,
+    };
+    this.#turn = turn;
+    try {
+      await this.#start();
+      if (this.#abortRequested) {
+        turn.completed = true;
+        turn.resolve();
+        return;
+      }
+      const promptWrite = this.#runWrite(() => this.#session.sendPrompt(message, (id) => {
+        turn.promptId = id;
+        this.#transport.registerRequest(id);
+      }));
+      this.#promptWrite = promptWrite;
+      try {
+        await promptWrite;
+      } finally {
+        if (this.#promptWrite === promptWrite) this.#promptWrite = undefined;
+      }
+      if (this.#abortRequested) await this.#sendAbort();
+      await turn.promise;
+      await this.#eventTail;
+    } catch (error) {
+      if (this.#abortRequested && !this.#stopRequested && !turn.completed && turn.promptId === undefined) {
+        turn.completed = true;
+        turn.resolve();
+        return;
+      }
+      const failure = error instanceof Error ? error : new Error('Pi RPC request failed');
+      this.#rejectTurn(failure);
+      await turn.promise.catch(() => undefined);
+      throw failure;
+    } finally {
+      if (this.#turn === turn) this.#turn = undefined;
+    }
   }
 
   async abort(): Promise<void> {
-    if (!this.running) return;
-    await this.#runWrite(() => this.#session.abort((id) => this.#transport.registerRequest(id)));
-  }
-
-  async cycleModel(): Promise<void> {
-    await this.start();
-    await this.#runWrite(() => this.#session.cycleModel((id) => this.#transport.registerRequest(id)));
-  }
-
-  async cycleThinkingLevel(): Promise<void> {
-    await this.start();
-    await this.#runWrite(() => this.#session.cycleThinkingLevel((id) => this.#transport.registerRequest(id)));
-  }
-
-  async newConversation(): Promise<void> {
-    try {
-      if (this.running) await this.abort();
-    } finally {
-      await this.stop();
-    }
-    this.#sink.reset();
-    await this.start();
+    this.#abortRequested = true;
+    this.#turn?.cancellation.abort();
+    this.#startupCancellation.abort();
+    if (this.#starting && !this.running) await this.#session.dispose();
+    await this.#promptWrite?.catch(() => undefined);
+    await this.#sendAbort();
   }
 
   async stop(): Promise<void> {
+    this.#stopRequested = true;
+    this.#turn?.cancellation.abort();
+    this.#startupCancellation.abort();
     const wasRunning = this.running;
     this.running = false;
     this.#generation += 1;
     for (const detach of this.#detach.splice(0)) detach();
     if (wasRunning) this.#transport.markExited();
+    this.#rejectTurn(new Error('Pi RPC process stopped'));
     await this.#session.dispose();
+  }
+
+  async #sendAbort(): Promise<void> {
+    if (!this.running || this.#stopRequested || this.#abortSent) return;
+    this.#abortSent = true;
+    await this.#runWrite(() => this.#session.abort((id) => this.#transport.registerRequest(id)));
   }
 
   async #runWrite(operation: () => Promise<unknown>): Promise<void> {
@@ -236,14 +315,39 @@ export class PiRpcBackend implements Backend {
   async #handleEnvelope(envelope: PiRpcEnvelope, generation: number): Promise<void> {
     if (!this.running || generation !== this.#generation) return;
     if (envelope.type === 'extension_ui_request') {
-      const response = await this.#approvalBridge.handlePiRequest(envelope as unknown as PiExtensionUiRequest);
+      const response = await this.#approvalBridge.handlePiRequest(
+        envelope as unknown as PiExtensionUiRequest,
+        this.#turn?.cancellation.signal,
+      );
       if (response && this.running && generation === this.#generation) {
         await this.#session.writeEnvelope(response as unknown as Readonly<Record<string, unknown>>);
       }
       return;
     }
-    const text = textFromEnvelope(envelope);
-    if (text && generation === this.#generation) this.#sink.output(text);
+    const turn = this.#turn;
+    if (turn) {
+      if (
+        envelope.type === 'response' &&
+        envelope.id === turn.promptId &&
+        envelope.command === 'prompt'
+      ) {
+        if (envelope.success !== true) {
+          this.#rejectTurn(new Error('Pi RPC prompt was rejected'));
+          return;
+        }
+        turn.accepted = true;
+      } else if (envelope.type === 'agent_settled') {
+        turn.settled = true;
+      } else {
+        const text = assistantTextDelta(envelope);
+        if (text) turn.observer.markdown(text);
+        if (envelope.type === 'tool_execution_start' && typeof envelope.toolName === 'string') {
+          turn.observer.progress(`Running ${envelope.toolName}…`);
+        }
+      }
+      this.#completeTurn();
+      return;
+    }
   }
 
   #handleExit(child: PiChildProcess, generation: number): void {
@@ -251,17 +355,30 @@ export class PiRpcBackend implements Backend {
     this.running = false;
     this.#transport.markExited();
     for (const detach of this.#detach.splice(0)) detach();
-    this.#sink.failed('Pi RPC process exited.');
-    void this.#session.reapExitedProcess(child).catch(() => {
-      this.#sink.failed('Pi RPC descendants could not be reaped.');
-    });
+    this.#rejectTurn(new Error('Pi RPC process exited'));
+    void this.#session.reapExitedProcess(child).catch(() => undefined);
   }
 
   #protocolFailure(error: unknown, generation: number): void {
     if (!this.running || generation !== this.#generation) return;
     const reason = error instanceof PiProtocolError ? error.code : 'RPC processing failed';
-    this.#sink.failed(reason);
+    this.#rejectTurn(error instanceof Error ? error : new Error(reason));
     void this.stop().catch(() => undefined);
+  }
+
+  #completeTurn(): void {
+    const turn = this.#turn;
+    if (!turn || turn.completed || !turn.accepted || !turn.settled) return;
+    turn.completed = true;
+    turn.resolve();
+  }
+
+  #rejectTurn(error: Error): void {
+    const turn = this.#turn;
+    if (!turn || turn.completed) return;
+    turn.completed = true;
+    turn.cancellation.abort();
+    turn.reject(error);
   }
 }
 
@@ -273,32 +390,10 @@ function createTransport(): StrictPiJsonlTransport {
   });
 }
 
-function textFromEnvelope(envelope: PiRpcEnvelope): string | undefined {
-  if (typeof envelope.message === 'string') return envelope.message;
-  if (typeof envelope.text === 'string') return envelope.text;
-  const assistantEvent = envelope.assistantMessageEvent;
-  if (isRecord(assistantEvent)) {
-    if (typeof assistantEvent.delta === 'string') return assistantEvent.delta;
-    if (typeof assistantEvent.text === 'string') return assistantEvent.text;
-  }
-  if (envelope.type === 'response' && envelope.success === true && isRecord(envelope.data)) {
-    const model = envelope.data.model;
-    const thinking = envelope.data.thinkingLevel;
-    const cycledThinking = envelope.data.level;
-    if (isRecord(model) && typeof model.id === 'string') {
-      return `\nModel: ${model.id}${typeof thinking === 'string' ? ` (${thinking})` : ''}\n`;
-    }
-    if (envelope.command === 'cycle_thinking_level' && typeof cycledThinking === 'string') {
-      return `\nThinking: ${cycledThinking}\n`;
-    }
-  }
-  if (envelope.type === 'tool_execution_start' && typeof envelope.toolName === 'string') {
-    return `\nRunning ${envelope.toolName}…\n`;
-  }
-  if (envelope.type === 'tool_execution_end' && envelope.isError === true) {
-    return '\nTool execution failed.\n';
-  }
-  return undefined;
+function assistantTextDelta(envelope: PiRpcEnvelope): string | undefined {
+  if (envelope.type !== 'message_update' || !isRecord(envelope.assistantMessageEvent)) return undefined;
+  const event = envelope.assistantMessageEvent;
+  return event.type === 'text_delta' && typeof event.delta === 'string' ? event.delta : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
