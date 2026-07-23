@@ -495,7 +495,11 @@ export function reviewTranscriptFacts(input: {
     const returnedAgent = /^Agent:\s*([^\r\n]+)$/mi.exec(text)?.[1]?.trim();
     const result = /^Type:\s*([^|\r\n]+)\s*\|\s*Status:\s*(completed|done)\b/mi.exec(text);
     const lane = result?.[1]?.trim() as ReviewLane | undefined;
-    if (requestedAgent && returnedAgent === requestedAgent && lane && ALL_REVIEW_LANES.includes(lane)) {
+    if (requestedAgent
+      && returnedAgent === requestedAgent
+      && lane
+      && ALL_REVIEW_LANES.includes(lane)
+      && !completedAgents.has(requestedAgent)) {
       completedAgents.set(requestedAgent, { lane, index });
     }
   });
@@ -514,7 +518,7 @@ export function reviewTranscriptFacts(input: {
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
         .filter((candidate) => candidate.value?.toolUseId === call.id);
-      const nativeTerminal = notifications.filter((candidate) => candidate.value?.succeeded === true).at(-1);
+      const nativeTerminal = notifications.find((candidate) => candidate.value?.succeeded === true);
       const launchResult = later.find((candidate) => candidate.type === "message"
         && candidate.message?.role === "toolResult"
         && candidate.message?.toolCallId === call.id
