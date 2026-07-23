@@ -29,7 +29,7 @@ test('webview document uses nonce-only local CSP with no network or navigation a
   assert.equal(document.html.includes('unsafe-inline'), false);
 });
 
-test('REQ-IDE-005 AC4: webview accepts the pinned OpenVSCode CSP source without broadening script authority', () => {
+test('REQ-IDE-005 AC7: webview accepts the pinned OpenVSCode CSP source without broadening script authority', () => {
   const document = createWebviewDocument({
     backend: 'pi',
     cspSource: "'self' https://*.vscode-cdn.net",

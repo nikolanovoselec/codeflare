@@ -63,7 +63,7 @@ test('staged extension files are immutable and inventories share content inodes'
   assert.equal((await stat(piFile)).ino, (await stat(claudeFile)).ino);
 });
 
-test('REQ-IDE-005 AC4: contributes a host-compatible Codeflare Activity Bar view', async () => {
+test('REQ-IDE-005 AC7: contributes a host-compatible Codeflare Activity Bar view', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
     contributes: {
       viewsContainers: { activitybar: Array<{ id: string; title: string }> };
