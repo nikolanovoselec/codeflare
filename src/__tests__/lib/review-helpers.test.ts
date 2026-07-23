@@ -129,9 +129,21 @@ function triageMessage(): Record<string, unknown> {
   return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|');
 }
 
-function toolResult(toolUseId: string, toolName = 'subagent', isError = false): Record<string, unknown> {
+function toolResult(
+  toolUseId: string,
+  toolName = 'subagent',
+  isError = false,
+  options: { text?: string; details?: Record<string, unknown> } = {},
+): Record<string, unknown> {
   return sessionEntry('message', {
-    message: { role: 'toolResult', toolCallId: toolUseId, toolName, content: [{ type: 'text', text: isError ? 'failed' : 'ok' }], isError },
+    message: {
+      role: 'toolResult',
+      toolCallId: toolUseId,
+      toolName,
+      content: [{ type: 'text', text: options.text ?? (isError ? 'failed' : 'ok') }],
+      details: options.details,
+      isError,
+    },
   });
 }
 
@@ -401,6 +413,39 @@ describe('native Pi transcript review facts', () => {
     expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
+  });
+
+  it('REQ-AGENT-098: successful public reviewer results complete triage without native notifications', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const lanes: Array<{ lane: ReviewLane; callId: string; agentId: string; resultId: string }> = [
+      { lane: 'code-reviewer', callId: 'code-1', agentId: 'agent-code', resultId: 'result-code' },
+      { lane: 'spec-reviewer', callId: 'spec-1', agentId: 'agent-spec', resultId: 'result-spec' },
+      { lane: 'doc-updater', callId: 'doc-1', agentId: 'agent-doc', resultId: 'result-doc' },
+    ];
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...lanes.flatMap(({ lane, callId, agentId, resultId }) => [
+        assistantTool(callId, 'subagent', { subagent_type: lane, run_in_background: true, inherit_context: false }),
+        toolResult(callId, 'subagent', false, {
+          details: { agentId, subagentType: lane },
+          text: `Agent started in background.\nAgent ID: ${agentId}\nType: ${lane}`,
+        }),
+        assistantTool(resultId, 'get_subagent_result', { agent_id: agentId, wait: true, verbose: false }),
+        toolResult(resultId, 'get_subagent_result', false, {
+          text: `Agent: ${agentId}\nType: ${lane} | Status: completed\nResult: reviewed`,
+        }),
+      ]),
+      triageMessage(),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
+    expect(facts.lanes).toEqual({
+      'code-reviewer': { state: 'terminal', toolUseId: 'code-1' },
+      'spec-reviewer': { state: 'terminal', toolUseId: 'spec-1' },
+      'doc-updater': { state: 'terminal', toolUseId: 'doc-1' },
+    });
+    expect(facts.triageComplete).toBe(true);
   });
 
   it('REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification', async () => {
