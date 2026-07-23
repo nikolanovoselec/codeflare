@@ -100,6 +100,17 @@ test('REQ-IDE-008 AC1: Pi abort is sent while the current process remains availa
   assert.equal(spawner.children[0]?.exited, false);
 });
 
+test('REQ-IDE-008 AC2+AC3: a disposed request session cannot spawn a replacement child', async () => {
+  const spawner = new RecordingPiSpawner();
+  const session = new PiSession(spawner, { reapGeneration: async () => undefined });
+
+  await session.resolveVisible();
+  await session.dispose();
+
+  await assert.rejects(session.resolveVisible(), /disposed/i);
+  assert.equal(spawner.children.length, 1);
+});
+
 test('REQ-IDE-008 AC2: Pi disposal settles and reaps the request generation', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner, {
