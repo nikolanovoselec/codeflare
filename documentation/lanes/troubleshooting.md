@@ -46,7 +46,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes vendor `codeflare-pi-rpc`, and complete-image smoke confirms a hidden default model whose generation path rejects. Do not sign into Copilot. For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the short-lived mode-0600 manifests under `/tmp/codeflare-sidebar/pi/approvals`; correct the source defect rather than weakening context or approval validation. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
 
-### Official Claude panel fails ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
+### Official Claude panel fails ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
 
 **Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, cannot connect to editor context, or OpenVSCode's native Chat/Copilot setup appears in a Claude session.
 
