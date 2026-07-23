@@ -77,13 +77,16 @@ function runBash(script, env = {}) {
   return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, ...env } });
 }
 
-function openvscodeLaunchScript() {
-  return [
+function openvscodeLaunchScript({ stubClaudePreparation = true } = {}) {
+  const production = [
     extractOptionalFn('_openvscode_agent_kind'),
     extractOptionalFn('_openvscode_extensions_dir'),
     extractOptionalFn('_openvscode_prepare_claude'),
     extractFn('_openvscode_launch_once'),
   ].filter(Boolean).join('\n');
+  return stubClaudePreparation
+    ? `${production}\n_openvscode_prepare_claude() { :; }`
+    : production;
 }
 
 function openvscodeSupervisorScript() {
@@ -95,7 +98,7 @@ function openvscodeSupervisorScript() {
     openvscodeLaunchScript(),
     extractFn('_openvscode_supervise_loop'),
     'export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
-    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_launch_once _openvscode_supervise_loop',
+    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_claude _openvscode_launch_once _openvscode_supervise_loop',
   ].join('\n');
 }
 
@@ -206,7 +209,7 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
     const stub = writeStub(dir, argsFile);
     const prepared = join(dir, 'claude-prepared.log');
     const dataDir = join(dir, 'openvscode-data');
-    const script = `${openvscodeLaunchScript()}
+    const script = `${openvscodeLaunchScript({ stubClaudePreparation: false })}
 _openvscode_prepare_claude() { printf '%s|%s\n' "$1" "$2" > "$PREPARED_FILE"; }
 _openvscode_launch_once`;
 
@@ -222,7 +225,24 @@ _openvscode_launch_once`;
     assert.equal(readFileSync(prepared, 'utf8'), `claude|${dataDir}\n`);
   });
 
-  it('REQ-IDE-005 AC1+AC2: tab one selects only a fixed sidebar agent inventory', () => {
+  it('REQ-IDE-007 AC2: Claude preparation failure prevents OpenVSCode launch', () => {
+    const stub = writeStub(dir, argsFile);
+    const script = `${openvscodeLaunchScript({ stubClaudePreparation: false })}
+_openvscode_prepare_claude() { return 37; }
+_openvscode_launch_once`;
+
+    const r = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: workspace,
+      OPENVSCODE_DATA_DIR: join(dir, 'openvscode-data'),
+      SESSION_ID: 'abcd1234',
+    });
+
+    assert.notEqual(r.status, 0);
+    assert.equal(existsSync(argsFile), false);
+  });
+
+  it('REQ-IDE-005 AC1+AC2: tab one selects only a fixed IDE agent inventory', () => {
     const cases = [
       { label: 'absent config keeps the legacy Claude default', config: undefined, expected: 'claude' },
       { label: 'exact Pi', config: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]), expected: 'pi' },
@@ -314,7 +334,7 @@ describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC4 (lazy no-launch, rest
   });
 });
 
-describe('OpenVSCode launch generations / REQ-IDE-008 AC5', () => {
+describe('OpenVSCode launch generations / REQ-IDE-008 AC4', () => {
   let dir, flag, trigger;
   beforeEach(() => {
     dir = mkTmp('ovsc-generation-');
@@ -325,7 +345,7 @@ describe('OpenVSCode launch generations / REQ-IDE-008 AC5', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC5: each restart creates one separately identifiable launch generation', () => {
+  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC4: each restart creates one separately identifiable launch generation', () => {
     const launchesFile = join(dir, 'launches.log');
     const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
 pgid="$(ps -o pgid= -p "$$" | tr -d ' ')"
@@ -356,7 +376,7 @@ exit 17
     assert.equal(new Set(launches.map(({ pgid }) => pgid)).size, launches.length, 'each generation has its own process group');
   });
 
-  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC5: restart sends TERM then bounded KILL to a TERM-ignoring managed descendant', () => {
+  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC4: restart sends TERM then bounded KILL to a TERM-ignoring managed descendant', () => {
     const launchCount = join(dir, 'launch-count');
     const childPid = join(dir, 'managed.pid');
     const restartProbe = join(dir, 'restart-probe.log');
@@ -406,7 +426,7 @@ fi`, {
     assert.equal(readFileSync(restartProbe, 'utf8').trim().split('\n')[0], 'prior=dead', 'TERM-ignoring descendant is KILLed before replacement');
   });
 
-  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC5: OpenVSCode restart never leaves duplicate Pi or Claude children', () => {
+  it('REQ-IDE-003 AC4 + REQ-IDE-008 AC4: OpenVSCode restart never leaves duplicate Pi or Claude children', () => {
     const cases = [
       { agent: 'pi', config: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]) },
       { agent: 'claude', config: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]) },
@@ -457,7 +477,7 @@ kill -KILL "$child" 2>/dev/null || true`, {
     assert.deepEqual(observed, ['agent=pi duplicate=0', 'agent=claude duplicate=0']);
   });
 
-  it('REQ-IDE-008 AC5: cleans one launch generation before restart without signaling an identity-mismatched PID', () => {
+  it('REQ-IDE-008 AC4: cleans one launch generation before restart without signaling an identity-mismatched PID', () => {
     const launchCount = join(dir, 'launch-count');
     const managedPid = join(dir, 'managed.pid');
     const restartProbe = join(dir, 'restart-probe.log');
@@ -543,12 +563,12 @@ fi`, {
   });
 });
 
-describe('identity-safe OpenVSCode cleanup / REQ-IDE-008 AC5', () => {
+describe('identity-safe OpenVSCode cleanup / REQ-IDE-008 AC4', () => {
   let dir;
   beforeEach(() => { dir = mkTmp('ovsc-identity-'); });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-008 AC5: token cleanup survives stale leader metadata without signaling an unrelated generation', () => {
+  it('REQ-IDE-008 AC4: token cleanup survives stale leader metadata without signaling an unrelated generation', () => {
     const signalChild = writeSignalRecordingChild(dir);
     const result = runBash(`${extractKillHelpers()}
 probe_identity() {
@@ -609,7 +629,7 @@ probe_identity generation match match other-generation`, {
     ]);
   });
 
-  it('REQ-IDE-008 AC5: generation cleanup rescans children forked between signal snapshots', () => {
+  it('REQ-IDE-008 AC4: generation cleanup rescans children forked between signal snapshots', () => {
     const forker = writeExecutable(dir, 'fork-on-term', `#!/usr/bin/env bash
 trap '
   (
@@ -663,7 +683,7 @@ if kill -0 "$child" 2>/dev/null; then echo "ALIVE"; else echo "DEAD"; fi
     assert.equal(r.stdout.trim(), 'DEAD');
   });
 
-  it('REQ-IDE-003 AC5 + REQ-IDE-008 AC5: session shutdown removes the current launch group and supervisor', () => {
+  it('REQ-IDE-003 AC5 + REQ-IDE-008 AC4: session shutdown removes the current launch group and supervisor', () => {
     const flag = join(dir, 'init-complete');
     const trigger = join(dir, 'requested');
     const managedPid = join(dir, 'managed.pid');
