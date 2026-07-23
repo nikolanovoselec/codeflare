@@ -415,7 +415,7 @@ describe('native Pi transcript review facts', () => {
     expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
   });
 
-  it('REQ-AGENT-098: successful public reviewer results complete triage without native notifications', async () => {
+  it('REQ-AGENT-098: public reviewer results complete triage before a late native notification', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const lanes: Array<{ lane: ReviewLane; callId: string; agentId: string; resultId: string }> = [
       { lane: 'code-reviewer', callId: 'code-1', agentId: 'agent-code', resultId: 'result-code' },
@@ -437,6 +437,7 @@ describe('native Pi transcript review facts', () => {
         }),
       ]),
       triageMessage(),
+      notification('code-1'),
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
