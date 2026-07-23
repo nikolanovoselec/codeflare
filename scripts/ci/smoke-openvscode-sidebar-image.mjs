@@ -81,7 +81,11 @@ async function main() {
 
 async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
-  assert.deepEqual(manifest.enabledApiProposals, ['defaultChatParticipant']);
+  assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
+  assert.deepEqual(manifest.contributes?.languageModelChatProviders, [{
+    vendor: 'codeflare-pi-rpc',
+    displayName: 'Codeflare Pi (Local RPC)',
+  }]);
   const [participant] = manifest.contributes?.chatParticipants ?? [];
   assert.equal(participant?.id, 'codeflare.pi');
   assert.equal(participant?.name, 'codeflare');
@@ -94,6 +98,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   const Module = require('node:module');
   const originalLoad = Module._load;
   let handler;
+  let hostModelProvider;
   const disposable = () => ({ dispose() {} });
   const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
   const vscode = new Proxy({
@@ -107,6 +112,13 @@ async function verifyPackagedNativeChat(extensionRoot) {
       },
     },
     languages: { getDiagnostics: () => [] },
+    lm: {
+      registerLanguageModelChatProvider: (vendor, provider) => {
+        assert.equal(vendor, 'codeflare-pi-rpc');
+        hostModelProvider = provider;
+        return disposable();
+      },
+    },
     window: {
       activeTextEditor: undefined,
       showWarningMessage: async () => undefined,
@@ -116,7 +128,6 @@ async function verifyPackagedNativeChat(extensionRoot) {
   }, {
     get(target, property, receiver) {
       assert.notEqual(property, 'authentication');
-      assert.notEqual(property, 'lm');
       return Reflect.get(target, property, receiver);
     },
   });
@@ -131,6 +142,17 @@ async function verifyPackagedNativeChat(extensionRoot) {
     const subscriptions = [];
     extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
+    assert.equal(typeof hostModelProvider, 'object', 'packaged extension did not register its host compatibility model');
+    const models = await hostModelProvider.provideLanguageModelChatInformation({}, {});
+    assert.equal(models.length, 1);
+    assert.equal(models[0].isDefault, true);
+    assert.equal(models[0].isUserSelectable, false);
+    assert.equal(models[0].requiresAuthorization, undefined);
+    await assert.rejects(
+      hostModelProvider.provideLanguageModelChatResponse(),
+      /compatibility.*cannot generate|cannot generate.*compatibility/i,
+    );
+    assert.equal(await hostModelProvider.provideTokenCount(), 0);
     await handler(
       { prompt: 'cancelled smoke', references: [] },
       { history: [] },
