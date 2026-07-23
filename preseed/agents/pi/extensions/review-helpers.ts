@@ -527,11 +527,18 @@ export function reviewTranscriptFacts(input: {
       const publicTerminal = launchedAgent && completedAgents.get(launchedAgent)?.lane === lane
         ? completedAgents.get(launchedAgent)
         : undefined;
-      const terminalIndex = Math.max(nativeTerminal?.index ?? -1, publicTerminal?.index ?? -1);
+      const nativeIndex = nativeTerminal?.index;
+      const publicIndex = publicTerminal?.index;
+      const terminalIndex = nativeIndex === undefined
+        ? publicIndex ?? -1
+        : publicIndex === undefined ? nativeIndex : Math.min(nativeIndex, publicIndex);
       const failed = notifications.some((candidate) => candidate.value?.succeeded === false);
       if (terminalIndex >= 0) {
         lanes[lane] = { state: "terminal", toolUseId: call.id };
-        terminalIndexes.set(lane, Math.max(terminalIndexes.get(lane) ?? -1, terminalIndex));
+        const previousTerminal = terminalIndexes.get(lane);
+        terminalIndexes.set(lane, previousTerminal === undefined
+          ? terminalIndex
+          : Math.min(previousTerminal, terminalIndex));
       } else if (failed && lanes[lane].state !== "terminal") lanes[lane] = { state: "missing" };
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
