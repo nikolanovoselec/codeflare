@@ -186,12 +186,18 @@ test('REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi 
       return { dispose: () => events.push('dispose-listener') };
     },
   };
+  let finishPrompt = (): void => undefined;
   const backend: NativePiBackend = {
     runPrompt: async () => {
       events.push('prompt');
+      const pending = new Promise<void>((resolve) => { finishPrompt = resolve; });
       cancel();
+      await pending;
     },
-    abort: async () => { events.push('abort'); },
+    abort: async () => {
+      events.push('abort');
+      finishPrompt();
+    },
     stop: async () => { events.push('stop'); },
   };
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { setImmediate as waitForImmediate } from 'node:timers/promises';
+import { setImmediate as waitForImmediate, setTimeout as waitForTimeout } from 'node:timers/promises';
 import { test } from 'vitest';
 
 import { ApprovalBridge, type ApprovalHost, type ApprovalManifest } from '../src/pi/approval-bridge.ts';
@@ -116,6 +116,30 @@ test('REQ-IDE-008 AC1: cancellation during Pi startup cannot send a prompt after
 
   assert.deepEqual(spawner.child.writes, []);
   assert.equal(outcome.failure, undefined);
+  assert.equal(backend.running, false);
+});
+
+test('REQ-IDE-008 AC1: accepted Pi cancellation settles without agent_settled', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runPrompt('cancel this turn', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  await waitForImmediate();
+  await backend.abort();
+  const outcome = await Promise.race([
+    turn.then(() => 'settled', () => 'failed'),
+    waitForTimeout(100, 'timed-out'),
+  ]);
+  await backend.stop();
+
+  assert.equal(outcome, 'settled');
+  assert.match(spawner.children[0]?.writes.at(-1) ?? '', /"type":"abort"/);
   assert.equal(backend.running, false);
 });
 
