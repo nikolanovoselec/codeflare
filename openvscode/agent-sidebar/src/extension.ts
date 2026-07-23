@@ -22,8 +22,9 @@ import { collectNativePiPromptInput } from './pi/vscode-native-chat.ts';
 
 const PARTICIPANT_ID = 'codeflare.pi';
 const HOST_MODEL_VENDOR = 'codeflare-pi-rpc';
+const CHAT_LOCATION_PANEL = 1 as const;
 const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
-  readonly isDefault: true;
+  readonly isDefault: Readonly<Record<typeof CHAT_LOCATION_PANEL, true>>;
   readonly isUserSelectable: false;
 } = Object.freeze({
   id: 'host-compatibility',
@@ -33,7 +34,7 @@ const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
   maxInputTokens: 1,
   maxOutputTokens: 1,
   capabilities: Object.freeze({}),
-  isDefault: true,
+  isDefault: Object.freeze({ [CHAT_LOCATION_PANEL]: true as const }),
   isUserSelectable: false,
 });
 const HOST_COMPATIBILITY_PROVIDER: LanguageModelChatProvider = Object.freeze({

@@ -14,7 +14,7 @@ An absent `TAB_CONFIG` keeps the existing Claude default. Malformed JSON, duplic
 
 ## Native Pi Chat
 
-The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned host's default native Chat participant. OpenVSCode 1.109.5 requires a model before invoking any participant, so the extension also registers one hidden, account-free compatibility model that cannot generate responses. Pi never reads `request.model` or sends inference through that provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
+The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned host's default native Chat participant. OpenVSCode 1.109.5 requires a model before invoking any participant, so the extension also registers one hidden, account-free, panel-only compatibility model that cannot generate responses. Pi never reads `request.model` or sends inference through that provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
 
 Every request receives bounded native Chat history plus the active workspace document, selected text, open workspace documents, diagnostics, and explicit references. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 512 KiB.
 

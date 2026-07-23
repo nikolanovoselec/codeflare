@@ -145,7 +145,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
     assert.equal(typeof hostModelProvider, 'object', 'packaged extension did not register its host compatibility model');
     const models = await hostModelProvider.provideLanguageModelChatInformation({}, {});
     assert.equal(models.length, 1);
-    assert.equal(models[0].isDefault, true);
+    assert.deepEqual(models[0].isDefault, { 1: true });
     assert.equal(models[0].isUserSelectable, false);
     assert.equal(models[0].requiresAuthorization, undefined);
     await assert.rejects(
@@ -153,12 +153,24 @@ async function verifyPackagedNativeChat(extensionRoot) {
       /compatibility.*cannot generate|cannot generate.*compatibility/i,
     );
     assert.equal(await hostModelProvider.provideTokenCount(), 0);
+    let cancellationChecks = 0;
     await handler(
-      { prompt: 'cancelled smoke', references: [] },
+      {
+        prompt: 'cancelled smoke',
+        references: [],
+        get model() { return assert.fail('native Pi accessed the host-selected model'); },
+      },
       { history: [] },
       { markdown: () => assert.fail('cancelled request emitted markdown'), progress: () => assert.fail('cancelled request emitted progress') },
-      { isCancellationRequested: true, onCancellationRequested: () => disposable() },
+      {
+        get isCancellationRequested() {
+          cancellationChecks += 1;
+          return cancellationChecks > 1;
+        },
+        onCancellationRequested: () => disposable(),
+      },
     );
+    assert.equal(cancellationChecks, 2, 'packaged native Pi did not collect a normal request before startup cancellation');
     return 'DEFAULT_NATIVE_PI_OK';
   } finally {
     await extension?.deactivate?.();
