@@ -26,14 +26,14 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "codeflare.agentSidebarContainer",
+          "id": "codeflareAgentSidebarContainer",
           "title": "Codeflare Agent",
           "icon": "media/agent.svg"
         }
       ]
     },
     "views": {
-      "codeflare.agentSidebarContainer": [
+      "codeflareAgentSidebarContainer": [
         {
           "id": "codeflare.agentSidebar",
           "name": "Agent",

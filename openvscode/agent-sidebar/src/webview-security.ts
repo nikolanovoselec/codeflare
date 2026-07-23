@@ -17,8 +17,14 @@ export interface WebviewDocument {
 }
 
 export function createWebviewDocument(options: WebviewDocumentOptions): WebviewDocument {
-  const values = [options.cspSource, options.nonce, options.scriptUri, options.styleUri];
-  if (values.some((value) => /[\r\n<>"']/.test(value))) {
+  // OpenVSCode's pinned host source is `'self' https://*.vscode-cdn.net`.
+  // That single quote is CSP syntax and cannot terminate the double-quoted
+  // content attribute. Other generated attribute values retain the stricter
+  // quote rejection; double quotes, angle brackets, and line breaks always fail.
+  const unsafeCspSource = /[\r\n<>"]/.test(options.cspSource);
+  const unsafeGeneratedValue = [options.nonce, options.scriptUri, options.styleUri]
+    .some((value) => /[\r\n<>"']/.test(value));
+  if (unsafeCspSource || unsafeGeneratedValue) {
     throw new Error('Unsafe webview document option');
   }
 

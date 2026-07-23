@@ -67,7 +67,7 @@ test('REQ-IDE-005 AC4: contributes a host-compatible Codeflare Activity Bar view
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
     contributes: {
       viewsContainers: { activitybar: Array<{ id: string; title: string }> };
-      views: Record<string, Array<{ id: string; type: string }>>;
+      views: Record<string, Array<{ id: string; name: string; type: string }>>;
     };
   };
   const containers = manifest.contributes.viewsContainers.activitybar;

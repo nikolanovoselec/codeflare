@@ -30,13 +30,13 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
 
-### Browser IDE agent sidebar icon is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar))
+### Browser IDE agent sidebar icon is missing or its view fails ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-agent-sidebar))
 
-**Symptom:** The Activity Bar has no agent-sidebar icon.
+**Symptom:** The Activity Bar has no Codeflare robot icon, the Agent view is relocated under Explorer, or opening it reports `An error occurred while loading view: codeflare.agentSidebar`.
 
-**Cause:** The session is not advanced, or terminal tab 1 does not contain an exact supported Pi or Claude command. Unsupported or malformed selections intentionally load the empty inventory.
+**Cause:** The session may be non-advanced or tab 1 may not contain an exact supported Pi or Claude command; those cases intentionally load the empty inventory. If the Window log reports an invalid contribution `id` or `Unsafe webview document option`, the packaged extension does not conform to the pinned OpenVSCode container-ID or CSP-source contract.
 
-**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and the three directories under `/opt/codeflare/openvscode/extensions`; do not add extensions to the unsupported inventory.
+**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and the three directories under `/opt/codeflare/openvscode/extensions`; do not add extensions to the unsupported inventory. For a host-contract error, deploy a package whose Activity Bar container uses only the host-accepted identifier characters and whose double-quoted document attributes accept OpenVSCode's safe `'self'` CSP token without weakening nonce-only script authority. The complete-image provider-resolution smoke must pass before deployment.
 
 ### Pi Browser IDE sidebar fails ([REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-sidebar-guarded-approval))
 

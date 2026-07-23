@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-23
+
+- **The Browser IDE agent view now conforms to the pinned OpenVSCode host contract** ([REQ-IDE-005](browser-ide.md#req-ide-005-selected-agent-sidebar) AC4, Implemented). Its Activity Bar identifier is host-valid, its nonce-only document accepts the host's safe quoted CSP source, and complete-image smoke resolves the packaged provider before release.
+
 ## 2026-07-22
 
 - **Pi PR-boundary automation now has exactly two triggers, event-scoped repository identity, and a flush-safe FIX handoff** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-063](agents.md#req-agent-063-pr-boundary-command-parsing), and [REQ-AGENT-074](agents.md#req-agent-074-pi-settled-review-handoff), Implemented). Only protected-base PR creation or an explicit/implicit exact-head push to an open protected-base PR launches work; bare, remote-only, and `HEAD` pushes resolve Git's effective push branch inside the exact executable-segment repository, and the emitted window persists that repository and PR identity so agent-end acknowledgement cannot drift before issuing the accepted-fix follow-up.

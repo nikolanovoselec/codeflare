@@ -47,7 +47,7 @@ async function main() {
   assert.equal((await stat(piMain)).ino, (await stat(claudeMain)).ino);
   const extensionHash = createHash('sha256').update(await readFile(piMain)).digest('hex');
   assert.equal((await collect(ROOT)).some((path) => path.toLowerCase().endsWith('.vsix')), false);
-  await verifyPackagedView(packaged[0]);
+  const viewContract = await verifyPackagedView(packaged[0]);
 
   const managedModule = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
   const managedSettings = managedModule.buildManagedSettings();
@@ -69,6 +69,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
     extensionHash,
+    viewContract,
     abi,
     claudeVersion,
     piVersion,
@@ -137,6 +138,7 @@ async function verifyPackagedView(extensionRoot) {
     assert.equal(webview.options.enableScripts, true);
     assert.match(webview.html, /style-src 'self' https:\/\/\*\.vscode-cdn\.net/);
     assert.match(webview.html, /<main id="app"/);
+    return 'OPENVSCODE_VIEW_OK';
   } finally {
     await extension?.deactivate?.();
     Module._load = originalLoad;

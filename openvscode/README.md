@@ -34,7 +34,7 @@ Each OpenVSCode launch has a fresh generation token plus recorded PID, process g
 
 `openvscode/agent-sidebar/package-lock.json` pins `node-pty`, xterm.js, and build dependencies. Docker compiles `node-pty` in a digest-pinned Node 22.21.1 stage for OpenVSCode's addon ABI 127. The runtime image stages fixed immutable inventories and a root-owned Claude settings overlay.
 
-The required `browser-ide` CI lane performs a clean install, dependency and license checks, typecheck, deterministic build, coverage, behavioral tests, and report reconciliation. `browser-ide-image` builds the complete image without pushing it, loads the native addon with OpenVSCode's Node binary, checks the inventories and Claude projection, and records image size plus idle process and RSS evidence.
+The required `browser-ide` CI lane performs a clean install, dependency and license checks, typecheck, deterministic build, coverage, behavioral tests, and report reconciliation. `browser-ide-image` builds the complete image without pushing it, loads the native addon with OpenVSCode's Node binary, validates the host-compatible Activity Bar contribution, resolves the packaged provider against OpenVSCode's actual CSP-source contract, checks the inventories and Claude projection, and records image size plus idle process and RSS evidence.
 
 This repository's constrained development container does not run these builds or tests locally. Use the GitHub Actions results or an integration deployment.
 
