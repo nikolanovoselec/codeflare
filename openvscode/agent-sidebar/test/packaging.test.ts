@@ -63,6 +63,25 @@ test('staged extension files are immutable and inventories share content inodes'
   assert.equal((await stat(piFile)).ino, (await stat(claudeFile)).ino);
 });
 
+test('REQ-IDE-005 AC4: contributes a host-compatible Codeflare Activity Bar view', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+    contributes: {
+      viewsContainers: { activitybar: Array<{ id: string; title: string }> };
+      views: Record<string, Array<{ id: string; type: string }>>;
+    };
+  };
+  const containers = manifest.contributes.viewsContainers.activitybar;
+
+  assert.equal(containers.length, 1);
+  assert.match(containers[0]?.id ?? '', /^[A-Za-z0-9_-]+$/);
+  assert.equal(containers[0]?.title, 'Codeflare Agent');
+  assert.deepEqual(manifest.contributes.views[containers[0]?.id ?? ''], [{
+    id: 'codeflare.agentSidebar',
+    name: 'Agent',
+    type: 'webview',
+  }]);
+});
+
 test('REQ-IDE-005 AC3: refuses VSIX or Anthropic-owned extension input before staging', async () => {
   for (const forbidden of ['vsix', 'publisher']) {
     const { source, target } = await fixture();

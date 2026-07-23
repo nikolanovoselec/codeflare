@@ -29,6 +29,40 @@ test('webview document uses nonce-only local CSP with no network or navigation a
   assert.equal(document.html.includes('unsafe-inline'), false);
 });
 
+test('REQ-IDE-005 AC4: webview accepts the pinned OpenVSCode CSP source without broadening script authority', () => {
+  const document = createWebviewDocument({
+    backend: 'pi',
+    cspSource: "'self' https://*.vscode-cdn.net",
+    nonce: 'openvscode-contract-nonce',
+    scriptUri: 'https://file+.vscode-resource.vscode-cdn.net/chat.js',
+    styleUri: 'https://file+.vscode-resource.vscode-cdn.net/styles.css',
+  });
+
+  assert.equal(document.csp.includes("style-src 'self' https://*.vscode-cdn.net"), true);
+  assert.equal(document.csp.includes("script-src 'nonce-openvscode-contract-nonce'"), true);
+  assert.equal(document.csp.includes('unsafe-inline'), false);
+  assert.equal(document.csp.includes('unsafe-eval'), false);
+  assert.equal(document.html.includes('id="app"'), true);
+});
+
+test('webview document still rejects attribute-breaking host values', () => {
+  const base = {
+    backend: 'pi' as const,
+    cspSource: "'self' https://*.vscode-cdn.net",
+    nonce: 'fixed-test-nonce',
+    scriptUri: 'https://file+.vscode-resource.vscode-cdn.net/chat.js',
+    styleUri: 'https://file+.vscode-resource.vscode-cdn.net/styles.css',
+  };
+
+  for (const options of [
+    { ...base, cspSource: 'https://*.vscode-cdn.net; script-src *\n' },
+    { ...base, scriptUri: 'https://example.invalid/\" onerror=\"alert(1)' },
+    { ...base, styleUri: 'https://example.invalid/<style.css' },
+  ]) {
+    assert.throws(() => createWebviewDocument(options), /Unsafe webview document option/);
+  }
+});
+
 test('webview authority accepts only bounded backend-specific user commands', () => {
   const authority = new WebviewMessageAuthority({ maxPromptBytes: 32, maxTerminalInputBytes: 16 });
 

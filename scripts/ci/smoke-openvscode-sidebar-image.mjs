@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import {
   lstat,
   mkdir,
@@ -46,6 +47,7 @@ async function main() {
   assert.equal((await stat(piMain)).ino, (await stat(claudeMain)).ino);
   const extensionHash = createHash('sha256').update(await readFile(piMain)).digest('hex');
   assert.equal((await collect(ROOT)).some((path) => path.toLowerCase().endsWith('.vsix')), false);
+  await verifyPackagedView(packaged[0]);
 
   const managedModule = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
   const managedSettings = managedModule.buildManagedSettings();
@@ -71,6 +73,76 @@ async function main() {
     claudeVersion,
     piVersion,
   })}\n`);
+}
+
+async function verifyPackagedView(extensionRoot) {
+  const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
+  const containers = manifest.contributes?.viewsContainers?.activitybar ?? [];
+  assert.equal(containers.length, 1);
+  const container = containers[0];
+  assert.match(container.id, /^[A-Za-z0-9_-]+$/);
+  assert.ok((manifest.contributes?.views?.[container.id] ?? []).some(
+    (view) => view.id === 'codeflare.agentSidebar' && view.type === 'webview',
+  ));
+
+  const require = createRequire(import.meta.url);
+  const Module = require('node:module');
+  const originalLoad = Module._load;
+  const originalBackend = process.env.CODEFLARE_SIDEBAR_AGENT;
+  let provider;
+  const disposable = () => ({ dispose() {} });
+  const uri = (path) => ({ path, fsPath: path, toString: () => `file://${path}` });
+  const vscode = {
+    Uri: { joinPath: (base, ...parts) => uri(join(base.fsPath ?? base.path, ...parts)) },
+    window: {
+      registerWebviewViewProvider: (id, candidate) => {
+        assert.equal(id, 'codeflare.agentSidebar');
+        provider = candidate;
+        return disposable();
+      },
+      showWarningMessage: async () => undefined,
+      showTextDocument: async () => undefined,
+    },
+    workspace: { openTextDocument: async () => ({}) },
+  };
+  let extension;
+
+  try {
+    Module._load = function load(request, parent, isMain) {
+      if (request === 'vscode') return vscode;
+      return originalLoad.call(this, request, parent, isMain);
+    };
+    process.env.CODEFLARE_SIDEBAR_AGENT = 'pi';
+    extension = require(join(extensionRoot, String(manifest.main).replace(/^\.\//, '')));
+    const subscriptions = [];
+    extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
+    assert.ok(provider, 'packaged extension did not register its view provider');
+
+    const webview = {
+      cspSource: "'self' https://*.vscode-cdn.net",
+      options: {},
+      html: '',
+      asWebviewUri: (resource) => ({
+        toString: () => `https://file+.vscode-resource.vscode-cdn.net${resource.path}`,
+      }),
+      onDidReceiveMessage: () => disposable(),
+    };
+    const view = {
+      webview,
+      visible: false,
+      onDidChangeVisibility: () => disposable(),
+      onDidDispose: () => disposable(),
+    };
+    await provider.resolveWebviewView(view);
+    assert.equal(webview.options.enableScripts, true);
+    assert.match(webview.html, /style-src 'self' https:\/\/\*\.vscode-cdn\.net/);
+    assert.match(webview.html, /<main id="app"/);
+  } finally {
+    await extension?.deactivate?.();
+    Module._load = originalLoad;
+    if (originalBackend === undefined) delete process.env.CODEFLARE_SIDEBAR_AGENT;
+    else process.env.CODEFLARE_SIDEBAR_AGENT = originalBackend;
+  }
 }
 
 async function verifyConfigProjection() {
