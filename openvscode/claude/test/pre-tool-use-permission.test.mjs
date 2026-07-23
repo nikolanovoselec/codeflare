@@ -41,7 +41,16 @@ for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash"]) {
   });
 }
 
-for (const toolName of ["mcp__github__create_pull_request", "FutureMutatingTool"]) {
+test("REQ-IDE-005 AC2: official Claude may read native editor diagnostics without an approval round trip", async () => {
+  const outcome = await runPreToolUse(hookInput("mcp__ide__getDiagnostics", { uri: "file:///home/user/workspace/example.ts" }));
+
+  assert.equal(outcome.exitCode, 0);
+  assert.equal(outcome.stderr, "");
+  assert.equal(JSON.parse(outcome.stdout).hookSpecificOutput.permissionDecision, "allow");
+  assertBounded(outcome);
+});
+
+for (const toolName of ["mcp__ide__executeCode", "mcp__github__create_pull_request", "FutureMutatingTool"]) {
   test(`REQ-IDE-007 AC1: pre-tool-use returns interactive ask for ${toolName}`, async () => {
     assertAsk(await runPreToolUse(hookInput(toolName)), toolName);
   });

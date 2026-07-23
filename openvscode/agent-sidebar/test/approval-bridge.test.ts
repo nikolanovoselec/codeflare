@@ -106,6 +106,42 @@ test('REQ-IDE-007 AC2: substituted approval manifest content is rejected before 
   assert.deepEqual(host.events, [`load:${manifest.id}`]);
 });
 
+test('REQ-IDE-007 AC2 + REQ-IDE-008 AC1: cancellation denies a pending approval and ignores its late modal answer', async () => {
+  let enterConfirmation = (): void => undefined;
+  let resolveConfirmation = (_approved: boolean): void => undefined;
+  const entered = new Promise<void>((resolve) => { enterConfirmation = resolve; });
+  const decision = new Promise<boolean>((resolve) => { resolveConfirmation = resolve; });
+  const host = new RecordingApprovalHost();
+  host.confirm = async (value) => {
+    host.events.push(`confirm:${value.id}`);
+    enterConfirmation();
+    return decision;
+  };
+  const bridge = new ApprovalBridge(host) as ApprovalBridge & {
+    handlePiRequest(request: Parameters<ApprovalBridge['handlePiRequest']>[0], signal?: AbortSignal): ReturnType<ApprovalBridge['handlePiRequest']>;
+  };
+  const controller = new AbortController();
+
+  const pending = bridge.handlePiRequest({
+    type: 'extension_ui_request',
+    id: 'ui-request-cancelled',
+    method: 'confirm',
+    title: 'Guarded operation',
+    message: approvalReference,
+  }, controller.signal);
+  await entered;
+  controller.abort();
+
+  assert.deepEqual(await pending, {
+    type: 'extension_ui_response',
+    id: 'ui-request-cancelled',
+    confirmed: false,
+  });
+  resolveConfirmation(true);
+  await Promise.resolve();
+  assert.equal(host.events.filter((event) => event.startsWith('confirm:')).length, 1);
+});
+
 test('Pi fire-and-forget notifications require no response and never enter approval UI', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);

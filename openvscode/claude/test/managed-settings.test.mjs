@@ -5,6 +5,7 @@ import {
   PRE_TOOL_USE_HOOK_PATH,
   PRE_TOOL_USE_TIMEOUT_SECONDS,
   buildManagedSettings,
+  buildOpenVscodeSettings,
 } from "../managed-settings.mjs";
 
 test("REQ-IDE-007 AC1: native permission rules independently ask for guarded built-ins and MCP", () => {
@@ -47,6 +48,23 @@ test("REQ-IDE-007 AC1: hook timeout and non-2 failures stay fail-open while nati
     "Edit", "Write", "NotebookEdit", "Bash", "Task", "WebFetch", "WebSearch", "mcp__*",
   ]);
   assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
+});
+
+test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude with isolated config and guarded native UI", () => {
+  assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"), {
+    "claudeCode.environmentVariables": [
+      { name: "CLAUDE_CONFIG_DIR", value: "/tmp/codeflare-sidebar/claude/config" },
+    ],
+    "claudeCode.useTerminal": false,
+    "claudeCode.initialPermissionMode": "default",
+    "claudeCode.disableLoginPrompt": true,
+    "claudeCode.allowDangerouslySkipPermissions": false,
+    "claudeCode.autosave": true,
+    "claudeCode.preferredLocation": "sidebar",
+    "claudeCode.hideOnboarding": true,
+    "claudeCode.usePythonEnvironment": false,
+  });
+  assert.throws(() => buildOpenVscodeSettings("relative/config"), /absolute/i);
 });
 
 test("REQ-IDE-007 AC1+AC2: managed settings disable bypass, Remote Control, IDE auto-install, updates, and telemetry", () => {

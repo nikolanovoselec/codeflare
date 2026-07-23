@@ -22,73 +22,111 @@ async function makeRemovable(path: string): Promise<void> {
   for (const entry of await readdir(path)) await makeRemovable(join(path, entry));
 }
 
-async function fixture(): Promise<{ source: string; target: string }> {
+async function fixture(): Promise<{ source: string; claudeSource: string; target: string }> {
   const root = await mkdtemp(join(tmpdir(), 'sidebar-package-'));
   roots.push(root);
   const source = join(root, 'source');
+  const claudeSource = join(root, 'claude-source');
   const target = join(root, 'openvscode');
   await mkdir(join(source, 'dist'), { recursive: true });
   await mkdir(join(source, 'media'), { recursive: true });
-  await mkdir(join(source, 'node_modules', 'node-pty', 'build', 'Release'), { recursive: true });
   await writeFile(join(source, 'package.json'), JSON.stringify({ name: 'codeflare-agent-sidebar', publisher: 'codeflare', main: 'dist/extension.cjs' }));
   await writeFile(join(source, 'dist', 'extension.cjs'), 'module.exports = {}\n');
   await writeFile(join(source, 'media', 'agent.svg'), '<svg/>\n');
-  await writeFile(join(source, 'node_modules', 'node-pty', 'build', 'Release', 'pty.node'), 'native-fixture\n');
-  return { source, target };
+
+  await mkdir(join(claudeSource, 'resources', 'native-binary'), { recursive: true });
+  await writeFile(join(claudeSource, 'package.json'), JSON.stringify({
+    name: 'claude-code',
+    publisher: 'Anthropic',
+    version: '2.1.218',
+    main: './extension.js',
+    engines: { vscode: '^1.94.0' },
+  }));
+  await writeFile(join(claudeSource, 'extension.js'), 'module.exports = {}\n');
+  await writeFile(join(claudeSource, 'resources', 'native-binary', 'claude'), 'official-binary-fixture\n', { mode: 0o755 });
+  return { source, claudeSource, target };
 }
 
-test('REQ-IDE-005 AC1+AC2: stages only the fixed Pi, Claude, and empty inventories', async () => {
-  const { source, target } = await fixture();
-  const staged = await stageSidebarExtension({ sourceDirectory: source, rootDirectory: target });
+async function stageFixture(source: string, claudeSource: string, target: string) {
+  return stageSidebarExtension({
+    sourceDirectory: source,
+    claudeSourceDirectory: claudeSource,
+    rootDirectory: target,
+  } as Parameters<typeof stageSidebarExtension>[0] & { claudeSourceDirectory: string });
+}
+
+test('REQ-IDE-005 AC1+AC2: stages native Pi, official Claude, and empty unsupported inventories', async () => {
+  const { source, claudeSource, target } = await fixture();
+  const staged = await stageFixture(source, claudeSource, target);
 
   assert.deepEqual((await readdir(join(target, 'extensions'))).sort(), ['claude', 'none', 'pi']);
   assert.deepEqual(await readdir(staged.inventories.none), []);
-  for (const inventory of [staged.inventories.pi, staged.inventories.claude]) {
-    assert.deepEqual(await readdir(inventory), ['codeflare-agent-sidebar']);
-    const packaged = join(inventory, 'codeflare-agent-sidebar');
-    assert.equal(JSON.parse(await readFile(join(packaged, 'package.json'), 'utf8')).publisher, 'codeflare');
-    assert.equal(await readFile(join(packaged, 'dist', 'extension.cjs'), 'utf8'), 'module.exports = {}\n');
-  }
+  assert.deepEqual(await readdir(staged.inventories.pi), ['codeflare-agent-sidebar']);
+  assert.deepEqual(await readdir(staged.inventories.claude), ['anthropic.claude-code']);
+  assert.equal(
+    JSON.parse(await readFile(join(staged.inventories.pi, 'codeflare-agent-sidebar', 'package.json'), 'utf8')).publisher,
+    'codeflare',
+  );
+  const claudeManifest = JSON.parse(
+    await readFile(join(staged.inventories.claude, 'anthropic.claude-code', 'package.json'), 'utf8',),
+  ) as Record<string, unknown>;
+  assert.equal(claudeManifest.name, 'claude-code');
+  assert.equal(claudeManifest.publisher, 'Anthropic');
+  assert.equal(claudeManifest.version, '2.1.218');
 });
 
-test('staged extension files are immutable and inventories share content inodes', async () => {
-  const { source, target } = await fixture();
-  const staged = await stageSidebarExtension({ sourceDirectory: source, rootDirectory: target });
-  const relative = join('codeflare-agent-sidebar', 'dist', 'extension.cjs');
-  const piFile = join(staged.inventories.pi, relative);
-  const claudeFile = join(staged.inventories.claude, relative);
+test('staged Pi and Claude extension files are immutable', async () => {
+  const { source, claudeSource, target } = await fixture();
+  const staged = await stageFixture(source, claudeSource, target);
+  const piFile = join(staged.inventories.pi, 'codeflare-agent-sidebar', 'dist', 'extension.cjs');
+  const claudeFile = join(staged.inventories.claude, 'anthropic.claude-code', 'extension.js');
 
   assert.equal((await stat(piFile)).mode & 0o222, 0);
   assert.equal((await stat(claudeFile)).mode & 0o222, 0);
-  assert.equal((await stat(piFile)).ino, (await stat(claudeFile)).ino);
+  assert.notEqual((await stat(piFile)).ino, (await stat(claudeFile)).ino);
 });
 
-test('REQ-IDE-005 AC2: contributes a host-compatible Codeflare Activity Bar view', async () => {
+test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat participant', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+    activationEvents: string[];
+    enabledApiProposals: string[];
     contributes: {
-      viewsContainers: { activitybar: Array<{ id: string; title: string }> };
-      views: Record<string, Array<{ id: string; name: string; type: string }>>;
+      chatParticipants: Array<Record<string, unknown>>;
+      viewsContainers?: unknown;
+      views?: unknown;
     };
   };
-  const containers = manifest.contributes.viewsContainers.activitybar;
 
-  assert.equal(containers.length, 1);
-  assert.match(containers[0]?.id ?? '', /^[A-Za-z0-9_-]+$/);
-  assert.equal(containers[0]?.title, 'Codeflare Agent');
-  assert.deepEqual(manifest.contributes.views[containers[0]?.id ?? ''], [{
-    id: 'codeflare.agentSidebar',
-    name: 'Agent',
-    type: 'webview',
+  assert.deepEqual(manifest.activationEvents, ['onChatParticipant:codeflare.pi']);
+  assert.deepEqual(manifest.enabledApiProposals, ['defaultChatParticipant']);
+  assert.deepEqual(manifest.contributes.chatParticipants, [{
+    id: 'codeflare.pi',
+    name: 'codeflare',
+    fullName: 'Codeflare Pi',
+    description: 'Codeflare Pi agent with workspace and editor context.',
+    isDefault: true,
+    isSticky: true,
+    modes: ['ask', 'edit', 'agent'],
   }]);
+  assert.equal(manifest.contributes.viewsContainers, undefined);
+  assert.equal(manifest.contributes.views, undefined);
 });
 
-test('REQ-IDE-005 AC3: refuses VSIX or Anthropic-owned extension input before staging', async () => {
-  for (const forbidden of ['vsix', 'publisher']) {
-    const { source, target } = await fixture();
+test('REQ-IDE-005 AC3: refuses VSIX or substituted owned and official extension identities', async () => {
+  for (const forbidden of ['vsix', 'owned-publisher', 'official-publisher', 'official-version']) {
+    const { source, claudeSource, target } = await fixture();
     if (forbidden === 'vsix') await writeFile(join(source, 'anthropic.vsix'), 'forbidden\n');
-    else await writeFile(join(source, 'package.json'), JSON.stringify({ name: 'claude-code', publisher: 'Anthropic', main: 'dist/extension.cjs' }));
+    if (forbidden === 'owned-publisher') {
+      await writeFile(join(source, 'package.json'), JSON.stringify({ name: 'claude-code', publisher: 'Anthropic', main: 'dist/extension.cjs' }));
+    }
+    if (forbidden === 'official-publisher' || forbidden === 'official-version') {
+      const manifest = JSON.parse(await readFile(join(claudeSource, 'package.json'), 'utf8')) as Record<string, unknown>;
+      if (forbidden === 'official-publisher') manifest.publisher = 'lookalike';
+      else manifest.version = '2.1.219';
+      await writeFile(join(claudeSource, 'package.json'), JSON.stringify(manifest));
+    }
 
-    await assert.rejects(stageSidebarExtension({ sourceDirectory: source, rootDirectory: target }), /VSIX|publisher|owned/i);
+    await assert.rejects(stageFixture(source, claudeSource, target), /VSIX|publisher|owned|official|version/i);
     await assert.rejects(stat(target), { code: 'ENOENT' });
   }
 });

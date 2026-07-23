@@ -173,6 +173,58 @@ test('cycle-thinking renders the correlated Pi response level', async () => {
   assert.deepEqual(output, ['\nThinking: high\n']);
 });
 
+test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled', async () => {
+  const markdown: string[] = [];
+  const progress: string[] = [];
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new DeferredApprovalHost()), {
+    output: () => undefined,
+    reset: () => undefined,
+    failed: () => undefined,
+  }) as PiRpcBackend & {
+    runPrompt(message: string, observer: {
+      markdown(value: string): void;
+      progress(value: string): void;
+    }): Promise<void>;
+  };
+
+  let settled = false;
+  const turn = backend.runPrompt('inspect the active file', {
+    markdown: (value) => markdown.push(value),
+    progress: (value) => progress.push(value),
+  }).then(() => { settled = true; });
+  await waitForImmediate();
+
+  assert.match(spawner.children[0]?.writes[0] ?? '', /"type":"prompt"/);
+  spawner.children[0]?.emit({
+    id: 'prompt-1',
+    type: 'response',
+    command: 'prompt',
+    success: true,
+  });
+  spawner.children[0]?.emit({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'text_delta', delta: 'Visible answer' },
+  });
+  spawner.children[0]?.emit({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'thinking_delta', delta: 'hidden reasoning canary' },
+  });
+  spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'read' });
+  spawner.children[0]?.emit({ type: 'agent_end', willRetry: false });
+  await waitForImmediate();
+
+  assert.equal(settled, false);
+  assert.deepEqual(markdown, ['Visible answer']);
+  assert.deepEqual(progress, ['Running read…']);
+  assert.doesNotMatch(markdown.join(''), /hidden reasoning canary/);
+
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+  await turn;
+  assert.equal(settled, true);
+  await backend.stop();
+});
+
 test('REQ-IDE-007 AC2 + REQ-IDE-008 AC4: a late Pi approval response cannot enter a replacement conversation', async () => {
   const host = new DeferredApprovalHost();
   const spawner = new FakePiSpawner();

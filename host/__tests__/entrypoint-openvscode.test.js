@@ -81,6 +81,7 @@ function openvscodeLaunchScript() {
   return [
     extractOptionalFn('_openvscode_agent_kind'),
     extractOptionalFn('_openvscode_extensions_dir'),
+    extractOptionalFn('_openvscode_prepare_claude'),
     extractFn('_openvscode_launch_once'),
   ].filter(Boolean).join('\n');
 }
@@ -201,6 +202,26 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
     assert.ok(args.includes('127.0.0.1'), 'binds localhost');
   });
 
+  it('REQ-IDE-005 AC2 + REQ-IDE-006 AC1: Claude launch prepares isolated official-extension state before OpenVSCode', () => {
+    const stub = writeStub(dir, argsFile);
+    const prepared = join(dir, 'claude-prepared.log');
+    const dataDir = join(dir, 'openvscode-data');
+    const script = `${openvscodeLaunchScript()}
+_openvscode_prepare_claude() { printf '%s|%s\n' "$1" "$2" > "$PREPARED_FILE"; }
+_openvscode_launch_once`;
+
+    const r = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: workspace,
+      OPENVSCODE_DATA_DIR: dataDir,
+      PREPARED_FILE: prepared,
+      SESSION_ID: 'abcd1234',
+    });
+
+    assert.equal(r.status, 0);
+    assert.equal(readFileSync(prepared, 'utf8'), `claude|${dataDir}\n`);
+  });
+
   it('REQ-IDE-005 AC1+AC2: tab one selects only a fixed sidebar agent inventory', () => {
     const cases = [
       { label: 'absent config keeps the legacy Claude default', config: undefined, expected: 'claude' },
@@ -234,10 +255,12 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
       assert.equal(r.status, 0, `${label}: launch exits successfully`);
       const lines = readFileSync(caseArgs, 'utf8').split('\n');
       const extensionsFlag = lines.indexOf('--extensions-dir');
+      const proposedApiFlag = lines.indexOf('--enable-proposed-api');
       const observed = {
         label,
         agent: lines.find((line) => line.startsWith('agent='))?.slice('agent='.length) ?? null,
         directory: extensionsFlag === -1 ? null : lines[extensionsFlag + 1],
+        proposedApi: proposedApiFlag === -1 ? null : lines[proposedApiFlag + 1],
         leakedInput: config === undefined || config === '' ? false : lines.some((line) => line.includes(config)),
       };
       rmSync(caseDir, { recursive: true, force: true });
@@ -248,6 +271,7 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
       label,
       agent: expected,
       directory: `/opt/codeflare/openvscode/extensions/${expected}`,
+      proposedApi: expected === 'pi' ? 'codeflare.codeflare-agent-sidebar' : null,
       leakedInput: false,
     })));
   });
