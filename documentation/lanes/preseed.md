@@ -170,6 +170,7 @@ scripts. It is scoped to Claude + Pi only: Claude gets the vendored tree in
 `~/.claude/skills/impeccable/`; Pi gets a dedicated copy under
 `~/.pi/agent/skills/impeccable/` with paths re-pointed and `.mjs` scripts emitted
 verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation.
+
 The one exception is the `SKILL.md` frontmatter `description` field: Pi's
 compact-catalog budget caps every model-visible skill description at 80 characters,
 so the generator rewrites impeccable's native Pi copy with a short override from
