@@ -215,7 +215,7 @@ A full browser editor for an advanced running session. The editor opens that ses
 
 ### REQ-IDE-007: IDE guarded approval
 
-**Intent:** Fixed IDE-agent built-ins run without per-action interruption or editor-tab churn, while unknown and mutating MCP actions retain bounded request-specific confirmation.
+**Intent:** Fixed IDE-agent built-ins run without per-action interruption or editor-tab churn; Pi confirms unknown and all MCP actions, while Claude confirms unknown and non-diagnostic MCP actions.
 
 **Applies To:** User
 
@@ -228,7 +228,7 @@ A full browser editor for an advanced running session. The editor opens that ses
 **Constraints:**
 
 - Pi serializes one protected approval manifest, binds its SHA-256 digest to the host request, and rejects it before approval when it exceeds 1 MiB.
-- Confirmation governs unknown and mutating MCP agent tool calls; fixed built-ins retain their provenance, path, stale-content, and manifest constraints.
+- Pi confirms unknown and all MCP actions; Claude confirms unknown and non-diagnostic MCP actions; fixed built-ins retain their provenance, path, stale-content, and manifest constraints.
 - Auto-allowed Bash and Task are tool-name decisions, not command-content sandboxing; their commands can perform destructive or external actions.
 - Neither integration exposes a public process-control surface.
 
