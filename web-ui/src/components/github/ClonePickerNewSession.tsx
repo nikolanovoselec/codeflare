@@ -2,7 +2,7 @@ import { Component, For } from 'solid-js';
 import ClonePickerOptionRow from './ClonePickerOptionRow';
 import type { AgentType } from '../../types';
 import { sessionStore } from '../../stores/session';
-import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../CreateSessionDialog';
+import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../../lib/agent-catalog';
 
 interface ClonePickerNewSessionProps {
   disabled: boolean;

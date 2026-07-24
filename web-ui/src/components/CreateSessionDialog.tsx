@@ -1,16 +1,8 @@
 import { Component, For, Show, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
-import {
-  mdiRobotOutline,
-  mdiCodeBraces,
-  mdiRocketLaunchOutline,
-  mdiConsole,
-  mdiRobotIndustrial,
-  mdiGithub,
-  mdiPi,
-} from '@mdi/js';
 import Icon from './Icon';
 import type { AgentType, TabConfig } from '../types';
 import { sessionStore } from '../stores/session';
+import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../lib/agent-catalog';
 import '../styles/create-session-dialog.css';
 
 interface CreateSessionDialogProps {
@@ -19,34 +11,6 @@ interface CreateSessionDialogProps {
   onSelect: (agentType: AgentType, tabConfig?: TabConfig[]) => void;
   anchorRef?: HTMLElement;
 }
-
-interface AgentOption {
-  type: AgentType;
-  label: string;
-  icon: string;
-  description: string;
-  badge?: string;
-}
-
-// Coding agents are listed alphabetically by label; Bash (plain terminal, no
-// agent) stays last as the non-agent fallback. The default selection is pinned
-// elsewhere (lastAgentType preference / caller default), independent of order.
-export const AGENT_OPTIONS: AgentOption[] = [
-  { type: 'antigravity', label: 'Antigravity', icon: mdiRocketLaunchOutline, description: "Google's terminal coding agent", badge: 'beta' },
-  { type: 'claude-code', label: 'Claude Code', icon: mdiRobotOutline, description: 'Full Claude Code experience' },
-  { type: 'codex', label: 'Codex', icon: mdiCodeBraces, description: 'OpenAI Codex agent' },
-  { type: 'copilot', label: 'GitHub Copilot', icon: mdiGithub, description: "GitHub's AI coding agent" },
-  { type: 'opencode', label: 'OpenCode', icon: mdiRobotIndustrial, description: 'Multi-model agent', badge: 'beta' },
-  { type: 'pi', label: 'Pi', icon: mdiPi, description: 'Minimal, extensible coding harness' },
-  { type: 'bash', label: 'Bash', icon: mdiConsole, description: 'Plain terminal session' },
-];
-
-// Enterprise mode restricts the agent set to the wizard-activated agents
-// delivered by GET /api/user (REQ-ENTERPRISE-003). ENTERPRISE_AGENT_TYPES is the
-// stale-client fallback used until that response hydrates; it mirrors
-// ENTERPRISE_AGENTS in src/lib/agent-allowlist.ts. When enterpriseMode is
-// unset/false, the full AGENT_OPTIONS list renders.
-export const ENTERPRISE_AGENT_TYPES: AgentType[] = ['copilot', 'pi', 'bash'];
 
 const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
   let dialogRef: HTMLDivElement | undefined;

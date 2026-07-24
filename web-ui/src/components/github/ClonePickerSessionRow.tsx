@@ -1,7 +1,7 @@
 import { Component } from 'solid-js';
 import { mdiConsole } from '@mdi/js';
 import ClonePickerOptionRow from './ClonePickerOptionRow';
-import { AGENT_OPTIONS } from '../CreateSessionDialog';
+import { AGENT_OPTIONS } from '../../lib/agent-catalog';
 import type { SessionWithStatus } from '../../types';
 
 interface ClonePickerSessionRowProps {

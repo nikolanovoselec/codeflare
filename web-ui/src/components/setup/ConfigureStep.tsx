@@ -6,7 +6,7 @@ import ChipListField from '../ui/ChipListField';
 import Checkbox from '../ui/Checkbox';
 import Select from '../ui/Select';
 import PerGroupRoutingCard from './PerGroupRoutingCard';
-import { AGENT_OPTIONS } from '../CreateSessionDialog';
+import { AGENT_OPTIONS } from '../../lib/agent-catalog';
 import GitHubProviderChooser from './GitHubProviderChooser';
 import CloudflareProviderChooser from './CloudflareProviderChooser';
 import SetupSection from './SetupSection';
