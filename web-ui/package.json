@@ -25,7 +25,7 @@
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
-    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^26.1.1",
     "@vitest/coverage-v8": "^4.1.10",
     "fast-check": "^4.9.0",
