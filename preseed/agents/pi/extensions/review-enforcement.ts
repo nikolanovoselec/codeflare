@@ -53,7 +53,7 @@ type ReviewContext = {
 };
 
 type ReviewPi = ToolActivationPi & {
-  on(event: "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  on(event: "session_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -509,6 +509,12 @@ async function acknowledgeCompletedReview(
 }
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
+  let resumedWithoutBoundary = false;
+
+  pi.on("session_start", (event) => {
+    resumedWithoutBoundary = event?.reason === "resume";
+  });
+
   pi.on("tool_result", async (event, ctx) => {
     if (!successful(event)) return;
     rememberActiveRepoFromToolResult(event, ctx.cwd);
@@ -532,6 +538,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       boundary.classification.pushRemote,
     );
     if (!review || !isEnforcedPr(review.pr)) return;
+    resumedWithoutBoundary = false;
 
     const skipReview = bypassSentinelPresent();
     if (skipReview && !boundary.classification.settled) consumeBypassSentinel();
@@ -556,10 +563,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_end", async (_event, ctx) => {
+    if (resumedWithoutBoundary) return;
     await acknowledgeCompletedReview(pi, ctx, dependencies);
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
+    if (resumedWithoutBoundary) return;
     if (await acknowledgeCompletedReview(pi, ctx, dependencies)) return;
     const file = rootSessionFile(ctx);
     if (!file) return;
