@@ -51,14 +51,12 @@ import {
 
 // Re-export usage functions so existing consumers keep working
 export {
-  setUsageState,
   getUsageState,
   isAtUsageQuota,
   getUsageWarningLevel,
   getDismissedQuotaLevel,
   setDismissedQuotaLevel,
 } from './session-usage';
-export type { UsageWarningLevel, UsageState } from './session-usage';
 
 /**
  * Session Store — central facade for session lifecycle management.
