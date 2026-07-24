@@ -55,7 +55,6 @@ vi.mock('../../stores/session', () => ({
   },
   getUsageWarningLevel: vi.fn(() => usageState.warning),
   isAtUsageQuota: vi.fn(() => false),
-  setUsageState: vi.fn(),
   getDismissedQuotaLevel: vi.fn(() => usageState.dismissed),
   setDismissedQuotaLevel: vi.fn((level: string) => { usageState.dismissed = level; }),
 }));

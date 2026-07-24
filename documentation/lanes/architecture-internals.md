@@ -77,7 +77,9 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 **Session store extraction (CF-013):** `web-ui/src/stores/session.ts` split into focused modules:
 - `session-polling.ts`: refreshSessionStatuses, miss counters, start/stop polling. Uses dependency injection via `registerPollingDeps()`.
 - `session-usage.ts`: UsageState, warning levels, localStorage cache, `getDismissedQuotaLevel`/`setDismissedQuotaLevel` for per-UTC-month banner dismissal. Self-contained, no circular deps.
-- `session.ts`: facade re-exports all members. Public API unchanged.
+- `session.ts`: facade re-exports the consumer-facing members; `setUsageState` and the
+  `UsageWarningLevel`/`UsageState` types are consumed directly from `session-usage.ts`
+  by their sole caller and are not re-exported (knip 6.29 dead-export removal).
 
 **Type safety fixes (CF-007):** `countPaidSlots` typed (no more `any[]`). Admin PATCH user uses `updateUserRecord` (not raw `KV.put`). `maxUsers` added to frontend `GetUsersResponseSchema` (no more double cast).
 
