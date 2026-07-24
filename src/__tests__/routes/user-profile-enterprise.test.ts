@@ -101,6 +101,35 @@ describe('GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002', () => {
       enterpriseMode: false,
       // View-only storage: non-enterprise default is OFF (no KV read).
       downloadsDisabled: false,
+      // REQ-ENTERPRISE-003: non-enterprise delivers the full agent enum.
+      allowedAgents: ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'],
     });
+  });
+
+  // ── REQ-ENTERPRISE-003: creation-selectable agent delivery ──
+  it('enterprise: allowedAgents reflects the wizard-selected active agents plus bash', async () => {
+    mockKV._set('setup:active_agents', ['pi']);
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/user');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { allowedAgents: string[] };
+    expect(body.allowedAgents).toEqual(['pi', 'bash']);
+  });
+
+  it('enterprise: allowedAgents falls back to the full enterprise set when nothing is stored', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/user');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { allowedAgents: string[] };
+    expect(body.allowedAgents).toEqual(['copilot', 'pi', 'bash']);
+  });
+
+  it('flag-off: allowedAgents lists all seven agents', async () => {
+    mockKV._set('setup:active_agents', ['pi']);
+    const app = createApp();
+    const res = await app.request('/user');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { allowedAgents: string[] };
+    expect(body.allowedAgents).toEqual(['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash']);
   });
 });

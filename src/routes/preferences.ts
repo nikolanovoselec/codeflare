@@ -103,9 +103,10 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     body.sessionMode = 'advanced';
   }
 
-  // Enterprise deploys restrict the selectable agent set (REQ-ENTERPRISE-003).
-  // Outside enterprise mode allowedAgents() returns all 7, so this never rejects.
-  if (body.lastAgentType && !allowedAgents(c.env).includes(body.lastAgentType)) {
+  // Enterprise deploys restrict the selectable agent set to the wizard-chosen
+  // active agents (REQ-ENTERPRISE-003). Outside enterprise mode allowedAgents()
+  // returns all 7, so this never rejects.
+  if (body.lastAgentType && !(await allowedAgents(c.env)).includes(body.lastAgentType)) {
     throw new ValidationError(`Agent type '${body.lastAgentType}' is not available in this deployment`);
   }
 

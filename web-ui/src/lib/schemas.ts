@@ -92,6 +92,10 @@ export const UserResponseSchema = z.object({
   // strips the server's `downloadsDisabled` on parse, leaving the client flag
   // (App.tsx hydration + storageStore.refreshDownloadsDisabled) permanently false.
   downloadsDisabled: z.boolean().optional(),
+  // REQ-ENTERPRISE-003: the creation-selectable agent set (wizard-chosen active
+  // agents + bash in enterprise; the full enum otherwise). Optional so an older
+  // worker's response still parses; the dialog then falls back to its static list.
+  allowedAgents: z.array(AgentTypeSchema).optional(),
 });
 
 export const SessionsResponseSchema = z.object({
@@ -230,6 +234,10 @@ export const SetupPrefillResponseSchema = z.object({
   r2SseDisabled: z.boolean().default(false),
   // View-only-storage toggle (default OFF on absent).
   downloadsDisabled: z.boolean().default(false),
+  // REQ-ENTERPRISE-003: active coding agents + the wizard-governable universe
+  // (absent for non-enterprise / older workers; default [] hides the section).
+  activeAgents: z.array(AgentTypeSchema).default([]),
+  configurableAgents: z.array(AgentTypeSchema).default([]),
 });
 
 // User management schemas - moved from client.ts (strict versions)

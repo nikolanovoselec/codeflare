@@ -649,6 +649,86 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
     });
   });
 
+  describe('active coding agents (REQ-ENTERPRISE-003)', () => {
+    function mockEnterprisePrefill(prefillExtra: Record<string, unknown>) {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], ...prefillExtra }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+    }
+
+    it('defaults to an empty selection and universe until the prefill hydrates', () => {
+      expect(setupStore.activeAgents).toEqual([]);
+      expect(setupStore.configurableAgents).toEqual([]);
+    });
+
+    it('hydrates the selection and the governable universe from the enterprise prefill', async () => {
+      mockEnterprisePrefill({ activeAgents: ['pi'], configurableAgents: ['copilot', 'pi'] });
+      await setupStore.loadExistingConfig();
+      expect(setupStore.activeAgents).toEqual(['pi']);
+      expect(setupStore.configurableAgents).toEqual(['copilot', 'pi']);
+    });
+
+    it('toggling removes an active agent but never the last one', async () => {
+      mockEnterprisePrefill({ activeAgents: ['copilot', 'pi'], configurableAgents: ['copilot', 'pi'] });
+      await setupStore.loadExistingConfig();
+
+      setupStore.toggleActiveAgent('copilot');
+      expect(setupStore.activeAgents).toEqual(['pi']);
+      // Min-1: unchecking the last active agent is a no-op.
+      setupStore.toggleActiveAgent('pi');
+      expect(setupStore.activeAgents).toEqual(['pi']);
+    });
+
+    it('re-checking an agent restores the canonical universe order', async () => {
+      mockEnterprisePrefill({ activeAgents: ['copilot', 'pi'], configurableAgents: ['copilot', 'pi'] });
+      await setupStore.loadExistingConfig();
+
+      setupStore.toggleActiveAgent('copilot');
+      setupStore.toggleActiveAgent('copilot');
+      expect(setupStore.activeAgents).toEqual(['copilot', 'pi']);
+    });
+
+    it('includes activeAgents in the configure body in enterprise mode', async () => {
+      mockEnterprisePrefill({ activeAgents: ['pi'], configurableAgents: ['copilot', 'pi'] });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.activeAgents).toEqual(['pi']);
+    });
+
+    it('omits activeAgents from the configure body when the prefill never delivered a selection', async () => {
+      mockEnterprisePrefill({});
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.activeAgents).toBeUndefined();
+    });
+  });
+
   describe('Governed Mode / R2 SSE-C disable (REQ-ENTERPRISE-018)', () => {
     it('defaults to false', () => {
       expect(setupStore.r2SseDisabled).toBe(false);

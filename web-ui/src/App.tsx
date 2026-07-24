@@ -97,6 +97,7 @@ const AppContent: Component = () => {
       setEnterpriseMode(user.enterpriseMode);
       sessionStore.setEnterpriseMode(user.enterpriseMode === true);
       sessionStore.setSaasMode(user.saasMode === true);
+      sessionStore.setAllowedAgents(user.allowedAgents ?? null);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
       storageStore.setDownloadsDisabled(user.downloadsDisabled === true);
 

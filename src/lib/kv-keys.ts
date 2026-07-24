@@ -326,6 +326,12 @@ export const SETUP_KEYS = {
   // user cannot bulk-exfiltrate the bucket (e.g. zip the repo and download it). Stored as
   // 'active' / 'inactive' (read === 'active'); default OFF when absent; enterprise-gated.
   DOWNLOADS_DISABLED: 'setup:downloads_disabled',
+  // REQ-ENTERPRISE-003: wizard-selected active coding agents (JSON AgentType[], a
+  // subset of CONFIGURABLE_ENTERPRISE_AGENTS, min 1). Gates which agents users can
+  // pick at session creation; `bash` is always selectable and never stored here.
+  // Absent/malformed ⇒ every enterprise-capable agent stays active (pre-feature
+  // behavior). Non-secret (agent names).
+  ACTIVE_AGENTS: 'setup:active_agents',
   // REQ-GITHUB-008: enterprise GitHub provider config set in the Setup wizard (the
   // per-user Push & Deploy accordion is hidden in enterprise). GITHUB_PROVIDER_TYPE
   // selects 'app' | 'oauth'; the matching client id is non-secret (rides the

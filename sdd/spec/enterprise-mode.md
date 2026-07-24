@@ -101,23 +101,27 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-003: Agent Allowlist in Enterprise Mode
 
-**Intent:** Enterprise deployments standardize on a curated agent set, so session creation must restrict the selectable agents when the flag is set.
+**Intent:** Enterprise deployments standardize on a curated agent set. The gateway-capable universe is fixed, and within it the admin chooses from the Setup wizard which coding agents users can select when starting a new session (minimum one).
 
-**Applies To:** User
+**Applies To:** User, Admin
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the selectable agent set is exactly `{copilot, pi, bash}`. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-ENTERPRISE-003: Agent allowlist at session creation) -->
-2. When `ENTERPRISE_MODE` is set, session creation rejects any agent type outside the enterprise allowlist. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-ENTERPRISE-003: Agent allowlist at session creation) -->
-3. When `ENTERPRISE_MODE` is set, the session-creation UI offers only the allowlisted agents. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-ENTERPRISE-003: Agent allowlist at session creation) -->
-4. When `ENTERPRISE_MODE` is unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable, byte-identical to current behavior. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-ENTERPRISE-003: Agent allowlist at session creation) -->
+1. When `ENTERPRISE_MODE` is set, the selectable universe is capped at the enterprise-capable set `{copilot, pi, bash}`; session creation rejects any agent type outside it. <!-- @impl: src/lib/agent-allowlist.ts::ENTERPRISE_AGENTS --> <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC1: agentType '%s' is rejected 400 when ENTERPRISE_MODE=active) -->
+2. The wizard-selected active agents gate the selectable set: session creation and `lastAgentType` preference writes reject a deactivated coding agent, while active agents and the always-on `bash` stay accepted. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC2: a KV-deactivated coding agent is rejected 400) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-003): a KV-deactivated lastAgentType is rejected 400 under enterprise) -->
+3. The admin's selection persists through its own `configure_active_agents` setup step to KV `setup:active_agents`, round-trips on the wizard prefill together with the governable universe, and the configure endpoint rejects an empty or non-capable selection. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-003: persists the active-agent selection as JSON with its own step) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (active coding agents prefill (REQ-ENTERPRISE-003)) -->
+4. A session created without an explicit `agentType` is stamped with the first active coding agent, so the container's `claude-code` fallback never applies in enterprise mode. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC4: an omitted agentType is stamped with the first active coding agent) -->
+5. The session-creation UI offers exactly the active agents delivered by `GET /api/user`, and the wizard blocks unchecking the last active agent (minimum one). <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @impl: web-ui/src/stores/setup.ts::toggleActiveAgent --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only the wizard-activated agents delivered by /api/user) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (toggling removes an active agent but never the last one) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (enterprise: allowedAgents reflects the wizard-selected active agents plus bash) -->
+6. An absent, malformed, or capable-agent-free stored selection resolves to the full enterprise-capable set, preserving pre-feature behavior for existing deployments. <!-- @impl: src/lib/agent-allowlist.ts::readActiveAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC6: a malformed stored selection resolves to the full enterprise set) -->
+7. When `ENTERPRISE_MODE` is unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable and the stored selection is ignored, byte-identical to current behavior. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC7: the KV selection is ignored outside enterprise mode) -->
 
 **Constraints:**
 
-- The allowlist is applied on top of the existing agent-type validation; it narrows the set.
-- The enterprise allowlist is a fixed set, not admin-configurable, in this domain.
-- Only OpenAI-wire-format agents plus `bash` are allowed; their traffic uses the AI Gateway REST API ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)).
-- Claude Code is excluded; its Anthropic-native wire format is unsupported ([AD74](../../documentation/decisions/README.md)).
+- The wizard narrows the enterprise-capable universe; it can never widen it. Only OpenAI-wire-format agents plus `bash` are capable — their traffic uses the AI Gateway REST API ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)); Claude Code stays excluded because its Anthropic-native wire format is unsupported ([AD74](../../documentation/decisions/README.md)).
+- `bash` is not wizard-governable: tabs 2-6 are plain bash in every session, so deactivating it would remove nothing. It stays always selectable.
+- Existing sessions are grandfathered: deactivating an agent gates new-session creation only; container start does not re-check a stored `agentType`.
+- This is selection-level standardization, not a container boundary: a deactivated agent's CLI remains installed and manually invocable from a bash tab.
+- Adding a future gateway-capable agent means extending `ENTERPRISE_AGENTS` in `src/lib/agent-allowlist.ts`; the wizard universe, validation, and resolution all derive from it.
 
 **Priority:** P1
 

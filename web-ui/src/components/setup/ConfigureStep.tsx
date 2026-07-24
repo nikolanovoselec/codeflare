@@ -6,6 +6,7 @@ import ChipListField from '../ui/ChipListField';
 import Checkbox from '../ui/Checkbox';
 import Select from '../ui/Select';
 import PerGroupRoutingCard from './PerGroupRoutingCard';
+import { AGENT_OPTIONS } from '../CreateSessionDialog';
 import GitHubProviderChooser from './GitHubProviderChooser';
 import CloudflareProviderChooser from './CloudflareProviderChooser';
 import SetupSection from './SetupSection';
@@ -294,6 +295,32 @@ const ConfigureStep: Component = () => {
               </For>
             </div>
           </Show>
+        </SetupSection>
+
+        {/* Coding Agents (enterprise-only). REQ-ENTERPRISE-003: the wizard-governed
+            active agent set. One checkbox per gateway-capable coding agent — the
+            universe comes from the prefill, so a newly capable agent appears without
+            a UI change. At least one must stay active; Bash is always available. */}
+        <SetupSection
+          title="Coding Agents"
+          description="Choose which coding agents users can pick when starting a session."
+        >
+          <div class="setup-field">
+            <label class="setup-field-label">Active agents</label>
+            <p class="setup-field-description">
+              Users can start new sessions only with the agents enabled here. At least one must stay active; the plain Bash terminal is always available. Sessions already using a deactivated agent keep working.
+            </p>
+            <For each={setupStore.configurableAgents}>
+              {(agent) => (
+                <Checkbox
+                  label={AGENT_OPTIONS.find((o) => o.type === agent)?.label ?? agent}
+                  checked={setupStore.activeAgents.includes(agent)}
+                  disabled={setupStore.activeAgents.includes(agent) && setupStore.activeAgents.length === 1}
+                  onChange={() => setupStore.toggleActiveAgent(agent)}
+                />
+              )}
+            </For>
+          </div>
         </SetupSection>
 
         {/* Browser Rendering (enterprise-only). REQ-BROWSER-007: the admin-global

@@ -41,10 +41,11 @@ export const AGENT_OPTIONS: AgentOption[] = [
   { type: 'bash', label: 'Bash', icon: mdiConsole, description: 'Plain terminal session' },
 ];
 
-// Enterprise mode restricts the agent set to the gateway-routed agents (the
-// OpenAI-wire-format harnesses + bash). Mirrors ENTERPRISE_AGENTS in
-// src/lib/agent-allowlist.ts. When enterpriseMode is unset/false, the full
-// AGENT_OPTIONS list renders.
+// Enterprise mode restricts the agent set to the wizard-activated agents
+// delivered by GET /api/user (REQ-ENTERPRISE-003). ENTERPRISE_AGENT_TYPES is the
+// stale-client fallback used until that response hydrates; it mirrors
+// ENTERPRISE_AGENTS in src/lib/agent-allowlist.ts. When enterpriseMode is
+// unset/false, the full AGENT_OPTIONS list renders.
 export const ENTERPRISE_AGENT_TYPES: AgentType[] = ['copilot', 'pi', 'bash'];
 
 const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
@@ -53,12 +54,13 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
 
   const lastAgentType = () => sessionStore.preferences.lastAgentType;
 
-  // Enterprise mode shows only the gateway-routed agent allowlist; otherwise the
-  // full set. Falsy enterpriseMode ⇒ unchanged (all AGENT_OPTIONS render).
-  const agentOptions = () =>
-    sessionStore.enterpriseMode
-      ? AGENT_OPTIONS.filter((a) => ENTERPRISE_AGENT_TYPES.includes(a.type))
-      : AGENT_OPTIONS;
+  // Enterprise mode shows only the wizard-activated agents; otherwise the full
+  // set. Falsy enterpriseMode ⇒ unchanged (all AGENT_OPTIONS render).
+  const agentOptions = () => {
+    if (!sessionStore.enterpriseMode) return AGENT_OPTIONS;
+    const allowed = sessionStore.allowedAgents ?? ENTERPRISE_AGENT_TYPES;
+    return AGENT_OPTIONS.filter((a) => allowed.includes(a.type));
+  };
 
   // Compute fixed position from anchor button rect — dialog opens BELOW the button.
   // If there isn't enough room below, flip it above the button instead.

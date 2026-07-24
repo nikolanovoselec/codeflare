@@ -482,4 +482,39 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
     });
   });
 
+  describe('active coding agents prefill (REQ-ENTERPRISE-003)', () => {
+    it('GET /prefill surfaces the stored selection plus the governable universe', async () => {
+      mockKV._store.set('setup:active_agents', '["pi"]');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.activeAgents).toEqual(['pi']);
+      expect(body.configurableAgents).toEqual(['copilot', 'pi']);
+    });
+
+    it('GET /prefill defaults to every governable agent when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.activeAgents).toEqual(['copilot', 'pi']);
+    });
+
+    it('GET /prefill sanitizes a stored selection with no capable agent back to all', async () => {
+      mockKV._store.set('setup:active_agents', '["claude-code"]');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.activeAgents).toEqual(['copilot', 'pi']);
+    });
+
+    it('GET /prefill omits the fields when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:active_agents', '["pi"]');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('activeAgents');
+      expect(body).not.toHaveProperty('configurableAgents');
+    });
+  });
+
 });
