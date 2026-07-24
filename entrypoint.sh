@@ -1431,9 +1431,13 @@ _openvscode_extensions_dir() {
     esac
 }
 
-_openvscode_prepare_claude() {
-    [ "${1:-}" = "claude" ] || return 0
-    /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh "$2"
+# Seed OpenVSCode User settings for EVERY agent kind before launch: the base
+# workspace settings (auto-trust + no extension recommendations) for pi/none,
+# and the full official-Claude config projection (which also carries the base
+# settings) for claude. A preparation failure fails closed at the call site and
+# refuses the launch. REQ-IDE-005 AC1, REQ-IDE-009.
+_openvscode_prepare_agent() {
+    /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh "$2" "$1"
 }
 
 # Launch OpenVSCode Server once in the foreground (the supervisor loop wraps this
@@ -1446,8 +1450,8 @@ _openvscode_launch_once() {
     sidebar_agent="$(_openvscode_agent_kind)"
     extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
     data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
-    if ! _openvscode_prepare_claude "$sidebar_agent" "$data_dir"; then
-        echo "[openvscode] Claude IDE state preparation failed; refusing launch" >&2
+    if ! _openvscode_prepare_agent "$sidebar_agent" "$data_dir"; then
+        echo "[openvscode] IDE settings preparation failed; refusing launch" >&2
         return 1
     fi
     if [ "$sidebar_agent" = "pi" ]; then
@@ -1541,7 +1545,7 @@ start_openvscode_supervisor() {
     # helpers available inside the fresh non-interactive setsid bash.
     export OPENVSCODE_GENERATION_PIDFILE="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
     export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree
-    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_claude _openvscode_launch_once _openvscode_supervise_loop
+    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_launch_once _openvscode_supervise_loop
     setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
         >> /tmp/openvscode.log 2>&1 &
 

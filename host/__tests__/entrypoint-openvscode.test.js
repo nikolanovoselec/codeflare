@@ -77,15 +77,15 @@ function runBash(script, env = {}) {
   return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, ...env } });
 }
 
-function openvscodeLaunchScript({ stubClaudePreparation = true } = {}) {
+function openvscodeLaunchScript({ stubAgentPreparation = true } = {}) {
   const production = [
     extractOptionalFn('_openvscode_agent_kind'),
     extractOptionalFn('_openvscode_extensions_dir'),
-    extractOptionalFn('_openvscode_prepare_claude'),
+    extractOptionalFn('_openvscode_prepare_agent'),
     extractFn('_openvscode_launch_once'),
   ].filter(Boolean).join('\n');
-  return stubClaudePreparation
-    ? `${production}\n_openvscode_prepare_claude() { :; }`
+  return stubAgentPreparation
+    ? `${production}\n_openvscode_prepare_agent() { :; }`
     : production;
 }
 
@@ -98,7 +98,7 @@ function openvscodeSupervisorScript() {
     openvscodeLaunchScript(),
     extractFn('_openvscode_supervise_loop'),
     'export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
-    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_claude _openvscode_launch_once _openvscode_supervise_loop',
+    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_launch_once _openvscode_supervise_loop',
   ].join('\n');
 }
 
@@ -205,30 +205,41 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
     assert.ok(args.includes('127.0.0.1'), 'binds localhost');
   });
 
-  it('REQ-IDE-005 AC2 + REQ-IDE-006 AC1: Claude launch prepares isolated official-extension state before OpenVSCode', () => {
-    const stub = writeStub(dir, argsFile);
-    const prepared = join(dir, 'claude-prepared.log');
-    const dataDir = join(dir, 'openvscode-data');
-    const script = `${openvscodeLaunchScript({ stubClaudePreparation: false })}
-_openvscode_prepare_claude() { printf '%s|%s\n' "$1" "$2" > "$PREPARED_FILE"; }
+  it('REQ-IDE-005 AC1 + REQ-IDE-009: every agent kind prepares IDE settings before OpenVSCode launches', () => {
+    const cases = [
+      { label: 'claude (legacy default)', config: undefined, kind: 'claude' },
+      { label: 'pi', config: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]), kind: 'pi' },
+      { label: 'none (unsupported)', config: JSON.stringify([{ id: '1', command: 'codex', label: 'Terminal 1' }]), kind: 'none' },
+    ];
+    for (const { label, config, kind } of cases) {
+      const stub = writeStub(dir, join(dir, `args-${kind}.log`));
+      const prepared = join(dir, `prepared-${kind}.log`);
+      const dataDir = join(dir, `openvscode-data-${kind}`);
+      const script = `${openvscodeLaunchScript({ stubAgentPreparation: false })}
+_openvscode_prepare_agent() { printf '%s|%s\n' "$1" "$2" > "$PREPARED_FILE"; }
 _openvscode_launch_once`;
+      const env = {
+        OPENVSCODE_BIN: stub,
+        OPENVSCODE_WORKSPACE: workspace,
+        OPENVSCODE_DATA_DIR: dataDir,
+        PREPARED_FILE: prepared,
+        SESSION_ID: 'abcd1234',
+      };
+      if (config !== undefined) env.TAB_CONFIG = config;
 
-    const r = runBash(script, {
-      OPENVSCODE_BIN: stub,
-      OPENVSCODE_WORKSPACE: workspace,
-      OPENVSCODE_DATA_DIR: dataDir,
-      PREPARED_FILE: prepared,
-      SESSION_ID: 'abcd1234',
-    });
+      const r = runBash(script, env);
 
-    assert.equal(r.status, 0);
-    assert.equal(readFileSync(prepared, 'utf8'), `claude|${dataDir}\n`);
+      assert.equal(r.status, 0, `${label} should launch`);
+      // The seed runs for the selected kind (kind|dataDir), proving pi and none
+      // are seeded too, not just claude.
+      assert.equal(readFileSync(prepared, 'utf8'), `${kind}|${dataDir}\n`, `${label} seeds settings for kind=${kind}`);
+    }
   });
 
-  it('REQ-IDE-007 AC3: Claude preparation failure prevents OpenVSCode launch', () => {
+  it('REQ-IDE-009: IDE settings preparation failure prevents OpenVSCode launch', () => {
     const stub = writeStub(dir, argsFile);
-    const script = `${openvscodeLaunchScript({ stubClaudePreparation: false })}
-_openvscode_prepare_claude() { return 37; }
+    const script = `${openvscodeLaunchScript({ stubAgentPreparation: false })}
+_openvscode_prepare_agent() { return 37; }
 _openvscode_launch_once`;
 
     const r = runBash(script, {

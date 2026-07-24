@@ -6,10 +6,11 @@ import { afterEach, test } from "vitest";
 
 import {
   MANAGED_SETTINGS_PATH,
+  prepareBaseOpenVscodeSettings,
   prepareOfficialClaudeIde,
   prepareSidebarConfig,
 } from "../prepare-sidebar-config.mjs";
-import { buildOpenVscodeSettings } from "../managed-settings.mjs";
+import { buildBaseOpenVscodeSettings, buildOpenVscodeSettings } from "../managed-settings.mjs";
 
 const EXPECTED_LINK_ALLOWLIST = Object.freeze([
   ".credentials.json",
@@ -166,4 +167,17 @@ test("REQ-IDE-006 AC1+AC2: projection replaces source settings with the fixed ma
   assert.equal((await lstat(projectedSettings)).isSymbolicLink(), true);
   assert.equal(await readlink(projectedSettings), MANAGED_SETTINGS_PATH);
   assert.equal(MANAGED_SETTINGS_PATH, "/etc/codeflare/claude-sidebar/settings.json");
+});
+
+test("REQ-IDE-009: base settings seed writes only the workspace-trust and recommendation keys", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+
+  await prepareBaseOpenVscodeSettings(serverDataRoot);
+
+  const settingsPath = join(serverDataRoot, "data", "User", "settings.json");
+  const written = JSON.parse(await readFile(settingsPath, "utf8"));
+  assert.deepEqual(written, buildBaseOpenVscodeSettings());
+  assert.equal(Object.keys(written).some((key) => key.startsWith("claudeCode.")), false);
+  assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
 });

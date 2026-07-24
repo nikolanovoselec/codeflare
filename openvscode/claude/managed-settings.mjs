@@ -1,5 +1,18 @@
 import { isAbsolute, resolve } from "node:path";
 
+// OpenVSCode User settings seeded for EVERY Browser IDE agent kind (pi, claude,
+// none), independent of the selected agent. Disabling workspace trust opens the
+// session workspace without VS Code's trust prompt -- the container is already
+// the security boundary and IDE agents run unrestricted, so the trust gate adds
+// no protection (REQ-IDE-009, AD114). Ignoring recommendations suppresses the
+// cloned repository's "install recommended extensions" prompt.
+export function buildBaseOpenVscodeSettings() {
+  return {
+    "security.workspace.trust.enabled": false,
+    "extensions.ignoreRecommendations": true,
+  };
+}
+
 export function buildOpenVscodeSettings(claudeConfigDirectory) {
   if (typeof claudeConfigDirectory !== "string" || !isAbsolute(claudeConfigDirectory) || claudeConfigDirectory.includes("\0")) {
     throw new TypeError("Claude config directory must be absolute");
@@ -7,6 +20,7 @@ export function buildOpenVscodeSettings(claudeConfigDirectory) {
   const normalized = resolve(claudeConfigDirectory);
   if (normalized === "/") throw new TypeError("Claude config directory cannot be root");
   return {
+    ...buildBaseOpenVscodeSettings(),
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: normalized },

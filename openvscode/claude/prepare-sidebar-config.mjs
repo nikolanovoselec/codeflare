@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, readlink, readdir, realpath, rename, rm, symlin
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { buildOpenVscodeSettings } from "./managed-settings.mjs";
+import { buildBaseOpenVscodeSettings, buildOpenVscodeSettings } from "./managed-settings.mjs";
 
 export const MANAGED_SETTINGS_PATH = "/etc/codeflare/claude-sidebar/settings.json";
 
@@ -67,9 +67,7 @@ export async function prepareOfficialClaudeIde(options) {
   await prepareOpenVscodeSettings({ serverDataRoot, claudeConfigRoot: targetRoot });
 }
 
-export async function prepareOpenVscodeSettings(options) {
-  const serverDataRoot = validateRoot(options?.serverDataRoot, "OpenVSCode data");
-  const claudeConfigRoot = validateRoot(options?.claudeConfigRoot, "Claude config");
+async function writeOpenVscodeUserSettings(serverDataRoot, settings) {
   const settingsDirectory = resolve(serverDataRoot, "data", "User");
   const settingsPath = resolve(settingsDirectory, "settings.json");
   await mkdir(settingsDirectory, { mode: 0o700, recursive: true });
@@ -84,13 +82,26 @@ export async function prepareOpenVscodeSettings(options) {
   try {
     await writeFile(
       temporary,
-      `${JSON.stringify(buildOpenVscodeSettings(claudeConfigRoot), null, 2)}\n`,
+      `${JSON.stringify(settings, null, 2)}\n`,
       { encoding: "utf8", flag: "wx", mode: 0o600 },
     );
     await rename(temporary, settingsPath);
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+export async function prepareOpenVscodeSettings(options) {
+  const serverDataRoot = validateRoot(options?.serverDataRoot, "OpenVSCode data");
+  const claudeConfigRoot = validateRoot(options?.claudeConfigRoot, "Claude config");
+  await writeOpenVscodeUserSettings(serverDataRoot, buildOpenVscodeSettings(claudeConfigRoot));
+}
+
+// Seed the kind-independent base settings for the pi and none inventories,
+// which have no Claude config projection. REQ-IDE-009.
+export async function prepareBaseOpenVscodeSettings(serverDataRoot) {
+  const root = validateRoot(serverDataRoot, "OpenVSCode data");
+  await writeOpenVscodeUserSettings(root, buildBaseOpenVscodeSettings());
 }
 
 async function validatePreparedSidebarConfig(targetRoot) {
@@ -182,6 +193,14 @@ async function lstatOrUndefined(path) {
 }
 
 async function main() {
+  const serverDataRoot = process.argv[2];
+  // Absent kind defaults to claude for backward compatibility with the original
+  // single-argument shim contract.
+  const agentKind = process.argv[3] || "claude";
+  if (agentKind !== "claude") {
+    await prepareBaseOpenVscodeSettings(serverDataRoot);
+    return;
+  }
   const managedSettings = await lstat(MANAGED_SETTINGS_PATH);
   if (!managedSettings.isFile() || managedSettings.isSymbolicLink() ||
       managedSettings.uid !== 0 || (managedSettings.mode & 0o222) !== 0) {
@@ -190,7 +209,7 @@ async function main() {
   await prepareOfficialClaudeIde({
     sourceRoot: "/home/user/.claude",
     targetRoot: "/tmp/codeflare-sidebar/claude/config",
-    serverDataRoot: process.argv[2],
+    serverDataRoot,
   });
 }
 

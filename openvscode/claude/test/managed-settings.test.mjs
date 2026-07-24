@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import {
+  buildBaseOpenVscodeSettings,
   buildManagedSettings,
   buildOpenVscodeSettings,
 } from "../managed-settings.mjs";
@@ -21,6 +22,8 @@ test("REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup", () => {
 
 test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude with isolated unrestricted UI", () => {
   assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"), {
+    "security.workspace.trust.enabled": false,
+    "extensions.ignoreRecommendations": true,
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: "/tmp/codeflare-sidebar/claude/config" },
@@ -51,4 +54,18 @@ test("REQ-IDE-007 AC3: unrestricted mode keeps configuration isolation and telem
   });
   assert.equal(settings.enableAllProjectMcpServers, false);
   assert.deepEqual(settings.enabledMcpjsonServers, []);
+});
+
+test("REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore extension recommendations", () => {
+  assert.deepEqual(buildBaseOpenVscodeSettings(), {
+    "security.workspace.trust.enabled": false,
+    "extensions.ignoreRecommendations": true,
+  });
+});
+
+test("REQ-IDE-009: Claude settings also carry the base workspace-trust and recommendation keys", () => {
+  const settings = buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config");
+
+  assert.equal(settings["security.workspace.trust.enabled"], false);
+  assert.equal(settings["extensions.ignoreRecommendations"], true);
 });

@@ -266,3 +266,31 @@ A full browser editor for an advanced running session. The editor opens that ses
 **Verification:** [Host lifecycle tests](../../host/__tests__/entrypoint-openvscode.test.js); [native Pi lifecycle tests](../../openvscode/agent-sidebar/test); complete-image smoke in `.github/workflows/test.yml`
 
 **Status:** Implemented
+
+---
+
+### REQ-IDE-009: Frictionless workspace open for every IDE agent
+
+**Intent:** The editor opens its session workspace without a workspace-trust prompt or an extension-recommendation prompt, for every agent kind, so the selected agent is usable immediately.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Before OpenVSCode launches, every agent kind — Pi, Claude, and the empty selection — seeds OpenVSCode User settings that disable workspace trust, so the workspace opens trusted with no trust prompt. <!-- @impl: entrypoint.sh::_openvscode_prepare_agent --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-005 AC1 + REQ-IDE-009: every agent kind prepares IDE settings before OpenVSCode launches) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-009: base settings seed writes only the workspace-trust and recommendation keys) -->
+2. The seeded settings ignore extension recommendations, so the editor shows no "install recommended extensions" prompt for the opened workspace. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore extension recommendations) -->
+3. A Claude session keeps its existing isolated Claude settings and also carries the base workspace-trust and recommendation settings. <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009: Claude settings also carry the base workspace-trust and recommendation keys) -->
+4. A settings-preparation failure fails closed and refuses the editor launch for any agent kind. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: entrypoint.sh::_openvscode_prepare_agent --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-009: IDE settings preparation failure prevents OpenVSCode launch) -->
+
+**Constraints:**
+
+- Disabling workspace trust removes VS Code's own gate on untrusted repository input; this is acceptable because the container is the security boundary and IDE agents already run fully unrestricted ([REQ-IDE-007](#req-ide-007-ide-guarded-approval), [AD114](../../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration)). The upstream OpenVSCode artifact stays unmodified under [AD97](../../documentation/decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk).
+- The seeded settings live only in the ephemeral per-session `--server-data-dir` under `/tmp` and never persist with workspace files ([REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable)).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-007](#req-ide-007-ide-guarded-approval)
+
+**Verification:** [Base settings tests](../../openvscode/claude/test/managed-settings.test.mjs); [base seed tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs); [all-kinds launch tests](../../host/__tests__/entrypoint-openvscode.test.js)
+
+**Status:** Implemented
