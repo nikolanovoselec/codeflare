@@ -30,7 +30,7 @@ export function buildManagedSettings() {
   return {
     permissions: {
       defaultMode: "default",
-      ask: ["Edit", "Write", "NotebookEdit", "Bash", "Task", "WebFetch", "WebSearch", "mcp__*"],
+      ask: ["WebFetch", "WebSearch", "mcp__*"],
       disableBypassPermissionsMode: "disable",
       disableAutoMode: "disable",
     },

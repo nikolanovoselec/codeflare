@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-24
+
+- **Browser IDE agents no longer interrupt routine local actions or create approval tabs** ([REQ-IDE-007](browser-ide.md#req-ide-007-ide-guarded-approval), Implemented). Pi keeps its existing provenance, workspace, stale-content, and manifest checks while auto-confirming Edit, Write, and Bash without opening editor documents; Claude auto-allows its routine local built-ins, while external, unknown, MCP, and Jupyter execution actions still ask.
+
 ## 2026-07-23
 
 - **Claude-selected Browser IDEs now suppress OpenVSCode's unrelated Chat/Copilot setup** ([REQ-IDE-005](browser-ide.md#req-ide-005-selected-native-ide-agent), Implemented). Anthropic's official panel remains the sole Claude conversation surface while the missing `GitHub.copilot-chat` flow is disabled before launch, and generic upstream Accounts authentication remains separate with no Codeflare credential request, bridge, export, persistence, or sync path.

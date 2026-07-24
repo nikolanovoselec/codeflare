@@ -2,11 +2,6 @@
   "permissions": {
     "defaultMode": "default",
     "ask": [
-      "Edit",
-      "Write",
-      "NotebookEdit",
-      "Bash",
-      "Task",
       "WebFetch",
       "WebSearch",
       "mcp__*"

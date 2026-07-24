@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { open, realpath, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { window, workspace } from 'vscode';
+import { window } from 'vscode';
 
 import type { ApprovalHost, ApprovalManifest } from './approval-bridge.ts';
 
@@ -34,19 +34,16 @@ export class VsCodeApprovalHost implements ApprovalHost {
     }
   }
 
-  async openDiff(manifest: ApprovalManifest): Promise<void> {
-    const content = previewText(manifest);
-    const language = manifest.preview?.kind === 'diff' || manifest.operation === 'edit' || manifest.operation === 'write'
-      ? 'diff'
-      : 'text';
-    const document = await workspace.openTextDocument({ content, language });
-    await window.showTextDocument(document, { preview: true, preserveFocus: true });
+  openDiff(_manifest: ApprovalManifest): Promise<void> {
+    return Promise.resolve();
   }
 
   async confirm(manifest: ApprovalManifest): Promise<boolean> {
+    const toolName = manifest.toolName ?? manifest.operation;
+    if (toolName === 'edit' || toolName === 'write' || toolName === 'bash') return true;
     const choice = await window.showWarningMessage(
-      `Approve ${manifest.toolName ?? manifest.operation ?? 'guarded'} operation?`,
-      { modal: true },
+      `Approve ${toolName ?? 'guarded'} operation?`,
+      { modal: true, detail: previewText(manifest).slice(0, 4_000) },
       'Approve',
     );
     return choice === 'Approve';

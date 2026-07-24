@@ -18,7 +18,7 @@ The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned h
 
 Every request receives bounded native Chat history plus the active workspace document, selected text, open workspace documents, diagnostics, and explicit references. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 512 KiB.
 
-Each request owns a fresh process generation. Pi streams assistant text and tool progress into native Chat, completes only at `agent_settled`, and is then reaped. Cancellation during startup prevents the prompt; after acceptance it sends Pi's correlated abort and denies any pending approval before cleanup. The existing guarded edit, write, and Bash tools still require the OpenVSCode extension host to verify the protected manifest digest, display the preview, and own confirmation.
+Each request owns a fresh process generation. Pi streams assistant text and tool progress into native Chat, completes only at `agent_settled`, and is then reaped. Cancellation during startup prevents the prompt; after acceptance it sends Pi's correlated abort and denies any pending approval before cleanup. Edit, write, and Bash retain protected-manifest, provenance, workspace, and stale-content checks but auto-confirm without opening editor documents; unknown and MCP actions use one modal.
 
 ## Official Claude Code
 
@@ -26,7 +26,7 @@ The image build fetches Anthropic's exact unmodified `linux-x64` VSIX from Open 
 
 Before Claude OpenVSCode starts, Codeflare creates `/tmp/codeflare-sidebar/claude/config` as an allowlisted projection of approved credentials and configuration. Terminal projects, history, runtime state, caches, and logs are excluded. Ephemeral OpenVSCode settings select Anthropic's native UI, Anthropic Manual (`"default"`) permission mode, no bypass or automatic edit mode, no Anthropic login prompt, the right sidebar, and disabled OpenVSCode AI features. OpenVSCode does not launch if preparation fails.
 
-Anthropic's official extension runs its documented IDE MCP server on `127.0.0.1` with a random port and fresh authorization token under the private temporary config. This owner-approved local exception supplies active-file context, selections, native diffs, and diagnostics without adding a Codeflare relay or public listener. Read-only diagnostics may proceed; mutations and Jupyter execution retain interactive approval.
+Anthropic's official extension runs its documented IDE MCP server on `127.0.0.1` with a random port and fresh authorization token under the private temporary config. This owner-approved local exception supplies active-file context, selections, native diffs, and diagnostics without adding a Codeflare relay or public listener. Routine local Edit, Write, NotebookEdit, Bash, and Task actions proceed without per-call approval; network, unknown, MCP, and Jupyter execution actions still ask.
 
 The official package contributes its own Claude Code webview, not an OpenVSCode `chatParticipant` or language-model provider. Claude settings therefore disable the unrelated native Chat and Copilot setup before launch. Use the Claude Code panel with a selection or `@` reference. The upstream Accounts control may still offer manual authentication, but it is separate from Claude and Codeflare adds no credential request, bridge, export, persistence, or sync path.
 
