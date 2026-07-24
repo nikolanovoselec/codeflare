@@ -8,16 +8,11 @@ import {
   buildOpenVscodeSettings,
 } from "../managed-settings.mjs";
 
-test("REQ-IDE-007 AC2: native permission rules independently ask for guarded built-ins and MCP", () => {
+test("REQ-IDE-007 AC2: native permission rules ask only for external and MCP actions", () => {
   const settings = buildManagedSettings();
 
   assert.equal(settings.permissions.defaultMode, "default");
   assert.deepEqual(settings.permissions.ask, [
-    "Edit",
-    "Write",
-    "NotebookEdit",
-    "Bash",
-    "Task",
     "WebFetch",
     "WebSearch",
     "mcp__*",
@@ -44,9 +39,7 @@ test("REQ-IDE-007 AC2: hook timeout and non-2 failures stay fail-open while nati
   assert.equal(PRE_TOOL_USE_HOOK_PATH, "/opt/codeflare/openvscode/claude/pre-tool-use-permission.mjs");
   assert.equal(PRE_TOOL_USE_TIMEOUT_SECONDS, 5);
   assert.equal(settings.permissions.defaultMode, "default");
-  assert.deepEqual(settings.permissions.ask, [
-    "Edit", "Write", "NotebookEdit", "Bash", "Task", "WebFetch", "WebSearch", "mcp__*",
-  ]);
+  assert.deepEqual(settings.permissions.ask, ["WebFetch", "WebSearch", "mcp__*"]);
   assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
 });
 

@@ -234,7 +234,13 @@ async function verifyPermissionHook() {
   const input = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} });
   const outcome = await hook.runPreToolUse(input);
   assert.equal(outcome.exitCode, 0);
-  assert.equal(JSON.parse(outcome.stdout).hookSpecificOutput.permissionDecision, 'ask');
+  assert.equal(JSON.parse(outcome.stdout).hookSpecificOutput.permissionDecision, 'allow');
+  const guarded = await hook.runPreToolUse(JSON.stringify({
+    hook_event_name: 'PreToolUse',
+    tool_name: 'mcp__ide__executeCode',
+    tool_input: {},
+  }));
+  assert.equal(JSON.parse(guarded.stdout).hookSpecificOutput.permissionDecision, 'ask');
   const diagnostics = await hook.runPreToolUse(JSON.stringify({
     hook_event_name: 'PreToolUse',
     tool_name: 'mcp__ide__getDiagnostics',

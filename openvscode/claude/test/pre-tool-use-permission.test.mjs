@@ -22,22 +22,26 @@ function assertBounded(outcome) {
   assert.ok(Buffer.byteLength(outcome.stderr, "utf8") <= MAX_HOOK_OUTPUT_BYTES);
 }
 
-function assertAsk(outcome, toolName) {
+function assertDecision(outcome, toolName, expected) {
   assert.equal(outcome.exitCode, 0);
   assert.equal(outcome.stderr, "");
   assertBounded(outcome);
   const message = JSON.parse(outcome.stdout);
   assert.equal(message.hookSpecificOutput.hookEventName, "PreToolUse");
-  assert.equal(message.hookSpecificOutput.permissionDecision, "ask", `${toolName} was not guarded`);
+  assert.equal(message.hookSpecificOutput.permissionDecision, expected, `${toolName} permission was incorrect`);
   assert.equal(typeof message.hookSpecificOutput.permissionDecisionReason, "string");
   assert.ok(message.hookSpecificOutput.permissionDecisionReason.length > 0);
 }
 
-for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash"]) {
-  test(`REQ-IDE-007 AC1: pre-tool-use returns interactive ask for ${toolName}`, async () => {
+function assertAsk(outcome, toolName) {
+  assertDecision(outcome, toolName, "ask");
+}
+
+for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash", "Task"]) {
+  test(`REQ-IDE-007 AC2: pre-tool-use auto-allows routine local ${toolName}`, async () => {
     const outcome = await runPreToolUse(hookInput(toolName, { command: "fixture" }));
 
-    assertAsk(outcome, toolName);
+    assertDecision(outcome, toolName, "allow");
   });
 }
 
