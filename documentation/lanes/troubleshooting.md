@@ -24,11 +24,45 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Symptom:** OpenVSCode connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
 
-**Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC7).
+**Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC6).
 
 **Fix:** Deploy a host build where `createVscodeWebSocketServer` gives the IDE its dedicated bounded payload limit. Do not raise `WS_MAX_PAYLOAD`; that 64 KiB limit still protects terminal and Vault traffic.
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
+
+### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent))
+
+**Symptom:** A Pi session shows Copilot setup instead of Codeflare in the main Chat, a Claude session has no Anthropic Spark panel, or an unsupported agent unexpectedly has an agent extension.
+
+**Cause:** The session may be non-advanced, tab 1 may not contain an exact supported command, the wrong immutable inventory may be selected, Pi's extension-qualified proposal may be absent, or the official Claude package may have failed identity/host validation.
+
+**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and `/opt/codeflare/openvscode/extensions/{pi,claude,none}`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports both host-discovered extension IDs, `DEFAULT_NATIVE_PI_OK`, and `OFFICIAL_CLAUDE_OK`.
+
+### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
+
+**Symptom:** Codeflare Pi reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
+
+**Cause:** `Language model unavailable` means OpenVSCode rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
+
+**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes vendor `codeflare-pi-rpc`, and complete-image smoke confirms a hidden default model whose generation path rejects. Do not sign into Copilot. For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
+
+### Official Claude panel fails ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
+
+**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, cannot connect to editor context, or OpenVSCode's native Chat/Copilot setup appears in a Claude session.
+
+**Cause:** The exact official extension or bundled linux-x64 binary may be missing, the temporary config/settings preparation may have failed, approved credentials/routing may be unavailable, or Anthropic's loopback IDE MCP lock directory may have been rejected. Anthropic's package contributes a separate Claude Code webview rather than a native Chat participant, so a visible native Chat setup means the managed `chat.disableAIFeatures` setting was not restored before launch.
+
+**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings contain `chat.disableAIFeatures: true`, the isolated `CLAUDE_CONFIG_DIR`, unrestricted `bypassPermissions` mode, dangerous permission skipping, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Use the Claude Code panel with a selection or an `@` reference. Generic Accounts authentication is outside the Claude integration; Codeflare adds no credential bridge. Never enable bypass permissions or expose the MCP port.
+
+### Browser IDE agent leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle))
+
+**Symptom:** A Pi request child or official Claude bundled process remains after cancellation, editor restart, or shutdown.
+
+**Cause:** Request or launch-generation cleanup did not converge before replacement.
+
+**Fix:** Do not delete pidfiles first. Stop or restart OpenVSCode and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
+
+See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
@@ -46,7 +80,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** Getting-started docs were seeded only by the one-shot bucket-creation gate, and a freshly created bucket is not always immediately writable on the R2 data plane. That single attempt could fail and be swallowed, and because the create-only gate never re-fired, the docs stayed missing. Agent configs survived because they have other reseed paths (the Recreate button, mode-change reconcile, and the preseed-hash upgrade) that getting-started docs lacked.
 
-**Fix (REQ-STOR-009 AC6):** The seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button.
+**Fix:** Under REQ-STOR-009 AC6, the seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button.
 
 **Verify** in Workers logs by querying the worker for:
 
@@ -77,7 +111,7 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 **Symptom:** In onboarding mode (`ONBOARDING_LANDING_PAGE=active`, `SAAS_MODE=inactive`), clicking "Continue with GitHub" lands the user back on the marketing landing, and visiting `/app` shows "Authentication Error: Authentication required. Please refresh the page." `/auth/github/login` itself 302s to GitHub correctly.
 
-**Cause (two independent failure modes):**
+**Cause:** Two independent failure modes apply:
 
 **App-owned session not trusted in onboarding (code).** The onboarding GitHub callback issues a `codeflare_session` cookie. The access layer (`getUserFromRequest` / `validateSessionOidc`), the session-refresh in `src/index.ts`, and the `requireActiveUser` tier gate honour that cookie only in an *app-owned OIDC mode* (`isSessionOidcMode` = `SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active; [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) AC4).
 
@@ -93,7 +127,7 @@ A classic OAuth App allows one callback URL, so each deployment domain needs its
 
 **Symptom:** In a non-enterprise mode, "Connect to Cloudflare" ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)) never completes. The consent screen works and Cloudflare returns a real authorization code, but the server-side token exchange fails with `401 invalid_client` ("Client authentication failed…"), surfaced in the connect logs via Cloudflare's `error_description` (AC1). Re-entering the secret in the Setup wizard, or rotating it in the Cloudflare dashboard, does not help — it stays unconnected.
 
-**Cause (two independent failure modes):**
+**Cause:** Two independent failure modes apply:
 
 **Wrong token-endpoint auth method (config).** codeflare sends the secret in the request body, so the operator's client must be registered with `token_endpoint_auth_method = client_secret_post`. A `none` (public/PKCE) or `client_secret_basic` client is rejected with `401 invalid_client` (REQ-AGENT-064 Constraints). Client *visibility* (private vs public) is orthogonal and does **not** affect secret auth — a public client authenticates with a secret fine.
 
@@ -577,6 +611,10 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
 - [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Native agent inventory and launch diagnostics
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor-context and isolation diagnostics
+- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted-tool diagnostics
+- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent cleanup diagnostics
 - [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
 - [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll (fullscreen alternate-buffer wheel routing for Claude Code `/tui fullscreen` on mobile)
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants

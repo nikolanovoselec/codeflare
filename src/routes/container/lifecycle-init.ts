@@ -245,7 +245,8 @@ export async function ensureBucketAndSeed(params: {
             deletedCount: upgradeResult.deleted.length,
           });
         }
-        await env.KV.put(enterprisePrefsKey, JSON.stringify({ ...storedPrefs, sessionMode: 'advanced' }));
+        const latestPrefs = await env.KV.get<UserPreferences>(enterprisePrefsKey, 'json');
+        await env.KV.put(enterprisePrefsKey, JSON.stringify({ ...latestPrefs, sessionMode: 'advanced' }));
       }
     } catch (error) {
       logger.warn('Enterprise advanced-mode upgrade failed; will retry next session', {

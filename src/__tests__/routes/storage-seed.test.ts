@@ -194,6 +194,35 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
     expect(storedPrefs.lastPreseedHash).toBe('test_hash_abc123');
   });
 
+  it('REQ-ENTERPRISE-001 constraint: enterprise reseed preserves preferences changed during reconciliation', async () => {
+    mockKV._set('user-prefs:my-bucket', { sessionMode: 'default', workspaceSyncEnabled: false });
+    vi.mocked(reconcileAgentConfigs).mockImplementationOnce(async () => {
+      mockKV._set('user-prefs:my-bucket', {
+        sessionMode: 'default',
+        workspaceSyncEnabled: true,
+        userTimezone: 'Europe/Belgrade',
+      });
+      return { ...testState.agentSeedResult, deleted: [], warnings: [] };
+    });
+    const app = createApp('my-bucket', { ENTERPRISE_MODE: 'active' });
+
+    const res = await app.request('/seed/agent-configs', { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    const stored = await mockKV.get('user-prefs:my-bucket', 'json') as {
+      sessionMode?: string;
+      lastPreseedHash?: string;
+      workspaceSyncEnabled?: boolean;
+      userTimezone?: string;
+    } | null;
+    expect(stored).toMatchObject({
+      sessionMode: 'advanced',
+      lastPreseedHash: 'test_hash_abc123',
+      workspaceSyncEnabled: true,
+      userTimezone: 'Europe/Belgrade',
+    });
+  });
+
   // REQ-ENTERPRISE-001 AC7: a failed reconcile must not stamp the preference,
   // so the dashboard upgrade trigger stays armed and retries on the next load.
   it('enterprise: a failed reconcile returns 500 and does NOT stamp sessionMode or lastPreseedHash', async () => {

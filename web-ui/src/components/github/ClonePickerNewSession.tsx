@@ -2,7 +2,7 @@ import { Component, For } from 'solid-js';
 import ClonePickerOptionRow from './ClonePickerOptionRow';
 import type { AgentType } from '../../types';
 import { sessionStore } from '../../stores/session';
-import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../CreateSessionDialog';
+import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../../lib/agent-catalog';
 
 interface ClonePickerNewSessionProps {
   disabled: boolean;
@@ -13,10 +13,14 @@ interface ClonePickerNewSessionProps {
 // (the same agent-type chooser the dashboard New Session dialog renders).
 // Selecting an agent creates a new session that clones the target repo at start.
 const ClonePickerNewSession: Component<ClonePickerNewSessionProps> = (props) => {
-  const agentOptions = () =>
-    sessionStore.enterpriseMode
-      ? AGENT_OPTIONS.filter((a) => ENTERPRISE_AGENT_TYPES.includes(a.type))
-      : AGENT_OPTIONS;
+  // Enterprise mode shows only the wizard-activated agents delivered by GET
+  // /api/user (REQ-ENTERPRISE-003), same resolver as the CreateSession dialog;
+  // the static list is the stale-client fallback until that response hydrates.
+  const agentOptions = () => {
+    if (!sessionStore.enterpriseMode) return AGENT_OPTIONS;
+    const allowed = sessionStore.allowedAgents ?? ENTERPRISE_AGENT_TYPES;
+    return AGENT_OPTIONS.filter((a) => allowed.includes(a.type));
+  };
 
   return (
     <div class="clone-picker-new-group" data-testid="clone-picker-new-group">

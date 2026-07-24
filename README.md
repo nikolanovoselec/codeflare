@@ -63,6 +63,7 @@ Every session comes pre-loaded with your choice of agent:
 
 - Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side within one session).
 - **VS Code in the browser** *(Pro sessions)* — one click in the header opens a full OpenVSCode editor on that session's workspace, in a new tab, behind the same authentication as everything else.
+- Pi and Claude get a separate editor sidebar: strict no-session RPC for Pi and an embedded Claude CLI terminal with native prompts. It never attaches to terminal tab 1; unsupported agents load no extension.
 - The editor lazy-starts on first open (a warming page retries until it's ready), restarts automatically after an interruption, and stops with the session — zero cost until you use it.
 - **MultiView** — view several running sessions side by side in one workspace. It's a virtual view over sessions you already have: no new session is created, and no existing session's lifecycle is affected.
 - One isolated container per session — agents can't escape their sandbox.
@@ -188,7 +189,7 @@ Defense-in-depth throughout; full detail in [security.md](documentation/lanes/se
 - **Isolation** — one container per session, each running as root inside a locked sandbox it cannot escape. No shared shells, no cross-session access.
 - **Authentication** — every authenticated surface (`/app`, `/api`, `/setup`) is gated by JWT verification — Cloudflare Access by default, GitHub OAuth in the advanced modes.
 - **Credential handling** — deploy tokens stay in GitHub and Cloudflare by default. When you connect Push & Deploy, they're injected into your container, stored AES-256-GCM-encrypted in KV, scoped per user, and never shared across sessions.
-- **Encryption at rest** *(optional, set `ENCRYPTION_KEY`)* — KV credentials (AES-256-GCM, per-value IVs, AAD-bound) and R2 files (SSE-C) are encrypted; the vault gets its own zero-UI per-session key. Existing plaintext entries migrate transparently on first read. See [Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest).
+- **Encryption at rest** *(optional, set `ENCRYPTION_KEY`)* — encrypts KV credentials with AES-256-GCM and R2 files with SSE-C; the vault uses a separate per-session key. Plaintext migrates on first read. See [Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest).
 - **Hardening** — HSTS, CSP, X-Frame-Options, and Referrer-Policy on every response; KV-backed per-user rate limits (429 + `Retry-After`); Zod input validation with a 64 KiB body limit.
 - **Supply chain** — CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, and Trivy container scanning.
 - **Continuous testing** — a weekly CI workflow runs automated penetration tests against the auth gate, security headers, TLS, injection, and information disclosure. See [Penetration Testing](documentation/lanes/pentest.md#test-results).
@@ -215,7 +216,7 @@ See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite.
 |---|---|---|
 | `deploy.yml` | Green PR Checks on `main` / manual | Staged deploy: worker assets in parallel with the container image (reused when inputs unchanged), then deploy |
 | `container-image.yml` | Called by `deploy.yml` | Reusable container build + Trivy scan + push (Cloudflare registry or Docker Hub bypass) |
-| `test.yml` | Pull requests, push to `main` | Parallel path-filtered lanes: lint, sharded backend tests, typecheck, audits, dependency review |
+| `test.yml` | Pull requests, push to `main`, nightly | Parallel path-filtered lanes: lint, sharded suites, typechecks, audits, dependency review, and complete-image Browser IDE native-agent verification |
 | `zizmor.yml` | Workflow changes | Static security audit of the GitHub Actions workflows |
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
 | `scorecard.yml` | Push to `main`, weekly, manual | OSSF Scorecard |

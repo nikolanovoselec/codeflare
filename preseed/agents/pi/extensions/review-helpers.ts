@@ -7,19 +7,25 @@ export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPO
 export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-update-branch" | "pr-merge";
+export type ReviewBoundaryEvent = "push" | "pr-create";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: ReviewBoundaryEvent;
-  protectedRetarget?: true;
-  prTarget?: string;
+  pushSource?: string;
+  pushTarget?: string;
+  pushRemote?: string;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
   reviewRange?: string;
+  reviewRepo?: string;
+  reviewBranch?: string;
+  reviewPrNumber?: number;
+  reviewBase?: "main" | "master";
+  reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
   triageComplete: boolean;
@@ -96,33 +102,69 @@ function stripHeredocBodies(command: string): string {
   return executable.join("\n");
 }
 
-function shellSegments(command: string): string[] {
-  const segments: string[] = [];
+export type ShellSeparator = "&&" | "||" | "|" | "&" | ";" | "\n";
+export type ExecutableShellSegment = {
+  command: string;
+  separatorBefore?: ShellSeparator;
+  separatorAfter?: ShellSeparator;
+};
+
+export function executableShellSegments(command: string): ExecutableShellSegment[] {
+  const segments: ExecutableShellSegment[] = [];
+  const source = stripHeredocBodies(command);
   let current = "";
   let quote = "";
   let escaped = false;
-  for (const char of stripHeredocBodies(command)) {
+  let separatorBefore: ShellSeparator | undefined;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index] ?? "";
     if (escaped) {
       current += char;
       escaped = false;
-    } else if (char === "\\" && quote !== "'") {
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
       current += char;
       escaped = true;
-    } else if ((char === "'" || char === '"') && !quote) {
+      continue;
+    }
+    if ((char === "'" || char === '"') && !quote) {
       current += char;
       quote = char;
-    } else if (char === quote) {
+      continue;
+    }
+    if (char === quote) {
       current += char;
       quote = "";
-    } else if (!quote && ";&|\n\r".includes(char)) {
-      if (current.trim()) segments.push(current.trim());
-      current = "";
-    } else {
-      current += char;
+      continue;
     }
+    if (!quote && ";&|\n\r".includes(char)) {
+      let separator: ShellSeparator;
+      if ((char === "&" || char === "|") && source[index + 1] === char) {
+        separator = char === "&" ? "&&" : "||";
+        index += 1;
+      } else if (char === "\n" || char === "\r") {
+        separator = "\n";
+        if (char === "\r" && source[index + 1] === "\n") index += 1;
+      } else {
+        separator = char as ShellSeparator;
+      }
+      if (current.trim()) {
+        segments.push({ command: current.trim(), separatorBefore, separatorAfter: separator });
+        current = "";
+        separatorBefore = separator;
+      }
+      continue;
+    }
+    current += char;
   }
-  if (current.trim()) segments.push(current.trim());
+  if (current.trim()) segments.push({ command: current.trim(), separatorBefore });
   return segments;
+}
+
+export function shellSegments(command: string): string[] {
+  return executableShellSegments(command).map((segment) => segment.command);
 }
 
 function shellWords(segment: string): ShellWords {
@@ -159,71 +201,109 @@ function commandWords(command: string): ShellWords[] {
   });
 }
 
-function gitSubcommand(words: ShellWords): string | undefined {
+function gitSubcommandIndex(words: ShellWords): number | undefined {
   if (words[0] !== "git") return undefined;
   let index = 1;
   while (words[index] === "-C" && words[index + 1]) index += 2;
-  return words[index];
+  return index < words.length ? index : undefined;
 }
 
-function protectedEdit(words: ShellWords): boolean {
-  if (words[0] !== "gh" || words[1] !== "pr" || words[2] !== "edit") return false;
-  return words.some((word, index) =>
-    ["--base=main", "--base=master", "-B=main", "-B=master"].includes(word)
-    || (["--base", "-B"].includes(word) && ["main", "master"].includes(words[index + 1] ?? "")),
-  );
+function gitSubcommand(words: ShellWords): string | undefined {
+  const index = gitSubcommandIndex(words);
+  return index === undefined ? undefined : words[index];
 }
 
-function updateBranchTarget(words: ShellWords): { supported: boolean; prTarget?: string } {
-  const args = words.slice(3);
-  if (args.some((word) => word === "--repo" || word.startsWith("--repo=") || word.startsWith("-R"))) {
-    return { supported: false };
+const PUSH_OPTIONS_WITH_VALUE = new Set(["--exec", "--push-option", "--receive-pack", "-o"]);
+const UNSUPPORTED_PUSH_OPTIONS = new Set([
+  "--all", "--delete", "--dry-run", "--follow-tags", "--mirror", "--prune", "--tags", "-d", "-n",
+]);
+
+function branchRef(value: string): string | undefined {
+  if (!value || value === "HEAD") return undefined;
+  if (value.startsWith("refs/heads/")) return value.slice("refs/heads/".length) || undefined;
+  if (value.startsWith("refs/") || value.includes("*") || value.startsWith(":")) return undefined;
+  return value;
+}
+
+function pushBoundary(words: ShellWords): { source?: string; target?: string; remote?: string } | undefined {
+  const subcommandIndex = gitSubcommandIndex(words);
+  if (subcommandIndex === undefined || words[subcommandIndex] !== "push") return undefined;
+  const positionals: string[] = [];
+  const args = words.slice(subcommandIndex + 1);
+  let optionRemote: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+    if (UNSUPPORTED_PUSH_OPTIONS.has(arg)
+      || /^-[^-]*[dn]/.test(arg)
+      || [...UNSUPPORTED_PUSH_OPTIONS].some((option) => arg.startsWith(`${option}=`))) {
+      return undefined;
+    }
+    if (arg === "--repo") {
+      optionRemote = args[index + 1];
+      if (!optionRemote) return undefined;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--repo=")) {
+      optionRemote = arg.slice("--repo=".length) || undefined;
+      if (!optionRemote) return undefined;
+      continue;
+    }
+    if (PUSH_OPTIONS_WITH_VALUE.has(arg)) {
+      index += 1;
+      continue;
+    }
+    if (arg === "--") {
+      positionals.push(...args.slice(index + 1));
+      break;
+    }
+    if (arg.startsWith("-")) continue;
+    positionals.push(arg);
   }
-  const prTarget = args.find((word) => !word.startsWith("-"));
-  if (prTarget && /^https?:\/\//i.test(prTarget)) return { supported: false };
-  return { supported: true, ...(prTarget ? { prTarget } : {}) };
+  const remote = optionRemote ?? positionals[0];
+  const refspecs = optionRemote ? positionals : positionals.slice(1);
+  if (refspecs.length === 0) return remote ? { remote } : {};
+  if (refspecs.length !== 1) return undefined;
+  const refspec = refspecs[0] ?? "";
+  if (refspec === "HEAD") return remote ? { remote } : {};
+  const normalizedRefspec = refspec.startsWith("+") ? refspec.slice(1) : refspec;
+  if (!normalizedRefspec || normalizedRefspec.startsWith(":")) return undefined;
+  const separator = normalizedRefspec.indexOf(":");
+  const sourceRaw = separator === -1 ? normalizedRefspec : normalizedRefspec.slice(0, separator);
+  const targetRaw = separator === -1 ? normalizedRefspec : normalizedRefspec.slice(separator + 1);
+  if (!sourceRaw || !targetRaw || targetRaw === "HEAD") return undefined;
+  const sourceBranch = sourceRaw === "HEAD" ? undefined : branchRef(sourceRaw);
+  const source = sourceRaw === "HEAD"
+    ? "HEAD"
+    : sourceBranch
+      ? `refs/heads/${sourceBranch}`
+      : undefined;
+  const target = branchRef(targetRaw);
+  if (!source || !target) return undefined;
+  return { source, target };
 }
 
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  let reminder = false;
-  let settled = false;
-  let protectedRetarget = false;
-  let event: ReviewBoundaryEvent | undefined;
-  let prTarget: string | undefined;
+  let boundary: BoundarySurfaces = { reminder: false, settled: false };
   for (const words of commandWords(command)) {
     if (gitSubcommand(words) === "push") {
-      reminder = settled = true;
-      event = "push";
-    }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
-      reminder = settled = true;
-      event = "pr-create";
-    }
-    if (protectedEdit(words)) {
-      reminder = settled = true;
-      protectedRetarget = true;
-      event = "pr-edit";
-    }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "update-branch") {
-      const target = updateBranchTarget(words);
-      if (target.supported) {
-        reminder = settled = true;
-        event = "pr-update-branch";
-        prTarget = target.prTarget;
+      const push = pushBoundary(words);
+      if (push) {
+        boundary = {
+          reminder: true,
+          settled: true,
+          event: "push",
+          ...(push.source ? { pushSource: push.source } : {}),
+          ...(push.target ? { pushTarget: push.target } : {}),
+          ...(!push.target && push.remote ? { pushRemote: push.remote } : {}),
+        };
       }
     }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
-      settled = true;
-      event = "pr-merge";
+    if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
+      boundary = { reminder: true, settled: true, event: "pr-create" };
     }
   }
-  return {
-    reminder,
-    settled,
-    ...(event ? { event } : {}),
-    ...(protectedRetarget ? { protectedRetarget: true as const } : {}),
-    ...(event === "pr-update-branch" && prTarget ? { prTarget } : {}),
-  };
+  return boundary;
 }
 
 function firstExisting(paths: string[]): string | undefined {
@@ -316,11 +396,14 @@ function shellCommands(call: Record<string, any>): string[] {
   return [];
 }
 
-function messageText(entry: Record<string, any>, role: "assistant" | "user"): string {
-  if (entry.type !== "message" || entry.message?.role !== role) return "";
-  const content = entry.message.content;
+function messageContentText(entry: Record<string, any>): string {
+  const content = entry.message?.content;
   if (typeof content === "string") return content;
   return Array.isArray(content) ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n") : "";
+}
+
+function messageText(entry: Record<string, any>, role: "assistant" | "user"): string {
+  return entry.type === "message" && entry.message?.role === role ? messageContentText(entry) : "";
 }
 
 function userText(entry: Record<string, any>): string {
@@ -335,7 +418,17 @@ function nativeNotification(entry: Record<string, any>): { toolUseId: string; su
   return { toolUseId, succeeded: /^(?:Done|Completed)$/i.test(status) };
 }
 
-function reviewWindow(entry: Record<string, any>): { head?: string; range?: string } | undefined {
+type ReviewWindow = {
+  head?: string;
+  range?: string;
+  repo?: string;
+  branch?: string;
+  prNumber?: number;
+  base?: "main" | "master";
+  boundaryToolUseId?: string;
+};
+
+function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
   if (entry.type !== "custom_message" || ![
     "pr-boundary-launch-plan",
     "pr-boundary-launch-follow-up",
@@ -344,15 +437,25 @@ function reviewWindow(entry: Record<string, any>): { head?: string; range?: stri
   ].includes(entry.customType)) return undefined;
   const head = typeof entry.details?.head === "string" ? entry.details.head : undefined;
   const range = typeof entry.details?.reviewRange === "string" ? entry.details.reviewRange : undefined;
-  return { head, range };
+  const repo = typeof entry.details?.repo === "string" ? entry.details.repo : undefined;
+  const branch = typeof entry.details?.branch === "string" ? entry.details.branch : undefined;
+  const prNumber = Number.isInteger(entry.details?.prNumber) ? entry.details.prNumber : undefined;
+  const base = entry.details?.base === "main" || entry.details?.base === "master"
+    ? entry.details.base
+    : undefined;
+  const boundaryToolUseId = typeof entry.details?.boundaryToolUseId === "string"
+    ? entry.details.boundaryToolUseId
+    : undefined;
+  return { head, range, repo, branch, prNumber, base, boundaryToolUseId };
 }
 
 export function reviewTranscriptFacts(input: {
   sessionFile: string;
+  entries?: Record<string, any>[];
   requiredLanes: ReviewLane[];
   ciHead?: string;
 }): TranscriptFacts {
-  const entries = readEntries(input.sessionFile);
+  const entries = input.entries ?? readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));
@@ -373,7 +476,39 @@ export function reviewTranscriptFacts(input: {
   if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, triageComplete: false, closedNotified: false, lanes };
   const later = entries.slice(boundaryIndex + 1);
   const terminalIndexes = new Map<ReviewLane, number>();
-  const window = later.reduce<{ head?: string; range?: string } | undefined>((current, entry) => reviewWindow(entry) ?? current, undefined);
+  const resultRequests = new Map<string, string>();
+  for (const entry of later) {
+    for (const call of toolCalls(entry)) {
+      if (call.name === "get_subagent_result" && typeof call.arguments?.agent_id === "string") {
+        resultRequests.set(call.id, call.arguments.agent_id);
+      }
+    }
+  }
+  const completedAgents = new Map<string, { lane: ReviewLane; index: number }>();
+  later.forEach((entry, index) => {
+    if (entry.type !== "message"
+      || entry.message?.role !== "toolResult"
+      || entry.message?.toolName !== "get_subagent_result"
+      || entry.message?.isError === true) return;
+    const requestedAgent = resultRequests.get(entry.message.toolCallId);
+    const text = messageContentText(entry);
+    const returnedAgent = /^Agent:\s*([^\r\n]+)$/mi.exec(text)?.[1]?.trim();
+    const result = /^Type:\s*([^|\r\n]+)\s*\|\s*Status:\s*(completed|done)\b/mi.exec(text);
+    const lane = result?.[1]?.trim() as ReviewLane | undefined;
+    if (requestedAgent
+      && returnedAgent === requestedAgent
+      && lane
+      && ALL_REVIEW_LANES.includes(lane)
+      && !completedAgents.has(requestedAgent)) {
+      completedAgents.set(requestedAgent, { lane, index });
+    }
+  });
+  const window = later.reduce<ReviewWindow | undefined>((current, entry) => {
+    const candidate = reviewWindow(entry);
+    if (!candidate) return current;
+    if (candidate.boundaryToolUseId && candidate.boundaryToolUseId !== boundary?.toolUseId) return current;
+    return candidate;
+  }, undefined);
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
       const lane = call.arguments?.subagent_type as ReviewLane;
@@ -383,11 +518,31 @@ export function reviewTranscriptFacts(input: {
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
         .filter((candidate) => candidate.value?.toolUseId === call.id);
-      const terminal = notifications.filter((candidate) => candidate.value?.succeeded === true).at(-1);
+      const nativeTerminal = notifications.find((candidate) => candidate.value?.succeeded === true);
+      const launchResult = later.find((candidate) => candidate.type === "message"
+        && candidate.message?.role === "toolResult"
+        && candidate.message?.toolCallId === call.id
+        && candidate.message?.toolName === "subagent"
+        && candidate.message?.isError !== true
+        && candidate.message?.details?.subagentType === lane);
+      const launchedAgent = typeof launchResult?.message?.details?.agentId === "string"
+        ? launchResult.message.details.agentId
+        : undefined;
+      const publicTerminal = launchedAgent && completedAgents.get(launchedAgent)?.lane === lane
+        ? completedAgents.get(launchedAgent)
+        : undefined;
+      const nativeIndex = nativeTerminal?.index;
+      const publicIndex = publicTerminal?.index;
+      const terminalIndex = nativeIndex === undefined
+        ? publicIndex ?? -1
+        : publicIndex === undefined ? nativeIndex : Math.min(nativeIndex, publicIndex);
       const failed = notifications.some((candidate) => candidate.value?.succeeded === false);
-      if (terminal) {
+      if (terminalIndex >= 0) {
         lanes[lane] = { state: "terminal", toolUseId: call.id };
-        terminalIndexes.set(lane, Math.max(terminalIndexes.get(lane) ?? -1, terminal.index));
+        const previousTerminal = terminalIndexes.get(lane);
+        terminalIndexes.set(lane, previousTerminal === undefined
+          ? terminalIndex
+          : Math.min(previousTerminal, terminalIndex));
       } else if (failed && lanes[lane].state !== "terminal") lanes[lane] = { state: "missing" };
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
@@ -416,7 +571,21 @@ export function reviewTranscriptFacts(input: {
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );
-  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, ciLaunched, triageComplete, closedNotified, lanes };
+  return {
+    boundary,
+    reviewHead: window?.head,
+    reviewRange: window?.range,
+    reviewRepo: window?.repo,
+    reviewBranch: window?.branch,
+    reviewPrNumber: window?.prNumber,
+    reviewBase: window?.base,
+    reviewBoundaryToolUseId: window?.boundaryToolUseId,
+    bypassed,
+    ciLaunched,
+    triageComplete,
+    closedNotified,
+    lanes,
+  };
 }
 
 export default function () {}

@@ -207,4 +207,31 @@ describe('Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-EN
     const body = await res.json() as Record<string, unknown>;
     expect('sessionMode' in body).toBe(false);
   });
+
+  // ── REQ-ENTERPRISE-003 AC2: wizard-configured active agents gate lastAgentType ──
+  it('AC2 (REQ-ENTERPRISE-003): a KV-deactivated lastAgentType is rejected 400 under enterprise', async () => {
+    mockKV._set('setup:active_agents', ['copilot']);
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lastAgentType: 'pi' }),
+    });
+    expect(res.status).toBe(400);
+    const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { lastAgentType?: string } | null;
+    expect(stored?.lastAgentType).toBeUndefined();
+  });
+
+  it('AC2 (REQ-ENTERPRISE-003): a KV-active lastAgentType is accepted under enterprise', async () => {
+    mockKV._set('setup:active_agents', ['copilot']);
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lastAgentType: 'copilot' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { lastAgentType?: string };
+    expect(body.lastAgentType).toBe('copilot');
+  });
 });

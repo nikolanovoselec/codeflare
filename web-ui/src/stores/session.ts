@@ -125,6 +125,9 @@ export interface SessionState {
   bucketMigrationPercent: number | null;
   enterpriseMode: boolean;
   saasMode: boolean;
+  /** REQ-ENTERPRISE-003: creation-selectable agents from GET /api/user; null until
+   * hydrated (the CreateSession dialog falls back to its static enterprise list). */
+  allowedAgents: AgentType[] | null;
 }
 
 const [state, setState] = createStore<SessionState>({
@@ -144,6 +147,7 @@ const [state, setState] = createStore<SessionState>({
   bucketMigrationPercent: null,
   enterpriseMode: false,
   saasMode: false,
+  allowedAgents: null,
 });
 
 // Auth expiry detection — set when background polling gets a 401/auth redirect.
@@ -625,6 +629,8 @@ export const sessionStore = {
   setEnterpriseMode: (value: boolean) => setState('enterpriseMode', value),
   get saasMode() { return state.saasMode; },
   setSaasMode: (value: boolean) => setState('saasMode', value),
+  get allowedAgents() { return state.allowedAgents; },
+  setAllowedAgents: (value: AgentType[] | null) => setState('allowedAgents', value),
   get r2Ready() { return isR2Ready(); },
   startR2Polling,
   stopR2Polling,

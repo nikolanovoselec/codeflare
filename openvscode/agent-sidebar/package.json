@@ -1,0 +1,67 @@
+{
+  "name": "codeflare-agent-sidebar",
+  "displayName": "Codeflare Pi Chat",
+  "description": "Codeflare-owned native Pi Chat participant for OpenVSCode Server",
+  "version": "0.0.0",
+  "publisher": "codeflare",
+  "private": true,
+  "type": "module",
+  "main": "./dist/extension.cjs",
+  "engines": {
+    "vscode": "^1.109.0",
+    "node": "22.21.1"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onChatParticipant:codeflare.pi"
+  ],
+  "enabledApiProposals": [
+    "chatProvider",
+    "defaultChatParticipant"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "codeflare-pi-rpc",
+        "displayName": "Codeflare Pi (Local RPC)"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "codeflare.pi",
+        "name": "codeflare",
+        "fullName": "Codeflare Pi",
+        "description": "Codeflare Pi agent with workspace and editor context.",
+        "isDefault": true,
+        "isSticky": true,
+        "modes": [
+          "ask",
+          "edit",
+          "agent"
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node ./esbuild.mjs",
+    "check:dependencies": "node ./scripts/check-dependencies.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config ./vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=text",
+    "test:report": "vitest run --config ./vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --reporter=json --outputFile=agent-sidebar/browser-ide-report.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.12",
+    "@types/vscode": "1.109.0",
+    "@vitest/coverage-v8": "4.1.10",
+    "esbuild": "0.28.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

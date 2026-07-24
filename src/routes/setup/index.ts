@@ -1,6 +1,7 @@
 import { Hono, type Context, type Next } from 'hono';
 import { z } from 'zod';
-import type { Env } from '../../types';
+import { AgentTypeSchema, type Env } from '../../types';
+import { CONFIGURABLE_ENTERPRISE_AGENTS } from '../../lib/agent-allowlist';
 import { ValidationError, toError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
@@ -125,6 +126,18 @@ const ConfigureBodySchema = z.object({
   // (default OFF); blocks file downloads in the R2 Storage Panel (open/view only).
   // Absent for non-enterprise setups.
   downloadsDisabled: z.boolean().optional(),
+  // REQ-ENTERPRISE-025 (enterprise-only): the wizard-selected active coding agents.
+  // Subset of CONFIGURABLE_ENTERPRISE_AGENTS, min 1 — the selectable universe is
+  // capped by gateway routability (AD74), so this narrows, never widens. `bash` is
+  // always selectable and never sent. Absent for non-enterprise setups.
+  activeAgents: z
+    .array(AgentTypeSchema)
+    .min(1, 'At least one coding agent must remain active')
+    .refine(
+      (agents) => agents.every((a) => CONFIGURABLE_ENTERPRISE_AGENTS.includes(a)),
+      'activeAgents may only contain enterprise-capable coding agents',
+    )
+    .optional(),
 }).refine(
   (data) => data.adminUsers.every((admin) => data.allowedUsers.includes(admin)),
   { message: 'All adminUsers must also be in allowedUsers', path: ['adminUsers'] }
@@ -194,7 +207,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -511,6 +524,17 @@ app.post('/configure', async (c) => {
         if (downloadsDisabled !== undefined) {
           await runStep('configure_downloads_disabled', async () => {
             await c.env.KV.put(SETUP_KEYS.DOWNLOADS_DISABLED, downloadsDisabled ? 'active' : 'inactive');
+          });
+        }
+
+        // REQ-ENTERPRISE-025: the wizard-selected active coding agents. Canonicalized
+        // before write (deduped, CONFIGURABLE_ENTERPRISE_AGENTS order) so the stored
+        // value always round-trips byte-identical through readActiveAgents; the schema
+        // already enforced non-empty + enterprise-capable entries. Absent ⇒ untouched.
+        if (activeAgents !== undefined) {
+          await runStep('configure_active_agents', async () => {
+            const canonical = CONFIGURABLE_ENTERPRISE_AGENTS.filter((a) => activeAgents.includes(a));
+            await c.env.KV.put(SETUP_KEYS.ACTIVE_AGENTS, JSON.stringify(canonical));
           });
         }
       }

@@ -9,6 +9,7 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 import { getAccessGroupNames } from './access';
 import { parseAccessGroups } from '../../lib/access';
 import { isEnterpriseMode } from '../../lib/subscription';
+import { readActiveAgents, CONFIGURABLE_ENTERPRISE_AGENTS } from '../../lib/agent-allowlist';
 
 const statusRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, keyPrefix: 'setup-status' });
 const detectTokenRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10, keyPrefix: 'setup-detect-token' });
@@ -180,10 +181,15 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     const r2SseDisabled = (await c.env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active';
     // View-only storage toggle (default OFF on absent).
     const downloadsDisabled = (await c.env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active';
+    // REQ-ENTERPRISE-025: surface the active coding agents + the governable universe
+    // so the wizard renders one checkbox per capable agent and prefills the stored
+    // selection (absent/invalid ⇒ all active, the pre-feature default).
+    const activeAgents = (await readActiveAgents(c.env.KV)) ?? CONFIGURABLE_ENTERPRISE_AGENTS;
     enterpriseExtras = {
       ...enterpriseExtras,
       enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderTokenSet, browserRenderAccountId,
       aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled,
+      activeAgents, configurableAgents: CONFIGURABLE_ENTERPRISE_AGENTS,
     };
   }
   if (!token) {

@@ -150,6 +150,8 @@ export interface UserInfo {
   subscribedMode?: 'default' | 'advanced';
   enterpriseMode?: boolean;
   downloadsDisabled?: boolean;
+  /** REQ-ENTERPRISE-003: creation-selectable agents (wizard-governed in enterprise). */
+  allowedAgents?: AgentType[];
 }
 
 // Terminal connection state (no 'error' — infinite retries mean we never give up)

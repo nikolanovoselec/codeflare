@@ -56,7 +56,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | List sessions |
-| POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | Create session (rate limited) |
+| POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) | Create session (rate limited; under enterprise mode `agentType` outside the wizard-governed allowlist is rejected 400) |
 | GET | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) | Get session |
 | PATCH | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | Update session |
 | DELETE | `/api/sessions/:id` | Session cookie | [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Delete session and destroy container |
@@ -110,7 +110,7 @@ The in-container OpenVSCode Server (full VS Code editor) is reached through the 
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`) |
+| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1, [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC4 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`, `allowedAgents` — the creation-selectable agent set, wizard-governed under enterprise mode) |
 | POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC2 | Mark guided setup as visited (sets KV flag) |
 | GET | `/api/user/r2-status` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC3 | R2 credential status for current user |
 | POST | `/api/user/ensure-r2-token` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC4, AC6 | Create scoped R2 token if missing (rate limited) |
@@ -240,7 +240,7 @@ The setup wizard configures a fresh Codeflare deployment. It provisions Cloudfla
 | POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) | Run the setup wizard (streams NDJSON progress) |
 | GET | `/api/setup/status` | Public | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) | Whether setup is complete (always public) |
 | GET | `/api/setup/detect-token` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection) | Detect and verify the Cloudflare API token |
-| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection) | Prefill setup form from existing Access groups |
+| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection), [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard) | Prefill setup form from existing Access groups |
 
 Conditional auth: before `setup:complete` is set in KV, every Setup endpoint except `/api/setup/status` is publicly reachable through the CSRF-gated bootstrap window (see [AD10](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation)). Once setup is marked complete, the same endpoints require an admin-role session.
 
@@ -336,6 +336,21 @@ CF Access groups and policies are not created - the Worker handles authenticatio
 **Source:** `src/routes/setup/turnstile.ts`
 
 Runs only when the `ONBOARDING_LANDING_PAGE` env var is active OR SaaS mode is enabled. Creates or updates a Turnstile widget in `managed` mode for the custom domain (and the workers.dev hostname). Stores the site key and secret in KV.
+
+**Enterprise steps (conditional, `ENTERPRISE_MODE` only)**
+
+**Source:** `src/routes/setup/index.ts`
+
+Each runs only when its field is present in the request body, so unrelated reconfigures stay quiet:
+
+- `configure_access_groups` — persists the user/admin Access-group name lists (CSV-joined; an empty list clears the key). [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)
+- `configure_model_routing` — persists the dynamic-route catalog, default route, per-route context windows, and per-group routing (JSON; empty maps cleared). [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-022](../../sdd/spec/enterprise-mode.md#req-enterprise-022-per-route-context-windows-for-dynamic-routes)
+- `configure_ai_gateway` — persists the AI Gateway URL (plain) and token (encrypted at rest, no-clobber on blank). [REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)
+- `configure_browser_rendering` — persists the admin Browser Rendering account id and token (encrypted at rest, no-clobber on blank). [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
+- `configure_strict_egress` — writes `setup:strict_egress` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
+- `configure_r2_sse` — writes `setup:r2_sse_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
+- `configure_downloads_disabled` — writes `setup:downloads_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable)
+- `configure_active_agents` — validates the selection against the gateway-capable coding agents (rejects empty or non-capable) and writes `setup:active_agents` as a JSON array. [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard)
 
 **Step 7 -- `finalize`**
 
@@ -516,6 +531,12 @@ In SaaS mode, returns empty arrays - admin enters everything manually.
 {"adminUsers": ["alice@example.com"], "allowedUsers": ["bob@example.com"]}
 ```
 
+Under `ENTERPRISE_MODE` the response additionally carries the stored enterprise configuration for wizard round-trip (Access groups, route catalog, masked token flags, toggles) plus `activeAgents` (the stored coding-agent selection, or every capable agent when absent/invalid) and `configurableAgents` (the governable universe: `copilot`, `pi`); both agent fields are omitted outside enterprise mode ([REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard)).
+
+```json
+{"adminUsers": ["alice@example.com"], "allowedUsers": [], "activeAgents": ["pi"], "configurableAgents": ["copilot", "pi"]}
+```
+
 #### Rate Limiting
 
 | Endpoint | Window | Max requests | Key prefix |
@@ -562,7 +583,11 @@ GET `/api/preferences`, PATCH `/api/preferences`
 
 `userTimezone` is validated by `Intl.DateTimeFormat` round-trip, persisted to DO storage, and forwarded to the container as `USER_TIMEZONE`; it takes effect on the next session start so memory-capture filenames reflect the user's local time. See [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) and [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC4.
 
-When `sessionMode` changes, `PATCH /api/preferences` seeds the correct preseed set for the new mode. Reconcile failure is non-fatal and does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4-AC5. `lastPreseedHash` supports release-upgrade detection; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release). Under enterprise mode, the response's `sessionMode` is always `'advanced'`, computed via `withEffectiveSessionMode` and never persisted by GET. `PATCH` additionally coerces the write path: a client-supplied `sessionMode` is stored as `'advanced'` regardless of what was sent (a stale client cannot persist a downgrade or trigger a default-mode reconcile of a live bucket), while an omitted `sessionMode` leaves the stored preference untouched. This keeps advanced-gated dashboard surfaces (browser IDE, Vault buttons) rendering for JIT-provisioned enterprise users. See [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2.
+When `sessionMode` changes, `PATCH /api/preferences` seeds the correct preseed set for the new mode. Reconcile failure is non-fatal and does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4-AC5. `lastPreseedHash` supports release-upgrade detection; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release).
+
+Under enterprise mode, the response's `sessionMode` is always `'advanced'`. GET computes that value through `withEffectiveSessionMode` without persisting it.
+
+`PATCH` also coerces a supplied `sessionMode` to stored `'advanced'`, so a stale client cannot persist a downgrade or reconcile a live bucket to default mode. Omitting `sessionMode` leaves the stored preference unchanged. This keeps advanced-gated Browser IDE and Vault controls visible for JIT-provisioned enterprise users. See [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2.
 
 ### LLM API Keys
 

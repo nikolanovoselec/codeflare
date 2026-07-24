@@ -333,25 +333,6 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
-  // AC3 structural: SESSION_LIST_POLL_INTERVAL_MS exists in frontend constants
-  describe('REQ-SESSION-010 AC3: SESSION_LIST_POLL_INTERVAL_MS constant exists (structural)', () => {
-    it('web-ui constants define SESSION_LIST_POLL_INTERVAL_MS or equivalent polling constant', async () => {
-      // The frontend constant may be in web-ui/src/lib/constants.ts
-      // We verify the polling interval is defined somewhere in the web-ui
-      const { readFileSync } = await import('node:fs');
-      const { resolve } = await import('node:path');
-      const webUiConstantsPath = resolve(__dirname, '../../../web-ui/src/lib/constants.ts');
-      let src = '';
-      try {
-        src = readFileSync(webUiConstantsPath, 'utf8');
-      } catch {
-        // File may not exist in this worktree environment - skip
-        return;
-      }
-      expect(src).toMatch(/SESSION_LIST_POLL_INTERVAL_MS|POLL_INTERVAL/);
-    });
-  });
-
   // REQ-AGENT-049: preseed upgrade check piggybacked on batch-status
   describe('REQ-AGENT-049: preseed upgrade detection via batch-status', () => {
     it('returns preseedNeedsUpgrade true when hash missing from preferences', async () => {

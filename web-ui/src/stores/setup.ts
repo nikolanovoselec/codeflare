@@ -75,6 +75,12 @@ interface SetupState {
   // Enterprise-only view-only-storage toggle. Default OFF; blocks file downloads in the
   // Storage panel (open/view only) to prevent bulk export of bucket contents.
   downloadsDisabled: boolean;
+  // REQ-ENTERPRISE-025: wizard-governed active coding agents. configurableAgents is
+  // the server-delivered governable universe (one checkbox each — a newly capable
+  // agent appears without a UI change); activeAgents is the current selection
+  // (min 1, enforced in toggleActiveAgent and by the backend schema).
+  activeAgents: string[];
+  configurableAgents: string[];
   // REQ-GITHUB-008: enterprise GitHub provider config. *ClientSecret holds only a
   // freshly-typed value (the stored secret is never returned); *ClientSecretSet
   // reflects whether one is already saved.
@@ -127,6 +133,8 @@ const initialState: SetupState = {
   strictGatewayEgress: false,
   r2SseDisabled: false,
   downloadsDisabled: false,
+  activeAgents: [],
+  configurableAgents: [],
   githubProviderType: 'app',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -392,6 +400,17 @@ function setR2SseDisabled(value: boolean): void {
 function setDownloadsDisabled(value: boolean): void {
   setState('downloadsDisabled', value);
 }
+// REQ-ENTERPRISE-025: toggle an active coding agent. Unchecking the last active
+// agent is a no-op (min-1 client-side; the backend schema also rejects an empty
+// list). Checking re-inserts in the server's canonical (configurableAgents) order.
+function toggleActiveAgent(agent: string): void {
+  const current = state.activeAgents;
+  if (current.includes(agent)) {
+    if (current.length > 1) setState('activeAgents', current.filter((a) => a !== agent));
+  } else {
+    setState('activeAgents', state.configurableAgents.filter((a) => a === agent || current.includes(a)));
+  }
+}
 
 function setCustomDomain(domain: string): void {
   setState({ customDomain: domain, customDomainError: null });
@@ -460,6 +479,9 @@ async function loadExistingConfig(): Promise<void> {
             s.strictGatewayEgress = prefill.strictGatewayEgress;
             s.r2SseDisabled = prefill.r2SseDisabled;
             s.downloadsDisabled = prefill.downloadsDisabled;
+            // REQ-ENTERPRISE-025: active coding agents + the governable universe.
+            s.activeAgents = prefill.activeAgents;
+            s.configurableAgents = prefill.configurableAgents;
             s.githubProviderType = prefill.githubProviderType ?? 'app';
             s.githubAppClientId = prefill.githubAppClientId;
             s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -537,6 +559,9 @@ async function loadExistingConfig(): Promise<void> {
         s.strictGatewayEgress = prefill.strictGatewayEgress;
         s.r2SseDisabled = prefill.r2SseDisabled;
         s.downloadsDisabled = prefill.downloadsDisabled;
+        // REQ-ENTERPRISE-025: active coding agents + the governable universe.
+        s.activeAgents = prefill.activeAgents;
+        s.configurableAgents = prefill.configurableAgents;
         s.githubProviderType = prefill.githubProviderType ?? 'app';
         s.githubAppClientId = prefill.githubAppClientId;
         s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -605,6 +630,10 @@ async function configure(): Promise<boolean> {
           r2SseDisabled: state.r2SseDisabled,
           // View-only-storage toggle.
           downloadsDisabled: state.downloadsDisabled,
+          // REQ-ENTERPRISE-025: active coding agents. Omitted while the prefill has
+          // not delivered a selection so an unrelated reconfigure cannot 400 on the
+          // backend's min-1 rule.
+          ...(state.activeAgents.length > 0 ? { activeAgents: state.activeAgents } : {}),
         } : {}),
       }),
     });
@@ -775,6 +804,8 @@ export const setupStore = {
   get strictGatewayEgress() { return state.strictGatewayEgress; },
   get r2SseDisabled() { return state.r2SseDisabled; },
   get downloadsDisabled() { return state.downloadsDisabled; },
+  get activeAgents() { return state.activeAgents; },
+  get configurableAgents() { return state.configurableAgents; },
   get githubProviderType() { return state.githubProviderType; },
   get githubAppClientId() { return state.githubAppClientId; },
   get githubAppClientSecret() { return state.githubAppClientSecret; },
@@ -812,6 +843,7 @@ export const setupStore = {
   setStrictGatewayEgress,
   setR2SseDisabled,
   setDownloadsDisabled,
+  toggleActiveAgent,
   setGithubProviderType,
   setGithubAppClientId,
   setGithubAppClientSecret,

@@ -326,6 +326,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-scope.ts',
       '.pi/agent/extensions/review-tool-guard.ts',
       '.pi/agent/extensions/sdd-helpers.ts',
+      '.pi/agent/extensions/sidebar-approval.ts',
       '.pi/agent/extensions/startup-header.ts',
       '.pi/agent/extensions/vault-manifest-fs.ts',
     ]);

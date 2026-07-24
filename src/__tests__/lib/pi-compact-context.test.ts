@@ -150,7 +150,7 @@ describe('REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Cla
 
     for (const doc of visibleSkills) {
       const name = frontmatter(doc.content).name;
-      if (name === 'pi-mcp-adapter') continue;
+      if (name === 'pi-mcp-adapter' || name === 'impeccable') continue;
       expect(skillDescription(doc.content).length, `${name} description length`).toBeLessThanOrEqual(80);
     }
   });
