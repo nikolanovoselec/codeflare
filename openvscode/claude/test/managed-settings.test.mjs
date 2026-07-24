@@ -2,45 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import {
-  PRE_TOOL_USE_HOOK_PATH,
-  PRE_TOOL_USE_TIMEOUT_SECONDS,
   buildManagedSettings,
   buildOpenVscodeSettings,
 } from "../managed-settings.mjs";
 
-test("REQ-IDE-007 AC2: native permission rules ask only for external and MCP actions", () => {
+test("REQ-IDE-007 AC2: Claude uses unrestricted mode without permission hooks", () => {
   const settings = buildManagedSettings();
 
-  assert.equal(settings.permissions.defaultMode, "default");
-  assert.deepEqual(settings.permissions.ask, [
-    "WebFetch",
-    "WebSearch",
-    "mcp__*",
-  ]);
-  assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
-  assert.equal(settings.permissions.disableAutoMode, "disable");
-});
-
-test("REQ-IDE-007 AC2: hook timeout and non-2 failures stay fail-open while native rules remain independent", () => {
-  const settings = buildManagedSettings();
-
-  assert.deepEqual(settings.hooks.PreToolUse, [
-    {
-      matcher: "",
-      hooks: [
-        {
-          type: "command",
-          command: "node /opt/codeflare/openvscode/claude/pre-tool-use-permission.mjs",
-          timeout: 5,
-        },
-      ],
-    },
-  ]);
-  assert.equal(PRE_TOOL_USE_HOOK_PATH, "/opt/codeflare/openvscode/claude/pre-tool-use-permission.mjs");
-  assert.equal(PRE_TOOL_USE_TIMEOUT_SECONDS, 5);
-  assert.equal(settings.permissions.defaultMode, "default");
-  assert.deepEqual(settings.permissions.ask, ["WebFetch", "WebSearch", "mcp__*"]);
-  assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
+  assert.deepEqual(settings.permissions, { defaultMode: "bypassPermissions" });
+  assert.equal(settings.hooks, undefined);
 });
 
 test("REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup", () => {
@@ -49,16 +19,16 @@ test("REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup", () => {
   assert.equal(settings["chat.disableAIFeatures"], true);
 });
 
-test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude with isolated config and guarded native UI", () => {
+test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude with isolated unrestricted UI", () => {
   assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"), {
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: "/tmp/codeflare-sidebar/claude/config" },
     ],
     "claudeCode.useTerminal": false,
-    "claudeCode.initialPermissionMode": "default",
+    "claudeCode.initialPermissionMode": "bypassPermissions",
     "claudeCode.disableLoginPrompt": true,
-    "claudeCode.allowDangerouslySkipPermissions": false,
+    "claudeCode.allowDangerouslySkipPermissions": true,
     "claudeCode.autosave": true,
     "claudeCode.preferredLocation": "sidebar",
     "claudeCode.hideOnboarding": true,
@@ -67,11 +37,10 @@ test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude wit
   assert.throws(() => buildOpenVscodeSettings("relative/config"), /absolute/i);
 });
 
-test("REQ-IDE-007 AC1+AC2: managed settings disable bypass, Remote Control, IDE auto-install, updates, and telemetry", () => {
+test("REQ-IDE-007 AC2: unrestricted mode keeps configuration isolation and telemetry controls", () => {
   const settings = buildManagedSettings();
 
-  assert.equal(settings.permissions.disableBypassPermissionsMode, "disable");
-  assert.equal(settings.permissions.disableAutoMode, "disable");
+  assert.deepEqual(settings.permissions, { defaultMode: "bypassPermissions" });
   assert.equal(settings.disableRemoteControl, true);
   assert.equal(settings.autoInstallIdeExtension, false);
   assert.deepEqual(settings.env, {

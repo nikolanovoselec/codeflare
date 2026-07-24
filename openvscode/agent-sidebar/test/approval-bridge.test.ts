@@ -44,7 +44,7 @@ class RecordingApprovalHost implements ApprovalHost {
   }
 }
 
-test('REQ-IDE-007 AC1: Pi approval resolves through extension-host manifest, diff, and confirmation authority', async () => {
+test('Pi approval bridge compatibility validates a manifest before confirmation', async () => {
   const host = new RecordingApprovalHost();
   host.approved = true;
   const bridge = new ApprovalBridge(host);
@@ -69,7 +69,7 @@ test('REQ-IDE-007 AC1: Pi approval resolves through extension-host manifest, dif
   });
 });
 
-test('REQ-IDE-007 AC2: rejected extension-host approval returns a correlated denial', async () => {
+test('Pi approval bridge compatibility returns a correlated denial', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);
 
@@ -89,7 +89,7 @@ test('REQ-IDE-007 AC2: rejected extension-host approval returns a correlated den
   assert.equal(host.events.at(-1), `confirm:${manifest.id}`);
 });
 
-test('REQ-IDE-007 AC2: substituted approval manifest content is rejected before preview or confirmation', async () => {
+test('Pi approval bridge compatibility rejects substituted manifest content', async () => {
   const host = new RecordingApprovalHost();
   host.manifestContent = JSON.stringify({ ...manifest, canonicalTarget: '/home/user/workspace/substituted.ts' });
   const bridge = new ApprovalBridge(host);
@@ -106,7 +106,7 @@ test('REQ-IDE-007 AC2: substituted approval manifest content is rejected before 
   assert.deepEqual(host.events, [`load:${manifest.id}`]);
 });
 
-test('REQ-IDE-007 AC2 + REQ-IDE-008 AC1: cancellation denies a pending approval and ignores its late modal answer', async () => {
+test('Pi approval bridge compatibility ignores a late modal answer after cancellation', async () => {
   let enterConfirmation = (): void => undefined;
   let resolveConfirmation = (_approved: boolean): void => undefined;
   const entered = new Promise<void>((resolve) => { enterConfirmation = resolve; });
@@ -157,7 +157,7 @@ test('Pi fire-and-forget notifications require no response and never enter appro
   assert.deepEqual(host.events, []);
 });
 
-test('REQ-IDE-007 AC2: malformed or non-confirm Pi UI requests fail closed before host UI', async () => {
+test('Pi approval bridge compatibility rejects malformed or unsupported UI requests', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);
 

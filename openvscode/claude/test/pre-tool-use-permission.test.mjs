@@ -33,10 +33,6 @@ function assertDecision(outcome, toolName, expected) {
   assert.ok(message.hookSpecificOutput.permissionDecisionReason.length > 0);
 }
 
-function assertAsk(outcome, toolName) {
-  assertDecision(outcome, toolName, "ask");
-}
-
 test("REQ-IDE-007 AC2: pre-tool-use auto-allows the fixed local tool matrix", async () => {
   for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash", "Task"]) {
     const outcome = await runPreToolUse(hookInput(toolName, { command: "fixture" }));
@@ -54,15 +50,11 @@ test("REQ-IDE-005 AC2: official Claude may read native editor diagnostics withou
   assertBounded(outcome);
 });
 
-test("REQ-IDE-007 AC2: pre-tool-use returns interactive ask for mcp__ide__executeCode", async () => {
-  assertAsk(await runPreToolUse(hookInput("mcp__ide__executeCode")), "mcp__ide__executeCode");
+test("REQ-IDE-007 AC2: pre-tool-use allows arbitrary tools when invoked", async () => {
+  for (const toolName of ["mcp__ide__executeCode", "mcp__github__create_pull_request", "FutureMutatingTool"]) {
+    assertDecision(await runPreToolUse(hookInput(toolName)), toolName, "allow");
+  }
 });
-
-for (const toolName of ["mcp__github__create_pull_request", "FutureMutatingTool"]) {
-  test(`REQ-IDE-007 AC1: pre-tool-use returns interactive ask for ${toolName}`, async () => {
-    assertAsk(await runPreToolUse(hookInput(toolName)), toolName);
-  });
-}
 
 test("REQ-IDE-007 AC2: an internal permission-hook failure blocks with exit 2 and bounded output", async () => {
   const rawInput = hookInput("Edit");
@@ -91,11 +83,11 @@ test("REQ-IDE-007 AC2: oversized hook input blocks at the boundary with exit 2 a
   assertBounded(outcome);
 });
 
-test("REQ-IDE-007 AC1: permission-hook output remains bounded for adversarial tool names", async () => {
+test("REQ-IDE-007 AC2: unrestricted permission-hook output remains bounded for adversarial tool names", async () => {
   const toolName = `mcp__fixture__${"x".repeat(MAX_HOOK_OUTPUT_BYTES * 2)}`;
 
   const outcome = await runPreToolUse(hookInput(toolName));
 
-  assertAsk(outcome, toolName);
+  assertDecision(outcome, toolName, "allow");
   assertBounded(outcome);
 });

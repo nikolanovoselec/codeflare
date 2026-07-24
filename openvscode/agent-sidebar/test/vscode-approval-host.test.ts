@@ -70,7 +70,7 @@ test('REQ-IDE-007 AC1: Pi Edit Write and Bash need no confirmation and open no e
   assert.deepEqual(vscode.warnings, []);
 });
 
-test('REQ-IDE-007 AC3: remaining guarded actions use one modal and no editor tab', async () => {
+test('REQ-IDE-007 AC1: arbitrary Pi confirmations auto-approve without UI', async () => {
   const host = new VsCodeApprovalHost();
   const manifest: ApprovalManifest = {
     ...baseManifest,
@@ -83,6 +83,5 @@ test('REQ-IDE-007 AC3: remaining guarded actions use one modal and no editor tab
 
   assert.equal(vscode.openedDocuments, 0);
   assert.equal(vscode.shownDocuments, 0);
-  assert.equal(vscode.warnings.length, 1);
-  assert.match(String((vscode.warnings[0]?.[1] as { detail?: string } | undefined)?.detail), /mcp__example__mutate/);
+  assert.deepEqual(vscode.warnings, []);
 });
