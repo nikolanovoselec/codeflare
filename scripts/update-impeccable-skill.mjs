@@ -6,6 +6,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const BUNDLE_URL = 'https://impeccable.style/api/download/bundle/universal';
+
+// Pi's compact skill catalog caps every model-visible description at 80 chars
+// (REQ-AGENT-095 AC3), and the seed emits the Pi copy byte-verbatim
+// (REQ-AGENT-006 AC1 / REQ-AGENT-007 AC4) — so the short catalog description is
+// applied here at mirror time, making the checked-in Pi copy the literal truth.
+// The Claude copy keeps upstream's full description; it has no catalog budget.
+const PI_CATALOG_DESCRIPTION = 'Design, redesign, critique, audit, or polish any frontend interface or UI.';
 const repoRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const tempRoot = mkdtempSync(join(tmpdir(), 'impeccable-skill-'));
 const bundlePath = join(tempRoot, 'bundle.zip');
@@ -30,6 +37,7 @@ try {
     rmSync(target.root, { recursive: true, force: true });
     cpSync(source, target.root, { recursive: true });
     rewriteFiles(target.root, target.runtimePath);
+    if (target.agent === 'pi') applyPiCatalogDescription(target.root);
     syncManifest(target.agent, target.root);
   }
 
@@ -54,6 +62,14 @@ function rewriteFiles(root, runtimePath) {
     }
     writeFileSync(file, text);
   }
+}
+
+function applyPiCatalogDescription(root) {
+  const skillPath = join(root, 'SKILL.md');
+  const text = readFileSync(skillPath, 'utf8');
+  const next = text.replace(/^description:\s*.+$/m, () => `description: ${PI_CATALOG_DESCRIPTION}`);
+  if (next === text) throw new Error('Pi Impeccable SKILL.md has no description frontmatter to rewrite');
+  writeFileSync(skillPath, next);
 }
 
 function syncManifest(agent, skillRoot) {

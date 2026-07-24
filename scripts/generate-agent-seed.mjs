@@ -86,9 +86,7 @@ const CLAUDE_ONLY_FILES = new Set(['rules/memory.md']);
 // detector bundle, so embedding it into codex/gemini/opencode would bloat the seed for
 // agents that won't use it. Pi gets a DEDICATED native copy (preseed/agents/pi/skills/
 // impeccable, paths re-pointed at ~/.pi/agent) emitted verbatim — no prose mangling of its
-// .mjs scripts — except the SKILL.md description, which the compact-catalog budget caps at
-// 80 chars via PI_SKILL_DESCRIPTION_OVERRIDES. So impeccable reaches exactly Claude (this
-// tree) + Pi (native), nothing else.
+// .mjs scripts. So impeccable reaches exactly Claude (this tree) + Pi (native), nothing else.
 const CLAUDE_ONLY_SKILLS = new Set(['consult-llm', 'impeccable']);
 
 // Pi hides only deterministic internals that are loaded by a named command,
@@ -110,7 +108,6 @@ const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
   ['durable-objects', 'Build Cloudflare Durable Objects with RPC, SQLite, alarms, and WebSockets.'],
   ['emil-design-eng', "Apply Emil Kowalski's UI polish, component, interaction, and animation."],
   ['frontend-patterns', 'Apply React and Next.js patterns for state, performance, and architecture.'],
-  ['impeccable', 'Design, redesign, critique, audit, or polish any frontend interface or UI.'],
   ['iterative-retrieval', 'Refine retrieval iteratively to give a subagent only the context it needs.'],
   ['sandbox-sdk', 'Build secure code execution and CI environments with Cloudflare Sandbox SDK.'],
   ['search-first', 'Research existing libraries and patterns before coding a custom solution.'],
@@ -734,13 +731,6 @@ async function generate() {
         throw new Error(`Pi manifest references "${withinPi}" but file does not exist`);
       }
       content = expandPiSkillIncludes(content, withinPi, piSkillContents);
-      // Pi-native skills are emitted verbatim, but their catalog descriptions still
-      // count against the 80-char compact budget (pi-compact-context tests). Only
-      // override-listed skills are rewritten so exempt ones (pi-mcp-adapter) stay intact.
-      const nativeSkillName = withinPi.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1];
-      if (nativeSkillName && PI_SKILL_DESCRIPTION_OVERRIDES.has(nativeSkillName)) {
-        content = compactPiSkillDescription(content, nativeSkillName);
-      }
       if (withinPi.startsWith('rules/')) {
         piNativeRuleFiles.push({ withinClaude: withinPi, content, modes: entry.modes, category: 'rule' });
       }

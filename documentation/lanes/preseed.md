@@ -173,9 +173,10 @@ verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation.
 
 The one exception is the `SKILL.md` frontmatter `description` field: Pi's
 compact-catalog budget caps every model-visible skill description at 80 characters,
-so the generator rewrites impeccable's native Pi copy with a short override from
-`PI_SKILL_DESCRIPTION_OVERRIDES` (`scripts/generate-agent-seed.mjs`) while the
-`.mjs` detector scripts and skill body remain untouched.
+so the mirror script (`scripts/update-impeccable-skill.mjs`) rewrites the Pi copy's
+description to a short Codeflare-authored one at refresh time. The checked-in Pi
+copy stays byte-identical to what the seed emits, and the `.mjs` detector scripts
+and skill body remain untouched.
 The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
 checks `impeccable.style`, refreshes both agent copies, updates both manifests,
 and regenerates the seed.
