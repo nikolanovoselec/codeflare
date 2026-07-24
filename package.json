@@ -45,7 +45,7 @@
     "@types/node": "^26.1.1",
     "@vitest/coverage-istanbul": "4.1.10",
     "esbuild": "0.28.1",
-    "fast-check": "^4.8.0",
+    "fast-check": "^4.9.0",
     "knip": "^6.17.1",
     "oxlint": "^1.74.0",
     "typebox": "1.2.16",
