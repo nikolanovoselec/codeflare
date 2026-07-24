@@ -14,7 +14,8 @@
  * AC2. Enterprise: each active agent (all capable agents when nothing is stored; the KV subset + bash otherwise) is accepted 201, and a KV-deactivated coding agent is rejected 400.
  * AC3. Enterprise: an omitted agentType is stamped with the first active coding agent.
  * AC5. An absent/malformed/incapable stored selection resolves to the full enterprise set.
- * AC6. flag-off regression: all seven agents are accepted 201 and nothing is stamped.
+ * AC6. flag-off regression: all seven agents are accepted 201.
+ * AC7. flag-off regression: the stored selection is ignored and nothing is stamped.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
@@ -203,7 +204,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(claudeRes.status).toBe(400);
     });
 
-    it('AC6: the KV selection is ignored outside enterprise mode', async () => {
+    it('AC7: the KV selection is ignored outside enterprise mode', async () => {
       mockKV._set('setup:active_agents', ['pi']);
       const app = createApp();
       const res = await app.request('/sessions', {
@@ -214,7 +215,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(res.status).toBe(201);
     });
 
-    it('AC6: an omitted agentType is not stamped outside enterprise mode', async () => {
+    it('AC7: an omitted agentType is not stamped outside enterprise mode', async () => {
       const app = createApp();
       const res = await app.request('/sessions', {
         method: 'POST',
