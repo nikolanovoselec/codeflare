@@ -482,7 +482,7 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
     });
   });
 
-  describe('active coding agents prefill (REQ-ENTERPRISE-003)', () => {
+  describe('active coding agents prefill (REQ-ENTERPRISE-025)', () => {
     it('GET /prefill surfaces the stored selection plus the governable universe', async () => {
       mockKV._store.set('setup:active_agents', '["pi"]');
       const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);

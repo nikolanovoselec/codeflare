@@ -101,31 +101,30 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-003: Agent Allowlist in Enterprise Mode
 
-**Intent:** Enterprise deployments standardize on a curated agent set. The gateway-capable universe is fixed, and within it the admin chooses from the Setup wizard which coding agents users can select when starting a new session (minimum one).
+**Intent:** Enterprise deployments standardize on a curated agent set: session creation and the session-start UI enforce the admin-selected active agents ([REQ-ENTERPRISE-025](#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard)) within a fixed gateway-capable universe.
 
-**Applies To:** User, Admin
+**Applies To:** User
 
 **Acceptance Criteria:**
 
 1. When `ENTERPRISE_MODE` is set, the selectable universe is capped at the enterprise-capable set `{copilot, pi, bash}`; session creation rejects any agent type outside it. <!-- @impl: src/lib/agent-allowlist.ts::ENTERPRISE_AGENTS --> <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC1: agentType '%s' is rejected 400 when ENTERPRISE_MODE=active) -->
 2. The wizard-selected active agents gate the selectable set: session creation and `lastAgentType` preference writes reject a deactivated coding agent, while active agents and the always-on `bash` stay accepted. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC2: a KV-deactivated coding agent is rejected 400) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-003): a KV-deactivated lastAgentType is rejected 400 under enterprise) -->
-3. The admin's selection persists through its own `configure_active_agents` setup step to KV `setup:active_agents`, round-trips on the wizard prefill together with the governable universe, and the configure endpoint rejects an empty or non-capable selection. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-003: persists the active-agent selection as JSON with its own step) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (active coding agents prefill (REQ-ENTERPRISE-003)) -->
-4. A session created without an explicit `agentType` is stamped with the first active coding agent, so the container's `claude-code` fallback never applies in enterprise mode. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC4: an omitted agentType is stamped with the first active coding agent) -->
-5. The session-creation UI offers exactly the active agents delivered by `GET /api/user`, and the wizard blocks unchecking the last active agent (minimum one). <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @impl: web-ui/src/stores/setup.ts::toggleActiveAgent --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only the wizard-activated agents delivered by /api/user) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (toggling removes an active agent but never the last one) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (enterprise: allowedAgents reflects the wizard-selected active agents plus bash) -->
-6. An absent, malformed, or capable-agent-free stored selection resolves to the full enterprise-capable set, preserving pre-feature behavior for existing deployments. <!-- @impl: src/lib/agent-allowlist.ts::readActiveAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC6: a malformed stored selection resolves to the full enterprise set) -->
-7. When `ENTERPRISE_MODE` is unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable and the stored selection is ignored, byte-identical to current behavior. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC7: the KV selection is ignored outside enterprise mode) -->
+3. A session created without an explicit `agentType` is stamped with the first active coding agent, so the container's `claude-code` fallback never applies in enterprise mode. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC3: an omitted agentType is stamped with the first active coding agent) -->
+4. The session-creation UI offers exactly the active agents delivered by `GET /api/user`. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only the wizard-activated agents delivered by /api/user) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (enterprise: allowedAgents reflects the wizard-selected active agents plus bash) -->
+5. An absent, malformed, or capable-agent-free stored selection resolves to the full enterprise-capable set, preserving pre-feature behavior for existing deployments. <!-- @impl: src/lib/agent-allowlist.ts::readActiveAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC5: a malformed stored selection resolves to the full enterprise set) -->
+6. When `ENTERPRISE_MODE` is unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable and the stored selection is ignored, byte-identical to current behavior. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC6: the KV selection is ignored outside enterprise mode) -->
 
 **Constraints:**
 
-- The wizard narrows the enterprise-capable universe; it can never widen it. Only OpenAI-wire-format agents plus `bash` are capable — their traffic uses the AI Gateway REST API ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)); Claude Code stays excluded because its Anthropic-native wire format is unsupported ([AD74](../../documentation/decisions/README.md)).
-- `bash` is not wizard-governable: tabs 2-6 are plain bash in every session, so deactivating it would remove nothing. It stays always selectable.
+- The wizard-configured selection narrows the enterprise-capable universe; it can never widen it.
+- Only OpenAI-wire-format agents plus `bash` are capable, per [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway); Claude Code stays excluded ([AD74](../../documentation/decisions/README.md)).
+- `bash` is always selectable (it needs no LLM).
 - Existing sessions are grandfathered: deactivating an agent gates new-session creation only; container start does not re-check a stored `agentType`.
 - This is selection-level standardization, not a container boundary: a deactivated agent's CLI remains installed and manually invocable from a bash tab.
-- Adding a future gateway-capable agent means extending `ENTERPRISE_AGENTS` in `src/lib/agent-allowlist.ts`; the wizard universe, validation, and resolution all derive from it.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](agents.md#req-agent-002-agent-selection-at-session-creation)
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-025](#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](agents.md#req-agent-002-agent-selection-at-session-creation)
 
 **Verification:** [Automated test](../../src/__tests__/routes/session-agent-allowlist.test.ts)
 
@@ -763,5 +762,34 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-013](security.md#req-sec-013-content-disposition-hardening-on-downloads)
 
 **Verification:** [download guard + isInlineViewable](../../src/__tests__/routes/storage-download.test.ts) (AC2, AC4), [setup persistence](../../src/__tests__/routes/setup.test.ts) + [prefill](../../src/__tests__/routes/setup/handlers.test.ts) (AC1, AC1a), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts) + [wizard toggle](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC1), [view-only download guard + downloads-enabled baseline](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx) (AC3, AC4), [downloadFile server-truth backstop](../../web-ui/src/__tests__/lib/download.test.ts) (AC3), [blocked preview control](../../web-ui/src/__tests__/components/FilePreview.test.tsx) + [disabled notice](../../web-ui/src/__tests__/components/DownloadsDisabledPopup.test.tsx) + [notice store flag](../../web-ui/src/__tests__/stores/storage.test.ts) + [response-schema field survival](../../web-ui/src/__tests__/api/contract.test.ts) (AC3).
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-025: Active Coding Agents Configured in the Setup Wizard
+
+**Intent:** An enterprise admin selects in the Setup wizard which gateway-capable coding agents users may pick at session creation (minimum one), persisted in KV with no redeploy; an absent configuration keeps every capable agent active.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The wizard's Coding Agents offering and pre-checked selection derive from the setup prefill: the stored selection when present, every capable agent otherwise. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (hydrates the selection and the governable universe from the enterprise prefill) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill defaults to every governable agent when nothing is stored) -->
+2. The admin's selection persists through its own `configure_active_agents` setup step to KV `setup:active_agents` and round-trips on the wizard prefill together with the governable universe. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-025: persists the active-agent selection as JSON with its own step) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill surfaces the stored selection plus the governable universe) -->
+3. The configure endpoint rejects an empty or non-capable agent selection. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-025: rejects an empty active-agent selection with 400) -->
+4. The wizard blocks unchecking the last active agent (minimum one). <!-- @impl: web-ui/src/stores/setup.ts::toggleActiveAgent --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (toggling removes an active agent but never the last one) -->
+5. A reconfigure that omits the field leaves the stored selection untouched, and non-enterprise setups never write it. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-025: never writes the selection when the field is absent) -->
+
+**Constraints:**
+
+- The selectable universe is capped by gateway routability ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)); the capable set can only grow via a deploy-time change, and the wizard can never add an agent beyond it.
+- `bash` is not wizard-governable — tabs 2-6 are plain bash in every session, so deactivating it would remove nothing.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** [Setup persistence + validation](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [wizard store](../../web-ui/src/__tests__/stores/setup.test.ts)
 
 **Status:** Implemented

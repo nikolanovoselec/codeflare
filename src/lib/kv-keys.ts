@@ -326,7 +326,7 @@ export const SETUP_KEYS = {
   // user cannot bulk-exfiltrate the bucket (e.g. zip the repo and download it). Stored as
   // 'active' / 'inactive' (read === 'active'); default OFF when absent; enterprise-gated.
   DOWNLOADS_DISABLED: 'setup:downloads_disabled',
-  // REQ-ENTERPRISE-003: wizard-selected active coding agents (JSON AgentType[], a
+  // REQ-ENTERPRISE-025: wizard-selected active coding agents (JSON AgentType[], a
   // subset of CONFIGURABLE_ENTERPRISE_AGENTS, min 1). Gates which agents users can
   // pick at session creation; `bash` is always selectable and never stored here.
   // Absent/malformed ⇒ every enterprise-capable agent stays active (pre-feature

@@ -94,14 +94,14 @@ app.get('/', async (c) => {
 app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
 
-  const body = await parseJsonBody(c, UpdatePreferencesBody);
+  const parsedBody = await parseJsonBody(c, UpdatePreferencesBody);
 
   // REQ-ENTERPRISE-001 AC2: enterprise never honors a client-supplied session-mode
   // downgrade — the write path is coerced to Pro so a stale client cannot regress
   // the stored value or trigger a default-mode reconcile of a live bucket.
-  if (body.sessionMode && isEnterpriseMode(c.env)) {
-    body.sessionMode = 'advanced';
-  }
+  const body = parsedBody.sessionMode && isEnterpriseMode(c.env)
+    ? { ...parsedBody, sessionMode: 'advanced' as const }
+    : parsedBody;
 
   // Enterprise deploys restrict the selectable agent set to the wizard-chosen
   // active agents (REQ-ENTERPRISE-003). Outside enterprise mode allowedAgents()

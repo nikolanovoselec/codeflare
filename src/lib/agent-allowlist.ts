@@ -4,7 +4,7 @@
  * Enterprise deploys restrict the selectable agent set to those whose LLM
  * traffic can be routed through the customer's AI Gateway with zero manual
  * login (REQ-ENTERPRISE-003). Within that gateway-routable universe the admin
- * narrows the offering from the Setup wizard (KV `setup:active_agents`);
+ * narrows the offering from the Setup wizard (KV `setup:active_agents`, REQ-ENTERPRISE-025);
  * `bash` needs no LLM and is always selectable. Outside enterprise mode, all
  * agents defined by {@link AgentTypeSchema} remain available — this is a
  * runtime filter, NOT an enum change.
@@ -29,7 +29,7 @@ const ENTERPRISE_AGENTS = ['copilot', 'pi', 'bash'] as const satisfies readonly 
 export const CONFIGURABLE_ENTERPRISE_AGENTS: readonly AgentType[] = ENTERPRISE_AGENTS.filter((a) => a !== 'bash');
 
 /**
- * Read + sanitize the wizard-selected active coding agents (REQ-ENTERPRISE-003).
+ * Read + sanitize the wizard-selected active coding agents (REQ-ENTERPRISE-025).
  * Canonical {@link CONFIGURABLE_ENTERPRISE_AGENTS} order is preserved regardless
  * of stored order. Returns null when the key is absent, malformed, or holds no
  * configurable agent — callers fall back to the full enterprise set so

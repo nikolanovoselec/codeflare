@@ -297,7 +297,7 @@ const ConfigureStep: Component = () => {
           </Show>
         </SetupSection>
 
-        {/* Coding Agents (enterprise-only). REQ-ENTERPRISE-003: the wizard-governed
+        {/* Coding Agents (enterprise-only). REQ-ENTERPRISE-025: the wizard-governed
             active agent set. One checkbox per gateway-capable coding agent — the
             universe comes from the prefill, so a newly capable agent appears without
             a UI change. At least one must stay active; Bash is always available. */}

@@ -12,9 +12,9 @@
  *
  * AC1. Enterprise: an agentType outside the capable universe (claude-code/codex/antigravity/opencode) is rejected 400.
  * AC2. Enterprise: each active agent (all capable agents when nothing is stored; the KV subset + bash otherwise) is accepted 201, and a KV-deactivated coding agent is rejected 400.
- * AC4. Enterprise: an omitted agentType is stamped with the first active coding agent.
- * AC6. An absent/malformed/incapable stored selection resolves to the full enterprise set.
- * AC7. flag-off regression: all seven agents are accepted 201 and nothing is stamped.
+ * AC3. Enterprise: an omitted agentType is stamped with the first active coding agent.
+ * AC5. An absent/malformed/incapable stored selection resolves to the full enterprise set.
+ * AC6. flag-off regression: all seven agents are accepted 201 and nothing is stamped.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
@@ -106,7 +106,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
     expect(res.status).toBe(201);
   });
 
-  // ── AC7: flag-off regression — all seven accepted ──
+  // ── AC6: flag-off regression — all seven accepted ──
   it.each(['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'])(
     "flag-off: agentType '%s' is accepted 201 when ENTERPRISE_MODE unset",
     async (agentType) => {
@@ -149,7 +149,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       },
     );
 
-    it('AC4: an omitted agentType is stamped with the first active coding agent', async () => {
+    it('AC3: an omitted agentType is stamped with the first active coding agent', async () => {
       mockKV._set('setup:active_agents', ['pi']);
       const app = createApp({ ENTERPRISE_MODE: 'active' });
       const res = await app.request('/sessions', {
@@ -162,7 +162,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(body.session.agentType).toBe('pi');
     });
 
-    it('AC4: an omitted agentType is stamped with the first capable agent when nothing is stored', async () => {
+    it('AC3: an omitted agentType is stamped with the first capable agent when nothing is stored', async () => {
       const app = createApp({ ENTERPRISE_MODE: 'active' });
       const res = await app.request('/sessions', {
         method: 'POST',
@@ -174,7 +174,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(body.session.agentType).toBe('copilot');
     });
 
-    it('AC6: a malformed stored selection resolves to the full enterprise set', async () => {
+    it('AC5: a malformed stored selection resolves to the full enterprise set', async () => {
       mockKV._store.set('setup:active_agents', 'not-json');
       const app = createApp({ ENTERPRISE_MODE: 'active' });
       const res = await app.request('/sessions', {
@@ -185,7 +185,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(res.status).toBe(201);
     });
 
-    it('AC6: a stored selection with no capable agent resolves to the full enterprise set', async () => {
+    it('AC5: a stored selection with no capable agent resolves to the full enterprise set', async () => {
       mockKV._set('setup:active_agents', ['claude-code']);
       const app = createApp({ ENTERPRISE_MODE: 'active' });
       const copilotRes = await app.request('/sessions', {
@@ -203,7 +203,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(claudeRes.status).toBe(400);
     });
 
-    it('AC7: the KV selection is ignored outside enterprise mode', async () => {
+    it('AC6: the KV selection is ignored outside enterprise mode', async () => {
       mockKV._set('setup:active_agents', ['pi']);
       const app = createApp();
       const res = await app.request('/sessions', {
@@ -214,7 +214,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(res.status).toBe(201);
     });
 
-    it('AC7: an omitted agentType is not stamped outside enterprise mode', async () => {
+    it('AC6: an omitted agentType is not stamped outside enterprise mode', async () => {
       const app = createApp();
       const res = await app.request('/sessions', {
         method: 'POST',

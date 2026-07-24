@@ -181,7 +181,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     const r2SseDisabled = (await c.env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active';
     // View-only storage toggle (default OFF on absent).
     const downloadsDisabled = (await c.env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active';
-    // REQ-ENTERPRISE-003: surface the active coding agents + the governable universe
+    // REQ-ENTERPRISE-025: surface the active coding agents + the governable universe
     // so the wizard renders one checkbox per capable agent and prefills the stored
     // selection (absent/invalid ⇒ all active, the pre-feature default).
     const activeAgents = (await readActiveAgents(c.env.KV)) ?? CONFIGURABLE_ENTERPRISE_AGENTS;

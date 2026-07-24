@@ -234,7 +234,7 @@ export const SetupPrefillResponseSchema = z.object({
   r2SseDisabled: z.boolean().default(false),
   // View-only-storage toggle (default OFF on absent).
   downloadsDisabled: z.boolean().default(false),
-  // REQ-ENTERPRISE-003: active coding agents + the wizard-governable universe
+  // REQ-ENTERPRISE-025: active coding agents + the wizard-governable universe
   // (absent for non-enterprise / older workers; default [] hides the section).
   activeAgents: z.array(AgentTypeSchema).default([]),
   configurableAgents: z.array(AgentTypeSchema).default([]),

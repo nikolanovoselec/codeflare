@@ -649,7 +649,7 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
     });
   });
 
-  describe('active coding agents (REQ-ENTERPRISE-003)', () => {
+  describe('active coding agents (REQ-ENTERPRISE-025)', () => {
     function mockEnterprisePrefill(prefillExtra: Record<string, unknown>) {
       mockFetch.mockImplementation((url: string) => {
         if (url === '/api/setup/status') {

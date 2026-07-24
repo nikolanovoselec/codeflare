@@ -126,7 +126,7 @@ const ConfigureBodySchema = z.object({
   // (default OFF); blocks file downloads in the R2 Storage Panel (open/view only).
   // Absent for non-enterprise setups.
   downloadsDisabled: z.boolean().optional(),
-  // REQ-ENTERPRISE-003 (enterprise-only): the wizard-selected active coding agents.
+  // REQ-ENTERPRISE-025 (enterprise-only): the wizard-selected active coding agents.
   // Subset of CONFIGURABLE_ENTERPRISE_AGENTS, min 1 — the selectable universe is
   // capped by gateway routability (AD74), so this narrows, never widens. `bash` is
   // always selectable and never sent. Absent for non-enterprise setups.
@@ -527,7 +527,7 @@ app.post('/configure', async (c) => {
           });
         }
 
-        // REQ-ENTERPRISE-003: the wizard-selected active coding agents. Stored as a
+        // REQ-ENTERPRISE-025: the wizard-selected active coding agents. Stored as a
         // JSON array (readActiveAgents restores canonical order on read); the schema
         // already enforced non-empty + enterprise-capable entries. Absent ⇒ untouched.
         if (activeAgents !== undefined) {

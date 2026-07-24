@@ -1050,8 +1050,8 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:downloads_disabled', expect.anything());
       });
 
-      // ─── Active coding agents (REQ-ENTERPRISE-003) ────────────────────────────
-      it('REQ-ENTERPRISE-003: persists the active-agent selection as JSON with its own step', async () => {
+      // ─── Active coding agents (REQ-ENTERPRISE-025) ────────────────────────────
+      it('REQ-ENTERPRISE-025: persists the active-agent selection as JSON with its own step', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
 
@@ -1067,7 +1067,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_active_agents', status: 'success' }));
       });
 
-      it('REQ-ENTERPRISE-003: rejects an empty active-agent selection with 400', async () => {
+      it('REQ-ENTERPRISE-025: rejects an empty active-agent selection with 400', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
 
@@ -1081,7 +1081,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
       });
 
-      it('REQ-ENTERPRISE-003: rejects a selection containing a non-capable agent with 400', async () => {
+      it('REQ-ENTERPRISE-025: rejects a selection containing a non-capable agent with 400', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
 
@@ -1095,7 +1095,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
       });
 
-      it('REQ-ENTERPRISE-003: never writes the selection when the field is absent', async () => {
+      it('REQ-ENTERPRISE-025: never writes the selection when the field is absent', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
 
@@ -1110,7 +1110,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
       });
 
-      it('REQ-ENTERPRISE-003: never writes the selection in non-enterprise mode (regression)', async () => {
+      it('REQ-ENTERPRISE-025: never writes the selection in non-enterprise mode (regression)', async () => {
         const app = createTestApp();
         mockFullSuccessFlow();
 

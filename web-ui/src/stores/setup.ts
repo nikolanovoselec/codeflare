@@ -75,7 +75,7 @@ interface SetupState {
   // Enterprise-only view-only-storage toggle. Default OFF; blocks file downloads in the
   // Storage panel (open/view only) to prevent bulk export of bucket contents.
   downloadsDisabled: boolean;
-  // REQ-ENTERPRISE-003: wizard-governed active coding agents. configurableAgents is
+  // REQ-ENTERPRISE-025: wizard-governed active coding agents. configurableAgents is
   // the server-delivered governable universe (one checkbox each — a newly capable
   // agent appears without a UI change); activeAgents is the current selection
   // (min 1, enforced in toggleActiveAgent and by the backend schema).
@@ -400,7 +400,7 @@ function setR2SseDisabled(value: boolean): void {
 function setDownloadsDisabled(value: boolean): void {
   setState('downloadsDisabled', value);
 }
-// REQ-ENTERPRISE-003: toggle an active coding agent. Unchecking the last active
+// REQ-ENTERPRISE-025: toggle an active coding agent. Unchecking the last active
 // agent is a no-op (min-1 client-side; the backend schema also rejects an empty
 // list). Checking re-inserts in the server's canonical (configurableAgents) order.
 function toggleActiveAgent(agent: string): void {
@@ -479,7 +479,7 @@ async function loadExistingConfig(): Promise<void> {
             s.strictGatewayEgress = prefill.strictGatewayEgress;
             s.r2SseDisabled = prefill.r2SseDisabled;
             s.downloadsDisabled = prefill.downloadsDisabled;
-            // REQ-ENTERPRISE-003: active coding agents + the governable universe.
+            // REQ-ENTERPRISE-025: active coding agents + the governable universe.
             s.activeAgents = prefill.activeAgents;
             s.configurableAgents = prefill.configurableAgents;
             s.githubProviderType = prefill.githubProviderType ?? 'app';
@@ -559,7 +559,7 @@ async function loadExistingConfig(): Promise<void> {
         s.strictGatewayEgress = prefill.strictGatewayEgress;
         s.r2SseDisabled = prefill.r2SseDisabled;
         s.downloadsDisabled = prefill.downloadsDisabled;
-        // REQ-ENTERPRISE-003: active coding agents + the governable universe.
+        // REQ-ENTERPRISE-025: active coding agents + the governable universe.
         s.activeAgents = prefill.activeAgents;
         s.configurableAgents = prefill.configurableAgents;
         s.githubProviderType = prefill.githubProviderType ?? 'app';
@@ -630,7 +630,7 @@ async function configure(): Promise<boolean> {
           r2SseDisabled: state.r2SseDisabled,
           // View-only-storage toggle.
           downloadsDisabled: state.downloadsDisabled,
-          // REQ-ENTERPRISE-003: active coding agents. Omitted while the prefill has
+          // REQ-ENTERPRISE-025: active coding agents. Omitted while the prefill has
           // not delivered a selection so an unrelated reconfigure cannot 400 on the
           // backend's min-1 rule.
           ...(state.activeAgents.length > 0 ? { activeAgents: state.activeAgents } : {}),
