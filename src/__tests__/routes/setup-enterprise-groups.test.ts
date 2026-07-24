@@ -1067,6 +1067,21 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_active_agents', status: 'success' }));
       });
 
+      it('REQ-ENTERPRISE-025: canonicalizes the stored selection (deduped, catalog order)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ activeAgents: ['pi', 'pi', 'copilot'] })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:active_agents', '["copilot","pi"]');
+      });
+
       it('REQ-ENTERPRISE-025: rejects an empty active-agent selection with 400', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();

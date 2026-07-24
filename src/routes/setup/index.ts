@@ -527,12 +527,14 @@ app.post('/configure', async (c) => {
           });
         }
 
-        // REQ-ENTERPRISE-025: the wizard-selected active coding agents. Stored as a
-        // JSON array (readActiveAgents restores canonical order on read); the schema
+        // REQ-ENTERPRISE-025: the wizard-selected active coding agents. Canonicalized
+        // before write (deduped, CONFIGURABLE_ENTERPRISE_AGENTS order) so the stored
+        // value always round-trips byte-identical through readActiveAgents; the schema
         // already enforced non-empty + enterprise-capable entries. Absent ⇒ untouched.
         if (activeAgents !== undefined) {
           await runStep('configure_active_agents', async () => {
-            await c.env.KV.put(SETUP_KEYS.ACTIVE_AGENTS, JSON.stringify(activeAgents));
+            const canonical = CONFIGURABLE_ENTERPRISE_AGENTS.filter((a) => activeAgents.includes(a));
+            await c.env.KV.put(SETUP_KEYS.ACTIVE_AGENTS, JSON.stringify(canonical));
           });
         }
       }
