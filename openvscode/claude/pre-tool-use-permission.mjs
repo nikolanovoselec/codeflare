@@ -25,7 +25,7 @@ export function evaluatePreToolUse(input) {
   }
   const permissionDecision = ALLOWED_TOOLS.has(input.tool_name) ? "allow" : "ask";
   const permissionDecisionReason = permissionDecision === "allow"
-    ? "Routine local IDE operation."
+    ? "Fixed auto-allowed IDE tool."
     : "Interactive approval is required in the Claude sidebar.";
   return {
     hookSpecificOutput: {

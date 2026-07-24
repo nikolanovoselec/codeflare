@@ -40,7 +40,7 @@ afterEach(() => {
   vscode.warnings = [];
 });
 
-test('REQ-IDE-007 AC1: routine local actions need no confirmation and open no editor tabs', async () => {
+test('REQ-IDE-007 AC1: Pi Edit Write and Bash need no confirmation and open no editor tabs', async () => {
   const host = new VsCodeApprovalHost();
   const manifests: ApprovalManifest[] = [
     {

@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-24
 
-- **Browser IDE agents no longer interrupt routine local actions or create approval tabs** ([REQ-IDE-007](browser-ide.md#req-ide-007-ide-guarded-approval), Implemented). Pi keeps its existing provenance, workspace, stale-content, and manifest checks while auto-confirming Edit, Write, and Bash without opening editor documents; Claude auto-allows its routine local built-ins, while external, unknown, MCP, and Jupyter execution actions still ask.
+- **Browser IDE agents no longer interrupt fixed built-in actions or create approval tabs** ([REQ-IDE-007](browser-ide.md#req-ide-007-ide-guarded-approval), Implemented). Pi keeps its existing provenance, workspace, stale-content, and manifest checks while auto-confirming Edit, Write, and Bash without opening editor documents. Claude auto-allows Edit, Write, NotebookEdit, Bash, and Task by tool name; WebFetch, WebSearch, unknown tools, Jupyter execution, and non-diagnostic MCP actions still ask.
 
 ## 2026-07-23
 

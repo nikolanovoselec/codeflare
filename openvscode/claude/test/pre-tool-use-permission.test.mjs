@@ -37,13 +37,13 @@ function assertAsk(outcome, toolName) {
   assertDecision(outcome, toolName, "ask");
 }
 
-for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash", "Task"]) {
-  test(`REQ-IDE-007 AC2: pre-tool-use auto-allows routine local ${toolName}`, async () => {
+test("REQ-IDE-007 AC2: pre-tool-use auto-allows the fixed local tool matrix", async () => {
+  for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash", "Task"]) {
     const outcome = await runPreToolUse(hookInput(toolName, { command: "fixture" }));
 
     assertDecision(outcome, toolName, "allow");
-  });
-}
+  }
+});
 
 test("REQ-IDE-005 AC2: official Claude may read native editor diagnostics without an approval round trip", async () => {
   const outcome = await runPreToolUse(hookInput("mcp__ide__getDiagnostics", { uri: "file:///home/user/workspace/example.ts" }));
