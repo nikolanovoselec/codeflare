@@ -998,8 +998,8 @@ jobs:
           [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
           docker exec "$container" /usr/local/bin/node -e '
             const settings = require("/tmp/openvscode-claude-smoke-data/data/User/settings.json");
-            if (settings["claudeCode.initialPermissionMode"] !== "default" ||
-                settings["claudeCode.allowDangerouslySkipPermissions"] !== false ||
+            if (settings["claudeCode.initialPermissionMode"] !== "bypassPermissions" ||
+                settings["claudeCode.allowDangerouslySkipPermissions"] !== true ||
                 settings["claudeCode.environmentVariables"]?.[0]?.value !== "/tmp/codeflare-sidebar/claude/config") process.exit(1);
           '
           sleep 3
