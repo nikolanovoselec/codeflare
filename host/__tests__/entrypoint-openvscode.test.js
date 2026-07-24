@@ -225,7 +225,7 @@ _openvscode_launch_once`;
     assert.equal(readFileSync(prepared, 'utf8'), `claude|${dataDir}\n`);
   });
 
-  it('REQ-IDE-007 AC2: Claude preparation failure prevents OpenVSCode launch', () => {
+  it('REQ-IDE-007 AC3: Claude preparation failure prevents OpenVSCode launch', () => {
     const stub = writeStub(dir, argsFile);
     const script = `${openvscodeLaunchScript({ stubClaudePreparation: false })}
 _openvscode_prepare_claude() { return 37; }

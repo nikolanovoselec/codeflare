@@ -137,7 +137,7 @@ test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: official Claude launch writes isolated 
   assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
 });
 
-test("REQ-IDE-007 AC2: official Claude restart restores unrestricted managed settings", async () => {
+test("REQ-IDE-007 AC3: official Claude restart restores unrestricted managed settings", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const settingsPath = join(serverDataRoot, "data", "User", "settings.json");

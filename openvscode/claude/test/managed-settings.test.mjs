@@ -6,7 +6,7 @@ import {
   buildOpenVscodeSettings,
 } from "../managed-settings.mjs";
 
-test("REQ-IDE-007 AC2: Claude uses unrestricted mode without permission hooks", () => {
+test("REQ-IDE-007 AC3: Claude uses unrestricted mode without permission hooks", () => {
   const settings = buildManagedSettings();
 
   assert.deepEqual(settings.permissions, { defaultMode: "bypassPermissions" });
@@ -37,7 +37,7 @@ test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude wit
   assert.throws(() => buildOpenVscodeSettings("relative/config"), /absolute/i);
 });
 
-test("REQ-IDE-007 AC2: unrestricted mode keeps configuration isolation and telemetry controls", () => {
+test("REQ-IDE-007 AC3: unrestricted mode keeps configuration isolation and telemetry controls", () => {
   const settings = buildManagedSettings();
 
   assert.deepEqual(settings.permissions, { defaultMode: "bypassPermissions" });

@@ -33,7 +33,7 @@ function assertDecision(outcome, toolName, expected) {
   assert.ok(message.hookSpecificOutput.permissionDecisionReason.length > 0);
 }
 
-test("REQ-IDE-007 AC2: pre-tool-use auto-allows the fixed local tool matrix", async () => {
+test("Unused compatibility hook auto-allows the fixed local tool matrix", async () => {
   for (const toolName of ["Edit", "Write", "NotebookEdit", "Bash", "Task"]) {
     const outcome = await runPreToolUse(hookInput(toolName, { command: "fixture" }));
 
@@ -50,13 +50,13 @@ test("REQ-IDE-005 AC2: official Claude may read native editor diagnostics withou
   assertBounded(outcome);
 });
 
-test("REQ-IDE-007 AC2: pre-tool-use allows arbitrary tools when invoked", async () => {
+test("Unused compatibility hook allows arbitrary tools when invoked", async () => {
   for (const toolName of ["mcp__ide__executeCode", "mcp__github__create_pull_request", "FutureMutatingTool"]) {
     assertDecision(await runPreToolUse(hookInput(toolName)), toolName, "allow");
   }
 });
 
-test("REQ-IDE-007 AC2: an internal permission-hook failure blocks with exit 2 and bounded output", async () => {
+test("Unused compatibility hook fails with bounded output on internal errors", async () => {
   const rawInput = hookInput("Edit");
   const outcome = await runPreToolUse(rawInput, {
     evaluate: () => {
@@ -70,7 +70,7 @@ test("REQ-IDE-007 AC2: an internal permission-hook failure blocks with exit 2 an
   assertBounded(outcome);
 });
 
-test("REQ-IDE-007 AC2: oversized hook input blocks at the boundary with exit 2 and bounded output", async () => {
+test("Unused compatibility hook rejects oversized input with bounded output", async () => {
   assert.equal(MAX_HOOK_INPUT_BYTES, 64 * 1024);
   assert.equal(MAX_HOOK_OUTPUT_BYTES, 4 * 1024);
   const oversized = "x".repeat(64 * 1024 + 1);
@@ -83,7 +83,7 @@ test("REQ-IDE-007 AC2: oversized hook input blocks at the boundary with exit 2 a
   assertBounded(outcome);
 });
 
-test("REQ-IDE-007 AC2: unrestricted permission-hook output remains bounded for adversarial tool names", async () => {
+test("Unused compatibility hook output remains bounded for adversarial tool names", async () => {
   const toolName = `mcp__fixture__${"x".repeat(MAX_HOOK_OUTPUT_BYTES * 2)}`;
 
   const outcome = await runPreToolUse(hookInput(toolName));

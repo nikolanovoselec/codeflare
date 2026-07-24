@@ -59,8 +59,6 @@ async function main() {
   assert.deepEqual(optSettings, managedSettings);
   assert.deepEqual(etcSettings, managedSettings);
   assert.equal(managedSettings.permissions.defaultMode, 'bypassPermissions');
-  assert.equal(managedSettings.permissions.disableBypassPermissionsMode, 'disable');
-  assert.equal(managedSettings.permissions.disableAutoMode, 'disable');
   assert.equal(managedSettings.disableRemoteControl, true);
 
   await verifyConfigProjection();
