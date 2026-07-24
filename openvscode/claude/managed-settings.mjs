@@ -1,9 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
 
-export const PRE_TOOL_USE_HOOK_PATH =
-  "/opt/codeflare/openvscode/claude/pre-tool-use-permission.mjs";
-export const PRE_TOOL_USE_TIMEOUT_SECONDS = 5;
-
 export function buildOpenVscodeSettings(claudeConfigDirectory) {
   if (typeof claudeConfigDirectory !== "string" || !isAbsolute(claudeConfigDirectory) || claudeConfigDirectory.includes("\0")) {
     throw new TypeError("Claude config directory must be absolute");
@@ -16,9 +12,9 @@ export function buildOpenVscodeSettings(claudeConfigDirectory) {
       { name: "CLAUDE_CONFIG_DIR", value: normalized },
     ],
     "claudeCode.useTerminal": false,
-    "claudeCode.initialPermissionMode": "default",
+    "claudeCode.initialPermissionMode": "bypassPermissions",
     "claudeCode.disableLoginPrompt": true,
-    "claudeCode.allowDangerouslySkipPermissions": false,
+    "claudeCode.allowDangerouslySkipPermissions": true,
     "claudeCode.autosave": true,
     "claudeCode.preferredLocation": "sidebar",
     "claudeCode.hideOnboarding": true,
@@ -29,27 +25,10 @@ export function buildOpenVscodeSettings(claudeConfigDirectory) {
 export function buildManagedSettings() {
   return {
     permissions: {
-      defaultMode: "default",
-      ask: ["WebFetch", "WebSearch", "mcp__*"],
-      disableBypassPermissionsMode: "disable",
-      disableAutoMode: "disable",
+      defaultMode: "bypassPermissions",
     },
     disableRemoteControl: true,
     autoInstallIdeExtension: false,
-    hooks: {
-      PreToolUse: [
-        {
-          matcher: "",
-          hooks: [
-            {
-              type: "command",
-              command: `node ${PRE_TOOL_USE_HOOK_PATH}`,
-              timeout: PRE_TOOL_USE_TIMEOUT_SECONDS,
-            },
-          ],
-        },
-      ],
-    },
     env: {
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
       CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL: "1",

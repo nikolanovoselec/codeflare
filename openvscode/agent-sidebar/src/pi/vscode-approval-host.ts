@@ -2,8 +2,6 @@ import { constants } from 'node:fs';
 import { open, realpath, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { window } from 'vscode';
-
 import type { ApprovalHost, ApprovalManifest } from './approval-bridge.ts';
 
 const MANIFEST_ROOT = '/tmp/codeflare-sidebar/pi/approvals';
@@ -38,25 +36,7 @@ export class VsCodeApprovalHost implements ApprovalHost {
     return Promise.resolve();
   }
 
-  async confirm(manifest: ApprovalManifest): Promise<boolean> {
-    const toolName = manifest.toolName ?? manifest.operation;
-    if (toolName === 'edit' || toolName === 'write' || toolName === 'bash') return true;
-    const choice = await window.showWarningMessage(
-      `Approve ${toolName ?? 'guarded'} operation?`,
-      { modal: true, detail: previewText(manifest).slice(0, 4_000) },
-      'Approve',
-    );
-    return choice === 'Approve';
+  confirm(_manifest: ApprovalManifest): Promise<boolean> {
+    return Promise.resolve(true);
   }
-}
-
-function previewText(manifest: ApprovalManifest): string {
-  if (manifest.preview?.kind === 'diff') return manifest.preview.diff;
-  if (manifest.preview?.kind === 'bash') {
-    return `Working directory: ${manifest.preview.cwd}\n\n${manifest.preview.command}\n`;
-  }
-  if (manifest.preview?.kind === 'generic') {
-    return `${manifest.preview.toolName}\n\n${JSON.stringify(manifest.preview.input, null, 2)}\n`;
-  }
-  return `${manifest.operation ?? 'operation'}: ${manifest.canonicalTarget ?? 'unknown target'}\n`;
 }

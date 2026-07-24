@@ -154,7 +154,7 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 Pi uses Codeflare's default native Chat participant. Each request snapshots bounded canonical-workspace editor context and native Chat history, then runs one fresh `/usr/local/bin/pi --mode rpc --no-session --no-themes` process. It streams assistant text and waits for `agent_settled` on normal completion; cancellation completes after the correlated abort and bounded generation reaping. It calls no VS Code authentication or language-model provider.
 
-Claude uses Anthropic's exact official `linux-x64` Open VSX extension, installed unchanged during the image build under the owner risk acceptance in [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration). Before launch, Codeflare prepares a dedicated `/tmp/codeflare-sidebar/claude/config` and ephemeral OpenVSCode settings for Anthropic Manual (`"default"`) permission mode, no bypass, no Anthropic login prompt, the right sidebar, and no unrelated native Chat/Copilot setup. Anthropic's loopback-only authenticated IDE MCP supplies selections, native diffs, and diagnostics. Terminal history and runtime state are not projected.
+Claude uses Anthropic's exact official `linux-x64` Open VSX extension, installed unchanged during the image build under the owner risk acceptance in [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration). Before launch, Codeflare prepares a dedicated `/tmp/codeflare-sidebar/claude/config` and ephemeral OpenVSCode settings for unrestricted `bypassPermissions` mode, dangerous permission skipping, no Anthropic login prompt, the right sidebar, and no unrelated native Chat/Copilot setup. Anthropic's loopback-only authenticated IDE MCP supplies selections, native diffs, and diagnostics. Terminal history and runtime state are not projected.
 
 **Generation cleanup:** Every OpenVSCode launch runs in a new process group with a random generation token and recorded PID/start identity. Native Pi and official Claude descendants inherit the launch token; Pi requests also carry a narrower request token. Exit, restart, cancellation, and session shutdown send TERM, wait for the bounded grace period, and KILL remaining generation members before replacement. `/tmp/openvscode-generation.pid` is identity-checked so a stale file cannot signal a reused PID.
 
@@ -231,7 +231,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 ## Claude Code Integration
 
-Terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI, restores a fixed Manual-mode settings overlay on each launch, auto-allows Edit, Write, NotebookEdit, Bash, and Task by tool name, and leaves WebFetch, WebSearch, unknown, Jupyter execution, and non-diagnostic MCP decisions to the native graphical approval flow.
+Terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI, restores a fixed unrestricted settings overlay on each launch, and runs every tool without approval.
 
 **Auto-update control:** `DISABLE_AUTOUPDATER=1` prevents the CLI's internal auto-updater from running, avoiding startup delay. Updates happen at Docker build time via `.cache-bust` layer invalidation. When Fast Start is OFF, `DISABLE_AUTOUPDATER` is unset, allowing the CLI to update to latest on startup.
 
@@ -338,7 +338,7 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 - [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Fixed native Pi, official Claude, and empty inventories
 - [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor context and conversation isolation
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE guarded approvals
+- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted tools
 - [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent generation cleanup
 - [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) - Graceful container shutdown preserves data
 - [REQ-OPS-011](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim) - Container base image is Debian bookworm-slim

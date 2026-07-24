@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-24
 
-- **Browser IDE agents no longer interrupt fixed built-in actions or create approval tabs** ([REQ-IDE-007](browser-ide.md#req-ide-007-ide-guarded-approval), Implemented). Pi keeps its existing provenance, workspace, stale-content, and manifest checks while auto-confirming Edit, Write, and Bash without opening editor documents. Claude auto-allows Edit, Write, NotebookEdit, Bash, and Task by tool name; WebFetch, WebSearch, unknown tools, Jupyter execution, and non-diagnostic MCP actions still ask.
+- **Browser IDE agents now run unrestricted in their ephemeral container without approval tabs** ([REQ-IDE-007](browser-ide.md#req-ide-007-ide-guarded-approval), Implemented). Sidebar Pi leaves its built-in tools unchanged and auto-approves any extension confirmation without UI; official Claude starts in `bypassPermissions` mode with dangerous permission skipping enabled and no managed ask rules or permission hook.
 
 ## 2026-07-23
 
