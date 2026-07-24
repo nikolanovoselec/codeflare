@@ -340,7 +340,7 @@ export function attachSwipeGestures(
   container.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
 
   // --- xterm >=6.1 Gesture shield ---
-  // xterm 6.1 (6.1.0-beta.288) registers a DOCUMENT-level Gesture singleton
+  // xterm 6.1 (6.1.0-beta.291) registers a DOCUMENT-level Gesture singleton
   // (vendored VS Code touch.ts, via MouseService Gesture.addTarget on
   // .xterm-screen) that claims every touch starting inside the terminal and
   // calls preventDefault() on the native touchstart/touchend. preventDefault
