@@ -195,6 +195,8 @@ A full browser editor for an advanced running session. The editor opens that ses
 3. Each Pi request starts with only the bounded native Chat history supplied for that request, while Claude uses a dedicated temporary config tree; neither agent can attach to or resume terminal tab 1. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::SIDEBAR_LINK_ALLOWLIST --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC3: each native Chat request uses and reaps a fresh isolated Pi backend) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the fixed no-session spawn contract) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC3: projection excludes terminal history, runtime state, and unknown entries) -->
 4. Claude preparation links approved credential and configuration sources without copying their values into generated files, settings, logs, or messages. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and never copies secret bytes) -->
 
+**Notes:** AC2 awaits deployed authenticated pass@3 evidence for official Claude's active-file, selection, native-diff, and diagnostics behavior.
+
 **Constraints:**
 
 - Pi context is capped at 512 KiB and treats editor content as untrusted data rather than instructions.
@@ -206,8 +208,6 @@ A full browser editor for an advanced running session. The editor opens that ses
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
 **Verification:** [Native Pi context tests](../../openvscode/agent-sidebar/test/native-chat.test.ts); [Pi session tests](../../openvscode/agent-sidebar/test/pi-session.test.ts); [Claude isolation tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs); complete-image smoke in `.github/workflows/test.yml`
-
-**Notes:** AC2 awaits deployed authenticated pass@3 evidence for official Claude's active-file, selection, native-diff, and diagnostics behavior.
 
 **Status:** Partial
 
