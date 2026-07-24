@@ -1568,6 +1568,49 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
+  it('REQ-AGENT-036: resumed sessions stay inert until a new eligible boundary', async () => {
+    const fixture = makeReviewFixture();
+    const initialHarness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await initialHarness.emit('tool_result', boundaryEvent());
+    appendSession(fixture.sessionFile,
+      assistantTool('switch-1', 'bash', { command: 'git switch pi' }),
+      toolResult('switch-1', 'bash'),
+    );
+    let prQueries = 0;
+    const resumedHarness = await registerFixture(fixture, fixture.repo, () => {
+      prQueries += 1;
+    });
+    await resumedHarness.emit('session_start', { reason: 'resume' });
+
+    await resumedHarness.emit('tool_result', boundaryEvent('git switch pi', 'switch-1'));
+    await resumedHarness.emit('agent_end');
+    await resumedHarness.emit('agent_settled');
+
+    expect(prQueries).toBe(0);
+    expect(resumedHarness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
+
+    appendSession(fixture.sessionFile,
+      assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-2', 'bash'),
+    );
+    await resumedHarness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
+
+    expect(prQueries).toBe(1);
+    expect(resumedHarness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: expect.objectContaining({ boundaryToolUseId: 'push-2', head: fixture.head }),
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
   it('REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
