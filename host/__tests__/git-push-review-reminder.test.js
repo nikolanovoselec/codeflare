@@ -770,3 +770,48 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
   });
 });
+
+describe('git-push-review-reminder.sh - review range vs. lagging PR metadata', () => {
+  // `gh pr view` issued right after a push can still report the PREVIOUS
+  // head, because GitHub's PR metadata lags its own ref update. That SHA
+  // used to become the right-hand side of the incremental range, so the
+  // directive named a range ending one commit BEFORE the push that fired
+  // it. The hook now prefers local HEAD, but ONLY when local HEAD provably
+  // contains what gh reported - so the range can widen, never narrow.
+
+  it('ranges to local HEAD when gh reports an ancestor of it', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const staleSha = commitAt(cwd, 'src/one.ts', 'export const a = 1;\n', 'feat: one');
+    const headSha = commitAt(cwd, 'src/two.ts', 'export const b = 2;\n', 'feat: two');
+    const binDir = fakeGhWithHead(cwd, { headSha: staleSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, new RegExp(`git diff ${ackSha} ${headSha}`),
+      'the range must end at the pushed commit, not at the head GitHub has caught up to');
+    assert.doesNotMatch(r.stdout, new RegExp(staleSha),
+      'a stale gh headRefOid must not appear anywhere in the directive');
+  });
+
+  it('keeps the gh-reported head when it is not an ancestor of local HEAD', () => {
+    // A SHA of valid shape that is not an object in this repo stands in for
+    // every case where local HEAD cannot be proven to contain the PR head:
+    // a push of a non-current refspec, a rejected push, or a concurrent
+    // push from elsewhere. Narrowing the range there would silently drop
+    // commits from review, so the hook must fall back to the full PR diff.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    commitAt(cwd, 'src/one.ts', 'export const a = 1;\n', 'feat: one');
+    const binDir = fakeGhWithHead(cwd, { headSha: 'b'.repeat(40) });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /fetches the full PR diff/,
+      'an unprovable PR head must fall back to the full-diff directive');
+    assert.doesNotMatch(r.stdout, new RegExp(`git diff ${ackSha} `),
+      'the hook must not substitute local HEAD for a PR head it cannot prove it contains');
+  });
+});
