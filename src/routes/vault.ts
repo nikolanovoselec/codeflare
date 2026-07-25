@@ -116,7 +116,7 @@ const logger = createLogger('vault');
  * method (or a WebSocket upgrade) must fall through to the proxy so the
  * encryption-key-bearing hop HTML is never rendered on an unexpected method.
  */
-export function isBootstrapHopRequest(remainingPath: string, isWebSocket: boolean, method: string): boolean {
+export function isBootstrapHopRequest(remainingPath: string, isWebSocket: boolean | undefined, method: string): boolean {
   return remainingPath === '/.codeflare-bootstrap' && !isWebSocket && method === 'GET';
 }
 

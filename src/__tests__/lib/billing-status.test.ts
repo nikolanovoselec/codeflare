@@ -10,7 +10,7 @@ const FROZEN_WIRE_VALUES = ['active', 'trialing', 'past_due', 'canceled'] as con
 
 describe('BILLING_STATUS wire-value stability (persistence contract)', () => {
   it('freezes the exact set of persisted status values against an independent snapshot', () => {
-    expect([...Object.values(BILLING_STATUS)].sort()).toEqual([...FROZEN_WIRE_VALUES].sort());
+    expect(Object.values(BILLING_STATUS).sort()).toEqual([...FROZEN_WIRE_VALUES].sort());
   });
 
   it('values are unique so no two statuses collide on the wire', () => {
