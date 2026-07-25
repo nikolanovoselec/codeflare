@@ -28,6 +28,7 @@ Only a direct current-session user instruction to go **FULLY AUTONOMOUS** activa
 PR-boundary ordering, payload, triage, and root-ownership details live in Git Workflow.
 
 - **Review push gate:** do not push while required review is running, pending, missing, stale, or incomplete for the current head unless the user explicitly authorizes it.
+- **LOW-only completes the head:** a review whose findings are all LOW is complete for that head — fix them in-session, commit, and let the next push carry them. Never downgrade a finding to reach that bucket; MEDIUM or above still means push and re-review.
 - **CI-result handoff gate:** after `CI_RESULT`, the next response begins with its exact result, monitored head, available run ID/URL, and next action before any analysis, tool call, task update, fix, deploy, or push.
 - **No blocking waits:** long CI, deploy, log, watch, or polling work runs detached or in a background agent.
 

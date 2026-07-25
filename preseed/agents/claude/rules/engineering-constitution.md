@@ -59,7 +59,13 @@ severity counts, lane status, ranked findings, summary path, monitor transcript 
 available, and the planned next action. If the result is `findings`, then immediately read
 `summary.md`, verify every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit,
 push, start CI monitoring, verify/restart `review-monitor`, and iterate until the exact
-head returns `REVIEW_RESULT clean`. Stop before commit/push only if the latest user
+head returns `REVIEW_RESULT clean` — or `findings` that are **all LOW**, which also
+completes the review for that head. Commit those fixes and let the next push you were
+going to make anyway carry them; do not push a head whose only purpose is re-running
+review over nits, and do not treat that head as unreviewed. Batching is not deferral: the
+fix is written now, in this session, and a finding is still never downgraded to reach the
+LOW bucket ([[review-findings]]). Anything MEDIUM or above still means push and re-run
+immediately. Stop before commit/push only if the latest user
 instruction says not to autofix, wait for approval, or do not push. If a review-monitor
 task stops, errors, or completes without `REVIEW_RESULT` for the active head, restart it
 from the durable job prompt/result paths instead of treating the review as delivered.
