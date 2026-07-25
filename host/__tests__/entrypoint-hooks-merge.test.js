@@ -69,7 +69,11 @@ function runSettingsMerge({ existing, config }) {
     writeFileSync(file, typeof existing === 'string' ? existing : JSON.stringify(existing));
   }
 
-  const result = spawnSync('sh', ['-c', settingsMergeBlock()], {
+  // bash + `set -euo pipefail` to match entrypoint.sh's own shebang and options.
+  // Under plain `sh` a command that starts failing inside the block would let
+  // the harness sail past it while production aborts the container start —
+  // failing open on exactly the regression class this test exists to catch.
+  const result = spawnSync('bash', ['-c', `set -euo pipefail\n${settingsMergeBlock()}`], {
     env: { ...process.env, SETTINGS_FILE: file, SETTINGS_CONFIG: JSON.stringify(config) },
     encoding: 'utf8',
   });
