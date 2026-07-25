@@ -202,10 +202,27 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(response.status).toBe(504);
   });
 
-  it('REQ-IDE-003 AC3: the retry counter never reaches the base-path-native server', async () => {
-    // OpenVSCode receives its own URL unchanged (REQ-IDE-001), so the parameter
-    // this route adds while warming must be gone once the container answers.
+  it('REQ-IDE-003 AC3: a healthy container takes the retry counter back out of the tab URL', async () => {
+    // The counter rides in the query string because the Worker holds no
+    // per-session state -- which also puts it in the tab's address bar. Left
+    // there, a tab that once reached the bound would serve the give-up page
+    // instantly on every later reload, so the success path redirects it away.
     const request = vscodeRequest(`/api/vscode/${SID}/?cf_warm=3`);
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get('Location') ?? '');
+    expect(location.searchParams.has('cf_warm')).toBe(false);
+    expect(location.pathname).toBe(`/api/vscode/${SID}/`);
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-IDE-001: the retry counter never reaches the base-path-native server', async () => {
+    // OpenVSCode receives its own URL unchanged, so on any request the redirect
+    // above does not cover, the parameter is still stripped before forwarding.
+    const request = new Request(`https://codeflare.ch/api/vscode/${SID}/x?cf_warm=3`, {
+      method: 'POST',
+      headers: new Headers({ Origin: 'https://codeflare.ch' }),
+    });
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
     expect(response.status).toBe(200);
     const forwarded = mockContainerFetch.mock.calls[0][0] as Request;

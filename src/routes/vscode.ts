@@ -57,16 +57,20 @@ const logger = createLogger('vscode');
  * forwarded at all.
  *
  * The Worker holds no per-session state, so the attempt count rides in the query
- * string and is stripped again once the container answers -- see
- * `stripWarmParam`. Without a bound this page would reload forever against a
- * container that is never coming up.
+ * string. That makes it part of the tab's document URL, which is why the success
+ * path redirects it away (see `redirectAwayFromWarmParam`): a tab left sitting on
+ * `?cf_warm=40` would render the give-up page instantly on every later reload,
+ * including while a fresh container warms up perfectly normally -- a permanent
+ * failure state that the page's own "reload to try again" cannot escape.
  */
 const WARM_PARAM = 'cf_warm';
 const WARM_MAX_ATTEMPTS = 40;
 const WARM_REFRESH_SECONDS = 3;
 
-function warmingPage(url: URL, attempt: number): Response {
-  const headers = { 'Content-Type': 'text/html; charset=utf-8' };
+function warmingPage(url: URL, attempt: number, requestId: string): Response {
+  // The most failure-prone path on this route is the one that most needs a
+  // correlation id, so it carries the same X-Request-ID as every other response.
+  const headers = { 'Content-Type': 'text/html; charset=utf-8', 'X-Request-ID': requestId };
   if (attempt >= WARM_MAX_ATTEMPTS) {
     return new Response(
       '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark light"><title>Session not ready</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>The session container did not become ready. Reload to try again, or restart the session.</p></body></html>',
@@ -75,12 +79,40 @@ function warmingPage(url: URL, attempt: number): Response {
   }
   const next = new URL(url);
   next.searchParams.set(WARM_PARAM, String(attempt + 1));
-  const target = `${next.pathname}${next.search}`.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+  const target = escapeAttribute(`${next.pathname}${next.search}`);
   const seconds = attempt * WARM_REFRESH_SECONDS;
   return new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="${WARM_REFRESH_SECONDS};url=${target}"><meta name="color-scheme" content="dark light"><title>Starting session</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>Starting the session container&hellip; ${seconds}s</p></body></html>`,
     { status: 503, headers },
   );
+}
+
+/**
+ * The URL serializer already percent-encodes `"`, `<` and `>` in a path or query,
+ * so this is belt-and-braces rather than the only thing standing between the
+ * counter and the attribute -- but the escape should not depend on that
+ * invariant holding in a future URL implementation.
+ */
+function escapeAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+/**
+ * Once the container answers, take the retry counter back out of the tab's URL.
+ * Without this a tab that warmed for N attempts starts its NEXT cold start at N,
+ * and one that reached the bound never shows the warming page again.
+ */
+function redirectAwayFromWarmParam(url: URL, requestId: string): Response {
+  const clean = new URL(url);
+  clean.searchParams.delete(WARM_PARAM);
+  return new Response(null, {
+    status: 302,
+    headers: { Location: clean.toString(), 'X-Request-ID': requestId },
+  });
 }
 
 function warmAttempt(url: URL): number {
@@ -171,12 +203,20 @@ export async function handleVscodeRequest(
     const warmProbe = await safeCheckContainerHealth(container, containerId);
     if (!warmProbe.healthy) {
       // A WebSocket upgrade cannot render a page, so it keeps the machine-readable
-      // 503 its client expects; only the navigable request gets the HTML.
+      // 503 its client expects. Everything else gets the HTML: this route cannot
+      // tell a document navigation from a subresource fetch, and a 503 is a 503
+      // to a subresource either way, so serving the page to both is harmless.
       if (isWebSocket) {
         return new Response(JSON.stringify({ error: 'Container not ready', code: 'CONTAINER_NOT_READY' }),
           { status: 503, headers: jsonHeaders });
       }
-      return warmingPage(requestUrl, warmAttempt(requestUrl));
+      return warmingPage(requestUrl, warmAttempt(requestUrl), requestId);
+    }
+
+    // Healthy again: get the counter out of the tab's address bar before the
+    // editor loads, so the next cold start begins from a clean slate.
+    if (!isWebSocket && request.method === 'GET' && requestUrl.searchParams.has(WARM_PARAM)) {
+      return redirectAwayFromWarmParam(requestUrl, requestId);
     }
 
     if (env.STRESS_TEST_MODE !== 'active' && isWebSocket) {

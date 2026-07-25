@@ -55,6 +55,16 @@ export interface NativePiReference {
   readonly description?: string;
 }
 
+/** The editor-context object as serialized into the prompt, before any section is dropped. */
+interface ContextSections {
+  readonly notice: string;
+  readonly history?: readonly { role: string; text: string }[];
+  readonly activeEditor?: unknown;
+  readonly openFiles?: readonly string[];
+  readonly diagnostics?: readonly unknown[];
+  readonly references?: readonly unknown[];
+}
+
 export interface NativePiPromptInput {
   readonly prompt: string;
   readonly history: readonly NativePiHistoryEntry[];
@@ -143,16 +153,34 @@ export function buildNativePiPrompt(input: NativePiPromptInput): string {
       description: reference.description,
     }),
   );
-  const context = JSON.stringify({
-    notice: CONTEXT_NOTICE,
-    history,
-    activeEditor,
-    openFiles,
-    diagnostics,
-    references,
-  });
-  const rendered = `${prompt}\n\n<codeflare_editor_context>\n${context}`;
   const bodyLimit = MAX_NATIVE_CHAT_PROMPT_BYTES - Buffer.byteLength(CONTEXT_SUFFIX, 'utf8');
+  const render = (sections: ContextSections): string =>
+    `${prompt}\n\n<codeflare_editor_context>\n${JSON.stringify(sections)}`;
+
+  // The per-section budgets are measured before JSON escaping and the envelope
+  // after it, so a quote-dense active file can still overflow. Clamping the
+  // rendered string would cut the serialized context mid-structure and hand the
+  // model a broken object, so drop whole sections instead and keep it parseable.
+  // Ordered cheapest-to-lose first: the editor can re-supply any of these next
+  // turn, the conversation cannot.
+  const notice = CONTEXT_NOTICE;
+  const candidates: readonly ContextSections[] = [
+    { notice, history, activeEditor, openFiles, diagnostics, references },
+    { notice, history, activeEditor, openFiles, diagnostics },
+    { notice, history, activeEditor, openFiles },
+    { notice, history, activeEditor },
+    { notice, history },
+    { notice },
+  ];
+  // Rendered one at a time rather than all-then-filtered: the first candidate
+  // fits on every ordinary turn, and each render serializes the whole context.
+  let rendered = '';
+  for (const sections of candidates) {
+    rendered = render(sections);
+    if (Buffer.byteLength(rendered, 'utf8') <= bodyLimit) break;
+  }
+  // Unreachable while the user prompt is capped well under the envelope, but the
+  // clamp stays as the final guarantee that the return value fits.
   return `${truncateUtf8(rendered, bodyLimit)}${CONTEXT_SUFFIX}`;
 }
 
@@ -201,32 +229,22 @@ function boundedList<T, U>(
   return result;
 }
 
+/**
+ * `boundedList` from the other end: keeps the LAST entries that fit instead of
+ * the first. Expressed as a reversal around it rather than a second copy of the
+ * walk, so the byte accounting, the overflow policy and the truncation-marker
+ * guard have exactly one definition to keep correct.
+ *
+ * Both arrays are local and unaliased -- the copy of `values` and the list
+ * `boundedList` builds -- so reversing them in place mutates nothing a caller
+ * owns, despite the second one being the return value.
+ */
 function boundedTail<T, U>(
   values: readonly T[],
   maxBytes: number,
   project: (value: T) => U,
 ): U[] {
-  const kept: U[] = [];
-  let remaining = maxBytes;
-  for (let index = values.length - 1; index >= 0; index -= 1) {
-    const projected = project(values[index] as T);
-    const bytes = Buffer.byteLength(JSON.stringify(projected), 'utf8');
-    if (bytes <= remaining) {
-      kept.push(projected);
-      remaining -= bytes;
-      continue;
-    }
-    if (remaining > Buffer.byteLength(TRUNCATION_MARKER, 'utf8')) {
-      kept.push(truncateRecord(projected, remaining));
-    }
-    break;
-  }
-  // Walked newest-first to decide what survives; the replay itself must still
-  // read oldest-first or the model sees the conversation backwards. `kept` is
-  // built here and never escapes, so reversing it in place mutates nothing the
-  // caller owns -- and it avoids toReversed(), which needs a newer lib target
-  // than this extension compiles against.
-  return kept.reverse();
+  return boundedList([...values].reverse(), maxBytes, project).reverse();
 }
 
 function truncateRecord<T>(value: T, maxBytes: number): T {

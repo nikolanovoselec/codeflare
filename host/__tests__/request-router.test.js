@@ -10,6 +10,19 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { createRequestHandler } from '../dist/request-router.js';
+import { VSCODE_WARMING_GIVE_UP_MS } from '../dist/vscode-proxy.js';
+
+const UPSTREAM_BODY = '<!doctype html><title>editor</title>';
+
+/** The rendered wait, read as the number it is rather than the sentence around it. */
+function elapsedSeconds(html) {
+  const match = /(\d+)s<\/p>/.exec(html);
+  return match ? Number(match[1]) : undefined;
+}
+
+function hasMetaRefresh(html) {
+  return /http-equiv="refresh"/.test(html);
+}
 
 function makeDeps(overrides = {}) {
   const readiness = { prewarmReady: false, initFlagObserved: false, terminalServiceReady: false };
@@ -39,6 +52,18 @@ function getJson(port, path, headers = {}) {
       let body = '';
       res.on('data', (c) => { body += c; });
       res.on('end', () => resolve({ status: res.statusCode, body: body ? JSON.parse(body) : null }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function getText(port, path, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path, headers }, (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve({ status: res.statusCode, body }));
     });
     req.on('error', reject);
     req.end();
@@ -97,5 +122,93 @@ describe('request router seam (server.ts decomposition)', () => {
     const { status, body } = await getJson(port, '/no-such-route', { authorization: 'Bearer seam-test-token' });
     assert.equal(status, 404);
     assert.equal(body.error, 'Not found');
+  });
+});
+
+// The host-side half of REQ-IDE-003 AC3. `vscodeWarmingResponse` is unit-tested
+// against a given elapsed number in openvscode-proxy.test.js; what only the
+// router can prove is where that number comes from. A meta refresh cannot count
+// its own attempts -- each reload is a fresh document -- so the bound only
+// exists if the router keeps ONE clock across an episode and drops it once the
+// editor answers. Date.now is faked so crossing a 120s bound costs no wall time.
+describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and resets on success', () => {
+  const auth = { authorization: 'Bearer seam-test-token' };
+  const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+  const savedMode = process.env.SESSION_MODE;
+  const realNow = Date.now;
+  const servers = [];
+  let now = 1_700_000_000_000;
+  let refusingPort;
+  let servingPort;
+
+  const listen = async (handler) => {
+    const server = http.createServer(handler);
+    servers.push(server);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    return server.address().port;
+  };
+
+  before(async () => {
+    process.env.CONTAINER_AUTH_TOKEN = 'seam-test-token';
+    process.env.SESSION_MODE = 'advanced';
+    Date.now = () => now;
+
+    const upstreamPort = await listen((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(UPSTREAM_BODY);
+    });
+    // makeDeps points OpenVSCode at port 1, which nothing ever binds, so every
+    // proxied connect is refused -- the warming path, without stubbing it.
+    refusingPort = await listen(createRequestHandler(makeDeps().deps));
+    servingPort = await listen(createRequestHandler(
+      makeDeps({ openvscode: { host: '127.0.0.1', port: upstreamPort } }).deps,
+    ));
+  });
+
+  after(async () => {
+    Date.now = realNow;
+    if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+    if (savedMode === undefined) delete process.env.SESSION_MODE;
+    else process.env.SESSION_MODE = savedMode;
+    for (const server of servers) {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
+  it('carries one elapsed clock across warming reloads and stops refreshing past the bound', async () => {
+    const first = await getText(refusingPort, '/api/vscode/sess-a/', auth);
+    assert.equal(first.status, 503);
+    assert.equal(elapsedSeconds(first.body), 0);
+    assert.ok(hasMetaRefresh(first.body), 'a warming page must reload itself');
+
+    // A second reload of the same episode reports the accumulated wait, not a
+    // fresh zero: the clock outlives the request that started it.
+    now += 5_000;
+    const later = await getText(refusingPort, '/api/vscode/sess-a/', auth);
+    assert.equal(later.status, 503);
+    assert.equal(elapsedSeconds(later.body), 5);
+
+    now += VSCODE_WARMING_GIVE_UP_MS;
+    const gaveUp = await getText(refusingPort, '/api/vscode/sess-a/', auth);
+    assert.equal(gaveUp.status, 504);
+    assert.ok(!hasMetaRefresh(gaveUp.body), 'past the bound the page must stop reloading');
+  });
+
+  it('starts a fresh clock after the editor answers, so a later cold start is not born expired', async () => {
+    // Reaching the editor ends the episode whatever state the clock was in.
+    const reached = await getText(servingPort, '/api/vscode/sess-b/', auth);
+    assert.equal(reached.status, 200);
+    assert.equal(reached.body, UPSTREAM_BODY);
+
+    // Long enough after that success to have blown any inherited budget: the
+    // next cold start must still get the full warming window, not an instant 504.
+    now += 10 * VSCODE_WARMING_GIVE_UP_MS;
+    const restarted = await getText(refusingPort, '/api/vscode/sess-b/', auth);
+    assert.equal(restarted.status, 503);
+    assert.equal(elapsedSeconds(restarted.body), 0);
+    assert.ok(hasMetaRefresh(restarted.body), 'a restarted episode must reload itself again');
   });
 });

@@ -12,6 +12,15 @@ import {
   type NativePiTurnObserver,
 } from '../src/pi/native-chat.ts';
 
+/** The serialized editor-context object carried between the prompt's delimiters. */
+function editorContext(prompt: string): Record<string, unknown> {
+  const open = '<codeflare_editor_context>\n';
+  const start = prompt.indexOf(open);
+  const end = prompt.lastIndexOf('\n</codeflare_editor_context>');
+  assert.ok(start !== -1 && end > start, 'the prompt must carry a delimited context block');
+  return JSON.parse(prompt.slice(start + open.length, end)) as Record<string, unknown>;
+}
+
 function promptInput(overrides: Partial<NativePiPromptInput> = {}): NativePiPromptInput {
   return {
     prompt: 'Fix the selected code and explain the diagnostic.',
@@ -238,11 +247,49 @@ test('REQ-IDE-006 AC1: an over-budget history replay keeps the newest turns and 
       (positions[i]?.at ?? 0) > (positions[i - 1]?.at ?? 0),
       'surviving turns must appear oldest-first in the replay',
     );
-    assert.ok(
-      (positions[i]?.index ?? 0) > (positions[i - 1]?.index ?? 0),
-      'surviving turns must be a contiguous suffix in conversation order',
-    );
   }
 
+  // A suffix, not an arbitrary subset: nothing may be dropped out of the middle.
+  // (`positions` is derived in entry order, so comparing indices pairwise would
+  // hold no matter what survived — this comparison against the expected run is
+  // what actually constrains the shape.)
+  const kept = positions.map((entry) => entry.index);
+  const oldestKept = kept[0] ?? 0;
+  assert.deepEqual(
+    kept,
+    entries.map((_, index) => index).filter((index) => index >= oldestKept),
+    'surviving turns must be a contiguous suffix of the conversation',
+  );
+
+  assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
+});
+
+test('REQ-IDE-006 AC1: a context over the envelope drops whole sections and stays parseable', () => {
+  // Every per-section budget is respected here, yet the rendered envelope still
+  // overflows: the active editor's content is measured raw, and each control
+  // character costs six bytes once JSON-escaped. Clamping the rendered string
+  // would cut the serialized context mid-object; whole sections go instead,
+  // cheapest first, so the conversation is the last thing given up.
+  const conversation = [
+    { role: 'user' as const, text: 'first turn' },
+    { role: 'assistant' as const, text: 'h'.repeat(400 * 1000) },
+  ];
+  const prompt = buildNativePiPrompt(promptInput({
+    prompt: 'x'.repeat(200 * 1000),
+    history: conversation,
+    activeEditor: {
+      path: '/home/user/workspace/src/parser.ts',
+      languageId: 'typescript',
+      dirty: true,
+      content: '\u0001'.repeat(200 * 1000),
+    },
+  }));
+
+  const context = editorContext(prompt);
+  assert.deepEqual(context.history, conversation);
+  assert.equal(context.activeEditor, undefined);
+  assert.equal(context.openFiles, undefined);
+  assert.equal(context.diagnostics, undefined);
+  assert.equal(context.references, undefined);
   assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
 });
