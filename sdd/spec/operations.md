@@ -42,6 +42,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration.
 - The CI runner label is configurable to support self-hosted runners.
+- Concurrent dispatches are kept legible and independent by [REQ-OPS-026](#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified).
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
 
 **Priority:** P0
@@ -664,5 +665,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
 **Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-026: Concurrent deploy dispatches are legible and independently verified
+
+**Intent:** Several environments are deployed off one branch in the same window. Every run rendered identically in the run list, and every dispatch's inline verification shared one concurrency group, so a second dispatch cancelled the first's verification and its deploy failed a gate the commit had actually passed.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The run title resolves and displays the environment being deployed, so dispatches are distinguishable in the run list without opening them. <!-- @impl: .github/workflows/deploy.yml::run-name --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests > names each run after the environment it resolved) -->
+2. Each dispatch verifies in its own concurrency group, keyed by that run's id, so a later dispatch cannot cancel an earlier one's verification and turn a verified commit into a failed gate. <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @impl: .github/workflows/test.yml::concurrency --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests > gives each dispatch its own verify concurrency group) -->
+
+**Constraints:**
+
+- A called workflow inherits the caller's concurrency context, so the discriminator has to be supplied by the caller; the reusable workflow's own group cannot separate them.
+- The discriminator defaults to empty, leaving the group unchanged for every other caller of the reusable workflow.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
+
+**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
 
 **Status:** Implemented

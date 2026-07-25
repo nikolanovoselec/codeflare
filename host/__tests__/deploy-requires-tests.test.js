@@ -92,6 +92,40 @@ describe('manual deploys cannot skip tests', () => {
     });
   }
 
+  // Every dispatch rendered as the same "Deploy" row in the Actions list, so the
+  // only way to tell a production deploy from an integration one was to open it.
+  it('names each run after the environment it resolved', () => {
+    const runName = deployYml.match(/^run-name: (.*)$/m);
+    assert.ok(runName, 'deploy.yml declares no run-name, so every dispatch looks identical in the run list');
+    assert.match(
+      runName[1],
+      /inputs\.environment/,
+      'the run title must resolve the dispatched environment, not a constant'
+    );
+  });
+
+  // A called workflow inherits the CALLER's concurrency context, so two deploy
+  // dispatches ran their inline verify in the same group and the second cancelled
+  // the first. The cancelled deploy then failed its own gate — a green commit
+  // reading as unverified purely because someone dispatched a second environment.
+  it('gives each dispatch its own verify concurrency group', () => {
+    const key = jobBlock('verify').match(/^ {6}concurrency_key: (.*)$/m);
+    assert.ok(key, 'the verify job passes no concurrency_key, so concurrent dispatches share a group');
+    assert.match(
+      key[1],
+      /github\.run_id/,
+      'the concurrency_key must be per-run; anything coarser lets one dispatch cancel another'
+    );
+
+    const group = testYml.match(/^ {2}group: (.*)$/m);
+    assert.ok(group, 'test.yml declares no concurrency group');
+    assert.match(
+      group[1],
+      /inputs\.concurrency_key/,
+      'test.yml ignores the caller-supplied key, so passing it from deploy.yml has no effect'
+    );
+  });
+
   it('deploys the commit that was verified, never a branch name', () => {
     const ref = jobBlock('prepare').match(/^ {6}ref: (.*)$/m);
     assert.ok(ref, 'prepare no longer exports a ref output');

@@ -90,6 +90,8 @@ Non-default mode credentials, optional deployment variables, environment overrid
 
 Job graph: `verify` → `prepare` → (`build-worker` ∥ `container`) → `deploy` → `outcome`. `verify` runs PR Checks inline on manual dispatch (skipped on `workflow_run`, where the trigger already guarantees a green run for the same SHA); `outcome` fails a run in which nothing was deployed, so a green Deploy means a deploy happened. The pwn-request gate (workflow_run must be a same-repo `push` event that concluded green) is repeated on every job because a job skipped via `if:` counts as success for `needs:` resolution.
 
+(Implements [REQ-OPS-026](../../sdd/spec/operations.md#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified).)
+
 The run title (`run-name`) resolves and displays the deploy target (production / enterprise / enterprise integration / integration) plus the source ref, so the Actions list and `gh run list` answer "what did this deploy to?" without opening the run. The inline `verify` job passes its own `github.run_id` to `test.yml` as `concurrency_key`, which is appended to that workflow's concurrency group — without it, dispatching two environment deploys off one branch puts both inline verifies in the same group and the second cancels the first, surfacing as a cancelled run that deployed nothing.
 
 1. **prepare** — blocks production dispatches from non-main branches; resolves the environment name, checkout ref (the exact SHA whose PR Checks ended green), worker name, and cache-bust flag once for all downstream jobs.
@@ -241,6 +243,7 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 - [REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) - Coverage-threshold gate fails closed on missing evidence
 - [REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports) - Suite results are gated on machine-readable reports
 - [REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy) - Worker bundle size is gated before it can fail a deploy
+- [REQ-OPS-026](../../sdd/spec/operations.md#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified) - Concurrent deploy dispatches are legible and independently verified
 
 ---
 
