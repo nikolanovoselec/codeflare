@@ -447,29 +447,54 @@ describe('Reviewer agents can access their enforce policy', () => {
     }
   });
 
-  it('REQ-AGENT-086: Claude PR reviewers expose research and indexed-retrieval toolsets', () => {
-    // Indexed retrieval (ctx_search/ctx_batch_execute) is the transport that
-    // keeps raw scan output out of reviewer context; stripping it regressed
-    // review cost by an order of magnitude. Capability inclusion, not exact
-    // equality, so adding tools never breaks this contract.
-    const required = [
-      'Skill',
-      'Bash',
-      'Read',
-      'Grep',
-      'mcp__context-mode__ctx_search',
-      'mcp__context-mode__ctx_batch_execute',
-      'mcp__context-mode__ctx_execute',
-      'mcp__graphify__query_graph',
-    ];
+  it('REQ-AGENT-086 AC7/AC8: Claude PR reviewers carry the packet transport and no repository-wide scan tools', () => {
+    // Something has to keep raw scan output out of reviewer context. It used to
+    // be indexed retrieval; stripping that without a replacement regressed
+    // review cost by an order of magnitude. It is now the review-scope packet
+    // CLI, which returns lane-owned hunks and exact changed-input ranges. This
+    // asserts the replacement in both directions: the transport must be
+    // reachable, and the unbounded-scan tools it replaces must be absent. A
+    // regression either way fails here.
     for (const name of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
       const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
       expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
       const tools = JSON.parse(frontmatter(doc!.content).tools) as string[];
-      for (const tool of required) {
+
+      for (const tool of ['Skill', 'Bash', 'Read']) {
         expect(tools, `${name} must expose ${tool}`).toContain(tool);
       }
+      for (const tool of ['Grep', 'Glob', 'Write', 'Edit']) {
+        expect(tools, `${name} must not expose ${tool}`).not.toContain(tool);
+      }
+      expect(
+        tools.filter((t) => t.startsWith('mcp__context-mode__')),
+        `${name} must not expose indexed retrieval`,
+      ).toHaveLength(0);
+      // Cross-session preference lookup queries the unified graph of prior
+      // sessions, which has no shell analogue; the traversal tools do.
+      expect(
+        tools.filter((t) => t.startsWith('mcp__graphify__')),
+        `${name} keeps only the cross-session signal lookup`,
+      ).toEqual(['mcp__graphify__query_graph']);
+
+      expect(
+        doc!.content,
+        `${name} must invoke the seeded packet CLI`,
+      ).toContain('skills/review-scope/scripts/build-review-packet.mjs');
+      expect(doc!.content, `${name} must carry the packet section`).toMatch(
+        /^## Build the lane packet once$/m,
+      );
     }
+
+    const skill = AGENTS_SEEDED_CONFIGS.find(
+      (d) => d.key === '.claude/skills/review-scope/SKILL.md',
+    );
+    expect(skill, 'review-scope SKILL.md must be seeded for Claude').toBeTruthy();
+    expect(skill!.content).toContain('~/.claude/skills/review-scope/scripts/build-review-packet.mjs');
+    const script = AGENTS_SEEDED_CONFIGS.find(
+      (d) => d.key === '.claude/skills/review-scope/scripts/build-review-packet.mjs',
+    );
+    expect(script, 'the packet CLI the reviewers invoke must be seeded alongside it').toBeTruthy();
   });
 
   it('REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract', () => {
