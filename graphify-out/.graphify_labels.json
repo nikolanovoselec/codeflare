@@ -1115,5 +1115,13 @@
   "1113": "prune-registry.mjs",
   "1114": "oxlint",
   "1115": "esbuild.mjs",
-  "1116": "vitest.config.ts"
+  "1116": "vitest.config.ts",
+  "1117": "skills/impeccable/scripts/lib/staleness.mjs",
+  "1118": "skills/impeccable/scripts/lib/target-slug.mjs",
+  "1119": "skills/impeccable/scripts/live/insert-ui.mjs",
+  "1120": "skills/impeccable/scripts/live/manual-apply.mjs",
+  "1121": "skills/review-scope/SKILL.md",
+  "1122": "skills/review/SKILL.md",
+  "1123": "typescript",
+  "1124": "src/lib/vault-bucket-token.ts"
 }
