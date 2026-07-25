@@ -24,7 +24,6 @@ import { cleanupMapByPrefix } from '../lib/map-utils';
 // Re-exported for existing importers (tests and components) of the pre-split
 // terminal store surface; the implementations live in the seam modules.
 export { parseControlMessage, reconnectBackoffMs, cleanupMapByPrefix };
-export type { ControlMessage } from './terminal-protocol';
 export { READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from './terminal-output';
 import {
   registerUrlDetectionDeps,

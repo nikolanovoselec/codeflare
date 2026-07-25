@@ -15,7 +15,7 @@ import { applyEnterprisePrefill, applyReconfigPrefill, applyInitialPrefill } fro
 // Re-exported for existing importers of the pre-split setup store surface;
 // the definitions live in setup-types.ts.
 export { DEFAULT_ROUTE_CONTEXT_WINDOW } from './setup-types';
-export type { ReasoningLevel, GroupRouting } from './setup-types';
+export type { ReasoningLevel } from './setup-types';
 
 const initialState: SetupState = {
   step: 1,
