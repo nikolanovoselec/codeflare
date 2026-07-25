@@ -49,6 +49,13 @@ on:
   # that some earlier run covered it. Reusable workflows inherit the caller's
   # github context, so the diff filter is skipped and every lane executes.
   workflow_call:
+    inputs:
+      concurrency_key:
+        description: >-
+          Extra discriminator for the concurrency group. deploy.yml passes its
+          run id so each dispatched deploy verifies in its own group.
+        type: string
+        default: ''
   schedule:
     # Nightly full-matrix sweep: every lane runs regardless of diff, catching
     # flaky tests and dependency/audit drift between pushes.
@@ -65,7 +72,14 @@ concurrency:
   # push-to-main run and one would cancel the other — turning verify.result into
   # 'cancelled' and silently skipping the whole deploy. Here github.workflow is
   # "Deploy" for the inline run and "PR Checks" for the real one.
-  group: test-${{ github.workflow }}-${{ github.ref }}
+  #
+  # That is not enough on its own: deploy.yml groups by ENVIRONMENT so two
+  # environments can deploy from one branch at the same time, but both inline
+  # verifies would still share workflow+ref and the second dispatch would cancel
+  # the first's verify — same silent skipped deploy. deploy.yml therefore passes
+  # its run id as concurrency_key; it is empty for every non-called event, which
+  # leaves the supersede-the-previous-push behaviour intact.
+  group: test-${{ github.workflow }}-${{ github.ref }}-${{ inputs.concurrency_key }}
   cancel-in-progress: true
 
 permissions:
