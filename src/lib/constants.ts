@@ -122,7 +122,7 @@ export const ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
  * never enters the container. The CloudflareBrowserInterceptor (OAuth mode) strips this
  * placeholder and stamps a freshly-refreshed token at the api.cloudflare.com boundary on
  * EVERY request. Deliberately a DISTINCT value from the enterprise placeholders: the DO
- * keys the OAuth-mode wiring off this exact value (`wireCloudflareApiInterception`), so it
+ * keys the OAuth-mode wiring off this exact value (the `cloudflareOauthApi` interception-registry entry), so it
  * must not collide with `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER`.
  */
 export const CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER = 'codeflare-oauth';

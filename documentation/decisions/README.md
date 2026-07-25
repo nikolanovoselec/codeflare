@@ -1620,7 +1620,7 @@ Pass `AIG_GATEWAY_URL` and `AIG_TOKEN` directly to the container via env vars an
 
 The Container DO wires a `WorkerEntrypoint` (`LlmInterceptor`) into the platform's outbound-HTTPS interception mechanism. The platform TLS-terminates the container's connections to the real provider hosts and delivers them to the interceptor. The interceptor forwards to the AI Gateway with the real credentials. The gateway URL and token live only in the Worker environment; the container never sees them. The container communicates with the real provider host as if it were not intercepted — no base-URL rewrite, no new auth surface.
 
-**Decision:** Use platform outbound-HTTPS interception (option 3). The `LlmInterceptor` WorkerEntrypoint is exported from `src/index.ts` and wired via `ctx.container.interceptOutboundHttps` in `src/container/index.ts::setupEnterpriseInterception`. `ctx.exports` is default-on at compat date `2026-02-05`; no `enable_ctx_exports` flag is needed (the earlier draft constraint referencing that flag was removed before implementation).
+**Decision:** Use platform outbound-HTTPS interception (option 3). The `LlmInterceptor` WorkerEntrypoint is exported from `src/index.ts` and wired via `ctx.container.interceptOutboundHttps` in `src/container/container-interception.ts::wireContainerInterception`. `ctx.exports` is default-on at compat date `2026-02-05`; no `enable_ctx_exports` flag is needed (the earlier draft constraint referencing that flag was removed before implementation).
 
 **Consequences:**
 
@@ -2341,7 +2341,7 @@ Reuse — not rebuild — the existing enterprise `CloudflareBrowserInterceptor`
 
 The interceptor gains a second **OAuth mode** (props carry `bucket`): it trusts **all** `api.cloudflare.com` paths (the OAuth token is a full-scope API token, unlike the enterprise browser-rendering-path-only trust), resolves the token solely from the session-bound `props.bucket` via `getValidCloudflareToken` (never a request header — no cross-user spoof), reuses `relay()`/`bridge()` for REST + CDP, and fails closed `401` with no upstream when no valid token can be minted.
 
-Wiring (`wireCloudflareApiInterception`) is double-guarded: `!isEnterpriseMode(env)` **and** the container token equals the OAuth placeholder — so enterprise (which never has an oauth source) can never wire it, and there is no host collision with the enterprise browser interceptor. The placeholder **value** is itself the DO's OAuth-mode signal, so no new DO state or plumbing is needed.
+Wiring (the `cloudflareOauthApi` interception-registry entry in `container-interception.ts`) is double-guarded: `!isEnterpriseMode(env)` **and** the container token equals the OAuth placeholder — so enterprise (which never has an oauth source) can never wire it, and there is no host collision with the enterprise browser interceptor. The placeholder **value** is itself the DO's OAuth-mode signal, so no new DO state or plumbing is needed.
 
 **Rejected — a container-side pull/refresh helper (poll the worker for a fresh token, rewrite the env):** heavier, and a POSIX process's environment cannot be mutated by another process after it starts, so a refreshed value would never reach the already-running `wrangler`/browser-run — the boundary is the only place a per-call fresh token can be applied. **Rejected — a background worker that re-issues the container env var:** same env-immutability problem, plus new lifecycle machinery.
 

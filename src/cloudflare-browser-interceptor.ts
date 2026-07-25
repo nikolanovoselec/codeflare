@@ -13,7 +13,7 @@
  *
  * A WorkerEntrypoint the container DO wires into container egress for `api.cloudflare.com`
  * via `ctx.container.interceptOutboundHttps` (see src/container/index.ts
- * wireCloudflareBrowserInterception). Wired in enterprise ALWAYS (independent of the strict
+ * the browserRendering registry entry in container-interception.ts). Wired in enterprise ALWAYS (independent of the strict
  * Gateway egress toggle) so browser-run works in every enterprise configuration, the way it
  * did when the token rode the container env. Per-host registration TAKES PRECEDENCE over the
  * strict-egress `'*'` catch-all (SDK precedence: deniedHosts > per-host > catch-all), so when
@@ -41,9 +41,9 @@
  * request; the non-trusted path returns 403 (non-strict) or 503 (strict but EGRESS unbound).
  *
  * Wiring: in enterprise the DO wires this for api.cloudflare.com when an admin Browser Rendering
- * token + account are configured (mode 1, `wireCloudflareBrowserInterception`); in non-enterprise
+ * token + account are configured (mode 1, the `browserRendering` registry entry); in non-enterprise
  * it wires this for OAuth "Connect to Cloudflare" sessions with only the bound bucket in props
- * (mode 2, `wireCloudflareApiInterception`). Otherwise unreached.
+ * (mode 2, the `cloudflareOauthApi` registry entry). Otherwise unreached.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
