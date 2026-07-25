@@ -9,10 +9,11 @@ import { isAbsolute, relative, resolve } from 'node:path';
 export const MAX_NATIVE_CHAT_PROMPT_BYTES = 1024 * 1024;
 const MAX_USER_PROMPT_BYTES = 128 * 1024;
 const MAX_HISTORY_BYTES = 512 * 1024;
-// What the replay shrinks to when the whole context will not fit. A quarter is
-// enough to keep the recent back-and-forth that a follow-up question depends on
-// while freeing most of the budget in one step, so the ladder does not need a
-// series of ever-smaller history rungs.
+// What the replay shrinks to when the whole context will not fit: enough for the
+// recent back-and-forth a follow-up question depends on, small enough to free
+// most of the envelope in one step, so the ladder needs no series of
+// ever-smaller history rungs. Stated absolutely rather than as a fraction of
+// MAX_HISTORY_BYTES, so retuning that budget cannot silently move this one.
 const MAX_REDUCED_HISTORY_BYTES = 128 * 1024;
 const MAX_ACTIVE_CONTENT_BYTES = 96 * 1024;
 const MAX_SELECTION_BYTES = 48 * 1024;
