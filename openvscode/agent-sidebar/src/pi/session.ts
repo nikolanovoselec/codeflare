@@ -11,7 +11,6 @@ export interface PiSpawnSpec {
   readonly cwd: '/home/user/workspace';
   readonly env: Readonly<Record<string, string> & {
     HOME: '/home/user';
-    CODEFLARE_SIDEBAR: '1';
   }>;
   readonly shell: false;
 }
@@ -42,7 +41,6 @@ const FIXED_PI_SPAWN_SPEC: PiSpawnSpec = Object.freeze({
   cwd: '/home/user/workspace',
   env: Object.freeze({
     HOME: '/home/user',
-    CODEFLARE_SIDEBAR: '1',
   }),
   shell: false,
 });

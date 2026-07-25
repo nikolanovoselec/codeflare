@@ -210,3 +210,39 @@ test('REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi 
 
   assert.deepEqual(events, ['listen', 'prompt', 'abort', 'dispose-listener', 'stop']);
 });
+
+test('REQ-IDE-006 AC1: an over-budget history replay keeps the newest turns and drops the oldest', () => {
+  // Each entry is large enough that only a handful fit the history budget, so
+  // the boundary is crossed well inside the list rather than at its edge.
+  const entries = Array.from({ length: 40 }, (_, index) => ({
+    role: (index % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+    text: `turn-${index} ${'x'.repeat(32 * 1024)}`,
+  }));
+
+  const prompt = buildNativePiPrompt(promptInput({ history: entries }));
+
+  // The replay must be a suffix of the conversation: the last turn is present,
+  // the first is not. Asserting both directions is what makes this fail if the
+  // budget is ever spent front-first again.
+  assert.ok(prompt.includes('turn-39'), 'the newest turn must survive truncation');
+  assert.ok(!prompt.includes('turn-0 '), 'the oldest turn must be dropped first');
+
+  // And what survives stays in conversation order — walking newest-first to
+  // decide what fits must not leave the replay reversed.
+  const positions = entries
+    .map((entry, index) => ({ index, at: prompt.indexOf(`turn-${index} `) }))
+    .filter((entry) => entry.at !== -1);
+  assert.ok(positions.length >= 2, 'expected several turns to survive the budget');
+  for (let i = 1; i < positions.length; i += 1) {
+    assert.ok(
+      (positions[i]?.at ?? 0) > (positions[i - 1]?.at ?? 0),
+      'surviving turns must appear oldest-first in the replay',
+    );
+    assert.ok(
+      (positions[i]?.index ?? 0) > (positions[i - 1]?.index ?? 0),
+      'surviving turns must be a contiguous suffix in conversation order',
+    );
+  }
+
+  assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
+});

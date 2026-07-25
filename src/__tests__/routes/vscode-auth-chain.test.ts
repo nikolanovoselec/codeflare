@@ -176,10 +176,56 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-001: returns 503 CONTAINER_NOT_READY when the health probe is unhealthy', async () => {
+  // REQ-IDE-003 AC3: the IDE opens in a bare `_blank` tab, so an unhealthy
+  // container must answer a navigable request with a page, not a JSON body the
+  // browser renders as raw machine text.
+  it('REQ-IDE-003 AC3: an unhealthy container answers a navigable request with a refreshing HTML page', async () => {
     mockHealth.healthy = false;
     const request = vscodeRequest();
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Content-Type')).toMatch(/text\/html/);
+    const body = await response.text();
+    expect(body).toMatch(/<meta[^>]*http-equiv="refresh"/i);
+    expect(body).not.toMatch(/CONTAINER_NOT_READY/);
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-IDE-003 AC3: the warming page gives up instead of refreshing forever', async () => {
+    mockHealth.healthy = false;
+    const request = vscodeRequest(`/api/vscode/${SID}/?cf_warm=40`);
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    // The load-bearing half: no meta refresh, so the tab stops reloading against
+    // a container that is never going to become healthy.
+    const body = await response.text();
+    expect(body).not.toMatch(/http-equiv="refresh"/i);
+    expect(response.status).toBe(504);
+  });
+
+  it('REQ-IDE-003 AC3: the retry counter never reaches the base-path-native server', async () => {
+    // OpenVSCode receives its own URL unchanged (REQ-IDE-001), so the parameter
+    // this route adds while warming must be gone once the container answers.
+    const request = vscodeRequest(`/api/vscode/${SID}/?cf_warm=3`);
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(200);
+    const forwarded = mockContainerFetch.mock.calls[0][0] as Request;
+    expect(new URL(forwarded.url).searchParams.has('cf_warm')).toBe(false);
+  });
+
+  it('REQ-IDE-001: an unhealthy container still answers a WebSocket upgrade with 503 CONTAINER_NOT_READY', async () => {
+    // A WS client cannot render a page, so it keeps the machine-readable body.
+    mockHealth.healthy = false;
+    const request = new Request(`https://codeflare.ch/api/vscode/${SID}/ws`, {
+      headers: new Headers({
+        Origin: 'https://codeflare.ch',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'Sec-Fetch-Mode': 'websocket',
+      }),
+    });
+    const rr = route(request);
+    expect(rr.isWebSocket).toBe(true);
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, rr);
     expect(response.status).toBe(503);
     expect((await response.json() as { code: string }).code).toBe('CONTAINER_NOT_READY');
     expect(mockContainerFetch).not.toHaveBeenCalled();

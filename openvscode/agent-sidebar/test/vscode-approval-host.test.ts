@@ -61,7 +61,6 @@ test('REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no e
   ];
 
   for (const manifest of manifests) {
-    await host.openDiff(manifest);
     assert.equal(await host.confirm(manifest), true);
   }
 
@@ -78,7 +77,6 @@ test('REQ-IDE-007 AC2: arbitrary Pi confirmations auto-approve without UI', asyn
     preview: { kind: 'generic', toolName: 'mcp__example__mutate', input: { value: 'exact' } },
   };
 
-  await host.openDiff(manifest);
   assert.equal(await host.confirm(manifest), true);
 
   assert.equal(vscode.openedDocuments, 0);

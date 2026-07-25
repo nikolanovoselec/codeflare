@@ -1,8 +1,13 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 
-export const MAX_NATIVE_CHAT_PROMPT_BYTES = 512 * 1024;
+// The prompt travels as one JSONL line, so the hard transport ceiling is the
+// 4 MiB maxLineBytes in rpc-client.ts — and JSON escaping inflates the message
+// before it is measured there. 1 MiB leaves that margin. The binding limit past
+// this point is not ours: it is the model's own context window, so raising these
+// further trades a truncated replay for a provider-side rejection.
+export const MAX_NATIVE_CHAT_PROMPT_BYTES = 1024 * 1024;
 const MAX_USER_PROMPT_BYTES = 128 * 1024;
-const MAX_HISTORY_BYTES = 64 * 1024;
+const MAX_HISTORY_BYTES = 512 * 1024;
 const MAX_ACTIVE_CONTENT_BYTES = 96 * 1024;
 const MAX_SELECTION_BYTES = 48 * 1024;
 const MAX_REFERENCE_BYTES = 96 * 1024;
@@ -105,7 +110,11 @@ export function buildNativePiPrompt(input: NativePiPromptInput): string {
       text: truncateUtf8(input.activeEditor.selection.text, MAX_SELECTION_BYTES),
     } : undefined,
   } : undefined;
-  const history = boundedList(
+  // From the tail: history arrives oldest-first, and a replay that runs out of
+  // budget must drop the oldest turns, not the newest. Spending the budget
+  // front-first left a long conversation replaying how it started while the
+  // turn the user just sent fell off the end.
+  const history = boundedTail(
     input.history,
     MAX_HISTORY_BYTES,
     (entry) => ({ role: entry.role, text: entry.text }),
@@ -190,6 +199,31 @@ function boundedList<T, U>(
     break;
   }
   return result;
+}
+
+function boundedTail<T, U>(
+  values: readonly T[],
+  maxBytes: number,
+  project: (value: T) => U,
+): U[] {
+  const kept: U[] = [];
+  let remaining = maxBytes;
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    const projected = project(values[index] as T);
+    const bytes = Buffer.byteLength(JSON.stringify(projected), 'utf8');
+    if (bytes <= remaining) {
+      kept.push(projected);
+      remaining -= bytes;
+      continue;
+    }
+    if (remaining > Buffer.byteLength(TRUNCATION_MARKER, 'utf8')) {
+      kept.push(truncateRecord(projected, remaining));
+    }
+    break;
+  }
+  // Walked newest-first to decide what survives; the replay itself must still
+  // read oldest-first or the model sees the conversation backwards.
+  return kept.toReversed();
 }
 
 function truncateRecord<T>(value: T, maxBytes: number): T {

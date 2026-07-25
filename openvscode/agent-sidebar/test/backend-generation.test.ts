@@ -11,10 +11,6 @@ class UnexpectedApprovalHost implements ApprovalHost {
     throw new Error('Approval was not expected');
   }
 
-  async openDiff(_manifest: ApprovalManifest): Promise<void> {
-    throw new Error('Approval was not expected');
-  }
-
   async confirm(_manifest: ApprovalManifest): Promise<boolean> {
     throw new Error('Approval was not expected');
   }

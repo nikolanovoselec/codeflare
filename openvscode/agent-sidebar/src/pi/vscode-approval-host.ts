@@ -32,10 +32,6 @@ export class VsCodeApprovalHost implements ApprovalHost {
     }
   }
 
-  openDiff(_manifest: ApprovalManifest): Promise<void> {
-    return Promise.resolve();
-  }
-
   confirm(_manifest: ApprovalManifest): Promise<boolean> {
     return Promise.resolve(true);
   }

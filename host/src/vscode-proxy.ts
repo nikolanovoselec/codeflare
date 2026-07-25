@@ -169,18 +169,37 @@ export function vscodeModeAllowed(mode: string | undefined | null): boolean {
 }
 
 /**
+ * How long the warming page keeps reloading before it calls the start a
+ * failure. A supervisor that has not bound `:13337` within two minutes is not
+ * slow, it is broken, and refreshing forever presents that as slowness.
+ */
+export const VSCODE_WARMING_GIVE_UP_MS = 120_000;
+
+/**
  * The lazy-start warming page (REQ-IDE-003 AC3). The first `/api/vscode` request
  * triggers the supervisor, and the connect to `:13337` fails until OpenVSCode
  * binds (a few seconds). Rather than dumping raw JSON into a plain `_blank`
  * browser tab, serve a tiny HTML page that auto-refreshes so the tab lands on
  * the real editor once it is up. 503 = not-ready; browsers still render the body
  * and honour the meta refresh.
+ *
+ * Past `VSCODE_WARMING_GIVE_UP_MS` it stops refreshing and says so. A meta
+ * refresh cannot count its own attempts -- each reload is a fresh document --
+ * so the caller owns the elapsed clock and passes it in.
  */
-export function vscodeWarmingResponse(): VscodeHostResponse {
+export function vscodeWarmingResponse(elapsedMs = 0): VscodeHostResponse {
+  if (elapsedMs >= VSCODE_WARMING_GIVE_UP_MS) {
+    return {
+      status: 504,
+      contentType: 'text/html; charset=utf-8',
+      body: '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark light"><title>Editor did not start</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>The editor did not start. Reload to try again, or restart the session.</p></body></html>',
+    };
+  }
+  const seconds = Math.floor(elapsedMs / 1000);
   return {
     status: 503,
     contentType: 'text/html; charset=utf-8',
-    body: '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2"><meta name="color-scheme" content="dark light"><title>Starting editor</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>Starting the editor&hellip;</p></body></html>',
+    body: `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2"><meta name="color-scheme" content="dark light"><title>Starting editor</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>Starting the editor&hellip; ${seconds}s</p></body></html>`,
   };
 }
 

@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { createActivityTracker } from '../dist/activity-tracker.js';
-import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
+import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, VSCODE_WARMING_GIVE_UP_MS, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
 
 describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () => {
   it('matches the bare /api/vscode surface and everything below it', () => {
@@ -107,6 +107,31 @@ describe('vscodeWarmingResponse / REQ-IDE-003 AC3 (auto-refreshing warming page,
     assert.match(r.body, /<meta[^>]*http-equiv=["']refresh["']/i);
     // It must NOT be the old JSON error payload.
     assert.doesNotMatch(r.body, /VSCODE_WARMING/);
+  });
+});
+
+describe('vscodeWarmingResponse / REQ-IDE-003 AC3 (bounded warming)', () => {
+  it('keeps refreshing while the start is still plausibly in progress', () => {
+    const r = vscodeWarmingResponse(VSCODE_WARMING_GIVE_UP_MS - 1);
+    assert.equal(r.status, 503);
+    assert.match(r.body, /<meta[^>]*http-equiv=["']refresh["']/i);
+  });
+
+  it('stops refreshing and reports failure once the start has clearly not happened', () => {
+    const r = vscodeWarmingResponse(VSCODE_WARMING_GIVE_UP_MS);
+    // The load-bearing half: no meta refresh, so the tab stops reloading
+    // forever against a supervisor that is never going to bind.
+    assert.doesNotMatch(r.body, /http-equiv=["']refresh["']/i);
+    // And it must not still claim to be starting.
+    assert.notEqual(r.status, 503);
+    assert.match(r.contentType, /text\/html/);
+  });
+
+  it('reports elapsed time so a slow start is distinguishable from a stuck one', () => {
+    // Without this the two states are visually identical and a user cannot tell
+    // a 3-second start from a hung one.
+    assert.match(vscodeWarmingResponse(7_000).body, /7s/);
+    assert.match(vscodeWarmingResponse(42_000).body, /42s/);
   });
 });
 

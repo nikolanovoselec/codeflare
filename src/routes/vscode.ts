@@ -48,6 +48,58 @@ export type { VscodeRouteResult } from './vscode-validation';
 const logger = createLogger('vscode');
 
 /**
+ * The container-warming page and its bound.
+ *
+ * The IDE opens in a bare `_blank` tab, so whatever this returns is rendered as
+ * a document: a JSON error body reaches the user as raw machine text. The
+ * in-container warming page (host/src/vscode-proxy.ts) never gets the chance to
+ * handle this, because the health probe below fails before the request can be
+ * forwarded at all.
+ *
+ * The Worker holds no per-session state, so the attempt count rides in the query
+ * string and is stripped again once the container answers -- see
+ * `stripWarmParam`. Without a bound this page would reload forever against a
+ * container that is never coming up.
+ */
+const WARM_PARAM = 'cf_warm';
+const WARM_MAX_ATTEMPTS = 40;
+const WARM_REFRESH_SECONDS = 3;
+
+function warmingPage(url: URL, attempt: number): Response {
+  const headers = { 'Content-Type': 'text/html; charset=utf-8' };
+  if (attempt >= WARM_MAX_ATTEMPTS) {
+    return new Response(
+      '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark light"><title>Session not ready</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>The session container did not become ready. Reload to try again, or restart the session.</p></body></html>',
+      { status: 504, headers },
+    );
+  }
+  const next = new URL(url);
+  next.searchParams.set(WARM_PARAM, String(attempt + 1));
+  const target = `${next.pathname}${next.search}`.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+  const seconds = attempt * WARM_REFRESH_SECONDS;
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="${WARM_REFRESH_SECONDS};url=${target}"><meta name="color-scheme" content="dark light"><title>Starting session</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>Starting the session container&hellip; ${seconds}s</p></body></html>`,
+    { status: 503, headers },
+  );
+}
+
+function warmAttempt(url: URL): number {
+  const raw = Number(url.searchParams.get(WARM_PARAM));
+  return Number.isSafeInteger(raw) && raw > 0 ? Math.min(raw, WARM_MAX_ATTEMPTS) : 0;
+}
+
+/**
+ * OpenVSCode is base-path-native and receives its own URL unchanged, so the
+ * counter this route added must not survive into the forwarded request.
+ */
+function stripWarmParam(url: URL): string {
+  if (!url.searchParams.has(WARM_PARAM)) return url.toString();
+  const clean = new URL(url);
+  clean.searchParams.delete(WARM_PARAM);
+  return clean.toString();
+}
+
+/**
  * Forward a browser-IDE HTTP or WebSocket request to the in-container
  * OpenVSCode Server.
  */
@@ -115,10 +167,16 @@ export async function handleVscodeRequest(
     const { sessionKey } = ownershipResult;
 
     const container = getContainer(env.CONTAINER, containerId);
+    const requestUrl = new URL(request.url);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
     if (!warmProbe.healthy) {
-      return new Response(JSON.stringify({ error: 'Container not ready', code: 'CONTAINER_NOT_READY' }),
-        { status: 503, headers: jsonHeaders });
+      // A WebSocket upgrade cannot render a page, so it keeps the machine-readable
+      // 503 its client expects; only the navigable request gets the HTML.
+      if (isWebSocket) {
+        return new Response(JSON.stringify({ error: 'Container not ready', code: 'CONTAINER_NOT_READY' }),
+          { status: 503, headers: jsonHeaders });
+      }
+      return warmingPage(requestUrl, warmAttempt(requestUrl));
     }
 
     if (env.STRESS_TEST_MODE !== 'active' && isWebSocket) {
@@ -164,7 +222,7 @@ export async function handleVscodeRequest(
       method: request.method,
       isWebSocket: !!isWebSocket,
     });
-    const response = await container.fetch(new Request(request.url, requestForAuth));
+    const response = await container.fetch(new Request(stripWarmParam(requestUrl), requestForAuth));
     return response;
   } catch (err) {
     logger.error('vscode proxy failed', toError(err));
