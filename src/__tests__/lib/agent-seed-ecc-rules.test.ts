@@ -13,13 +13,10 @@ import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 
 const ECC_SUBDIRS = ['typescript', 'python', 'golang', 'swift'] as const;
 
-// Expected file count per subdirectory
-const ECC_FILES_PER_SUBDIR: Record<string, number> = {
-  typescript: 4, // coding-style, patterns, security, testing
-  python: 4,
-  golang: 4,
-  swift: 4,
-};
+// The four documents every ECC language subdirectory owes. This is the
+// contract; a count is not. A pinned total passes the moment someone edits the
+// constant to match whatever shipped, which is what it is supposed to catch.
+const ECC_DOCUMENTS = ['coding-style', 'patterns', 'security', 'testing'] as const;
 
 function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
@@ -48,39 +45,18 @@ describe('ECC rules in agent-seed', () => {
     expect(eccRules().filter((doc) => doc.key.startsWith('.claude/rules/common/'))).toHaveLength(0);
     const constitution = claudeDocs().find((doc) => doc.key === '.claude/rules/engineering-constitution.md');
     expect(constitution!.content).toMatch(/^## Coding concretes$/m);
+    expect(constitution!.content).toMatch(/Never set a field to `undefined`/);
   });
 
-  it('includes typescript/ rules with advanced mode only', () => {
-    const tsRules = eccRules().filter((doc) => doc.key.startsWith('.claude/rules/typescript/'));
-    expect(tsRules.length).toBe(ECC_FILES_PER_SUBDIR.typescript);
-    for (const rule of tsRules) {
-      expect(rule.modes).toEqual(['advanced']);
-    }
-  });
-
-  it('includes python/ rules with advanced mode only', () => {
-    const pyRules = eccRules().filter((doc) => doc.key.startsWith('.claude/rules/python/'));
-    expect(pyRules.length).toBe(ECC_FILES_PER_SUBDIR.python);
-    for (const rule of pyRules) {
-      expect(rule.modes).toEqual(['advanced']);
-    }
-  });
-
-  it('includes golang/ rules with advanced mode only', () => {
-    const goRules = eccRules().filter((doc) => doc.key.startsWith('.claude/rules/golang/'));
-    expect(goRules.length).toBe(ECC_FILES_PER_SUBDIR.golang);
-    for (const rule of goRules) {
-      expect(rule.modes).toEqual(['advanced']);
-    }
-  });
-
-  it('includes swift/ rules with advanced mode only', () => {
-    const swiftRules = eccRules().filter((doc) => doc.key.startsWith('.claude/rules/swift/'));
-    expect(swiftRules.length).toBe(ECC_FILES_PER_SUBDIR.swift);
-    for (const rule of swiftRules) {
-      expect(rule.modes).toEqual(['advanced']);
-    }
-  });
+  for (const dir of ECC_SUBDIRS) {
+    it(`includes ${dir}/ rules with advanced mode only`, () => {
+      const rules = eccRules().filter((doc) => doc.key.startsWith(`.claude/rules/${dir}/`));
+      expect(rules).toHaveLength(ECC_DOCUMENTS.length);
+      for (const rule of rules) {
+        expect(rule.modes).toEqual(['advanced']);
+      }
+    });
+  }
 
   it('all ECC rule keys have .claude/rules/ prefix', () => {
     for (const rule of eccRules()) {
@@ -192,9 +168,19 @@ describe('ECC rules in agent-seed', () => {
     expect(constitution).toBeDefined();
     expect(constitution!.modes).toEqual(['advanced']);
     expect(constitution!.content).toMatch(/^## Graph first$/m);
+    expect(constitution!.content).toMatch(/graphify-out\/graph\.json/);
   });
 
-  it('total ECC rules count is 16', () => {
-    expect(eccRules().length).toBe(16);
+  it('every ECC subdirectory ships exactly the four documents it owes', () => {
+    // Derived from the two declared lists, so adding a language or a document
+    // type requires changing a real declaration, not a tally.
+    for (const dir of ECC_SUBDIRS) {
+      const shipped = eccRules()
+        .filter((doc) => doc.key.startsWith(`.claude/rules/${dir}/`))
+        .map((doc) => doc.key.replace(`.claude/rules/${dir}/`, '').replace(/\.md$/, ''))
+        .sort();
+      expect(shipped, dir).toEqual([...ECC_DOCUMENTS].sort());
+    }
+    expect(eccRules()).toHaveLength(ECC_SUBDIRS.length * ECC_DOCUMENTS.length);
   });
 });

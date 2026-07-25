@@ -22,8 +22,13 @@ describe('graphify preseed - advanced-mode discipline (REQ-AGENT-024)', () => {
     // unchanged: what is asserted is that the discipline still ships.
     const path = resolve(repoRoot, 'preseed/agents/claude/rules/engineering-constitution.md');
     assert.ok(existsSync(path), 'engineering-constitution.md must exist in preseed/agents/claude/rules/');
-    assert.match(readFileSync(path, 'utf8'), /^## Graph first$/m,
+    const body = readFileSync(path, 'utf8');
+    assert.match(body, /^## Graph first$/m,
       'the constitution must carry the graph-first discipline section');
+    // The heading alone survives the section being emptied, which is exactly
+    // the loss this guards; assert the directive that carries the discipline.
+    assert.match(body, /graphify-out\/graph\.json/,
+      'the graph-first section must still name the artifact that triggers it');
   });
 
   it('AC2: skills/graphify/SKILL.md exists and is preseeded', () => {
