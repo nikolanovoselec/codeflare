@@ -44,7 +44,7 @@ export interface InterceptionHost {
 }
 
 /** One resolved outbound-interception transport, ready to register. */
-export interface InterceptorRegistration {
+interface InterceptorRegistration {
   /** `ctx.exports` entrypoint name holding the interceptor WorkerEntrypoint. */
   entrypoint: string;
   /** Worker-side props (resolved once at wiring; never enter the container). */

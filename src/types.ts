@@ -10,7 +10,7 @@ import { z } from 'zod';
  */
 
 /** Bindings and vars present (or optionally present) in EVERY deploy mode. */
-export interface CoreEnv {
+interface CoreEnv {
   // Static assets binding (auto-injected by Cloudflare when [assets] is configured)
   ASSETS: Fetcher;
 
@@ -64,7 +64,7 @@ export interface CoreEnv {
 }
 
 /** Public-onboarding surface (waitlist landing + transactional email); optional in any mode. */
-export interface OnboardingEnv {
+interface OnboardingEnv {
   // Optional onboarding mode flag: when set to "active",
   // root (/) serves a public waitlist landing page.
   ONBOARDING_LANDING_PAGE?: string;
@@ -80,7 +80,7 @@ export interface OnboardingEnv {
 }
 
 /** SaaS-mode-only vars: custom login, JIT provisioning, billing. Absent in default and enterprise deploys. */
-export interface SaasEnv {
+interface SaasEnv {
   // SaaS mode: custom login page with JIT provisioning and admin approval gate.
   // When 'active', new users are auto-provisioned with 'pending' tier on first login.
   SAAS_MODE?: string;
@@ -104,7 +104,7 @@ export interface SaasEnv {
 }
 
 /** GitHub provider config: App credentials (enterprise/EMU) + host overrides for data-residency tenants. */
-export interface GithubEnv {
+interface GithubEnv {
   // GitHub App (enterprise / EMU). When set, the GitHub integration uses the App
   // user-to-server provider (refreshable ~8h tokens, acts AS the user) instead of
   // the OAuth App. Register an INTERNAL GitHub App in the customer's enterprise and
@@ -120,7 +120,7 @@ export interface GithubEnv {
 }
 
 /** Enterprise-mode-only bindings: AI Gateway routing + strict-egress transport (AD86). */
-export interface EnterpriseEnv {
+interface EnterpriseEnv {
   // Enterprise mode: when 'active', codeflare is deployed inside a customer's
   // own Cloudflare account. All users resolve to unlimited tier + advanced mode,
   // the agent set is restricted to the enterprise allowlist, and LLM traffic is

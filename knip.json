@@ -6,9 +6,6 @@
   "ignore": [
     "src/lib/contact-topics.ts"
   ],
-  "ignoreBinaries": [
-    "python3"
-  ],
   "ignoreDependencies": [
     "cloudflare",
     "typebox"

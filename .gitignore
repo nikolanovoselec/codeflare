@@ -49,3 +49,7 @@ raw/
 
 # PR-boundary review lane triage reports (report-only agent output; local scratch)
 sdd/review/
+
+# Python bytecode (generated; a test harness importing preseed python can emit these)
+__pycache__/
+*.pyc
