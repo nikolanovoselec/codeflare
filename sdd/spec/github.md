@@ -50,7 +50,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)
 
-**Verification:** [Unit test](../../src/__tests__/lib/github-token.test.ts)
+**Verification:** Automated test ([Unit test](../../src/__tests__/lib/github-token.test.ts))
 
 **Status:** Implemented
 
@@ -110,7 +110,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container), [CON-GH-003](constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding)
 
-**Verification:** [Interceptor test](../../src/__tests__/github-interceptor.test.ts) (injection format per host incl. Copilot `api.githubcopilot.com/mcp` Bearer, fail-closed, no cross-user spoofing) + [wiring](../../src/__tests__/container/enterprise-llm.test.ts) (all three GitHub hosts) + [placeholder env](../../src/__tests__/container/container-env.test.ts)
+**Verification:** Automated test ([Interceptor test](../../src/__tests__/github-interceptor.test.ts) (injection format per host incl. Copilot `api.githubcopilot.com/mcp` Bearer, fail-closed, no cross-user spoofing) + [wiring](../../src/__tests__/container/enterprise-llm.test.ts) (all three GitHub hosts) + [placeholder env](../../src/__tests__/container/container-env.test.ts))
 
 **Status:** Implemented
 
@@ -164,7 +164,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** [Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) + [offboarding revoke](../../src/__tests__/lib/user-cleanup.test.ts)
+**Verification:** Automated test ([Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) + [offboarding revoke](../../src/__tests__/lib/user-cleanup.test.ts))
 
 **Status:** Implemented
 
@@ -189,7 +189,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials)
 
-**Verification:** [Container env test](../../src/__tests__/container/container-env.test.ts) (non-enterprise real `GH_TOKEN` vs enterprise placeholder)
+**Verification:** Automated test ([Container env test](../../src/__tests__/container/container-env.test.ts) (non-enterprise real `GH_TOKEN` vs enterprise placeholder))
 
 **Status:** Implemented
 
@@ -224,7 +224,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
 
-**Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts)
+**Verification:** Automated test ([Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts))
 
 **Status:** Implemented
 
@@ -283,7 +283,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)
 
-**Verification:** [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+**Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
 
 **Status:** Implemented
 
@@ -313,7 +313,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+**Verification:** Automated test ([Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
 
 **Status:** Implemented
 
@@ -347,6 +347,6 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states)
 
-**Verification:** [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts)
+**Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts))
 
 **Status:** Implemented

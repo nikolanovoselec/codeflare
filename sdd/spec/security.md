@@ -51,7 +51,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** [Automated test](../../src/__tests__/lib/access.test.ts)
+**Verification:** Automated test ([access](../../src/__tests__/lib/access.test.ts))
 
 **Status:** Implemented
 
@@ -79,7 +79,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-003](#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
 
-**Verification:** [Automated test](../../src/__tests__/lib/r2-admin.test.ts)
+**Verification:** Automated test ([r2-admin](../../src/__tests__/lib/r2-admin.test.ts))
 
 **Status:** Implemented
 
@@ -110,7 +110,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** [Integration test](../../src/__tests__/lib/r2-admin.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/lib/r2-admin.test.ts))
 
 **Status:** Implemented
 
@@ -139,7 +139,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/security/kv-crypto-security.test.ts)
+**Verification:** Automated test ([kv-crypto-security](../../src/__tests__/security/kv-crypto-security.test.ts))
 
 **Status:** Implemented
 
@@ -170,7 +170,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Integration test](../../src/__tests__/lib/r2-sse.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/lib/r2-sse.test.ts))
 
 **Status:** Implemented
 
@@ -201,7 +201,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** [Automated test](../../src/__tests__/security/kv-crypto-security.test.ts)
+**Verification:** Automated test ([kv-crypto-security](../../src/__tests__/security/kv-crypto-security.test.ts))
 
 **Status:** Implemented
 
@@ -228,7 +228,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/security/rate-limit-security.test.ts)
+**Verification:** Automated test ([rate-limit-security](../../src/__tests__/security/rate-limit-security.test.ts))
 
 **Status:** Implemented
 
@@ -262,7 +262,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/security/security-headers.test.ts)
+**Verification:** Automated test ([security-headers](../../src/__tests__/security/security-headers.test.ts))
 
 **Status:** Implemented
 
@@ -320,7 +320,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/security/storage-security.test.ts)
+**Verification:** Automated test ([storage-security](../../src/__tests__/security/storage-security.test.ts))
 
 **Status:** Implemented
 
@@ -376,7 +376,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Integration test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -403,7 +403,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-012](#req-sec-012-container-auth-token-per-do-lifecycle)
 
-**Verification:** [Integration test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -429,7 +429,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-009](#req-sec-009-input-validation-at-system-boundaries)
 
-**Verification:** [Automated test](../../src/__tests__/security/storage-security.test.ts)
+**Verification:** Automated test ([storage-security](../../src/__tests__/security/storage-security.test.ts))
 
 **Status:** Implemented
 
@@ -454,7 +454,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** [Automated test](../../src/__tests__/security/access-security.test.ts)
+**Verification:** Automated test ([access-security](../../src/__tests__/security/access-security.test.ts))
 
 **Status:** Implemented
 
@@ -482,7 +482,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SUB-012](subscription.md#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** [Integration test](../../src/__tests__/routes/auth-subscribe.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/auth-subscribe.test.ts))
 
 **Status:** Implemented
 
@@ -508,7 +508,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** [Automated test](../../src/__tests__/security/access-security.test.ts)
+**Verification:** Automated test ([access-security](../../src/__tests__/security/access-security.test.ts))
 
 **Status:** Implemented
 
@@ -562,7 +562,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure)
 
-**Verification:** [Automated test](../../src/__tests__/lib/cross-package-constants.test.ts)
+**Verification:** Automated test ([cross-package-constants](../../src/__tests__/lib/cross-package-constants.test.ts))
 
 **Status:** Implemented
 
@@ -588,7 +588,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure), [REQ-SEC-019](#req-sec-019-per-endpoint-rate-limit-policy)
 
-**Verification:** [Automated test](../../src/__tests__/routes/terminal-ws.test.ts)
+**Verification:** Automated test ([terminal-ws](../../src/__tests__/routes/terminal-ws.test.ts))
 
 **Status:** Implemented
 
@@ -612,6 +612,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
 
-**Verification:** [Automated test](../../src/__tests__/redirect-with-headers.test.ts)
+**Verification:** Automated test ([redirect-with-headers](../../src/__tests__/redirect-with-headers.test.ts))
 
 **Status:** Implemented

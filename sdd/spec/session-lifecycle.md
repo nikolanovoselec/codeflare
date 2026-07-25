@@ -48,7 +48,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware) (requireActiveUser middleware)
 
-**Verification:** [Integration test](../../src/__tests__/routes/session-creation.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-creation.test.ts))
 
 **Status:** Implemented
 
@@ -76,7 +76,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** [Integration test](../../src/__tests__/lib/container-id-isolation.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/lib/container-id-isolation.test.ts))
 
 **Status:** Implemented
 
@@ -137,7 +137,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** [Automated test](../../src/__tests__/container-metrics.test.ts)
+**Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
 
 **Status:** Implemented
 
@@ -197,7 +197,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** [Integration test](../../src/__tests__/routes/session-stop-delete.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-stop-delete.test.ts))
 
 **Status:** Implemented
 
@@ -226,7 +226,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** [Automated test](../../src/__tests__/routes/container-lifecycle-helpers.test.ts)
+**Verification:** Automated test ([container-lifecycle-helpers](../../src/__tests__/routes/container-lifecycle-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -254,7 +254,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** [Integration test](../../src/__tests__/routes/container-restart-prefs.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/container-restart-prefs.test.ts))
 
 **Status:** Implemented
 
@@ -282,7 +282,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -347,7 +347,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** [Drain-before-stop ordering + best-effort](../../src/__tests__/container/index.test.ts), [drainFinalSync + idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint + completion signal](../../host/__tests__/final-sync-endpoint.test.js)
+**Verification:** Automated test ([Drain-before-stop ordering + best-effort](../../src/__tests__/container/index.test.ts), [drainFinalSync + idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint + completion signal](../../host/__tests__/final-sync-endpoint.test.js))
 
 **Status:** Implemented
 
@@ -376,7 +376,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/stores/session.test.ts)
+**Verification:** Automated test ([session](../../web-ui/src/__tests__/stores/session.test.ts))
 
 **Status:** Implemented
 
@@ -406,7 +406,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/lib/sleep-timer.test.ts)
+**Verification:** Automated test ([sleep-timer](../../web-ui/src/__tests__/lib/sleep-timer.test.ts))
 
 **Status:** Implemented
 
@@ -433,7 +433,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** [Integration test](../../src/__tests__/routes/session-sleep-timeout.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-sleep-timeout.test.ts))
 
 **Status:** Implemented
 
@@ -519,7 +519,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** [Automated test](../../src/__tests__/routes/container-status.test.ts)
+**Verification:** Automated test ([container-status](../../src/__tests__/routes/container-status.test.ts))
 
 **Status:** Implemented
 
@@ -549,7 +549,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
 
-**Verification:** [collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts), [onError / onStop lifecycle](../../src/__tests__/container/lifecycle.test.ts)
+**Verification:** Automated test ([collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts), [onError / onStop lifecycle](../../src/__tests__/container/lifecycle.test.ts))
 
 **Status:** Implemented
 
@@ -571,6 +571,6 @@ None.
 
 **Dependencies:** [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
-**Verification:** [Drain auth on the delete path](../../src/__tests__/container/index.test.ts), [idle/quota-stop drain auth](../../src/__tests__/container/container-metrics-drain.test.ts)
+**Verification:** Automated test ([Drain auth on the delete path](../../src/__tests__/container/index.test.ts), [idle/quota-stop drain auth](../../src/__tests__/container/container-metrics-drain.test.ts))
 
 **Status:** Implemented

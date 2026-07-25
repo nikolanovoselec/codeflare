@@ -62,7 +62,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions) (file persistence across sessions), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) (15-min bisync), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) (initial sync restores files on container start)
 
-**Verification:** [Behavioral test](../../host/__tests__/entrypoint-vault-boot.test.js)
+**Verification:** Automated test ([Behavioral test](../../host/__tests__/entrypoint-vault-boot.test.js))
 
 **Status:** Implemented
 
@@ -191,7 +191,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
+**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts))
 
 **Status:** Implemented
 
@@ -249,7 +249,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (preseed configs from single source), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start) (preseed deployed to container on start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline) (manifest-driven preseed pipeline)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-vault-boot.test.js)
+**Verification:** Automated test ([entrypoint-vault-boot](../../host/__tests__/entrypoint-vault-boot.test.js))
 
 **Status:** Implemented
 
@@ -305,7 +305,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor)
 
-**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
+**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts))
 
 **Status:** Implemented
 
@@ -337,7 +337,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** [Behavioral test](../../host/__tests__/entrypoint-vault-boot.test.js)
+**Verification:** Automated test ([Behavioral test](../../host/__tests__/entrypoint-vault-boot.test.js))
 
 **Status:** Implemented
 
@@ -419,7 +419,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
+**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts))
 
 **Status:** Implemented
 
@@ -447,7 +447,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** [Automated test](../../host/__tests__/graphify-active-repo.test.js)
+**Verification:** Automated test ([graphify-active-repo](../../host/__tests__/graphify-active-repo.test.js))
 
 **Status:** Implemented
 
@@ -534,7 +534,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter), [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption)
 
-**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts), [Auth-chain test](../../src/__tests__/routes/vault-auth-chain.test.ts), [Direct worker graft test](../../src/__tests__/routes/vault-native-sw-direct.test.ts)
+**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts), [Auth-chain test](../../src/__tests__/routes/vault-auth-chain.test.ts), [Direct worker graft test](../../src/__tests__/routes/vault-native-sw-direct.test.ts))
 
 **Status:** Implemented
 
@@ -561,7 +561,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker)
 
-**Verification:** [Direct worker graft test](../../src/__tests__/routes/vault-native-sw-direct.test.ts)
+**Verification:** Automated test ([Direct worker graft test](../../src/__tests__/routes/vault-native-sw-direct.test.ts))
 
 **Status:** Implemented
 
@@ -591,7 +591,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing)
 
-**Verification:** [Header wiring test](../../web-ui/src/__tests__/components/Header.test.tsx), [Automated test](../../web-ui/src/__tests__/lib/vault-readiness.test.ts), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [browser storage persistence test](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts), [local readiness test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts)
+**Verification:** Automated test ([Header wiring test](../../web-ui/src/__tests__/components/Header.test.tsx), [vault-readiness](../../web-ui/src/__tests__/lib/vault-readiness.test.ts), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [browser storage persistence test](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts), [local readiness test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts))
 
 **Status:** Implemented
 
@@ -621,7 +621,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-019](#req-vault-019-vault-key-recoverable-open-gate), [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption)
 
-**Verification:** [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx), [cache helper test](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts)
+**Verification:** Automated test ([layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx), [cache helper test](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts))
 
 **Status:** Implemented
 
@@ -648,7 +648,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
 
-**Verification:** [Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [key recoverability test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx)
+**Verification:** Automated test ([Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [key recoverability test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx))
 
 **Status:** Implemented
 
@@ -677,7 +677,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-MOB-014](mobile.md#req-mob-014-mobile-background-surface-focus-isolation)
 
-**Verification:** [Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts)
+**Verification:** Automated test ([Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts))
 
 **Status:** Implemented
 
@@ -708,7 +708,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
 
-**Verification:** [bucket token test](../../src/__tests__/lib/vault-bucket-token.test.ts), [bucket-derived key test](../../src/__tests__/routes/vault-crypto.test.ts), [route dispatch test](../../src/__tests__/routes/vault-bucket-routing.test.ts), [auth-chain serving test](../../src/__tests__/routes/vault-auth-chain.test.ts), [HTML-rewrite split test](../../src/__tests__/routes/vault.test.ts), [readiness SW-scope test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts)
+**Verification:** Automated test ([bucket token test](../../src/__tests__/lib/vault-bucket-token.test.ts), [bucket-derived key test](../../src/__tests__/routes/vault-crypto.test.ts), [route dispatch test](../../src/__tests__/routes/vault-bucket-routing.test.ts), [auth-chain serving test](../../src/__tests__/routes/vault-auth-chain.test.ts), [HTML-rewrite split test](../../src/__tests__/routes/vault.test.ts), [readiness SW-scope test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts))
 
 **Status:** Implemented
 
@@ -736,7 +736,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
 
-**Verification:** [cache reconciliation test](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [not-ready sync guard test](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [boot mtime + landing-page test](../../host/__tests__/entrypoint-vault-boot.test.js)
+**Verification:** Automated test ([cache reconciliation test](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [not-ready sync guard test](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [boot mtime + landing-page test](../../host/__tests__/entrypoint-vault-boot.test.js))
 
 **Status:** Implemented
 
@@ -768,7 +768,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) (vault key generation and lifecycle), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) (bucket-stable URL and session routing)
 
-**Verification:** [Bootstrap-hop test](../../src/__tests__/routes/vault.test.ts), [Service-worker retention test](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [Open-flow test](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** Automated test ([Bootstrap-hop test](../../src/__tests__/routes/vault.test.ts), [Service-worker retention test](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [Open-flow test](../../web-ui/src/__tests__/components/Layout.test.tsx))
 
 **Status:** Implemented
 
@@ -801,7 +801,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s) (edit detection loop), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault + graphify-out ride the R2 sync)
 
-**Verification:** [Content-hash and promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts), [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [rclone persistence test](../../host/__tests__/entrypoint-rclone-filters.test.js)
+**Verification:** Automated test ([Content-hash and promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts), [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [rclone persistence test](../../host/__tests__/entrypoint-rclone-filters.test.js))
 
 **Status:** Implemented
 
@@ -835,7 +835,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
-**Verification:** [Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [manifest promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts)
+**Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [manifest promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts))
 
 **Status:** Implemented
 
@@ -861,7 +861,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
 
-**Verification:** [Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
+**Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
 
 **Status:** Implemented
 

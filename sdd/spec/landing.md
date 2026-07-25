@@ -110,7 +110,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** [Automated test](../../src/__tests__/routes/public-contact.test.ts)
+**Verification:** Automated test ([public-contact](../../src/__tests__/routes/public-contact.test.ts))
 
 **Status:** Implemented
 
@@ -229,7 +229,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** [Landing render tests](../../landing/src/__tests__/index-page.test.ts), [Scramble behavior tests](../../landing/src/__tests__/scramble.script.test.ts)
+**Verification:** Automated test ([Landing render tests](../../landing/src/__tests__/index-page.test.ts), [Scramble behavior tests](../../landing/src/__tests__/scramble.script.test.ts))
 
 **Status:** Implemented
 

@@ -49,7 +49,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/lib/r2-config.test.ts)
+**Verification:** Automated test ([r2-config](../../src/__tests__/lib/r2-config.test.ts))
 
 **Status:** Implemented
 
@@ -76,7 +76,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Integration test](../../host/__tests__/entrypoint-bisync-behavior.test.js)
+**Verification:** Automated test ([Integration test](../../host/__tests__/entrypoint-bisync-behavior.test.js))
 
 **Status:** Implemented
 
@@ -108,7 +108,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-bisync-behavior.test.js)
+**Verification:** Automated test ([entrypoint-bisync-behavior](../../host/__tests__/entrypoint-bisync-behavior.test.js))
 
 **Status:** Implemented
 
@@ -197,7 +197,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system), [REQ-STOR-014](#req-stor-014-r2-storage-stats-caching)
 
-**Verification:** [Automated test](../../src/__tests__/routes/storage-stats.test.ts)
+**Verification:** Automated test ([storage-stats](../../src/__tests__/routes/storage-stats.test.ts))
 
 **Status:** Implemented
 
@@ -258,7 +258,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
-**Verification:** [Automated test](../../src/__tests__/routes/storage-upload.test.ts)
+**Verification:** Automated test ([storage-upload](../../src/__tests__/routes/storage-upload.test.ts))
 
 **Status:** Implemented
 
@@ -320,7 +320,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Automated test](../../src/__tests__/lib/r2-seed.test.ts)
+**Verification:** Automated test ([r2-seed](../../src/__tests__/lib/r2-seed.test.ts))
 
 **Status:** Implemented
 
@@ -348,7 +348,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-hooks-merge.test.js)
+**Verification:** Automated test ([entrypoint-hooks-merge](../../host/__tests__/entrypoint-hooks-merge.test.js))
 
 **Status:** Implemented
 
@@ -376,7 +376,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-transcript-cleanup.test.js)
+**Verification:** Automated test ([entrypoint-transcript-cleanup](../../host/__tests__/entrypoint-transcript-cleanup.test.js))
 
 **Status:** Implemented
 
@@ -404,7 +404,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Automated test](../../src/__tests__/routes/storage-stats.test.ts)
+**Verification:** Automated test ([storage-stats](../../src/__tests__/routes/storage-stats.test.ts))
 
 **Status:** Implemented
 
@@ -464,7 +464,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
-**Verification:** [File-list behavior tests](../../web-ui/src/__tests__/components/FileList.test.tsx), [Storage Browser component tests](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx)
+**Verification:** Automated test ([File-list behavior tests](../../web-ui/src/__tests__/components/FileList.test.tsx), [Storage Browser component tests](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx))
 
 **Status:** Implemented
 
@@ -498,7 +498,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-ENTERPRISE-018](enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
 
-**Verification:** [Bisync server-modtime + lay-down/compare-flag + managed-extension relay + background-init deprioritization test](../../host/__tests__/entrypoint-governed-sync.test.js) (AC1, AC3–AC7); [bake byte-identity test](../../src/__tests__/lib/agent-seed-bake.test.ts) (AC2)
+**Verification:** Automated test ([Bisync server-modtime + lay-down/compare-flag + managed-extension relay + background-init deprioritization test](../../host/__tests__/entrypoint-governed-sync.test.js) (AC1, AC3–AC7); [bake byte-identity test](../../src/__tests__/lib/agent-seed-bake.test.ts) (AC2))
 
 **Status:** Implemented
 
@@ -529,6 +529,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser), [REQ-STOR-016](#req-stor-016-file-browser-presentation-and-traversal-safety)
 
-**Verification:** [Storage store tests](../../web-ui/src/__tests__/stores/storage.test.ts), [file-list behavior tests](../../web-ui/src/__tests__/components/FileList.test.tsx), [Storage Browser timer tests](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx)
+**Verification:** Automated test ([Storage store tests](../../web-ui/src/__tests__/stores/storage.test.ts), [file-list behavior tests](../../web-ui/src/__tests__/components/FileList.test.tsx), [Storage Browser timer tests](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx))
 
 **Status:** Implemented

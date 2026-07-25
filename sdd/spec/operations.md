@@ -48,7 +48,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../host/__tests__/deploy-requires-tests.test.js)
+**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
 
 **Status:** Implemented
 
@@ -112,7 +112,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js)); workflow-trigger, lint, typecheck, and audit ACs verified manually
 
 **Status:** Implemented
 
@@ -199,7 +199,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** [Automated test](../../host/__tests__/workflow-deploy-max-instances.test.js)
+**Verification:** Automated test ([workflow-deploy-max-instances](../../host/__tests__/workflow-deploy-max-instances.test.js))
 
 **Status:** Implemented
 
@@ -229,7 +229,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/middleware/rate-limit.test.ts)
+**Verification:** Automated test ([rate-limit](../../src/__tests__/middleware/rate-limit.test.ts))
 
 **Status:** Implemented
 
@@ -289,7 +289,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-shutdown.test.js)
+**Verification:** Automated test ([entrypoint-shutdown](../../host/__tests__/entrypoint-shutdown.test.js))
 
 **Status:** Implemented
 
@@ -365,7 +365,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/lib/access.test.ts)
+**Verification:** Automated test ([access](../../src/__tests__/lib/access.test.ts))
 
 **Status:** Implemented
 
@@ -393,7 +393,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -447,7 +447,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
-**Verification:** [Automated test](../../src/__tests__/container-metrics.test.ts)
+**Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
 
 **Status:** Implemented
 
@@ -526,7 +526,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual workflow check
+**Verification:** Manual check (workflow execution)
 
 **Status:** Implemented
 
@@ -550,7 +550,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** [Automated lockfile test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js); workflow execution manual
+**Verification:** Automated test ([Automated lockfile test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js); workflow execution manual)
 
 **Status:** Implemented
 
@@ -635,7 +635,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** [Automated test](../../src/__tests__/ci/suite-gates.test.ts)
+**Verification:** Automated test ([suite-gates](../../src/__tests__/ci/suite-gates.test.ts))
 
 **Status:** Implemented
 

@@ -65,7 +65,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** [Automated test](../../src/__tests__/lib/enterprise-mode.test.ts)
+**Verification:** Automated test ([enterprise-mode](../../src/__tests__/lib/enterprise-mode.test.ts))
 
 **Status:** Implemented
 
@@ -93,7 +93,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SUB-016](subscription.md#req-sub-016-customer-portal-and-plan-switching), [REQ-SUB-017](subscription.md#req-sub-017-enterprise-tier-contact-flow)
 
-**Verification:** [Header subscription-hide](../../web-ui/src/__tests__/components/Header.test.tsx) (AC1 billing surfaces hidden in enterprise, AC4 shown in SaaS), [subscribe route guard](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC2 `/app/subscribe` redirects to `/app/` in a non-SaaS/enterprise deployment), [API enterpriseMode flag](../../src/__tests__/routes/user-profile-enterprise.test.ts) (AC3 deploy-time signal, AC4 flag-off parity).
+**Verification:** Automated test ([Header subscription-hide](../../web-ui/src/__tests__/components/Header.test.tsx) (AC1 billing surfaces hidden in enterprise, AC4 shown in SaaS), [subscribe route guard](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC2 `/app/subscribe` redirects to `/app/` in a non-SaaS/enterprise deployment), [API enterpriseMode flag](../../src/__tests__/routes/user-profile-enterprise.test.ts) (AC3 deploy-time signal, AC4 flag-off parity).)
 
 **Status:** Implemented
 
@@ -127,7 +127,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-025](#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](agents.md#req-agent-002-agent-selection-at-session-creation)
 
-**Verification:** [Automated test](../../src/__tests__/routes/session-agent-allowlist.test.ts)
+**Verification:** Automated test ([session-agent-allowlist](../../src/__tests__/routes/session-agent-allowlist.test.ts))
 
 **Status:** Implemented
 
@@ -161,7 +161,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
 
-**Verification:** [Automated test](../../src/__tests__/llm-interceptor.test.ts)
+**Verification:** Automated test ([llm-interceptor](../../src/__tests__/llm-interceptor.test.ts))
 
 **Status:** Implemented
 
@@ -194,7 +194,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** [env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC5/AC6 env injection; AC7 secret hygiene — no AWS_* in either mode, enterprise CLOUDFLARE_API_TOKEN placeholder-only); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC4 — one model per catalog route + per-route contextWindow, empty-catalog fallback, reserved-keyword jq guard; AC7 — auth.json cleared to {}); [entrypoint CA-trust + Copilot BYOK test](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js) (AC2 — CA env prepended to .bashrc, idempotent, enterprise-gated; AC3 — Copilot BYOK vars + token-limit hints prepended, stale route overwritten on re-run, enterprise-gated). All acceptance criteria are covered by automated tests.
+**Verification:** Automated test ([env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC5/AC6 env injection; AC7 secret hygiene — no AWS_* in either mode, enterprise CLOUDFLARE_API_TOKEN placeholder-only); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC4 — one model per catalog route + per-route contextWindow, empty-catalog fallback, reserved-keyword jq guard; AC7 — auth.json cleared to {}); [entrypoint CA-trust + Copilot BYOK test](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js) (AC2 — CA env prepended to .bashrc, idempotent, enterprise-gated; AC3 — Copilot BYOK vars + token-limit hints prepended, stale route overwritten on re-run, enterprise-gated). All acceptance criteria are covered by automated tests.)
 
 **Status:** Implemented
 
@@ -255,7 +255,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
 
-**Verification:** [Automated test](../../src/__tests__/llm-interceptor.test.ts)
+**Verification:** Automated test ([llm-interceptor](../../src/__tests__/llm-interceptor.test.ts))
 
 **Status:** Implemented
 
@@ -287,7 +287,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6, REQ-ENTERPRISE-015 AC2); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC2/REQ-ENTERPRISE-015 AC2/REQ-ENTERPRISE-015 AC3); [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx) (AC2/REQ-ENTERPRISE-015 AC2/REQ-ENTERPRISE-015 AC3)
+**Verification:** Automated test ([enterprise-surface-suppression](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6, REQ-ENTERPRISE-015 AC2); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC2/REQ-ENTERPRISE-015 AC2/REQ-ENTERPRISE-015 AC3); [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx) (AC2/REQ-ENTERPRISE-015 AC2/REQ-ENTERPRISE-015 AC3))
 
 **Status:** Implemented
 
@@ -319,7 +319,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-008](#req-enterprise-008-enterprise-frontend-surface-suppression)
 
-**Verification:** [Automated test](../../src/__tests__/routes/enterprise-route-hardening.test.ts)
+**Verification:** Automated test ([enterprise-route-hardening](../../src/__tests__/routes/enterprise-route-hardening.test.ts))
 
 **Status:** Implemented
 
@@ -352,7 +352,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)
 
-**Verification:** [Automated test](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts)
+**Verification:** Automated test ([enterprise-jit-provisioning](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts))
 
 **Status:** Implemented
 
@@ -377,7 +377,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)
 
-**Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -408,7 +408,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** [Setup configure tests](../../src/__tests__/routes/setup.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [route-config resolver tests](../../src/__tests__/lib/enterprise-route-config.test.ts), [access-group parsing](../../src/__tests__/lib/access-group-resolution.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx)
+**Verification:** Automated test ([Setup configure tests](../../src/__tests__/routes/setup.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [route-config resolver tests](../../src/__tests__/lib/enterprise-route-config.test.ts), [access-group parsing](../../src/__tests__/lib/access-group-resolution.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx))
 
 **Status:** Implemented
 
@@ -433,7 +433,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)
 
-**Verification:** [Setup configure tests](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [container env fan](../../src/__tests__/container/container-env-llm.test.ts), and [entrypoint Pi models](../../host/__tests__/entrypoint-enterprise-pi-models.test.js).
+**Verification:** Automated test ([Setup configure tests](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [container env fan](../../src/__tests__/container/container-env-llm.test.ts), and [entrypoint Pi models](../../host/__tests__/entrypoint-enterprise-pi-models.test.js).)
 
 **Status:** Implemented
 
@@ -518,7 +518,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-008](#req-enterprise-008-enterprise-frontend-surface-suppression)
 
-**Verification:** [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC1); [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC2 — also covers REQ-ENTERPRISE-008 AC1–AC3, AC6); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC2/AC3 — also covers REQ-ENTERPRISE-008 AC2); [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx) (AC2/AC3 — also covers REQ-ENTERPRISE-008 AC2)
+**Verification:** Automated test ([ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC1); [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC2 — also covers REQ-ENTERPRISE-008 AC1–AC3, AC6); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC2/AC3 — also covers REQ-ENTERPRISE-008 AC2); [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx) (AC2/AC3 — also covers REQ-ENTERPRISE-008 AC2))
 
 **Status:** Implemented
 
@@ -553,7 +553,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
-**Verification:** [setup persistence](../../src/__tests__/routes/setup.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [container catch-all wiring + enableInternet](../../src/__tests__/container/index.test.ts), and [strict-gate resolver tests](../../src/__tests__/lib/controller-egress.test.ts). The `[[vpc_networks]]` `EGRESS` binding is deploy-time config (a Constraint: enterprise-only, committed commented-out and injected by `deploy.yml` when `ENTERPRISE_MODE=active`) — verified at deploy time, not unit-testable.
+**Verification:** Automated test ([setup persistence](../../src/__tests__/routes/setup.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [container catch-all wiring + enableInternet](../../src/__tests__/container/index.test.ts), and [strict-gate resolver tests](../../src/__tests__/lib/controller-egress.test.ts). The `[[vpc_networks]]` `EGRESS` binding is deploy-time config (a Constraint: enterprise-only, committed commented-out and injected by `deploy.yml` when `ENTERPRISE_MODE=active`) — verified at deploy time, not unit-testable.)
 
 **Status:** Implemented
 
@@ -584,7 +584,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
-**Verification:** [controller-egress resolver/transport/SSRF/account-scoped](../../src/__tests__/lib/controller-egress.test.ts), [EgressController transparent proxy + fail-closed + account-scoped passthrough + WebSocket](../../src/__tests__/egress-controller.test.ts), [container catch-all wiring + account-id prop](../../src/__tests__/container/index.test.ts), and [container env vars placeholder R2 key](../../src/__tests__/container/container-env.test.ts).
+**Verification:** Automated test ([controller-egress resolver/transport/SSRF/account-scoped](../../src/__tests__/lib/controller-egress.test.ts), [EgressController transparent proxy + fail-closed + account-scoped passthrough + WebSocket](../../src/__tests__/egress-controller.test.ts), [container catch-all wiring + account-id prop](../../src/__tests__/container/index.test.ts), and [container env vars placeholder R2 key](../../src/__tests__/container/container-env.test.ts).)
 
 **Status:** Implemented
 
@@ -610,7 +610,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
 
-**Verification:** [GitHub transport swap](../../src/__tests__/github-interceptor.test.ts) and [LLM always-direct (AI Gateway platform-native)](../../src/__tests__/llm-interceptor.test.ts).
+**Verification:** Automated test ([GitHub transport swap](../../src/__tests__/github-interceptor.test.ts) and [LLM always-direct (AI Gateway platform-native)](../../src/__tests__/llm-interceptor.test.ts).)
 
 **Status:** Implemented
 
@@ -670,7 +670,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [wizard persistence](../../src/__tests__/routes/setup.test.ts) + [prefill](../../src/__tests__/routes/setup/handlers.test.ts) (AC1), [SSE-C gate](../../src/__tests__/lib/r2-sse.test.ts) + [regime helpers](../../src/__tests__/lib/r2-migration.test.ts) (AC2), [container env propagation](../../src/__tests__/container/container-env.test.ts) + [ENCRYPTION_KEY omission](../../src/__tests__/container/container-env-llm.test.ts) + [rclone.conf branch](../../host/__tests__/entrypoint-governed-sync.test.js) (AC3), [wizard toggle + confirmation](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) + [setup store](../../web-ui/src/__tests__/stores/setup.test.ts) (AC4)
+**Verification:** Automated test ([wizard persistence](../../src/__tests__/routes/setup.test.ts) + [prefill](../../src/__tests__/routes/setup/handlers.test.ts) (AC1), [SSE-C gate](../../src/__tests__/lib/r2-sse.test.ts) + [regime helpers](../../src/__tests__/lib/r2-migration.test.ts) (AC2), [container env propagation](../../src/__tests__/container/container-env.test.ts) + [ENCRYPTION_KEY omission](../../src/__tests__/container/container-env-llm.test.ts) + [rclone.conf branch](../../host/__tests__/entrypoint-governed-sync.test.js) (AC3), [wizard toggle + confirmation](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) + [setup store](../../web-ui/src/__tests__/stores/setup.test.ts) (AC4))
 
 **Status:** Implemented
 
@@ -703,7 +703,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [REPLACE copy + idempotent/oversized skip](../../src/__tests__/lib/r2-migration.test.ts) (AC1-2), [state machine + reconcile decision](../../src/__tests__/lib/r2-migration.test.ts) + [chunk-advance wiring](../../src/__tests__/routes/session-batch-status.test.ts) (AC3), [chunked scan driver (list/slice, timeout, cursor, deadline, lease release)](../../src/__tests__/lib/r2-migration.test.ts) (AC4-5), [migrate→verify transition + progress %](../../src/__tests__/lib/r2-migration.test.ts) + [batch-status wiring](../../src/__tests__/routes/session-batch-status.test.ts) (AC6-7), [session-start lazy-create path](../../src/__tests__/lib/r2-migration.test.ts) + [ensureBucketAndSeed](../../src/__tests__/routes/container-lifecycle-helpers.test.ts) (Constraints)
+**Verification:** Automated test ([REPLACE copy + idempotent/oversized skip](../../src/__tests__/lib/r2-migration.test.ts) (AC1-2), [state machine + reconcile decision](../../src/__tests__/lib/r2-migration.test.ts) + [chunk-advance wiring](../../src/__tests__/routes/session-batch-status.test.ts) (AC3), [chunked scan driver (list/slice, timeout, cursor, deadline, lease release)](../../src/__tests__/lib/r2-migration.test.ts) (AC4-5), [migrate→verify transition + progress %](../../src/__tests__/lib/r2-migration.test.ts) + [batch-status wiring](../../src/__tests__/routes/session-batch-status.test.ts) (AC6-7), [session-start lazy-create path](../../src/__tests__/lib/r2-migration.test.ts) + [ensureBucketAndSeed](../../src/__tests__/routes/container-lifecycle-helpers.test.ts) (Constraints))
 
 **Status:** Implemented
 
@@ -762,7 +762,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-013](security.md#req-sec-013-content-disposition-hardening-on-downloads)
 
-**Verification:** [download guard + isInlineViewable](../../src/__tests__/routes/storage-download.test.ts) (AC2, AC4), [setup persistence](../../src/__tests__/routes/setup.test.ts) + [prefill](../../src/__tests__/routes/setup/handlers.test.ts) (AC1, AC1a), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts) + [wizard toggle](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC1), [view-only download guard + downloads-enabled baseline](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx) (AC3, AC4), [downloadFile server-truth backstop](../../web-ui/src/__tests__/lib/download.test.ts) (AC3), [blocked preview control](../../web-ui/src/__tests__/components/FilePreview.test.tsx) + [disabled notice](../../web-ui/src/__tests__/components/DownloadsDisabledPopup.test.tsx) + [notice store flag](../../web-ui/src/__tests__/stores/storage.test.ts) + [response-schema field survival](../../web-ui/src/__tests__/api/contract.test.ts) (AC3).
+**Verification:** Automated test ([download guard + isInlineViewable](../../src/__tests__/routes/storage-download.test.ts) (AC2, AC4), [setup persistence](../../src/__tests__/routes/setup.test.ts) + [prefill](../../src/__tests__/routes/setup/handlers.test.ts) (AC1, AC1a), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts) + [wizard toggle](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC1), [view-only download guard + downloads-enabled baseline](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx) (AC3, AC4), [downloadFile server-truth backstop](../../web-ui/src/__tests__/lib/download.test.ts) (AC3), [blocked preview control](../../web-ui/src/__tests__/components/FilePreview.test.tsx) + [disabled notice](../../web-ui/src/__tests__/components/DownloadsDisabledPopup.test.tsx) + [notice store flag](../../web-ui/src/__tests__/stores/storage.test.ts) + [response-schema field survival](../../web-ui/src/__tests__/api/contract.test.ts) (AC3).)
 
 **Status:** Implemented
 
@@ -792,6 +792,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** [Setup persistence + validation](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [wizard store](../../web-ui/src/__tests__/stores/setup.test.ts)
+**Verification:** Automated test ([Setup persistence + validation](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [wizard store](../../web-ui/src/__tests__/stores/setup.test.ts))
 
 **Status:** Implemented
