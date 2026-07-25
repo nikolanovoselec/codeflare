@@ -271,7 +271,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Constraints:**
 
 - Encryption defeats offline attacks only, not an authenticated browser tab or on-origin JavaScript; trade-off documented in [AD59](../../documentation/decisions/README.md#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key).
-- The key is bucket-stable, not per-session (see [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)): it trades per-session forward secrecy for cross-session IndexedDB persistence, so a later session re-derives the same key, but offline disk attacks stay defeated since the key is never persisted to the browser profile.
+- The key is bucket-stable, not per-session (see [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)): it trades per-session forward secrecy for cross-session IndexedDB persistence — a later session re-derives the key and can decrypt orphaned local ciphertext — but offline disk attacks stay defeated since the key never touches the browser profile.
 - The vault key must not be rotated; rotation would orphan existing IDB ciphertext and force a fresh re-sync on the next container boot.
 
 **Priority:** P0
