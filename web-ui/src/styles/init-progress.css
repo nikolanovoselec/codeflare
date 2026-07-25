@@ -310,7 +310,7 @@
 }
 
 .init-progress-open-btn:hover {
-  background: linear-gradient(135deg, #15803d 0%, var(--color-success-hover) 100%);
+  background: linear-gradient(135deg, var(--color-success-strong) 0%, var(--color-success-hover) 100%);
   box-shadow: 0 6px 16px var(--color-success-muted);
   transform: translateY(-2px);
 }
