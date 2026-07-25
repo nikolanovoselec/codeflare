@@ -1218,11 +1218,13 @@ None.
 2. Unusual filenames and source-to-documentation renames cannot reduce the required reviewer set or bypass code review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies tricky filenames and source-to-doc renames without bypassing code review) -->
 3. An invalid or empty review range falls back to all three lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 4. An acknowledged current head requires no reviewer lane. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current head emits a CI-only plan) -->
+5. In Claude's classifier, a source delta proven to be comments or whitespace only requires the code lane alone, and any file the prover cannot decide keeps all three lanes. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/inert-source-delta.mjs::inert --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @test: host/__tests__/inert-source-delta.test.js (inert-source-delta project()) --> <!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes - inert source deltas) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - inert source delta emission) -->
 
 **Constraints:**
 
 - Pi lane classification consumes NUL-delimited paths with Git rename detection disabled.
-- Claude's lane classifier remains unchanged.
+- Content-based lane reduction never removes the code lane, and never applies to an added, deleted, renamed, binary, ineligible-extension, or unparseable file.
+- Pi's classifier does not yet implement the content-based reduction, so a comment-only range runs all three lanes there. The divergence is deliberate and fail-closed — Pi over-reviews, never under-reviews — and holds until the projector is ported.
 
 **Priority:** P1
 

@@ -771,6 +771,39 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
   });
 });
 
+describe('git-push-review-reminder.sh - inert source delta emission', () => {
+  it('emits a code-reviewer-only directive when the source delta is comments only', () => {
+    // The saving is only realised if the nudge agrees with the classifier: a
+    // code-only lane set must not fall through to the all-three directive,
+    // or the agent spawns three lanes the Stop hook then silently excludes.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // old\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // new\n', 'docs: reword');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Spawn: code-reviewer \(source lane\) only/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'a comment-only delta cannot have moved the spec surface');
+    assert.doesNotMatch(r.stdout, /doc-updater/,
+      'a comment-only delta cannot have moved the documentation surface');
+  });
+
+  it('still emits all three lanes when the same file changes a code token', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // x\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 2; // y\n', 'fix: bump');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
+  });
+});
+
 describe('git-push-review-reminder.sh - review range vs. lagging PR metadata', () => {
   // `gh pr view` issued right after a push can still report the PREVIOUS
   // head, because GitHub's PR metadata lags its own ref update. That SHA

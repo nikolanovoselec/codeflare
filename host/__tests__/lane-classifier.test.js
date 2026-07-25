@@ -227,3 +227,97 @@ describe('compute_required_lanes - rename safety (--no-renames)', () => {
     );
   });
 });
+
+describe('compute_required_lanes - inert source deltas', () => {
+  // A source delta that is provably comments and whitespace changes no
+  // behaviour, so the spec and documentation surfaces cannot have drifted.
+  // The code lane is never dropped: whether the new comment is TRUE is a
+  // code-review question, and keeping that lane is what bounds the damage if
+  // the prover is ever wrong (a directive comment such as @ts-expect-error is
+  // exactly the case where a comment DOES change behaviour).
+  //
+  // Every fixture MODIFIES a file committed in an earlier commit. That is
+  // load-bearing: an added or deleted file is never inert, however trivial its
+  // body, because it changes the set of modules.
+  const ALL = 'code-reviewer spec-reviewer doc-updater';
+
+  function seeded(body = 'export const a = 1;\n') {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/a.ts', body, 'feat: seed');
+    return { cwd, run, base };
+  }
+
+  it('a comment-only modification returns the code lane alone', () => {
+    const { cwd, run, base } = seeded('export const a = 1; // old\n');
+    const head = commitFile(cwd, run, 'src/a.ts', 'export const a = 1; // new\n', 'docs: reword');
+    assert.equal(classify(cwd, base, head), 'code-reviewer');
+  });
+
+  it('a whitespace-only modification returns the code lane alone', () => {
+    const { cwd, run, base } = seeded('export const a = 1;\nexport const b = 2;\n');
+    const head = commitFile(cwd, run, 'src/a.ts', 'export const a = 1;\n\n\nexport const b   = 2;\n', 'style: respace');
+    assert.equal(classify(cwd, base, head), 'code-reviewer');
+  });
+
+  it('a comment change that also touches a code token requires all three lanes', () => {
+    const { cwd, run, base } = seeded('export const a = 1; // x\n');
+    const head = commitFile(cwd, run, 'src/a.ts', 'export const a = 2; // y\n', 'fix: bump');
+    assert.equal(classify(cwd, base, head), ALL);
+  });
+
+  it('a comment marker inside a template literal is content, not a comment', () => {
+    const { cwd, run, base } = seeded('export const s = `\n// keep\n`;\n');
+    const head = commitFile(cwd, run, 'src/a.ts', 'export const s = `\n// changed\n`;\n', 'fix: text');
+    assert.equal(classify(cwd, base, head), ALL);
+  });
+
+  it('an added comment-only file is never inert', () => {
+    const { cwd, run, base } = seeded();
+    const head = commitFile(cwd, run, 'src/new.ts', '// just a comment\n', 'chore: add');
+    assert.equal(classify(cwd, base, head), ALL);
+  });
+
+  it('a renamed file is never inert', () => {
+    const { cwd, run, base } = seeded();
+    run('mv', 'src/a.ts', 'src/b.ts');
+    run('commit', '-q', '-m', 'refactor: rename');
+    const head = run('rev-parse', 'HEAD').stdout.trim();
+    assert.equal(classify(cwd, base, head), ALL);
+  });
+
+  it('a .tsx file is never inert', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/a.tsx', 'export const a = 1; // old\n', 'feat: seed');
+    const head = commitFile(cwd, run, 'src/a.tsx', 'export const a = 1; // new\n', 'docs: reword');
+    assert.equal(classify(cwd, base, head), ALL);
+  });
+
+  it('a file containing a NUL byte is never inert', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/a.ts', 'export const a = 1; // old\n\0', 'feat: seed');
+    const head = commitFile(cwd, run, 'src/a.ts', 'export const a = 1; // new\n\0', 'docs: reword');
+    assert.equal(classify(cwd, base, head), ALL);
+  });
+
+  it('an inert source delta alongside an sdd/ file still requires all three lanes', () => {
+    const { cwd, run, base } = seeded('export const a = 1; // old\n');
+    writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 1; // new\n');
+    mkdirSync(join(cwd, 'sdd'), { recursive: true });
+    writeFileSync(join(cwd, 'sdd/spec.md'), '# spec\n');
+    run('add', '-A');
+    run('commit', '-q', '-m', 'docs: reword + spec');
+    const head = run('rev-parse', 'HEAD').stdout.trim();
+    assert.equal(classify(cwd, base, head), ALL);
+  });
+
+  it('an inert source delta alongside a documentation/ file requires the code and doc lanes', () => {
+    const { cwd, run, base } = seeded('export const a = 1; // old\n');
+    writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 1; // new\n');
+    mkdirSync(join(cwd, 'documentation'), { recursive: true });
+    writeFileSync(join(cwd, 'documentation/x.md'), '# doc\n');
+    run('add', '-A');
+    run('commit', '-q', '-m', 'docs: reword + doc');
+    const head = run('rev-parse', 'HEAD').stdout.trim();
+    assert.equal(classify(cwd, base, head), 'code-reviewer doc-updater');
+  });
+});
