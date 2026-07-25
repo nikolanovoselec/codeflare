@@ -112,6 +112,19 @@ describe('manual deploys cannot skip tests', () => {
       runName[1].includes(group[1]),
       'the run title and the concurrency group must resolve the environment identically'
     );
+
+    // prepare.env_name is what actually deploys. It cannot be compared to the
+    // two above by equality — it omits their leading workflow_run clause — but
+    // the dispatch options must match, or the title names one environment while
+    // another ships. Derived from env_name so it cannot go stale.
+    const envName = jobBlock('prepare').match(/^ {6}env_name: (.*)$/m);
+    assert.ok(envName, 'prepare no longer exports env_name');
+    const dispatchOptions = envName[1].match(/\(inputs\.environment == 'enterprise'.*'integration'/);
+    assert.ok(dispatchOptions, 'env_name no longer resolves the dispatchable environments');
+    assert.ok(
+      runName[1].includes(dispatchOptions[0]),
+      'the run title must resolve the same environments as the target that deploys'
+    );
   });
 
   // A called workflow inherits the CALLER's concurrency context, so two deploy

@@ -764,7 +764,9 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
-      expect(screen.getByTestId('llm-keys-hint')).toBeInTheDocument();
+      // Content, not wording: getByTestId already throws on absence, so
+      // asserting presence alone would pass on an empty hint.
+      expect(screen.getByTestId('llm-keys-hint').textContent?.trim().length).toBeGreaterThan(0);
     });
   });
 
