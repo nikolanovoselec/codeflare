@@ -110,18 +110,19 @@ files are never deleted. Implements
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds
 mode-appropriate files then deletes preseed-managed files not in
 the current mode. Strictly scoped -- no bucket listing, no prefix
-scans, never touches user-created files. Two sources feed the delete
-list: `getPreseedKeysNotInMode()` for keys in `AGENTS_SEEDED_CONFIGS`
-that the target mode does not want, and the enumerated
-`RETIRED_PRESEED_KEYS` for keys the current build no longer produces
-at all, which are invisible to the derived list and would otherwise
-survive in the bucket forever. A retired key still present in the
-target mode is never deleted. `getPreseedKeysNotInMode()`
+scans, never touches user-created files. `getPreseedKeysNotInMode()`
 excludes variant-per-mode keys (instruction files that exist in
 both modes with different content) to avoid deleting a file that
 was just seeded. Partial delete failures return `warnings` without
 failing the overall operation. `getConfigsForMode()` validates no
 duplicate keys within a single mode.
+
+Two sources feed the delete list: `getPreseedKeysNotInMode()` for keys
+in `AGENTS_SEEDED_CONFIGS` that the target mode does not want, and the
+enumerated `RETIRED_PRESEED_KEYS` for keys the current build no longer
+produces at all, which are invisible to the derived list and would
+otherwise survive in the bucket forever. A retired key still present in
+the target mode is never deleted.
 
 **No migration**: Existing users are unaffected. Changes only happen
 on explicit action.
@@ -784,8 +785,12 @@ The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.
 Generated-only `graphify-out/` diffs require no review lanes and are auto-acked
 with a durable audit event; generated artifacts never suppress review for mixed
 diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn
-`spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three; non-SDD
-projects fire no review agents.
+`spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three.
+A source delta the shared `inert-source-delta.mjs` prover proves is comments and
+whitespace only spawns `code-reviewer` alone, plus any `sdd/` or `documentation/`
+lane the same diff independently earns; the code lane is never dropped, and any
+file the prover cannot decide keeps all three. Non-SDD projects fire no review
+agents.
 
 Each tool-gated hook is registered on two matcher entries covering three
 tool names: the `Bash` matcher (with `Bash(git *)` and `Bash(gh *)`

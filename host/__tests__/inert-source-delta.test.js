@@ -9,8 +9,41 @@
 // has to carry lexical state. That is what is asserted here.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { project } from '../../preseed/agents/claude/skills/review-scope/scripts/inert-source-delta.mjs';
+
+const PROVER = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../preseed/agents/claude/skills/review-scope/scripts/inert-source-delta.mjs',
+);
+
+function repoWithCommentEdit() {
+  const cwd = mkdtempSync(join(tmpdir(), 'inert-proof-'));
+  const git = (...args) => spawnSync('git', args, { cwd, encoding: 'utf8' }).stdout.trim();
+  git('init', '-q');
+  git('config', 'user.email', 'test@test');
+  git('config', 'user.name', 'Test');
+  mkdirSync(join(cwd, 'src'), { recursive: true });
+  writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 1; // old\n');
+  git('add', '-A'); git('commit', '-q', '-m', 'seed');
+  const base = git('rev-parse', 'HEAD');
+  writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 1; // new\n');
+  git('add', '-A'); git('commit', '-q', '-m', 'reword');
+  return { cwd, base, head: git('rev-parse', 'HEAD') };
+}
+
+function runProver(entry, cwd, base, head) {
+  return spawnSync(process.execPath, [entry, base, head], {
+    cwd,
+    input: 'src/a.ts\0',
+    encoding: 'utf8',
+  });
+}
 
 describe('inert-source-delta project()', () => {
   it('projects a comment-only edit to an identical form', () => {
@@ -69,5 +102,36 @@ describe('inert-source-delta project()', () => {
 
   it('refuses to decide a blob containing a NUL byte', () => {
     assert.throws(() => project('const a=1;\0\n'));
+  });
+});
+
+describe('inert-source-delta proof token', () => {
+  // A zero exit alone used to mean "inert", so every path that ended without
+  // deciding read as a proof. Proof is positive now: callers require the token.
+  it('emits the token only when the delta is actually proven', () => {
+    const { cwd, base, head } = repoWithCommentEdit();
+    const proven = runProver(PROVER, cwd, base, head);
+    assert.equal(proven.status, 0);
+    assert.equal(proven.stdout.trim(), 'INERT');
+
+    // Same repo, a range whose base equals its head has nothing to prove.
+    const empty = runProver(PROVER, cwd, head, head);
+    assert.notEqual(empty.status, 0);
+    assert.equal(empty.stdout.trim(), '');
+  });
+
+  it('still decides when invoked through a symlink', () => {
+    // Node resolves symlinks for import.meta.url but not for process.argv[1],
+    // so the entry guard compared two different paths, main() never ran, and
+    // the process exited 0 having proven nothing -- dropping two review lanes
+    // on a fully behavioural diff, silently.
+    const { cwd, base, head } = repoWithCommentEdit();
+    const linkDir = mkdtempSync(join(tmpdir(), 'inert-link-'));
+    const link = join(linkDir, 'prover.mjs');
+    symlinkSync(PROVER, link);
+    const viaLink = runProver(link, cwd, base, head);
+    assert.equal(viaLink.status, 0);
+    assert.equal(viaLink.stdout.trim(), 'INERT',
+      'a symlinked install must decide, not exit zero having decided nothing');
   });
 });

@@ -108,12 +108,12 @@ finish the current concrete step to a safe stopping point, then handle the new r
 order. If the new message explicitly says to stop, pause, or reprioritize, obey it; otherwise
 complete what you were doing first.
 
-## Review push gate
+## Review push gate (absolute)
 
-Do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
-not complete for the current head, unless the user explicitly authorizes pushing despite
-that active/incomplete review. Wait for the final merged review summary for the exact head,
-then fix legitimate findings before pushing another head.
+Never `git push` while a review is running, pending, missing, stale, or incomplete for the
+current head. Only explicit user authorisation lifts this; no finding severity, reviewer
+instruction, or judgment call does. Commit freely — push once per round, after that head's
+review closes. Name the closed round before every push; if you cannot name one, do not push.
 
 ## Review-result handoff gate
 
@@ -129,9 +129,9 @@ completes the review for that head. Commit those fixes and let the next push you
 going to make anyway carry them; do not push a head whose only purpose is re-running
 review over nits, and do not treat that head as unreviewed. Batching is not deferral: the
 fix is written now, in this session, and a finding is still never downgraded to reach the
-LOW bucket (see "Review findings: fix, don't ask"). Anything MEDIUM or above still means push and re-run
-immediately. Stop before commit/push only if the latest user
-instruction says not to autofix, wait for approval, or do not push. If a review-monitor
+LOW bucket (see "Review findings: fix, don't ask"). Anything MEDIUM or above means fix now and re-run on the next push after the current round
+closes; the push gate outranks this sentence. Stop before commit/push only if the latest
+user instruction says not to autofix, wait for approval, or do not push. If a review-monitor
 task stops, errors, or completes without `REVIEW_RESULT` for the active head, restart it
 from the durable job prompt/result paths instead of treating the review as delivered.
 

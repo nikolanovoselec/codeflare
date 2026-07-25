@@ -361,12 +361,14 @@ describe('Claude-equivalent review boundary helpers', () => {
     git(repo, 'commit', '-m', 'comment plus spec');
     const mixed = git(repo, 'rev-parse', 'HEAD');
     const docsOnly = commit(repo, 'documentation/security.md', 'docs\n', 'docs');
+    const licenseOnly = commit(repo, 'LICENSE', 'MIT\n', 'chore: license');
 
     for (const [base, head, name] of [
       [seeded, reworded, 'comment only'],
       [reworded, rewritten, 'code change'],
       [rewritten, mixed, 'comment plus spec'],
       [mixed, docsOnly, 'docs only'],
+      [docsOnly, licenseOnly, 'license only'],
     ] as const) {
       // The shell classifier resolves the prover relative to its own location,
       // so both runtimes run the one program this range is decided by.

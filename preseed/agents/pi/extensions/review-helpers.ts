@@ -352,12 +352,15 @@ export function inertSourceDelta(input: {
   const prover = input.prover ?? INERT_SOURCE_PROVER;
   if (input.files.length === 0 || !existsSync(prover)) return false;
   try {
-    execFileSync("node", [prover, input.base, input.head], {
+    // The prover must SAY it proved something; a zero exit alone is not a
+    // proof, because a run that decided nothing also exits zero.
+    const proof = execFileSync("node", [prover, input.base, input.head], {
       cwd: input.repo,
       input: input.files.join("\0"),
-      stdio: ["pipe", "ignore", "ignore"],
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "ignore"],
     });
-    return true;
+    return proof.trim() === "INERT";
   } catch {
     return false;
   }

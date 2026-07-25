@@ -167,9 +167,13 @@ compute_required_lanes() {
   if [ "$has_behavioral" = "1" ] \
      && [ "${#behavioral_files[@]}" -gt 0 ] \
      && command -v node >/dev/null 2>&1; then
-    if printf '%s\0' "${behavioral_files[@]}" \
+    # The prover must SAY it proved something. A zero exit alone once meant
+    # inert, so any run that ended without deciding read as a proof.
+    local proof
+    proof=$(printf '%s\0' "${behavioral_files[@]}" \
        | node "$(dirname "${BASH_SOURCE[0]}")/../../../../skills/review-scope/scripts/inert-source-delta.mjs" \
-              "$last_ack" "$current" >/dev/null 2>&1; then
+              "$last_ack" "$current" 2>/dev/null)
+    if [ "$proof" = "INERT" ]; then
       has_behavioral=0
       inert_source=1
     fi

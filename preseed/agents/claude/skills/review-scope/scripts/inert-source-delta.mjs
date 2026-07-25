@@ -32,8 +32,8 @@
 // A shebang also bails (`#!` leaves `/` in operator position) - conservative
 // and correct for the file class this serves.
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { readFileSync, realpathSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // .tsx/.jsx are excluded outright: JSX text is content, and a scanner that
 // stripped `//` from it would call two different JSX texts identical.
@@ -117,7 +117,10 @@ export function project(src) {
       const prev = k < 0 ? '' : buf[k];
       let word = '';
       for (let w = k; w >= 0 && /[A-Za-z_$]/.test(buf[w]); w--) word = buf[w] + word;
-      if (!/[)\]\w$'"`]/.test(prev) || REGEX_LEADING_KEYWORDS.has(word)) {
+      // ')' is deliberately NOT in this set: it terminates an expression in
+      // `a = (b) / c` but also precedes a statement-position regex in
+      // `if (x) /re/.test(y)`, and only a parser can tell those apart.
+      if (!/[\]\w$'"`]/.test(prev) || REGEX_LEADING_KEYWORDS.has(word)) {
         throw new Bail('possible regex literal');
       }
       buf.push(c); i += 1; continue;
@@ -159,26 +162,37 @@ export function project(src) {
 
 export function inert(base, head, paths) {
   if (paths.length === 0) return false;
+  for (const p of paths) if (!ELIGIBLE.test(p)) return false;
+
+  // One git call for the whole set. This runs from the turn-end hook on every
+  // turn while a PR is open, and a per-path call made the cost linear in a
+  // range that is usually all-eligible.
+  // --raw carries the old and new mode, which --name-status does not.
+  // :(top,literal) - pathspecs are cwd-relative and glob-active by default;
+  // diff output is repo-root-relative and may contain glob metacharacters, so
+  // both magics are required.
+  let raw;
+  try {
+    raw = git(['diff', '--no-renames', '--raw', base, head,
+               '--', ...paths.map((p) => `:(top,literal)${p}`)]).trim();
+  } catch { return false; }
+
+  // Only a plain modification can be inert. An add or a delete changes the set
+  // of modules even when the file body is nothing but comments, and a rename
+  // arrives here as an add+delete pair under --no-renames. A mode change is a
+  // real change the content projection cannot see: chmod +x, or a regular file
+  // swapped for a symlink (100644 -> 120000).
+  const modified = new Set();
+  for (const line of raw.split('\n')) {
+    const entry = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ M\t(.*)$/.exec(line);
+    if (!entry || entry[1] !== entry[2]) return false;
+    modified.add(entry[3]);
+  }
+  // Every requested path must be accounted for exactly once, or the diff said
+  // something about this range that the loop above did not inspect.
+  if (modified.size !== paths.length || paths.some((p) => !modified.has(p))) return false;
+
   for (const p of paths) {
-    if (!ELIGIBLE.test(p)) return false;
-    let raw;
-    try {
-      // --raw carries the old and new mode, which --name-status does not.
-      // :(top,literal) - pathspecs are cwd-relative and glob-active by
-      // default; diff output is repo-root-relative and may contain glob
-      // metacharacters, so both magics are required.
-      raw = git(['diff', '--no-renames', '--raw', base, head,
-                 '--', `:(top,literal)${p}`]).trim();
-    } catch { return false; }
-    // Only a plain modification can be inert. An add or a delete changes the
-    // set of modules even when the file body is nothing but comments, and a
-    // rename arrives here as an add+delete pair under --no-renames.
-    const entry = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ M\t/.exec(raw);
-    if (raw.split('\n').length !== 1 || !entry) return false;
-    // The two blobs can be byte-identical while the mode changed: chmod +x, or
-    // a regular file swapped for a symlink (100644 -> 120000). Both are real
-    // changes that the content projection cannot see, so they are not inert.
-    if (entry[1] !== entry[2]) return false;
     try {
       if (project(git(['show', `${base}:${p}`])) !== project(git(['show', `${head}:${p}`]))) {
         return false;
@@ -188,16 +202,30 @@ export function inert(base, head, paths) {
   return true;
 }
 
+// Proof is POSITIVE: a run that decides nothing must not be readable as a
+// proof. Exiting 0 alone once meant "inert", so every path that reached the
+// end without deciding -- most importantly an entry guard that never fired --
+// silently dropped two review lanes. Callers now require this token.
+export const PROOF_TOKEN = 'INERT';
+
 function main() {
   const [base, head] = process.argv.slice(2);
   if (!FULL_SHA.test(base ?? '') || !FULL_SHA.test(head ?? '')) return 1;
   let paths;
   try { paths = readFileSync(0, 'utf8').split('\0').filter(Boolean); }
   catch { return 1; }
-  try { return inert(base, head, paths) ? 0 : 1; }
-  catch { return 1; }
+  try {
+    if (!inert(base, head, paths)) return 1;
+    process.stdout.write(`${PROOF_TOKEN}\n`);
+    return 0;
+  } catch { return 1; }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// realpathSync both sides: Node resolves symlinks for import.meta.url but not
+// for process.argv[1], so a symlink anywhere in the install path made this
+// comparison false, skipped main() entirely, and exited 0 having proven
+// nothing.
+const entry = process.argv[1] ? (() => { try { return realpathSync(process.argv[1]); } catch { return process.argv[1]; } })() : '';
+if (entry && realpathSync(fileURLToPath(import.meta.url)) === entry) {
   process.exit(main());
 }
