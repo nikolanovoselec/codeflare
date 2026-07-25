@@ -22,6 +22,7 @@ import {
   parseVaultExtractRequest,
   type ExtractionJob,
   type PublicExtractionRequest,
+  capTurn,
 } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import {
   registerMemoryVault,
@@ -922,5 +923,38 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(existsSync(harness.paths.vaultManifestFile)).toBe(false);
     expect(existsSync(memoryPointerPath(harness))).toBe(false);
     expect(existsSync(vaultPointerPath(harness))).toBe(false);
+  });
+});
+
+describe('capTurn citation rescue', () => {
+  const TAIL = 'closed REQ-AGENT-040 AC5 per AD58 in 4899fb6 and PR #709';
+
+  it('carries citations past the cut instead of dropping them', () => {
+    // The cap may cost prose. It may not cost a REQ id, an ADR, a PR number or
+    // a SHA: those must be verbatim (AD58) and are what a later graph query
+    // searches on, so a byte count must never be what removes them.
+    const capped = capTurn('pre '.repeat(1600) + TAIL);
+    for (const citation of ['REQ-AGENT-040', 'AD58', '4899fb6', '#709']) {
+      expect(capped, `${citation} sat past the cap`).toContain(citation);
+    }
+    expect(capped.length).toBeGreaterThan(4000);
+  });
+
+  it('leaves a turn that fits byte-identical', () => {
+    const short = `short turn ${TAIL}`;
+    expect(capTurn(short)).toBe(short);
+  });
+
+  it('appends nothing when the cut loses no citation', () => {
+    // Prose-only overflow must not grow a rescue line it has no use for.
+    const capped = capTurn('a'.repeat(5000));
+    expect(capped).toBe('a'.repeat(4000));
+  });
+
+  it('emits the same rescue line the Claude prefilter emits', () => {
+    // Both runtimes cap the same way; a divergence here means one runtime's
+    // captures become unsearchable for citations the other kept.
+    expect(capTurn('pre '.repeat(1600) + TAIL).split('\n').pop())
+      .toBe('[refs dropped in truncation: #709, 4899fb6, AD58, REQ-AGENT-040]');
   });
 });

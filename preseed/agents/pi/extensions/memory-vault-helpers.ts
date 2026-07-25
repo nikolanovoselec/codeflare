@@ -382,6 +382,26 @@ export function withCurrentPrompt(messages: any[], prompt: string): any[] {
   return [...messages, { role: "user", content: text }];
 }
 
+// Truncation drops whatever sat past the cap, and what sits there is often the
+// turn conclusion: the REQ a change closed, the ADR it cited, the SHA it landed
+// as. Those must be verbatim (AD58) and are what a later graph query searches
+// on, so the cap is allowed to cost prose but never a citation. Sorted and
+// deduped to match the Claude prefilter's jq `unique`, so both runtimes emit
+// the same rescue line for the same turn.
+const CITATION = /REQ-[A-Z]+-\d+|AD\d+|#\d{2,}|\b[0-9a-f]{7,40}\b/g;
+
+function citations(text: string): string[] {
+  return [...new Set(text.match(CITATION) ?? [])].sort();
+}
+
+export function capTurn(text: string, max = MEMORY_CAPTURE_MAX_TURN_CHARS): string {
+  if (text.length <= max) return text;
+  const kept = text.slice(0, max);
+  const inKept = new Set(citations(kept));
+  const lost = citations(text).filter((citation) => !inKept.has(citation));
+  return lost.length > 0 ? `${kept}\n[refs dropped in truncation: ${lost.join(", ")}]` : kept;
+}
+
 export function compactMessages(messages: any[], afterRealUserCount = 0): string {
   const turns: string[] = [];
   let realUserCount = 0;
@@ -397,7 +417,7 @@ export function compactMessages(messages: any[], afterRealUserCount = 0): string
     if (!includeCurrent || (role !== "user" && role !== "assistant")) continue;
     const text = messageText(message);
     if (!text || (role === "user" && isSyntheticPrompt(text))) continue;
-    turns.push(`## ${role}\n${text.slice(0, MEMORY_CAPTURE_MAX_TURN_CHARS)}`);
+    turns.push(`## ${role}\n${capTurn(text)}`);
   }
   return turns.slice(-MEMORY_CAPTURE_MAX_TURNS).join("\n\n");
 }
