@@ -106,10 +106,11 @@ The in-container OpenVSCode Server (full VS Code editor) is reached through the 
 
 **Error responses:**
 
-- Malformed sessionId → 400 `INVALID_SESSION`; unowned session → 404 `SESSION_NOT_FOUND`; stopped session → 503 `CONTAINER_STOPPED` (`src/routes/vscode-validation.ts`, `src/routes/vault/access.ts`).
+- Malformed sessionId → 400 `INVALID_SESSION` (`src/routes/vscode-validation.ts`); unowned session → 404 `SESSION_NOT_FOUND` and stopped session → 503 `CONTAINER_STOPPED` (`src/routes/vault/access.ts::assertSessionOwnership`, shared with the vault auth chain).
 - Non-advanced session → 409 for HTTP (host-layer HTML page, the IDE is not enabled for the session mode) and a refused upgrade for WebSocket ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) AC7).
 - Unhealthy container → 503 `CONTAINER_NOT_READY` for a WebSocket upgrade; a navigable request instead gets an auto-refreshing HTML page, because the IDE opens in a bare tab where a JSON body renders as raw text (`src/routes/vscode.ts::warmingPage`).
-- That page refreshes every 3 s and gives up with 504 once the wait passes 120 s (`WARM_GIVE_UP_MS`, `WARM_REFRESH_SECONDS`). The Worker is stateless, so the episode start rides in a `cf_since` query parameter and the page measures against it; a future value is ignored.
+- That page refreshes every 3 s and gives up with 504 once the wait passes 120 s (`WARM_GIVE_UP_MS`, `WARM_REFRESH_SECONDS`).
+- The Worker is stateless, so the episode start rides in a `cf_since` query parameter and the page measures elapsed time against it. A client-forged future value is ignored (`src/routes/vscode.ts::warmStartedAt`).
 - Once the container answers, the Worker redirects `cf_since` back out of the tab's URL, so a later cold start is not born already expired (`src/routes/vscode.ts::redirectAwayFromWarmParam`).
 - OpenVSCode still lazy-starting (container healthy, editor not yet bound) → the host serves its own 503 auto-refreshing HTML warming page with no JSON `code`, which likewise stops refreshing and returns 504 after 120 s (`host/src/vscode-proxy.ts::vscodeWarmingResponse`, `VSCODE_WARMING_GIVE_UP_MS`).
 
