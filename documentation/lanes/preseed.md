@@ -715,12 +715,13 @@ terminal. The setting also gates the agent-listing command: running
 `claude agents --json` with `disableAgentView` set prints a refusal
 naming the setting instead of listing agents (Claude Code 2.1.219,
 checked 2026-07-25). That is upstream behaviour, not something this
-repository implements. Background subagents themselves keep running —
-checked the same way, by spawning them in a session with the setting
-on — so the memory and vault capture hooks are unaffected. That second
-half is the load-bearing one: the capture hooks depend on it and it
-would fail silently, so it is worth re-checking when the pinned CLI
-version moves.
+repository implements.
+
+Background subagents themselves keep running — checked the same way,
+by spawning them in a session with the setting on — so the memory and
+vault capture hooks are unaffected. That half is the load-bearing one:
+the capture hooks depend on it and it would fail silently, so it is
+worth re-checking when the pinned CLI version moves.
 
 ## Plugin Enablement
 
