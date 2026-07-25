@@ -476,22 +476,29 @@ describe('CreateSessionDialog', () => {
     });
   });
 
-  describe('Agent descriptions', () => {
-    it('shows description text for each agent', () => {
+  describe('Agent selection (REQ-AGENT-002)', () => {
+    it('renders one testid-keyed card per agent and reports the exact AgentType on click', () => {
+      const onSelect = vi.fn();
       render(() => (
         <CreateSessionDialog
           isOpen={true}
           onClose={() => {}}
-          onSelect={() => {}}
+          onSelect={onSelect}
         />
       ));
 
-      expect(screen.getByText('Full Claude Code experience')).toBeInTheDocument();
-      expect(screen.getByText('OpenAI Codex agent')).toBeInTheDocument();
-      expect(screen.getByText("Google's terminal coding agent")).toBeInTheDocument();
-      expect(screen.getByText("GitHub's AI coding agent")).toBeInTheDocument();
-      expect(screen.getByText('Multi-model agent')).toBeInTheDocument();
-      expect(screen.getByText('Plain terminal session')).toBeInTheDocument();
+      // Each agent renders a card keyed by its AgentType (structural map),
+      // not by its marketing description.
+      const dialog = screen.getByTestId('create-session-dialog');
+      const cards = dialog.querySelectorAll('[data-testid^="csd-agent-"]');
+      expect(cards.length).toBeGreaterThanOrEqual(2);
+
+      // Selecting a card is load-bearing: onSelect must receive that card's
+      // AgentType verbatim (this is what create-session actually submits).
+      fireEvent.click(screen.getByTestId('csd-agent-codex'));
+      expect(onSelect).toHaveBeenCalledWith('codex');
+      fireEvent.click(screen.getByTestId('csd-agent-bash'));
+      expect(onSelect).toHaveBeenLastCalledWith('bash');
     });
   });
 
