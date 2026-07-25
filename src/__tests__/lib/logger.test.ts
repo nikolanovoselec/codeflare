@@ -31,6 +31,31 @@ describe('createLogger', () => {
     return JSON.parse(lastCall[0] as string);
   }
 
+  describe('PII email masking', () => {
+    it('masks an email under a field whose name signals email', () => {
+      const logger = createLogger('test-module');
+      logger.info('login', { email: 'alice@example.com' });
+
+      expect(parseLogOutput(consoleSpy.log)?.data?.email).toBe('al***@example.com');
+    });
+
+    it('masks an email-shaped value even under a non-email key (QUAL-002)', () => {
+      const logger = createLogger('test-module');
+      logger.info('login', { user: 'bob@example.com', from: 'carol@corp.io' });
+
+      const data = parseLogOutput(consoleSpy.log)?.data;
+      expect(data?.user).toBe('bo***@example.com');
+      expect(data?.from).toBe('ca***@corp.io');
+    });
+
+    it('leaves a non-email @-containing value untouched under a non-email key', () => {
+      const logger = createLogger('test-module');
+      logger.info('mention', { handle: '@bob' });
+
+      expect(parseLogOutput(consoleSpy.log)?.data?.handle).toBe('@bob');
+    });
+  });
+
   describe('log levels', () => {
     it('logs info messages to console.log', () => {
       const logger = createLogger('test-module');

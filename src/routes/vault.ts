@@ -110,6 +110,16 @@ const logger = createLogger('vault');
  * of long-lived browser WS as a terminal session and we do not want a
  * tab-spam attack to find a separate budget here.
  */
+
+/**
+ * REQ-VAULT-024 AC1: the bootstrap-hop is a one-time, GET-only page. Any other
+ * method (or a WebSocket upgrade) must fall through to the proxy so the
+ * encryption-key-bearing hop HTML is never rendered on an unexpected method.
+ */
+export function isBootstrapHopRequest(remainingPath: string, isWebSocket: boolean, method: string): boolean {
+  return remainingPath === '/.codeflare-bootstrap' && !isWebSocket && method === 'GET';
+}
+
 export async function handleVaultRequest(
   request: Request,
   env: Env,
@@ -307,7 +317,7 @@ export async function handleVaultRequest(
     // and return it directly. The hop registers the key-shim service
     // worker, posts the key, sets the bootstrap cookie, and redirects to
     // /api/vault/<sid>/ so SB can boot with encryption already wired.
-    if (remainingPath === '/.codeflare-bootstrap' && !isWebSocket) {
+    if (isBootstrapHopRequest(remainingPath, isWebSocket, request.method)) {
       try {
         const vaultEncryptionKey = await getVaultEncryptionKey(env, bucketName);
         const html = injectVaultBootstrapHopHtml(

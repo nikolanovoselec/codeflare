@@ -473,6 +473,54 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('REQ-TERM-020 AC3: a successful open resets the backoff so a later drop retries from attempt 1', async () => {
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sockets: Array<{
+        readyState: number;
+        onopen: ((event: Event) => void) | null;
+        onclose: ((event: CloseEvent) => void) | null;
+      }> = [];
+      // Manual-control sockets (no auto-open): the test drives open/close itself.
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState = 0;
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        send = vi.fn();
+        constructor(_url: string) { sockets.push(this as never); }
+        close(): void { this.readyState = 3; }
+      } as unknown as typeof WebSocket);
+      try {
+        terminalStore.connect(sessionId, terminalId, createMockTerminal());
+        expect(sockets.length).toBe(1); // attempt 1, CONNECTING
+
+        // Attempt 1 fails without ever opening → backoff advances to attempt 2
+        // (reconnectBackoffMs(2) = 100ms with the pinned base/jitter).
+        sockets[0].readyState = 3;
+        sockets[0].onclose?.({ code: 1006, reason: 'network' } as CloseEvent);
+        await vi.advanceTimersByTimeAsync(100);
+        expect(sockets.length).toBe(2); // attempt 2
+
+        // Attempt 2 OPENS successfully — the backoff counter must reset here.
+        sockets[1].readyState = 1;
+        sockets[1].onopen?.(new Event('open'));
+
+        // The open connection now drops. With the reset, the next reconnect uses
+        // the attempt-1 delay (50ms); without it, it would use attempt-3 (200ms).
+        sockets[1].readyState = 3;
+        sockets[1].onclose?.({ code: 1006, reason: 'network' } as CloseEvent);
+        await vi.advanceTimersByTimeAsync(50);
+        expect(sockets.length).toBe(3); // fires at 50ms only because backoff reset
+      } finally {
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
     it('REQ-TERM-014: clears a stale queued focus claim before WebSocket open', async () => {
       const terminal = {
         ...createMockTerminal(),

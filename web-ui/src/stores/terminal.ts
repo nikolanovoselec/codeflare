@@ -415,6 +415,11 @@ function connect(
   function attemptConnection(attemptNumber: number): void {
     if (signal.aborted || !ownsConnection()) return;
 
+    // REQ-TERM-020 AC3: once this socket opens successfully, its later close
+    // must reconnect from attempt 1 (fast), not continue the pre-open backoff.
+    // onopen resets this; a pre-open failure leaves it == attemptNumber.
+    let currentAttempt = attemptNumber;
+
     // Clear any existing retry timeout
     const existingTimeout = retryTimeouts.get(key);
     if (existingTimeout) {
@@ -459,6 +464,7 @@ function connect(
         return;
       }
       logger.debug(`[Terminal ${key}] WebSocket opened`);
+      currentAttempt = 0; // REQ-TERM-020 AC3: reset backoff on successful open
       setConnectionState(sessionId, terminalId, 'connected');
       setRetryMessage(sessionId, terminalId, null);
 
@@ -613,10 +619,10 @@ function connect(
       // Network errors (1006) just retry — KV polling handles session status.
       if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
         cancelPendingFlush(key);
-        const retryLog = `[Terminal ${key}] Scheduling reconnect, next attempt ${attemptNumber + 1}, code=${event.code}`;
+        const retryLog = `[Terminal ${key}] Scheduling reconnect, next attempt ${currentAttempt + 1}, code=${event.code}`;
         if (event.code === 1013) logger.debug(retryLog);
         else logger.warn(retryLog);
-        scheduleReconnect(attemptNumber);
+        scheduleReconnect(currentAttempt);
         return;
       }
 

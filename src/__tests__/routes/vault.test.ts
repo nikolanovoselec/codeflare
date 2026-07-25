@@ -19,6 +19,7 @@ import {
   hasVaultBootstrapCookie,
   filterVaultFsListing,
   inferOriginValidated,
+  isBootstrapHopRequest,
   rewriteVaultBaseHref,
   rewriteVaultHtmlResponse,
 } from '../../routes/vault';
@@ -562,6 +563,27 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     it('returns input unchanged when no </head> tag exists (fail-safe)', () => {
       const html = '<html><body>no head</body></html>';
       expect(injectVaultIdbRecorder(html)).toBe(html);
+    });
+  });
+
+  describe('isBootstrapHopRequest (REQ-VAULT-024 AC1: GET-only bootstrap-hop gate)', () => {
+    it('matches a GET to the bootstrap-hop path', () => {
+      expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, 'GET')).toBe(true);
+    });
+
+    it('does NOT match non-GET methods (the key-bearing hop must not render on POST/PUT/etc.)', () => {
+      for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
+        expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, method)).toBe(false);
+      }
+    });
+
+    it('does NOT match a WebSocket upgrade even on GET', () => {
+      expect(isBootstrapHopRequest('/.codeflare-bootstrap', true, 'GET')).toBe(false);
+    });
+
+    it('does NOT match other paths', () => {
+      expect(isBootstrapHopRequest('/.vault-key', false, 'GET')).toBe(false);
+      expect(isBootstrapHopRequest('/', false, 'GET')).toBe(false);
     });
   });
 
