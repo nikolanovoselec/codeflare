@@ -2,7 +2,7 @@
  * SilverBullet 2.9.0 native service worker, vendored + codeflare key-recovery graft.
  *
  * Codeflare serves this through the vault proxy for browser-initiated
- * `service_worker.js` registration fetches (src/routes/vault.ts), REPLACING
+ * `service_worker.js` registration fetches (src/routes/vault/index.ts), REPLACING
  * the former key-bridge-only shim (since removed; AD69). The
  * SilverBullet sync engine and its persistent local file store (`sb_files_*`
  * IndexedDB) live INSIDE this worker; the shim omitted them, so SilverBullet
@@ -148,7 +148,7 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     if (!verbatim.includes(anchor)) {
       throw new Error(
         "graftVaultKeyRecovery: anchor " + name + " not found - SilverBullet worker " +
-        "changed; re-vendor src/routes/vault-native-sw.ts and re-verify the graft",
+        "changed; re-vendor src/routes/vault/native-sw.ts and re-verify the graft",
       );
     }
   }

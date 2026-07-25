@@ -1,14 +1,14 @@
 /**
  * Vault HTML/JS rewriting + the service-worker request selectors.
  *
- * Extracted from src/routes/vault.ts (CF-002) so the routing/auth module
+ * Extracted from src/routes/vault/index.ts (CF-002) so the routing/auth module
  * stays focused on the request chain. This module owns every byte the
  * Worker injects into, or serves to, the browser on behalf of the
  * in-container SilverBullet editor:
  *
  *   - isServiceWorkerRegistration / isServiceWorkerContextFetch: the
  *     SW-registration and SW-context request selectors. The worker bytes
- *     served for registration live in src/routes/vault-native-sw.ts (AD69).
+ *     served for registration live in src/routes/vault/native-sw.ts (AD69).
  *   - injectVaultEncryptionConfig / injectVaultBootScript /
  *     injectVaultIdbRecorder: BootConfig + shell-HTML injectors.
  *   - injectVaultBootstrapHopHtml + VAULT_BOOTSTRAP_COOKIE helpers.
@@ -19,10 +19,10 @@
  * are pure functions with no Worker-runtime dependencies (only the
  * SESSION_ID_PATTERN constant), which is what makes the extraction safe.
  */
-import { SESSION_ID_PATTERN } from '../lib/constants';
-import { VAULT_BUCKET_TOKEN_PATTERN } from '../lib/vault-bucket-token';
-import { toErrorMessage } from '../lib/error-types';
-import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../lib/access';
+import { SESSION_ID_PATTERN } from './constants';
+import { VAULT_BUCKET_TOKEN_PATTERN } from './vault-bucket-token';
+import { toErrorMessage } from './error-types';
+import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './access';
 
 /** REQ-VAULT-021: the cookie that carries the real session id for bucket-stable
  * vault URLs (`/api/vault/<token>/...`). Set by the session-keyed open entry. */
@@ -158,7 +158,7 @@ function readCsrfCookie(request: Request): string | null {
  *
  * Cookie header is intentionally NOT checked. Chrome 76+ strips cookies
  * on SW registration fetches per spec, but Samsung Internet and other
- * Chromium forks may not. Serving the native worker (vault-native-sw.ts,
+ * Chromium forks may not. Serving the native worker (vault/native-sw.ts,
  * AD69) for this exact request regardless of cookie presence keeps
  * registration browser-agnostic; the response is open-source SilverBullet
  * frontend bytes plus the codeflare key-recovery graft, with no user data.

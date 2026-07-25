@@ -23,8 +23,8 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../types';
-import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
+import type { Env, Session } from '../../types';
+import { getSessionKey, putSessionWithMetadata } from '../../lib/kv-keys';
 import {
   SESSION_ID_PATTERN,
   REQUEST_ID_LENGTH,
@@ -32,12 +32,12 @@ import {
   WS_RATE_LIMIT_WINDOW_MS,
   WS_RATE_LIMIT_MAX_CONNECTIONS,
   WS_RATE_LIMIT_TTL_SECONDS,
-} from '../lib/constants';
-import { checkRateLimit } from '../lib/rate-limit-core';
-import { authMiddleware, AuthVariables } from '../middleware/auth';
-import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
-import { createLogger } from '../lib/logger';
-import { NotFoundError, toError, toErrorMessage } from '../lib/error-types';
+} from '../../lib/constants';
+import { checkRateLimit } from '../../lib/rate-limit-core';
+import { authMiddleware, AuthVariables } from '../../middleware/auth';
+import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
+import { createLogger } from '../../lib/logger';
+import { NotFoundError, toError, toErrorMessage } from '../../lib/error-types';
 import {
   maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
@@ -50,29 +50,29 @@ import {
   isFilteredVaultMutation,
   getVaultPrewarmRedirectSearch,
   rewriteVaultHtmlResponse,
-} from './vault-html';
-import { VAULT_NATIVE_SERVICE_WORKER_JS } from './vault-native-sw';
-import { getVaultEncryptionKey } from './vault-crypto';
-import { getVaultBucketToken } from '../lib/vault-bucket-token';
-import { isBucketMigrating } from '../lib/r2-migration';
-import { validateVaultRoute, VaultRouteResult } from './vault-validation';
+} from '../../lib/vault-view';
+import { VAULT_NATIVE_SERVICE_WORKER_JS } from './native-sw';
+import { getVaultEncryptionKey } from './crypto';
+import { getVaultBucketToken } from '../../lib/vault-bucket-token';
+import { isBucketMigrating } from '../../lib/r2-migration';
+import { validateVaultRoute, VaultRouteResult } from './validation';
 import {
   checkVaultOrigin,
   authenticateVaultRequest,
   assertActiveTier,
-} from './vault-auth';
-import { assertSessionOwnership } from './vault-access';
+} from './auth';
+import { assertSessionOwnership } from './access';
 
 // Re-export the route-parsing boundary so existing importers - notably
 // src/index.ts and src/__tests__/routes/vault.test.ts - keep their
-// `from '../routes/vault'` paths working unchanged after the CF-024a split.
+// `from '../../routes/vault'` paths working unchanged after the CF-024a split.
 export { validateVaultRoute };
 export type { VaultRouteResult };
 
 // Re-export the HTML/JS-rewriting + SW-shim surface (now living in
-// vault-html.ts after the CF-002 split) so existing importers - notably
+// src/lib/vault-view.ts after the CF-002 split) so existing importers - notably
 // src/__tests__/routes/vault.test.ts and src/index.ts - keep their
-// `from '../routes/vault'` paths working unchanged.
+// `from '../../routes/vault'` paths working unchanged.
 export {
   maybeSynthesizeCsrfHeader,
   maybeIssueCsrfCookie,
@@ -90,13 +90,13 @@ export {
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
-} from './vault-html';
+} from '../../lib/vault-view';
 export {
   VAULT_NATIVE_SERVICE_WORKER_JS,
   VAULT_NATIVE_SW_VERBATIM,
   VAULT_NATIVE_SW_SHA256,
   graftVaultKeyRecovery,
-} from './vault-native-sw';
+} from './native-sw';
 
 const logger = createLogger('vault');
 

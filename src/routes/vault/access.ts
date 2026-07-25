@@ -6,8 +6,8 @@
  * Behaviour (status codes, error codes) is identical to the previous
  * inline form in vault.ts.
  */
-import type { Env, Session } from '../types';
-import { getSessionKey } from '../lib/kv-keys';
+import type { Env, Session } from '../../types';
+import { getSessionKey } from '../../lib/kv-keys';
 
 /**
  * Session-ownership guard. A KV miss under the authenticated bucket

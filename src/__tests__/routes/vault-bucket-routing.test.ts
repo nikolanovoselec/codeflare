@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { validateVaultRoute } from '../../routes/vault-validation';
-import { readVaultSidCookie } from '../../routes/vault-html';
+import { validateVaultRoute } from '../../routes/vault/validation';
+import { readVaultSidCookie } from '../../lib/vault-view';
 
 const TOKEN = 'a'.repeat(32); // 32-hex bucket token
 const SID = 'abcdef1234567890'; // 16-char session id

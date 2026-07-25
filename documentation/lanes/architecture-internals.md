@@ -61,13 +61,14 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 - `container-lifecycle.ts`: onStart/onStop/alarm lifecycle hooks extracted from the DO class
 - `index.ts`: thin facade owning the DO class shell (constructor, fetch) and delegating config, internal routing, lifecycle hooks, and metrics to the modules above. Sub-modules receive state via explicit interface parameters, not class inheritance.
 
-**Vault route extraction:** `src/routes/vault.ts` split into focused sibling modules (behavior-preserving; `vault.ts` re-exports the extracted members so existing importers resolve unchanged):
-- `vault-validation.ts`: `validateVaultRoute` route boundary parsing
-- `vault-auth.ts`: `checkVaultOrigin` (origin/CSRF defense, applied before auth), `authenticateVaultRequest`, `assertActiveTier`
-- `vault-access.ts`: `assertSessionOwnership` ownership gate
-- `vault-crypto.ts`: `getVaultEncryptionKey` key resolution
-- `vault-html.ts`: HTML rewriting and injection helpers (`rewriteVaultBaseHref`, `injectVaultBootstrapHopHtml`, `injectVaultIdbRecorder`, `filterVaultFsListing`)
-- `vault.ts`: `handleVaultRequest` orchestration wiring the chain origin -> authenticate -> tier -> ownership
+**Vault route extraction:** the vault domain is the `src/routes/vault/` directory (barrel convention matching `admin/`, `session/`, `setup/`; `index.ts` re-exports the extracted members so existing `routes/vault` importers resolve unchanged), with the view layer promoted out of the routing tier:
+- `validation.ts`: `validateVaultRoute` route boundary parsing
+- `auth.ts`: `checkVaultOrigin` (origin/CSRF defense, applied before auth), `authenticateVaultRequest`, `assertActiveTier`
+- `access.ts`: `assertSessionOwnership` ownership gate
+- `crypto.ts`: `getVaultEncryptionKey` key resolution
+- `native-sw.ts`: vendored native service worker source + graft transform (AD69)
+- `src/lib/vault-view.ts`: HTML rewriting and injection helpers (`rewriteVaultBaseHref`, `injectVaultBootstrapHopHtml`, `injectVaultIdbRecorder`, `filterVaultFsListing`) — the vault view/templating layer, housed in `lib/` so route/auth churn and template churn stay separate
+- `index.ts`: `handleVaultRequest` orchestration wiring the chain origin -> authenticate -> tier -> ownership
 
 **Container lifecycle route extraction:** `src/routes/container/lifecycle.ts` split into focused modules (`lifecycle.ts` re-exports the helpers for existing importers):
 - `lifecycle-validation.ts`: `validateSessionAndCheckLimits`, `resolveEffectiveSleepAfter`

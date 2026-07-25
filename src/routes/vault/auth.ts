@@ -15,15 +15,15 @@
  * threaded in so guard rejections keep the same response shape the
  * inline code produced.
  */
-import type { Env } from '../types';
-import { authenticateRequest } from '../lib/access';
-import { isSaasModeActive } from '../lib/onboarding';
-import { isActiveUser } from '../lib/access-tier';
-import { getEffectiveTier } from '../lib/subscription';
-import { createLogger } from '../lib/logger';
-import { isAllowedOrigin } from '../lib/cors-cache';
-import { AuthError, ForbiddenError } from '../lib/error-types';
-import { maybeSynthesizeCsrfHeader, inferOriginValidated } from './vault-html';
+import type { Env } from '../../types';
+import { authenticateRequest } from '../../lib/access';
+import { isSaasModeActive } from '../../lib/onboarding';
+import { isActiveUser } from '../../lib/access-tier';
+import { getEffectiveTier } from '../../lib/subscription';
+import { createLogger } from '../../lib/logger';
+import { isAllowedOrigin } from '../../lib/cors-cache';
+import { AuthError, ForbiddenError } from '../../lib/error-types';
+import { maybeSynthesizeCsrfHeader, inferOriginValidated } from '../../lib/vault-view';
 
 const logger = createLogger('vault');
 

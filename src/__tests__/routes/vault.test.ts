@@ -200,7 +200,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       void requestForAuth.headers.get('cf-access-jwt-assertion');
       // Step 3: forward to the container by constructing a new Request
       // around requestForAuth (the production code path at
-      // src/routes/vault.ts -> `container.fetch(new Request(vaultUrl, requestForAuth))`).
+      // src/routes/vault/index.ts -> `container.fetch(new Request(vaultUrl, requestForAuth))`).
       const forwarded = new Request('https://internal.container.local/vault/notes/x.md', requestForAuth);
       const arrived = await forwarded.text();
       expect(arrived).toBe(payload);

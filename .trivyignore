@@ -740,8 +740,8 @@ CVE-2026-39244
 # 2026-07-22 — CVEs in transitive deps vendored inside the agent CLIs
 # (claude-code/codex/copilot/opencode npm trees) and the apt-installed
 # gh binary. All fixable upstream, none rebuilt into a vendored release yet
-# (agent-CLI pins bumped to latest same-day: claude-code 2.1.217,
-# codex 0.145.0, copilot 1.0.73 — entries stay until scans confirm clean,
+# (agent-CLI pins bumped to latest same-day — current pins live in the
+# Dockerfile ARGs — entries stay until scans confirm clean,
 # reviewed monthly per policy). The npm-tree entries are DoS-class and
 # reached-but-confined: worst case is DoS of the user's own CLI process
 # inside their single-tenant ephemeral container. The grpc-go entry rests

@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
 
 // CF-045
-// Direct unit tests for src/routes/vault-native-sw.ts. The graft logic was
-// previously exercised only through the src/routes/vault.ts re-export barrel.
+// Direct unit tests for src/routes/vault/native-sw.ts. The graft logic was
+// previously exercised only through the src/routes/vault/index.ts re-export barrel.
 // Importing the source module directly pins the key-recovery graft and its
 // anchor-drift guard at the module boundary.
 import {
   graftVaultKeyRecovery,
   VAULT_NATIVE_SW_VERBATIM,
   VAULT_NATIVE_SERVICE_WORKER_JS,
-} from '../../routes/vault-native-sw';
+} from '../../routes/vault/native-sw';
 
 describe('CF-045: vault-native-sw direct unit tests', () => {
   // REQ-VAULT-017 AC1: native SW served with the codeflare key-recovery graft

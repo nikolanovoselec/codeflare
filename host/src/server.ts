@@ -536,7 +536,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     // catch-all SPA handler and come back as text/html, which the
     // browser then rejects with "ServiceWorker: bad MIME type" and the
     // user sees the registration error from screenshot 1. The base-href
-    // rewrite in src/routes/vault.ts already makes SB client.js compute
+    // rewrite in src/routes/vault/index.ts already makes SB client.js compute
     // the URL via document.baseURI so first-time clients hit
     // /api/vault/:sid/service_worker.js (which maps to root after both
     // prefix-strips and works), but browsers with a stale ServiceWorker

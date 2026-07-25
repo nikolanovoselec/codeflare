@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
 // CF-045
-// Direct unit tests for src/routes/vault-html.ts. These pure helpers were
-// previously exercised only through the src/routes/vault.ts re-export barrel
+// Direct unit tests for src/lib/vault-view.ts. These pure helpers were
+// previously exercised only through the src/routes/vault/index.ts re-export barrel
 // (vault.test.ts imports from '../../routes/vault'). Importing the source
 // module directly pins the behaviour at the module boundary so a broken
 // re-export or a source-only change is caught here independently.
@@ -25,7 +25,7 @@ import {
   injectVaultControlledReload,
   installVaultControlledReload,
   VAULT_CONTROLLED_RELOAD_MARKER,
-} from '../../routes/vault-html';
+} from '../../lib/vault-view';
 
 // REQ-VAULT-022: Vault armed-state open flow and persistence
 

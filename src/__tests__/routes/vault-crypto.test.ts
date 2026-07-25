@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getVaultEncryptionKey } from '../../routes/vault-crypto';
+import { getVaultEncryptionKey } from '../../routes/vault/crypto';
 
 // REQ-VAULT-021: the vault key is derived deterministically from the server master
 // secret + the user's bucket name, so every session for a bucket gets the same key —

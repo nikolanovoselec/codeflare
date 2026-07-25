@@ -31,9 +31,9 @@ function normalizeEmail(email: string): string {
 }
 
 // CF-019: vault CSRF token (defense-in-depth). The cookie is issued on the
-// vault GET path (see src/routes/vault.ts) and compared header===cookie in
+// vault GET path (see src/routes/vault/index.ts) and compared header===cookie in
 // authenticateRequest. NOTE: for an origin-validated request the Worker mints
-// the X-Vault-Csrf header from the cookie (vault-html.ts), so this is NOT an
+// the X-Vault-Csrf header from the cookie (vault-view.ts), so this is NOT an
 // independent second factor that proves client token knowledge - the Origin
 // allowlist (checkVaultOrigin) remains the primary CSRF defense. The token
 // layers on top and leaves room for a future client-echoed double-submit.
@@ -808,7 +808,7 @@ export async function authenticateRequest(
   //   1. CF-019 vault CSRF token (defense-in-depth, NOT an independent factor).
   //      If the request carries both the CSRF cookie and the X-Vault-Csrf
   //      header they MUST match. For an origin-validated vault request the
-  //      Worker itself mints the header from the cookie (vault-html.ts), so a
+  //      Worker itself mints the header from the cookie (vault-view.ts), so a
   //      match does not prove independent client knowledge - the Origin
   //      allowlist (checkVaultOrigin, applied before auth) is the real CSRF
   //      defense and a cross-site request is already 403'd there. A present-

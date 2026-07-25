@@ -5,10 +5,10 @@
  * called from `src/index.ts` BEFORE the Hono router so WebSocket upgrade
  * requests can pass through. Behaviour is identical to the previous
  * inline form in vault.ts; vault.ts re-exports it so existing importers
- * keep their `from '../routes/vault'` paths working unchanged.
+ * keep their `from '../../routes/vault'` paths working unchanged.
  */
-import { SESSION_ID_PATTERN } from '../lib/constants';
-import { VAULT_BUCKET_TOKEN_PATTERN } from '../lib/vault-bucket-token';
+import { SESSION_ID_PATTERN } from '../../lib/constants';
+import { VAULT_BUCKET_TOKEN_PATTERN } from '../../lib/vault-bucket-token';
 
 export interface VaultRouteResult {
   isVaultRoute: boolean;
