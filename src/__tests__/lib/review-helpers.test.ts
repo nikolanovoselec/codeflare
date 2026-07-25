@@ -370,9 +370,13 @@ describe('Claude-equivalent review boundary helpers', () => {
     ] as const) {
       // The shell classifier resolves the prover relative to its own location,
       // so both runtimes run the one program this range is decided by.
+      // Every value reaches bash as a positional argument, never interpolated
+      // into the script text: the classifier path comes from process.cwd(), and
+      // JSON quoting is not shell quoting, so a checkout path containing a
+      // quote or a dollar sign would otherwise escape the source command.
       const claude = execFileSync(
         'bash',
-        ['-c', `source ${JSON.stringify(LANE_CLASSIFIER)}; compute_required_lanes "$1" "$2"`, 'bash', base, head],
+        ['-c', 'source "$1"; compute_required_lanes "$2" "$3"', 'bash', LANE_CLASSIFIER, base, head],
         { cwd: repo, encoding: 'utf8' },
       ).trim().split(/\s+/).filter(Boolean);
       expect(claude, name).toEqual(requiredReviewLanes({ repo, ackHead: base, head, prover: PROVER }));
