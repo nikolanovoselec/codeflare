@@ -13,10 +13,10 @@ const MAX_HISTORY_BYTES = 512 * 1024;
 // recent back-and-forth a follow-up question depends on, small enough to free
 // most of the history budget in one step, so the ladder needs no series of
 // ever-smaller history rungs. Stated absolutely rather than as a fraction of
-// MAX_HISTORY_BYTES so retuning that budget cannot silently move this one, which
-// in exchange makes staying below it this constant's own responsibility: at or
-// above MAX_HISTORY_BYTES the reduced rung would return more than the rung above
-// it, making the step a no-op rather than a reduction.
+// MAX_HISTORY_BYTES so retuning that budget cannot silently move this one -- at
+// the cost that keeping it below MAX_HISTORY_BYTES is now this constant's own
+// responsibility, since an equal value repeats the rung above it and a larger
+// one grows it.
 const MAX_REDUCED_HISTORY_BYTES = 128 * 1024;
 const MAX_ACTIVE_CONTENT_BYTES = 96 * 1024;
 const MAX_SELECTION_BYTES = 48 * 1024;
