@@ -670,7 +670,7 @@ correctly by excluding keys that have a variant in the target mode.
 
 ## Settings.json Merge
 
-Implements [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) AC3, AC4, AC6, AC7.
+Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC1, AC2, AC4, AC5.
 
 `entrypoint.sh` merges settings into `~/.claude/settings.json`
 using a two-phase strategy. Non-hooks settings (statusLine,
@@ -706,6 +706,12 @@ Handles three cases:
   pre-existing settings)
 - **File malformed**: Skips with warning (includes the jq error
   text), does not overwrite
+
+`entrypoint.sh` holds two `SETTINGS_CONFIG` literals, one per session
+mode. Only the Pro (advanced) literal carries a `hooks` key, so the
+codeflare-owned PreToolUse, PostToolUse, Stop, and UserPromptSubmit
+registrations reach Pro sessions only -- default (Standard) mode
+merges a literal with no `hooks` key at all.
 
 Both literals also set `"disableAgentView": true`. Claude Code
 otherwise replaces the terminal with a full-screen agent view — a

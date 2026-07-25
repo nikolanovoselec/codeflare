@@ -20,7 +20,7 @@ function extractMainExecution() {
 // ============================================================================
 // Test: settings.json configuration in entrypoint.sh
 // ============================================================================
-// REQ-AGENT-008: Preseed Deployed to Container on Start
+// REQ-AGENT-099: Agent Settings and Plugins Assembled at Container Start
 // REQ-MEM-008: Memory prompt files preseeded via manifest pipeline
 
 // Both SETTINGS_CONFIG literals, parsed. Asserting against the parsed objects
@@ -147,7 +147,7 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     }
   });
 
-  // REQ-AGENT-008 AC7: every session mode disables agent view. Parsed from the
+  // REQ-AGENT-099 AC5: every session mode disables agent view. Parsed from the
   // literal rather than string-matched, so the test still fails if the key is
   // present but false, or if only one of the two modes carries it.
   it('both SETTINGS_CONFIG literals disable agent view', () => {

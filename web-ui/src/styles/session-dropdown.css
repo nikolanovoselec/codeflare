@@ -104,10 +104,13 @@
 
 .session-dropdown__multiview--disabled,
 .session-dropdown__multiview:disabled {
-  /* No colour override: this rule used to name an undefined token, so the base
-     rule's --color-text-primary is what actually rendered and `opacity` below is
-     what dims it. Naming a dim token here instead would darken a control that
-     has shipped light. */
+  /* No colour override: the undefined token this used to name made the
+     declaration invalid at computed-value time, so the element inherited body's
+     --color-text-primary rather than falling back to the base rule below it in
+     the cascade. With the declaration gone the base rule's own
+     --color-text-primary applies — the same colour — and `opacity` below is what
+     dims it. Naming a dim token here instead would darken a control that has
+     shipped light. */
   cursor: not-allowed;
   opacity: 0.65;
 }
