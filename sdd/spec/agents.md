@@ -1135,12 +1135,11 @@ None.
 **Constraints:**
 
 - Resume Mode is interactive only; `mode: auto` and `mode: unleashed` are suspended for the duration of the drain.
-- Per-decision semantics for AC2:
-   - `accept`: use the recommendation as-is and fold into the relevant REQ.
-   - `correct`: free-form prose describing what the thing is for and how it works; agent folds purpose into REQ Intent and behavior into AC bullets.
-   - `lost`: record the gap with a one-line Reason; the related REQ (if any) gets a `Notes: intent lost during SDD transition - see TRIAGE-{NNN}` annotation; nothing is fabricated into the spec.
-   - `skip`: leave Status: open, write nothing to the spec, advance to next.
-   - `quit`: commit progress and exit.
+- AC2 `accept`: use the recommendation as-is and fold into the relevant REQ.
+- AC2 `correct`: free-form prose describing what the thing is for and how it works; agent folds purpose into REQ Intent and behavior into AC bullets.
+- AC2 `lost`: record the gap with a one-line Reason; the related REQ (if any) gets a `Notes: intent lost during SDD transition - see TRIAGE-{NNN}` annotation; nothing is fabricated into the spec.
+- AC2 `skip`: leave Status: open, write nothing to the spec, advance to next.
+- AC2 `quit`: commit progress and exit.
 
 **Priority:** P1
 
@@ -1727,7 +1726,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** None
+**Dependencies:** None.
 
 **Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
