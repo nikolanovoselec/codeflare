@@ -117,10 +117,11 @@
   align-items: center;
   justify-content: center;
   padding: 0 var(--space-3);
-  /* Matches what this icon-only button inherited while its own declaration was
-     invalid. A dimmer token would drop it to 2.3:1, under the 3:1 floor for
-     interactive non-text content. */
-  color: var(--color-text-secondary);
+  /* No colour override, same as the disabled rule above: this named an undefined
+     token, so nothing on the chain set `color` and body's --color-text-primary is
+     what actually rendered. Naming a dim token here instead would darken an
+     icon-only control that has shipped light — --color-text-dimmed would put it
+     at 2.3:1, under the 3:1 floor for interactive non-text content. */
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   background: transparent;
