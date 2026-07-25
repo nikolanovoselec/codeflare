@@ -751,10 +751,32 @@ async function generate() {
       .map((file) => file.withinClaude.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1])
       .filter(Boolean),
   );
-  for (const [rule, owner] of PI_COVERED_RULES) {
-    if (!sourceFiles.some((file) => file.withinClaude === rule)) {
-      throw new Error(`Pi covered rule is absent from the Claude manifest: ${rule}`);
+  // Every key in the three Pi rule-transform collections must resolve to a real
+  // Claude rule. PI_COVERED_RULES was already checked; PI_COMPACTED_RULES and
+  // PI_RULE_SKILL_GROUPS were not, and both fail SILENTLY in the wrong
+  // direction: a renamed or merged Claude rule leaves a dead key, the rule
+  // stops being excluded, and it flows into Pi's AGENTS.md -- the opposite of
+  // what the collection exists to do, with no error anywhere.
+  const claudeRuleKeys = sourceFiles
+    .filter((file) => file.category === 'rule')
+    .map((file) => file.withinClaude);
+  // Directory keys ("rules/golang/") match by prefix, mirroring
+  // piRuleSkillGroup's own lookup semantics; file keys match exactly.
+  const resolvesToRule = (key) => key.endsWith('/')
+    ? claudeRuleKeys.some((rule) => rule.startsWith(key))
+    : claudeRuleKeys.includes(key);
+  for (const [label, keys] of [
+    ['PI_COMPACTED_RULES', [...PI_COMPACTED_RULES]],
+    ['PI_COVERED_RULES', [...PI_COVERED_RULES.keys()]],
+    ['PI_RULE_SKILL_GROUPS', [...PI_RULE_SKILL_GROUPS.keys()]],
+  ]) {
+    for (const key of keys) {
+      if (!resolvesToRule(key)) {
+        throw new Error(`${label} references a rule absent from the Claude source set: ${key}`);
+      }
     }
+  }
+  for (const [rule, owner] of PI_COVERED_RULES) {
     if (!canonicalSkillNames.has(owner) && ![...piNativeSkillKeys].some((key) => key === `${owner}/SKILL.md`)) {
       throw new Error(`Pi covered rule owner is not seeded: ${rule} -> ${owner}`);
     }

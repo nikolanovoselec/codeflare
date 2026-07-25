@@ -459,11 +459,13 @@ Multi-agent support, preseed system, and session modes.
 5. The generator produces a runtime payload the Worker consumes at session start. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
 6. Within a single mode, no two preseed entries may share the same storage key. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) --> <!-- @manual -->
 7. Variant-per-mode keys (same storage key, different content per mode) are excluded from cleanup when the mode changes. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-014 AC7: variant-per-mode keys excluded from cleanup (key exists in target mode)) -->
+8. Every Pi rule-transform key resolves to a rule present in the Claude source set; a key that does not fails generation. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-rule-transform-membership.test.js (generate-agent-seed.mjs - Pi rule-transform membership) -->
 
 **Constraints:**
 
 - All preseed file additions, removals, and re-categorizations flow through the manifest.
 - The generated output is a build artifact and is never hand-edited.
+- Rule-transform collections name Claude rules by path, so renaming or merging a rule must update every collection referencing it in the same change.
 
 **Priority:** P1
 
