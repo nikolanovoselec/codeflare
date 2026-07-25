@@ -3,6 +3,7 @@ import Icon from '../Icon';
 
 // The button's identity colour, as a token name rather than a colour: a literal
 // would interpolate to `var(#2563eb)`, which is invalid and paints nothing.
+// Keep this union in step with the --color-action-* block in design-tokens.css.
 type ActionTone =
   | '--color-action-setup'
   | '--color-action-users'
