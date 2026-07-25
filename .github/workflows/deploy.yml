@@ -1,4 +1,8 @@
 name: Deploy
+# Surface the resolved deploy target in the run title so the Actions list and
+# `gh run list` answer "what did this deploy to?" without opening the run.
+# Same resolution expression as the concurrency group below.
+run-name: "Deploy ${{ ((github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }} (${{ github.event.workflow_run.head_branch || github.ref_name }})"
 # main is the protected production branch; the only push that reaches
 # it is a merged PR. workflow_run waits for that PR's "PR Checks" to
 # finish on the merge commit and only deploys when it ended green.
