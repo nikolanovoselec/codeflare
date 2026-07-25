@@ -268,8 +268,8 @@ test('REQ-IDE-006 AC5: a context over the envelope drops whole sections and stay
   // Every per-section budget is respected here, yet the rendered envelope still
   // overflows: the active editor's content is measured raw, and each control
   // character costs six bytes once JSON-escaped. Clamping the rendered string
-  // would cut the serialized context mid-object; whole sections go instead,
-  // cheapest first, so the conversation is the last thing given up.
+  // would cut the serialized context mid-object, so whole units go instead --
+  // and the file the user is looking at outlives the replay of older turns.
   const conversation = [
     { role: 'user' as const, text: 'first turn' },
     { role: 'assistant' as const, text: 'h'.repeat(400 * 1000) },
@@ -286,10 +286,17 @@ test('REQ-IDE-006 AC5: a context over the envelope drops whole sections and stay
   }));
 
   const context = editorContext(prompt);
-  assert.deepEqual(context.history, conversation);
-  assert.equal(context.activeEditor, undefined);
+  // Parsing at all is half the contract: the old clamp emitted a truncated object.
+  assert.equal((context.activeEditor as { path?: string } | undefined)?.path, 'src/parser.ts');
   assert.equal(context.openFiles, undefined);
   assert.equal(context.diagnostics, undefined);
   assert.equal(context.references, undefined);
+  // The replay is what gives way, and it gives way by shrinking rather than by
+  // being cut mid-value: what remains is still a well-formed list of turns.
+  assert.ok(Array.isArray(context.history), 'the replay survives in reduced form');
+  assert.ok(
+    JSON.stringify(context.history).length < JSON.stringify(conversation).length,
+    'the replay must be the section that shrinks, not the editor state',
+  );
   assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
 });

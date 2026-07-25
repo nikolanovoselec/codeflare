@@ -1,10 +1,11 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 
 // The prompt travels as one JSONL line, so the hard transport ceiling is the
-// 4 MiB maxLineBytes in rpc-client.ts — and JSON escaping inflates the message
-// before it is measured there. 1 MiB leaves that margin. The binding limit past
-// this point is not ours: it is the model's own context window, so raising these
-// further trades a truncated replay for a provider-side rejection.
+// 4 MiB maxLineBytes set in node-rpc-backend.ts (rpc-client.ts only declares the
+// field) — and JSON escaping inflates the message before it is measured there.
+// 1 MiB leaves that margin. The binding limit past this point is not ours: it is
+// the model's own context window, so raising these further trades a truncated
+// replay for a provider-side rejection.
 export const MAX_NATIVE_CHAT_PROMPT_BYTES = 1024 * 1024;
 const MAX_USER_PROMPT_BYTES = 128 * 1024;
 const MAX_HISTORY_BYTES = 512 * 1024;
@@ -124,11 +125,9 @@ export function buildNativePiPrompt(input: NativePiPromptInput): string {
   // budget must drop the oldest turns, not the newest. Spending the budget
   // front-first left a long conversation replaying how it started while the
   // turn the user just sent fell off the end.
-  const history = boundedTail(
-    input.history,
-    MAX_HISTORY_BYTES,
-    (entry) => ({ role: entry.role, text: entry.text }),
-  );
+  const replay = (maxBytes: number): { role: string; text: string }[] =>
+    boundedTail(input.history, maxBytes, (entry) => ({ role: entry.role, text: entry.text }));
+  const history = replay(MAX_HISTORY_BYTES);
   const openFiles = [...new Set(input.openFiles.map(workspaceRelativePath).filter(isString))]
     .slice(0, MAX_OPEN_FILES);
   const diagnostics = boundedList(
@@ -160,23 +159,27 @@ export function buildNativePiPrompt(input: NativePiPromptInput): string {
   // The per-section budgets are measured before JSON escaping and the envelope
   // after it, so a quote-dense active file can still overflow. Clamping the
   // rendered string would cut the serialized context mid-structure and hand the
-  // model a broken object, so drop whole sections instead and keep it parseable.
-  // Ordered cheapest-to-lose first: the editor can re-supply any of these next
-  // turn, the conversation cannot.
+  // model a broken object, so give up whole units instead and keep it parseable.
+  //
+  // The active editor outlives the replay deliberately. "Fix the selected code"
+  // is answerable without the older turns and unanswerable without the selection,
+  // so the supporting lists go first, then the replay shrinks, and only a prompt
+  // that still does not fit loses the conversation.
   const notice = CONTEXT_NOTICE;
-  const candidates: readonly ContextSections[] = [
-    { notice, history, activeEditor, openFiles, diagnostics, references },
-    { notice, history, activeEditor, openFiles, diagnostics },
-    { notice, history, activeEditor, openFiles },
-    { notice, history, activeEditor },
-    { notice, history },
-    { notice },
+  const candidates: readonly (() => ContextSections)[] = [
+    () => ({ notice, history, activeEditor, openFiles, diagnostics, references }),
+    () => ({ notice, history, activeEditor, openFiles, diagnostics }),
+    () => ({ notice, history, activeEditor, openFiles }),
+    () => ({ notice, history, activeEditor }),
+    () => ({ notice, history: replay(MAX_HISTORY_BYTES / 4), activeEditor }),
+    () => ({ notice, activeEditor }),
+    () => ({ notice }),
   ];
-  // Rendered one at a time rather than all-then-filtered: the first candidate
-  // fits on every ordinary turn, and each render serializes the whole context.
+  // Built and rendered one at a time: the first candidate fits on every ordinary
+  // turn, and both steps walk the whole context.
   let rendered = '';
-  for (const sections of candidates) {
-    rendered = render(sections);
+  for (const build of candidates) {
+    rendered = render(build());
     if (Buffer.byteLength(rendered, 'utf8') <= bodyLimit) break;
   }
   // Unreachable while the user prompt is capped well under the envelope, but the

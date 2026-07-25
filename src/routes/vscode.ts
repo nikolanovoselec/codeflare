@@ -56,31 +56,41 @@ const logger = createLogger('vscode');
  * handle this, because the health probe below fails before the request can be
  * forwarded at all.
  *
- * The Worker holds no per-session state, so the attempt count rides in the query
- * string. That makes it part of the tab's document URL, which is why the success
- * path redirects it away (see `redirectAwayFromWarmParam`): a tab left sitting on
- * `?cf_warm=40` would render the give-up page instantly on every later reload,
+ * The Worker holds no per-session state, so the episode's start time rides in the
+ * query string. A meta refresh cannot measure itself -- each reload is a fresh
+ * document -- and an attempt count cannot stand in for a clock here, because
+ * every attempt also pays a container health probe of unpredictable duration.
+ * Carrying the start instead makes the elapsed time real, the bound an actual
+ * duration, and this page comparable with its in-container twin, which derives
+ * its number the same way.
+ *
+ * A start in the query string is client-controlled, but forging an older one only
+ * makes that tab give up sooner: it is the client's own retry it is shortening.
+ * It is also part of the tab's document URL, which is why the success path
+ * redirects it away (see `redirectAwayFromWarmParam`): a tab left sitting on an
+ * exhausted start would render the give-up page instantly on every later reload,
  * including while a fresh container warms up perfectly normally -- a permanent
  * failure state that the page's own "reload to try again" cannot escape.
  */
-const WARM_PARAM = 'cf_warm';
-const WARM_MAX_ATTEMPTS = 40;
+const WARM_PARAM = 'cf_since';
+const WARM_GIVE_UP_MS = 120_000;
 const WARM_REFRESH_SECONDS = 3;
 
-function warmingPage(url: URL, attempt: number, requestId: string): Response {
+function warmingPage(url: URL, startedAt: number, requestId: string): Response {
   // The most failure-prone path on this route is the one that most needs a
   // correlation id, so it carries the same X-Request-ID as every other response.
   const headers = { 'Content-Type': 'text/html; charset=utf-8', 'X-Request-ID': requestId };
-  if (attempt >= WARM_MAX_ATTEMPTS) {
+  const elapsedMs = Date.now() - startedAt;
+  if (elapsedMs >= WARM_GIVE_UP_MS) {
     return new Response(
       '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark light"><title>Session not ready</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>The session container did not become ready. Reload to try again, or restart the session.</p></body></html>',
       { status: 504, headers },
     );
   }
   const next = new URL(url);
-  next.searchParams.set(WARM_PARAM, String(attempt + 1));
+  next.searchParams.set(WARM_PARAM, String(startedAt));
   const target = escapeAttribute(`${next.pathname}${next.search}`);
-  const seconds = attempt * WARM_REFRESH_SECONDS;
+  const seconds = Math.floor(elapsedMs / 1000);
   return new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="${WARM_REFRESH_SECONDS};url=${target}"><meta name="color-scheme" content="dark light"><title>Starting session</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>Starting the session container&hellip; ${seconds}s</p></body></html>`,
     { status: 503, headers },
@@ -90,7 +100,7 @@ function warmingPage(url: URL, attempt: number, requestId: string): Response {
 /**
  * The URL serializer already percent-encodes `"`, `<` and `>` in a path or query,
  * so this is belt-and-braces rather than the only thing standing between the
- * counter and the attribute -- but the escape should not depend on that
+ * timestamp and the attribute -- but the escape should not depend on that
  * invariant holding in a future URL implementation.
  */
 function escapeAttribute(value: string): string {
@@ -102,9 +112,9 @@ function escapeAttribute(value: string): string {
 }
 
 /**
- * Once the container answers, take the retry counter back out of the tab's URL.
- * Without this a tab that warmed for N attempts starts its NEXT cold start at N,
- * and one that reached the bound never shows the warming page again.
+ * Once the container answers, take the episode start back out of the tab's URL.
+ * Without this the NEXT cold start inherits an already-spent clock, and a tab
+ * that reached the bound never shows the warming page again.
  */
 function redirectAwayFromWarmParam(url: URL, requestId: string): Response {
   const clean = new URL(url);
@@ -115,9 +125,13 @@ function redirectAwayFromWarmParam(url: URL, requestId: string): Response {
   });
 }
 
-function warmAttempt(url: URL): number {
+/** This episode's start: the one in the URL, or now for a tab that has not waited yet. */
+function warmStartedAt(url: URL): number {
+  const now = Date.now();
   const raw = Number(url.searchParams.get(WARM_PARAM));
-  return Number.isSafeInteger(raw) && raw > 0 ? Math.min(raw, WARM_MAX_ATTEMPTS) : 0;
+  // A future timestamp is the one forged value worth rejecting: it would hold the
+  // tab on the warming page indefinitely rather than merely cutting its own retry.
+  return Number.isSafeInteger(raw) && raw > 0 && raw <= now ? raw : now;
 }
 
 /**
@@ -210,11 +224,11 @@ export async function handleVscodeRequest(
         return new Response(JSON.stringify({ error: 'Container not ready', code: 'CONTAINER_NOT_READY' }),
           { status: 503, headers: jsonHeaders });
       }
-      return warmingPage(requestUrl, warmAttempt(requestUrl), requestId);
+      return warmingPage(requestUrl, warmStartedAt(requestUrl), requestId);
     }
 
-    // Healthy again: get the counter out of the tab's address bar before the
-    // editor loads, so the next cold start begins from a clean slate.
+    // Healthy again: get the episode start out of the tab's address bar before
+    // the editor loads, so the next cold start begins from a clean slate.
     if (!isWebSocket && request.method === 'GET' && requestUrl.searchParams.has(WARM_PARAM)) {
       return redirectAwayFromWarmParam(requestUrl, requestId);
     }

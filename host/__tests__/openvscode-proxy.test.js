@@ -122,8 +122,9 @@ describe('vscodeWarmingResponse / REQ-IDE-003 AC3 (bounded warming)', () => {
     // The load-bearing half: no meta refresh, so the tab stops reloading
     // forever against a supervisor that is never going to bind.
     assert.doesNotMatch(r.body, /http-equiv=["']refresh["']/i);
-    // And it must not still claim to be starting.
-    assert.notEqual(r.status, 503);
+    // And it must report the failure, not merely stop claiming to be starting:
+    // notEqual(503) would stay green for a 200.
+    assert.equal(r.status, 504);
     assert.match(r.contentType, /text\/html/);
   });
 

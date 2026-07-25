@@ -193,7 +193,8 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
 
   it('REQ-IDE-003 AC3: the warming page gives up instead of refreshing forever', async () => {
     mockHealth.healthy = false;
-    const request = vscodeRequest(`/api/vscode/${SID}/?cf_warm=40`);
+    // An episode that started longer ago than the bound allows.
+    const request = vscodeRequest(`/api/vscode/${SID}/?cf_since=${Date.now() - 121_000}`);
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
     // The load-bearing half: no meta refresh, so the tab stops reloading against
     // a container that is never going to become healthy.
@@ -202,31 +203,61 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(response.status).toBe(504);
   });
 
-  it('REQ-IDE-003 AC3: a healthy container takes the retry counter back out of the tab URL', async () => {
-    // The counter rides in the query string because the Worker holds no
+  it('REQ-IDE-003 AC3: the warming page reports the real wait and carries the same start forward', async () => {
+    // The wait must be measured, not inferred from a refresh interval: every
+    // reload also pays a container health probe of unpredictable duration.
+    mockHealth.healthy = false;
+    const request = vscodeRequest(`/api/vscode/${SID}/?cf_since=${Date.now() - 30_000}`);
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(503);
+    const body = await response.text();
+    expect(Number(/(\d+)s<\/p>/.exec(body)?.[1])).toBeGreaterThanOrEqual(30);
+    // The refresh target keeps the ORIGINAL start, so the clock accumulates
+    // across reloads instead of restarting on each fresh document.
+    const target = /url=([^"]+)"/.exec(body)?.[1] ?? '';
+    const carried = Number(new URL(target, 'https://codeflare.ch').searchParams.get('cf_since'));
+    expect(Date.now() - carried).toBeGreaterThanOrEqual(30_000);
+  });
+
+  it('REQ-IDE-003 AC3: a future start is rejected instead of pinning the tab on the warming page', async () => {
+    // The one forged value that is not merely self-harming: it would hold the
+    // tab below the bound forever. Everything else only shortens its own retry.
+    mockHealth.healthy = false;
+    const request = vscodeRequest(`/api/vscode/${SID}/?cf_since=${Date.now() + 600_000}`);
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    const body = await response.text();
+    expect(response.status).toBe(503);
+    expect(Number(/(\d+)s<\/p>/.exec(body)?.[1])).toBe(0);
+    const target = /url=([^"]+)"/.exec(body)?.[1] ?? '';
+    const carried = Number(new URL(target, 'https://codeflare.ch').searchParams.get('cf_since'));
+    expect(carried).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('REQ-IDE-003 AC3: a healthy container takes the episode start back out of the tab URL', async () => {
+    // The start rides in the query string because the Worker holds no
     // per-session state -- which also puts it in the tab's address bar. Left
     // there, a tab that once reached the bound would serve the give-up page
     // instantly on every later reload, so the success path redirects it away.
-    const request = vscodeRequest(`/api/vscode/${SID}/?cf_warm=3`);
+    const request = vscodeRequest(`/api/vscode/${SID}/?cf_since=${Date.now() - 5_000}`);
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
     expect(response.status).toBe(302);
     const location = new URL(response.headers.get('Location') ?? '');
-    expect(location.searchParams.has('cf_warm')).toBe(false);
+    expect(location.searchParams.has('cf_since')).toBe(false);
     expect(location.pathname).toBe(`/api/vscode/${SID}/`);
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-001: the retry counter never reaches the base-path-native server', async () => {
+  it('REQ-IDE-001: the warming parameter never reaches the base-path-native server', async () => {
     // OpenVSCode receives its own URL unchanged, so on any request the redirect
     // above does not cover, the parameter is still stripped before forwarding.
-    const request = new Request(`https://codeflare.ch/api/vscode/${SID}/x?cf_warm=3`, {
+    const request = new Request(`https://codeflare.ch/api/vscode/${SID}/x?cf_since=${Date.now()}`, {
       method: 'POST',
       headers: new Headers({ Origin: 'https://codeflare.ch' }),
     });
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
     expect(response.status).toBe(200);
     const forwarded = mockContainerFetch.mock.calls[0][0] as Request;
-    expect(new URL(forwarded.url).searchParams.has('cf_warm')).toBe(false);
+    expect(new URL(forwarded.url).searchParams.has('cf_since')).toBe(false);
   });
 
   it('REQ-IDE-001: an unhealthy container still answers a WebSocket upgrade with 503 CONTAINER_NOT_READY', async () => {
