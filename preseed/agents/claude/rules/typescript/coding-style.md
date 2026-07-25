@@ -7,7 +7,7 @@ paths:
 ---
 # TypeScript/JavaScript Coding Style
 
-> This file extends [common/coding-style.md](../common/coding-style.md) with TypeScript/JavaScript specific content.
+> This file extends the "Coding concretes" section of [engineering-constitution.md](../engineering-constitution.md) with TypeScript/JavaScript specific content.
 
 ## Immutability
 

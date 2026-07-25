@@ -49,7 +49,7 @@ describe('generate-agent-seed.mjs - Pi rule-transform membership', () => {
   });
 
   it('fails generation when a compacted rule no longer exists', () => {
-    // karpathy.md is a PI_COMPACTED_RULES member. A rename or merge removes
+    // no-local-builds.md is a PI_COMPACTED_RULES member. A rename or merge removes
     // both the file and its manifest entry while leaving the transform key
     // behind -- the manifest's own existence check never fires, so before this
     // guard the generator succeeded and silently shipped the rule into Pi's
@@ -58,13 +58,13 @@ describe('generate-agent-seed.mjs - Pi rule-transform membership', () => {
     try {
       const manifestPath = join(dir, 'preseed/agents/claude/manifest.json');
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-      delete manifest['rules/karpathy.md'];
+      delete manifest['rules/no-local-builds.md'];
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-      rmSync(join(dir, 'preseed/agents/claude/rules/karpathy.md'));
+      rmSync(join(dir, 'preseed/agents/claude/rules/no-local-builds.md'));
       const result = generate(dir);
       assert.notEqual(result.status, 0,
         'a dead rule-transform key must fail the build, not pass silently');
-      assert.match(result.stderr, /karpathy\.md/,
+      assert.match(result.stderr, /no-local-builds\.md/,
         'the failure must name the rule that went missing');
       assert.match(result.stderr, /PI_COMPACTED_RULES/,
         'the failure must name the collection holding the dead key');

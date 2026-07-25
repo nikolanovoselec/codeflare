@@ -138,9 +138,6 @@ const PI_MODEL_HIDDEN_SKILLS = new Set([
 // constitution, so duplicating their long-form prose in AGENTS.md adds no policy.
 const PI_COMPACTED_RULES = new Set([
   'rules/cloudflare-environment.md',
-  'rules/common/coding-style.md',
-  'rules/graph-first.md',
-  'rules/karpathy.md',
   'rules/no-local-builds.md',
 ]);
 

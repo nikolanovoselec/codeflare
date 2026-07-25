@@ -259,11 +259,6 @@
       "advanced"
     ]
   },
-  "rules/common/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/documentation-discipline.md": {
     "modes": [
       "advanced"
@@ -301,16 +296,6 @@
     ]
   },
   "rules/golang/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/graph-first.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/karpathy.md": {
     "modes": [
       "advanced"
     ]

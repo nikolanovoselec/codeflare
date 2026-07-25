@@ -16,9 +16,14 @@ function readPreseed(rel) {
 }
 
 describe('graphify preseed - advanced-mode discipline (REQ-AGENT-024)', () => {
-  it('graph-first rule asset exists', () => {
-    const path = resolve(repoRoot, 'preseed/agents/claude/rules/graph-first.md');
-    assert.ok(existsSync(path), 'graph-first.md must exist in preseed/agents/claude/rules/');
+  it('graph-first discipline ships inside the engineering constitution', () => {
+    // The standalone rules/graph-first.md was absorbed into the constitution.
+    // Both were advanced-only, so the discipline-vs-capability split is
+    // unchanged: what is asserted is that the discipline still ships.
+    const path = resolve(repoRoot, 'preseed/agents/claude/rules/engineering-constitution.md');
+    assert.ok(existsSync(path), 'engineering-constitution.md must exist in preseed/agents/claude/rules/');
+    assert.match(readFileSync(path, 'utf8'), /^## Graph first$/m,
+      'the constitution must carry the graph-first discipline section');
   });
 
   it('AC2: skills/graphify/SKILL.md exists and is preseeded', () => {
@@ -56,9 +61,9 @@ describe('graphify preseed - advanced-mode discipline (REQ-AGENT-024)', () => {
       return entry.modes;
     }
     assert.deepEqual(
-      modesFor('rules/graph-first.md'),
+      modesFor('rules/engineering-constitution.md'),
       ['advanced'],
-      'graph-first.md must be advanced-only'
+      'the constitution carrying the graph-first discipline must be advanced-only'
     );
     assert.deepEqual(
       modesFor('skills/graphify/SKILL.md'),
