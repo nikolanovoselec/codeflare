@@ -122,11 +122,11 @@ describe('REQ-GITHUB-004: buildCloneArgs (argv, never a shell string)', () => {
 
 // ---------------------------------------------------------------------------
 // Structural verification of the endpoint I/O wiring that cannot be unit-imported
-// (the monolithic http handler in server.ts and the entrypoint clone step).
+// (the request-router.ts http handler and the entrypoint clone step).
 // Source-text assertions, not behavioral — same convention as
 // final-sync-endpoint.test.js.
 // ---------------------------------------------------------------------------
-const server = readFileSync(resolve(repoRoot, 'host/src/server.ts'), 'utf8');
+const server = readFileSync(resolve(repoRoot, 'host/src/request-router.ts'), 'utf8');
 const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
 
 // Scope to the real block, not a fixed byte window. A window silently truncates

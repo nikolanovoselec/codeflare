@@ -13,22 +13,23 @@
  * - DELETE /sessions/:id      - Delete session
  * - GET  /ws-events           - Recent WebSocket event log (debugging)
  * - GET  /sync-log            - rclone sync log
+ *
+ * This file is the composition root (CF-014): it owns process lifecycle,
+ * environment config, the mutable readiness flags, and the pre-warm
+ * sequence. The HTTP branches live in request-router.ts, the /terminal WS
+ * protocol in terminal-ws.ts, and the vault/vscode WS bridges + upgrade
+ * routing in upgrade-dispatcher.ts — each importable in unit tests without
+ * booting a listening server.
  */
 
 import http from 'node:http';
-import { WebSocketServer, WebSocket } from 'ws';
-import { parse as parseUrl } from 'node:url';
+import { WebSocketServer } from 'ws';
 import fs from 'node:fs';
-import { spawn } from 'node:child_process';
 import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
-import { getSyncStatus, getSystemMetrics } from './metrics.js';
-import { checkContainerAuth } from './auth-check.js';
-import { evaluateFinalSync } from './final-sync.js';
-import type { HealthResponse } from './types.js';
-import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
-import { stripVaultPrefix } from './vault-proxy.js';
-import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from './vscode-proxy.js';
+import { createRequestHandler, type ProxyTarget } from './request-router.js';
+import { attachTerminalConnectionHandler } from './terminal-ws.js';
+import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
@@ -75,19 +76,23 @@ const WS_MAX_PAYLOAD = 64 * 1024;        // 64KB WebSocket max payload
 const MAX_CONTROL_MSG_LENGTH = 200;       // Max length for JSON control message detection
 
 // SilverBullet supervisor binds on 127.0.0.1:3030 inside the container
-// (see entrypoint.sh:start_silverbullet_supervisor). The /vault HTTP +
-// WS branch below proxies to it. Localhost-only by design — the auth
-// boundary is the Worker proxy at /api/vault/:sid/.
-const SILVERBULLET_HOST = process.env.SILVERBULLET_HOST ?? '127.0.0.1';
-const SILVERBULLET_PORT = parseInt(process.env.SILVERBULLET_PORT ?? '3030', 10);
+// (see entrypoint.sh:start_silverbullet_supervisor). The vault HTTP + WS
+// branches proxy to it. Localhost-only by design — the auth boundary is
+// the Worker proxy at /api/vault/:sid/.
+const SILVERBULLET: ProxyTarget = {
+  host: process.env.SILVERBULLET_HOST ?? '127.0.0.1',
+  port: parseInt(process.env.SILVERBULLET_PORT ?? '3030', 10),
+};
 
 // OpenVSCode Server supervisor binds on 127.0.0.1:13337 inside the container
 // (see entrypoint.sh:start_openvscode_supervisor). The /api/vscode HTTP + WS
-// branch below proxies to it, forwarding the path UNCHANGED because OpenVSCode
+// branches proxy to it, forwarding the path UNCHANGED because OpenVSCode
 // runs with --server-base-path=/api/vscode/<sid>. Localhost-only by design —
 // the auth boundary is the Worker proxy at /api/vscode/:sid/.
-const OPENVSCODE_HOST = process.env.OPENVSCODE_HOST ?? '127.0.0.1';
-const OPENVSCODE_PORT = parseInt(process.env.OPENVSCODE_PORT ?? '13337', 10);
+const OPENVSCODE: ProxyTarget = {
+  host: process.env.OPENVSCODE_HOST ?? '127.0.0.1',
+  port: parseInt(process.env.OPENVSCODE_PORT ?? '13337', 10),
+};
 
 // Parse TAB_CONFIG for expected process names per terminal tab.
 // TAB_CONFIG is set by the Container DO before container start.
@@ -143,7 +148,7 @@ function createWsEventLogger(wsEventLog: WsEvent[]): WsEventLogger {
 
 /**
  * The server's owned mutable state, hoisted out of module scope into a single
- * explicit object (CF-014). Handlers below read and mutate these fields through
+ * explicit object (CF-014). Handlers read and mutate these fields through
  * the `state` reference instead of bare module-level globals.
  *
  * Note: the original CF-014 brief listed a `pendingAuthCheck` field, but the
@@ -195,794 +200,7 @@ function createServerState(): ServerState {
 const state = createServerState();
 const { sessionManager, logWsEvent } = state;
 
-// Create HTTP server
-const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
-  const { pathname } = parseUrl(req.url ?? '');
-  const method = req.method;
-
-  // REQ-SEC-022: container auth-token check. Logic extracted to
-  // ./auth-check.ts so it can be unit-tested without spawning node-pty.
-  const authOutcome = checkContainerAuth(
-    pathname ?? '',
-    req.headers['authorization'],
-    process.env.CONTAINER_AUTH_TOKEN,
-  );
-  if (!authOutcome.allowed) {
-    res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
-    res.end(authOutcome.body);
-    return;
-  }
-
-  // Health check with full metrics (consolidates separate health server)
-  if (pathname === '/health' && method === 'GET') {
-    const syncInfo = getSyncStatus();
-    const sysMetrics = await getSystemMetrics(log);
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(
-      JSON.stringify({
-        status: 'healthy',
-        sessions: sessionManager.size,
-        uptime: Math.floor((Date.now() - SERVER_START_TIME) / 1000),
-        syncStatus: syncInfo.status,
-        syncError: syncInfo.error,
-        userPath: syncInfo.userPath,
-        prewarmReady,
-        initFlagObserved,
-        terminalServiceReady,
-        cpu: sysMetrics.cpu,
-        mem: sysMetrics.mem,
-        hdd: sysMetrics.hdd,
-        timestamp: new Date().toISOString(),
-      } satisfies HealthResponse)
-    );
-    return;
-  }
-
-  // WebSocket event log for debugging disconnects
-  if (pathname === '/ws-events' && method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ events: state.wsEventLog }));
-    return;
-  }
-
-  // Activity endpoint for smart hibernation (WS connection-based)
-  if (pathname === '/activity' && method === 'GET') {
-    state.activityTracker.recordHeartbeat();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(state.activityTracker.getActivityInfo(sessionManager)));
-    return;
-  }
-
-  // List sessions
-  if (pathname === '/sessions' && method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ sessions: sessionManager.list() }));
-    return;
-  }
-
-  // Create session
-  if (pathname === '/sessions' && method === 'POST') {
-    const MAX_BODY_SIZE = 64 * 1024; // 64KB
-    let body = '';
-    let bodySize = 0;
-    req.on('data', (chunk: Buffer) => {
-      bodySize += chunk.length;
-      if (bodySize > MAX_BODY_SIZE) {
-        res.writeHead(413, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Request body too large' }));
-        req.destroy();
-        return;
-      }
-      body += chunk;
-    });
-    req.on('end', () => {
-      if (bodySize > MAX_BODY_SIZE) return;
-      try {
-        const { id, name } = JSON.parse(body || '{}') as { id?: string; name?: string };
-        if (!id) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Session ID required' }));
-          return;
-        }
-
-        const session = sessionManager.getOrCreate(id, name ?? 'Terminal');
-        if (!session) {
-          res.writeHead(503, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Session limit reached' }));
-          return;
-        }
-        res.writeHead(201, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ session: session.toJSON() }));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-      }
-    });
-    return;
-  }
-
-  // Delete session
-  const deleteMatch = (pathname ?? '').match(/^\/sessions\/([^/]+)$/);
-  if (deleteMatch && method === 'DELETE') {
-    const id = deleteMatch[1];
-    const deleted = sessionManager.delete(id);
-    if (deleted) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ deleted: true, id }));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Session not found' }));
-    }
-    return;
-  }
-
-  // Manual bisync trigger (REQ-STOR-015 AC1). Sends SIGUSR1 to the
-  // bisync daemon, which interrupts its sleep and runs an immediate
-  // bisync cycle. Idempotent: signals during a running bisync coalesce
-  // to exactly one rerun (see entrypoint.sh trap).
-  //
-  // Hibernation note: the daemon PID is read from /tmp/sync-daemon.pid
-  // at every call, never cached. If the container is sleeping or the
-  // daemon has not yet written its PID file, the call returns 503; the
-  // Worker fan-out treats 503 as "session not active, skip" rather
-  // than propagating a user-visible error.
-  if (pathname === '/internal/bisync-trigger' && method === 'POST') {
-    try {
-      const pidStr = fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim();
-      const pid = Number(pidStr);
-      if (!Number.isFinite(pid) || pid <= 0) {
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'not-running', error: 'invalid daemon PID' }));
-        return;
-      }
-      try {
-        process.kill(pid, 'SIGUSR1');
-      } catch {
-        // ESRCH: process gone (daemon crashed or container restarting).
-        // Treat as not-running; the next container wake forces a
-        // baseline bisync per REQ-STOR-004 AC4, absorbing this trigger.
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'not-running', error: 'daemon process not found' }));
-        return;
-      }
-      res.writeHead(202, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'triggered' }));
-    } catch {
-      // PID file missing: daemon has not started yet (container still
-      // running initial sync) or has been torn down (shutdown trap).
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'not-running', error: 'sync daemon not started' }));
-    }
-    return;
-  }
-
-  // REQ-GITHUB-004: live clone into a running container's workspace. Mirrors the
-  // new-session entrypoint clone, but for an already-running session reached via
-  // POST /api/github/clone -> DO -> here. Already behind the REQ-SEC-022 auth
-  // gate above. The repo/ref validation + dir computation are the pure
-  // resolveGitClone() helper (git-clone.ts) so this handler owns only fs/spawn
-  // I/O. git runs as an argv (never a shell string) and auth flows through the
-  // container's existing credential helper ($GH_TOKEN / enterprise interceptor).
-  if (pathname === '/internal/git-clone' && method === 'POST') {
-    const MAX_BODY_SIZE = 8 * 1024;
-    let body = '';
-    let bodySize = 0;
-    let tooLarge = false;
-    req.on('data', (chunk: Buffer) => {
-      bodySize += chunk.length;
-      if (bodySize > MAX_BODY_SIZE) {
-        tooLarge = true;
-        res.writeHead(413, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Request body too large' }));
-        req.destroy();
-        return;
-      }
-      body += chunk;
-    });
-    req.on('end', () => {
-      if (tooLarge) return;
-      let parsed: { repo?: unknown; ref?: unknown };
-      try {
-        parsed = JSON.parse(body || '{}') as { repo?: unknown; ref?: unknown };
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON', code: 'INVALID_BODY' }));
-        return;
-      }
-      const resolution = resolveGitClone(parsed.repo, parsed.ref, resolveWorkspaceRoot(process.env));
-      if (!resolution.ok) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: resolution.error, code: 'INVALID_REQUEST' }));
-        return;
-      }
-      // Collision refuse: never overwrite an existing path.
-      if (fs.existsSync(resolution.dir)) {
-        res.writeHead(409, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Clone target already exists', code: 'CLONE_TARGET_EXISTS', path: resolution.dir }));
-        return;
-      }
-      const args = buildCloneArgs(resolution.repo, resolution.ref, resolution.dir, process.env.GITHUB_HOST || 'github.com');
-      const child = spawn('git', args);
-      let settled = false;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        child.kill('SIGKILL');
-        res.writeHead(504, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Clone timed out', code: 'CLONE_TIMEOUT' }));
-      }, 120_000);
-      child.on('error', () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Clone failed to start', code: 'CLONE_FAILED' }));
-      });
-      child.on('close', (code) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (code === 0) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ status: 'cloned', path: resolution.dir }));
-        } else {
-          res.writeHead(502, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Clone failed', code: 'CLONE_FAILED' }));
-        }
-      });
-    });
-    return;
-  }
-
-  // Awaited final sync (REQ-SESSION-011 AC2). Triggers a fresh bisync (SIGUSR1
-  // to the daemon, the same proven path as /internal/bisync-trigger) and BLOCKS
-  // until that bisync reaches a terminal status, so the Durable Object can drain
-  // the workspace to R2 while the container is still fully alive instead of
-  // relying on the post-SIGTERM kill grace (far too short for a bisync). The DO
-  // calls this before stopping the container and bounds it with its own budget.
-  //
-  // Completion detection (REQ-SESSION-011 AC3): record the trigger time, then
-  // wait for a `syncing` transition stamped at/after the trigger (our run
-  // started), then for that run's `success`/`failed` transition (newer ts). The
-  // two-phase wait ignores a bisync that was already in flight when we
-  // triggered - the daemon coalesces our SIGUSR1 into a rerun whose `syncing`
-  // ts lands after our trigger.
-  if (pathname === '/internal/final-sync' && method === 'POST') {
-    const triggerTs = Date.now();
-    const readStatus = (): { status?: string; ts?: number } => {
-      try { return JSON.parse(fs.readFileSync('/tmp/sync-status.json', 'utf8')); }
-      catch { return {}; }
-    };
-    try {
-      const pid = Number(fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim());
-      if (!Number.isFinite(pid) || pid <= 0) throw new Error('invalid daemon PID');
-      process.kill(pid, 'SIGUSR1');
-    } catch {
-      // No daemon: container is mid-init or already tearing down. Nothing to
-      // drain; let the caller proceed to stop.
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ synced: false, reason: 'daemon-not-running' }));
-      return;
-    }
-    // MUST stay strictly ABOVE the DO's drain budget (FINAL_SYNC_BUDGET_MS =
-    // 120_000 in src/container/container-metrics.ts). The DO calls this endpoint
-    // with AbortSignal.timeout(120s) and that abort is the authoritative
-    // ceiling. If this host loop gives up FIRST it returns 504 while rclone is
-    // still flushing, the DO records 'incomplete', and the session deletes with
-    // the last edits unsynced. The previous value (115_000, < 120s) inverted
-    // exactly that: every final bisync landing in the 115-120s band was lost -
-    // the root cause behind ~10 failed "raise the budget" fixes. Keep host > DO.
-    const INTERNAL_TIMEOUT_MS = 125_000;
-    const POLL_MS = 500;
-    // Two-phase completion detection lives in the pure evaluateFinalSync state
-    // machine (final-sync.ts) so the syncing->success/failed discrimination is
-    // unit-testable without spawning the daemon; this loop owns only the I/O.
-    let runStartedTs = -1;
-    while (Date.now() - triggerTs < INTERNAL_TIMEOUT_MS) {
-      const ev = evaluateFinalSync(readStatus(), triggerTs, runStartedTs);
-      runStartedTs = ev.runStartedTs;
-      if (ev.result === 'success') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ synced: true }));
-        return;
-      }
-      if (ev.result === 'failed') {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ synced: false, reason: 'bisync-failed' }));
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    }
-    res.writeHead(504, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ synced: false, reason: 'timeout' }));
-    return;
-  }
-
-  // Sync log endpoint
-  if (pathname === '/sync-log' && method === 'GET') {
-    try {
-      const MAX_LOG_SIZE = 100 * 1024; // 100KB
-      const stat = fs.statSync('/tmp/sync.log');
-      let logContent: string;
-      if (stat.size > MAX_LOG_SIZE) {
-        // Read only the last 100KB
-        const buffer = Buffer.alloc(MAX_LOG_SIZE);
-        const fd = fs.openSync('/tmp/sync.log', 'r');
-        fs.readSync(fd, buffer, 0, MAX_LOG_SIZE, stat.size - MAX_LOG_SIZE);
-        fs.closeSync(fd);
-        logContent = '... (truncated)\n' + buffer.toString('utf8');
-      } else {
-        logContent = fs.readFileSync('/tmp/sync.log', 'utf8');
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ log: logContent }));
-    } catch {
-      res.writeHead(404);
-      res.end('No sync log found');
-    }
-    return;
-  }
-
-  // Vault HTTP proxy → SilverBullet at SILVERBULLET_HOST:SILVERBULLET_PORT.
-  // Strip the `/vault` prefix; the worker already strips its own
-  // `/api/vault/:sid` prefix before forwarding. SilverBullet sees a
-  // clean `/<remaining>` path.
-  if (pathname && (pathname === '/vault' || pathname.startsWith('/vault/'))) {
-    let upstreamPath = stripVaultPrefix(pathname);
-    // SilverBullet 2.8.0 serves the service worker only at the root path
-    // (/service_worker.js, with Content-Type text/javascript). Requests
-    // routed under /.client/service_worker.js fall through to the
-    // catch-all SPA handler and come back as text/html, which the
-    // browser then rejects with "ServiceWorker: bad MIME type" and the
-    // user sees the registration error from screenshot 1. The base-href
-    // rewrite in src/routes/vault/index.ts already makes SB client.js compute
-    // the URL via document.baseURI so first-time clients hit
-    // /api/vault/:sid/service_worker.js (which maps to root after both
-    // prefix-strips and works), but browsers with a stale ServiceWorker
-    // scope from a pre-rewrite session, or any future SB build that
-    // changes the URL composition, can still arrive at /.client/...
-    // Map both shapes to the canonical root path so the JS bundle is
-    // always served with the correct MIME.
-    if (upstreamPath === '/.client/service_worker.js') {
-      upstreamPath = '/service_worker.js';
-    } else if (
-      upstreamPath !== '/service_worker.js'
-      && upstreamPath.endsWith('/service_worker.js')
-    ) {
-      // Future SilverBullet build emitted a service-worker URL the proxy
-      // does not recognise. Log so a version-bump regression surfaces in
-      // structured logs instead of as a user-reported white-screen.
-      log('warn', 'Vault service worker path unexpected shape', { upstreamPath });
-    }
-    const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
-    const headers: http.OutgoingHttpHeaders = {};
-    for (const [k, v] of Object.entries(req.headers)) {
-      const lk = k.toLowerCase();
-      // Hop-by-hop headers and any auth we injected for the container
-      // boundary must NOT be forwarded to the in-container app.
-      if (lk === 'connection' || lk === 'keep-alive' || lk === 'transfer-encoding'
-        || lk === 'upgrade' || lk === 'proxy-authenticate' || lk === 'proxy-authorization'
-        || lk === 'te' || lk === 'trailer' || lk === 'authorization' || lk === 'host') continue;
-      if (v !== undefined) headers[k] = v as string | string[];
-    }
-    const upstreamReq = http.request({
-      host: SILVERBULLET_HOST,
-      port: SILVERBULLET_PORT,
-      method,
-      path: upstreamPath + search,
-      headers,
-    }, (upstreamRes) => {
-      res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
-      upstreamRes.pipe(res);
-    });
-    upstreamReq.on('error', (err) => {
-      log('warn', 'Vault proxy upstream error', { error: err.message, path: upstreamPath });
-      if (!res.headersSent) {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Vault editor unreachable', code: 'VAULT_UPSTREAM_UNREACHABLE' }));
-      } else {
-        res.end();
-      }
-    });
-    req.pipe(upstreamReq);
-    return;
-  }
-
-  // Browser IDE HTTP proxy -> OpenVSCode Server at OPENVSCODE_HOST:OPENVSCODE_PORT.
-  // Forward the path UNCHANGED (no strip): OpenVSCode runs with
-  // --server-base-path=/api/vscode/<sid> and expects its own path. The first
-  // request lazily triggers the supervisor to launch the server; while it is
-  // still warming, connect errors map to 503 VSCODE_WARMING. The injected
-  // container-auth Authorization header (validated above) is stripped before
-  // forwarding to the in-container app.
-  if (isVscodePath(pathname)) {
-    // Advanced-mode only (REQ-IDE-003): a non-advanced session never arms the
-    // supervisor, so return a clear NON-refreshing page instead of triggering a
-    // lazy start that will never complete and looping on the warming page.
-    if (!vscodeModeAllowed(process.env.SESSION_MODE)) {
-      const disabled = vscodeDisabledResponse();
-      res.writeHead(disabled.status, { 'Content-Type': disabled.contentType });
-      res.end(disabled.body);
-      return;
-    }
-    requestOpenvscodeStart();
-    const upstreamPath = vscodeUpstreamPath(pathname);
-    const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
-    const headers: http.OutgoingHttpHeaders = {};
-    for (const [k, v] of Object.entries(req.headers)) {
-      const lk = k.toLowerCase();
-      if (lk === 'connection' || lk === 'keep-alive' || lk === 'transfer-encoding'
-        || lk === 'upgrade' || lk === 'proxy-authenticate' || lk === 'proxy-authorization'
-        || lk === 'te' || lk === 'trailer' || lk === 'authorization' || lk === 'host') continue;
-      if (v !== undefined) headers[k] = v as string | string[];
-    }
-    const upstreamReq = http.request({
-      host: OPENVSCODE_HOST,
-      port: OPENVSCODE_PORT,
-      method,
-      path: upstreamPath + search,
-      headers,
-    }, (upstreamRes) => {
-      res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
-      upstreamRes.pipe(res);
-    });
-    upstreamReq.on('error', (err) => {
-      log('warn', 'Vscode proxy upstream error', { error: err.message, path: upstreamPath });
-      if (!res.headersSent) {
-        const warming = vscodeWarmingResponse();
-        res.writeHead(warming.status, { 'Content-Type': warming.contentType });
-        res.end(warming.body);
-      } else {
-        res.end();
-      }
-    });
-    req.pipe(upstreamReq);
-    return;
-  }
-
-  // 404 for unknown paths
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'Not found' }));
-});
-
-// Create WebSocket server.
-//
-// We deliberately use `noServer: true` (not the `{server, path}` form): when
-// the `ws` library is given a `server` it attaches its own internal
-// 'upgrade' listener that unconditionally calls handleUpgrade for every
-// upgrade and `abortHandshake(socket, 400)` on path mismatch — which
-// would destroy `/vault/*` upgrades before the vault WSS could claim
-// them. Routing both /terminal and /vault from a single
-// `server.on('upgrade')` below gives each WSS exclusive control over
-// its own paths.
-const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
-
-wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
-  const { query } = parseUrl(req.url ?? '', true);
-  const sessionId = query.session as string | undefined;
-  const isManualTab = query.manual === '1';
-  const connectedAt = Date.now();
-
-  // Reject early: port 8080 binds before R2 sync + .bashrc autostart writes.
-  // If we accept now we'd spawn a fresh PTY with no autostart in .bashrc, and
-  // the user would land in bare bash instead of their configured agent.
-  // Close with 1013 (Try Again Later) so the client's reconnect logic retries
-  // after a brief delay. Once the entrypoint touches the init-complete flag
-  // and the pre-warm session is in the map, this gate opens.
-  if (!terminalServiceReady) {
-    log('info', 'WS upgrade rejected: terminal service warming up', { initFlagObserved, sessionId: sessionId?.substring(0, 8) });
-    ws.close(1013, 'container-warming-up');
-    return;
-  }
-
-  if (!sessionId) {
-    ws.close(1008, 'Session ID required');
-    return;
-  }
-
-  const shortId = sessionId.substring(0, 8);
-
-  // WebSocket keepalive: send protocol-level ping every 30s to prevent
-  // NAT/load-balancer idle timeouts from silently dropping connections
-  let lastPongAt = Date.now();
-  const pingInterval = setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.ping();
-    }
-  }, WS_KEEPALIVE_PING_MS);
-
-  ws.on('pong', () => {
-    lastPongAt = Date.now();
-  });
-
-  // Sanitize session name
-  const name = ((query.name as string) ?? '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || 'Terminal';
-
-  // Get or create session (pass manual flag for user-created tabs)
-  const session = sessionManager.getOrCreate(sessionId, name, isManualTab);
-  if (!session) {
-    ws.close(1013, 'Session limit reached');
-    return;
-  }
-
-  // Attach client to session
-  session.attach(ws);
-
-  log('info', 'WS connected', { session: shortId, ptyAlive: session.isPtyAlive(), ptyPid: session.ptyProcess?.pid ?? null, totalClients: session.clients.size });
-  logWsEvent(sessionId, 'connect', { clients: session.clients.size, ptyAlive: session.isPtyAlive(), ptyPid: session.ptyProcess?.pid ?? null });
-
-  // Handle incoming messages
-  // RAW data goes directly to PTY, JSON only for control messages (resize)
-  ws.on('message', (message: Buffer | string) => {
-    const str = message.toString();
-
-    // Try to parse as JSON for known control messages only
-    // Length-gated: control messages are small; skip parsing for large terminal input
-    if (str.length < MAX_CONTROL_MSG_LENGTH && str.startsWith('{')) {
-      try {
-        const msg = JSON.parse(str) as Record<string, unknown>;
-
-        // Validate type field AND correct field types before acting
-        if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
-          if (msg.cols > 0 && msg.cols < 10000 && msg.rows > 0 && msg.rows < 10000) {
-            session.resize(msg.cols as number, msg.rows as number, ws);
-          }
-          return;
-        }
-
-        if (msg.type === 'focus') {
-          session.claimResizeAuthority(ws);
-          return;
-        }
-
-        if (msg.type === 'data' && typeof msg.data === 'string') {
-          session.write(msg.data as string);
-          return;
-        }
-
-        if (msg.type === 'kill') {
-          log('info', 'Kill requested by client', { session: shortId });
-          session.kill();
-          sessionManager.sessions.delete(sessionId);
-          ws.close(1000, 'Session killed');
-          return;
-        }
-
-        if (msg.type === 'heartbeat') {
-          // Heartbeat messages from legacy frontends — acknowledged but ignored.
-          // Idle detection is now based on input change detection, not heartbeats.
-          return;
-        }
-
-        // Guard: any JSON with a type string field that we don't handle
-        // should NOT fall through to raw PTY write
-        if (typeof msg.type === 'string') {
-          return;
-        }
-      } catch {
-        // Not valid JSON — treat as raw terminal input
-      }
-    }
-
-    // Raw terminal input - write directly to PTY
-    session.write(str);
-  });
-
-  // Handle client disconnect
-  ws.on('close', (code: number, reason: Buffer) => {
-    clearInterval(pingInterval);
-    const duration = Math.floor((Date.now() - connectedAt) / 1000);
-    const reasonStr = reason ? reason.toString() : '';
-    const pongAge = Math.floor((Date.now() - lastPongAt) / 1000);
-    const remainingClients = Math.max(0, session.clients.size - 1);
-    log('info', 'WS closed', { session: shortId, code, reason: reasonStr, durationSec: duration, lastPongAgeSec: pongAge, ptyAlive: session.isPtyAlive(), remainingClients });
-    logWsEvent(sessionId, 'close', { code, reason: reasonStr, durationSec: duration, lastPongAgeSec: pongAge, ptyAlive: session.isPtyAlive(), remainingClients });
-    session.detach(ws, sessionManager);
-  });
-
-  // Handle errors
-  ws.on('error', (err: Error & { code?: string }) => {
-    const duration = Math.floor((Date.now() - connectedAt) / 1000);
-    log('error', 'WS error', { session: shortId, message: err.message, errCode: err.code ?? null, durationSec: duration, ptyAlive: session.isPtyAlive() });
-    logWsEvent(sessionId, 'error', { message: err.message, errCode: err.code ?? null, durationSec: duration, ptyAlive: session.isPtyAlive() });
-    session.detach(ws, sessionManager);
-  });
-
-  // Connection ready - no JSON message, just start sending PTY data
-});
-
-// Vault WebSocket proxy → SilverBullet at SILVERBULLET_HOST:SILVERBULLET_PORT.
-//
-// SilverBullet uses WS for live-edit sync; the path is whatever the
-// SilverBullet client picks (e.g. `/.client/ws`). We route /vault/* via
-// `noServer: true` and proxy to upstream below.
-const vaultWss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
-const vscodeWss = createVscodeWebSocketServer();
-
-// Single upgrade dispatcher for the whole server. Both `wss` (terminal)
-// and `vaultWss` (vault) use noServer:true; this listener inspects the
-// upgrade URL and routes to the correct WSS. Unknown paths get the
-// socket destroyed cleanly (HTTP 400) so misrouted clients fail fast.
-server.on('upgrade', (req, socket, head) => {
-  const { pathname } = parseUrl(req.url ?? '');
-
-  if (pathname === '/terminal') {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit('connection', ws, req);
-    });
-    return;
-  }
-
-  if (pathname && (pathname === '/vault' || pathname.startsWith('/vault/'))) {
-    handleVaultUpgrade(req, socket, head);
-    return;
-  }
-
-  if (isVscodePath(pathname)) {
-    // Advanced-mode only (REQ-IDE-003): mirror the HTTP branch's guard so a
-    // non-advanced session never arms the lazy-start trigger for a supervisor
-    // that will never launch. Refuse the upgrade cleanly (the client sees a
-    // failed handshake); the Worker auth chain remains the real boundary.
-    if (!vscodeModeAllowed(process.env.SESSION_MODE)) {
-      socket.write('HTTP/1.1 409 Conflict\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    requestOpenvscodeStart();
-    handleVscodeUpgrade(req, socket, head);
-    return;
-  }
-
-  // Unknown WS path. Refuse cleanly so the client sees a proper
-  // handshake failure rather than hanging.
-  socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-  socket.destroy();
-});
-
-function handleVaultUpgrade(req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
-  const { pathname } = parseUrl(req.url ?? '');
-  // Strip the `/vault` prefix; the worker already stripped its own
-  // `/api/vault/:sid` prefix. SilverBullet sees its native WS path.
-  const upstreamPath = stripVaultPrefix(pathname);
-  const search = (req.url ?? '').includes('?')
-    ? '?' + (req.url ?? '').split('?').slice(1).join('?')
-    : '';
-
-  vaultWss.handleUpgrade(req, socket, head, (clientWs) => {
-    const upstreamUrl = `ws://${SILVERBULLET_HOST}:${SILVERBULLET_PORT}${upstreamPath}${search}`;
-    let upstream: WebSocket;
-    try {
-      upstream = new WebSocket(upstreamUrl, {
-        headers: {
-          // Forward any client headers SilverBullet wants to inspect
-          // (cookie, X-Forwarded-For). Drop hop-by-hop headers — the
-          // `ws` client sets those itself.
-          ...Object.fromEntries(
-            Object.entries(req.headers).filter(([k]) => {
-              const lk = k.toLowerCase();
-              return lk !== 'connection' && lk !== 'upgrade'
-                && lk !== 'sec-websocket-key' && lk !== 'sec-websocket-version'
-                && lk !== 'sec-websocket-extensions' && lk !== 'sec-websocket-protocol'
-                && lk !== 'authorization' && lk !== 'host';
-            }),
-          ) as Record<string, string>,
-        },
-      });
-    } catch (err) {
-      log('warn', 'Vault WS upstream construct failed', { error: (err as Error).message });
-      clientWs.close(1011, 'upstream-construct-failed');
-      return;
-    }
-
-    const closeBoth = (code: number, reason: string): void => {
-      try { clientWs.close(code, reason); } catch { /* ignore */ }
-      try { upstream.close(code, reason); } catch { /* ignore */ }
-    };
-
-    upstream.on('open', () => {
-      // Bridge in both directions. `ws` emits Buffer for binary frames
-      // and string for text frames; send() handles both transparently.
-      clientWs.on('message', (data, isBinary) => {
-        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
-      });
-      upstream.on('message', (data, isBinary) => {
-        if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
-      });
-    });
-
-    clientWs.on('close', (code, reason) => {
-      if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) {
-        try { upstream.close(code, reason.toString()); } catch { /* ignore */ }
-      }
-    });
-    upstream.on('close', (code, reason) => {
-      if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
-        try { clientWs.close(code, reason.toString()); } catch { /* ignore */ }
-      }
-    });
-
-    clientWs.on('error', (err) => {
-      log('warn', 'Vault WS client error', { message: err.message });
-      closeBoth(1011, 'client-error');
-    });
-    upstream.on('error', (err) => {
-      log('warn', 'Vault WS upstream error', { message: err.message });
-      closeBoth(1011, 'upstream-error');
-    });
-  });
-}
-
-// Browser IDE WebSocket bridge -> OpenVSCode Server (the VS Code server
-// protocol). Mirrors handleVaultUpgrade but forwards the path UNCHANGED
-// (no strip): OpenVSCode is base-path native at /api/vscode/<sid>.
-function handleVscodeUpgrade(req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
-  const { pathname } = parseUrl(req.url ?? '');
-  const upstreamPath = vscodeUpstreamPath(pathname);
-  const search = (req.url ?? '').includes('?')
-    ? '?' + (req.url ?? '').split('?').slice(1).join('?')
-    : '';
-
-  vscodeWss.handleUpgrade(req, socket, head, (clientWs) => {
-    const upstreamUrl = `ws://${OPENVSCODE_HOST}:${OPENVSCODE_PORT}${upstreamPath}${search}`;
-    let upstream: WebSocket;
-    try {
-      upstream = new WebSocket(upstreamUrl, {
-        headers: {
-          // Forward client headers minus hop-by-hop / handshake / injected
-          // container-auth headers (the `ws` client sets those itself).
-          ...Object.fromEntries(
-            Object.entries(req.headers).filter(([k]) => {
-              const lk = k.toLowerCase();
-              return lk !== 'connection' && lk !== 'upgrade'
-                && lk !== 'sec-websocket-key' && lk !== 'sec-websocket-version'
-                && lk !== 'sec-websocket-extensions' && lk !== 'sec-websocket-protocol'
-                && lk !== 'authorization' && lk !== 'host';
-            }),
-          ) as Record<string, string>,
-        },
-      });
-    } catch (err) {
-      log('warn', 'Vscode WS upstream construct failed', { error: (err as Error).message });
-      clientWs.close(1011, 'upstream-construct-failed');
-      return;
-    }
-
-    const closeBoth = (code: number, reason: string): void => {
-      try { clientWs.close(code, reason); } catch { /* ignore */ }
-      try { upstream.close(code, reason); } catch { /* ignore */ }
-    };
-
-    bridgeVscodeClientMessages(clientWs, upstream, () => state.activityTracker.recordInput());
-    upstream.on('open', () => {
-      upstream.on('message', (data, isBinary) => {
-        if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
-      });
-    });
-
-    clientWs.on('close', (code, reason) => {
-      if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) {
-        try { upstream.close(code, reason.toString()); } catch { /* ignore */ }
-      }
-    });
-    upstream.on('close', (code, reason) => {
-      if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
-        try { clientWs.close(code, reason.toString()); } catch { /* ignore */ }
-      }
-    });
-
-    clientWs.on('error', (err) => {
-      log('warn', 'Vscode WS client error', { message: err.message });
-      closeBoth(1011, 'client-error');
-    });
-    upstream.on('error', (err) => {
-      log('warn', 'Vscode WS upstream error', { message: err.message });
-      closeBoth(1011, 'upstream-error');
-    });
-  });
-}
-
-// Pre-warm state (module-level so /health endpoint can read prewarmReady)
+// Pre-warm state (module-level so the /health endpoint can read prewarmReady)
 let prewarmReady = false;
 let prewarmStartTime = 0;
 // True after waitForInitFlag observes the flag file. Stays false if the
@@ -999,6 +217,50 @@ let initFlagObserved = false;
 // state (no .claude.json yet, no .bashrc autostart yet — which would land
 // the user in bare bash instead of their configured agent).
 let terminalServiceReady = false;
+
+// Create HTTP server; all plain-HTTP branches live in request-router.ts.
+const server = http.createServer(createRequestHandler({
+  sessionManager,
+  wsEventLog: state.wsEventLog,
+  activityTracker: state.activityTracker,
+  log,
+  serverStartTime: SERVER_START_TIME,
+  readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady }),
+  silverbullet: SILVERBULLET,
+  openvscode: OPENVSCODE,
+}));
+
+// Create WebSocket server.
+//
+// We deliberately use `noServer: true` (not the `{server, path}` form): when
+// the `ws` library is given a `server` it attaches its own internal
+// 'upgrade' listener that unconditionally calls handleUpgrade for every
+// upgrade and `abortHandshake(socket, 400)` on path mismatch — which
+// would destroy `/vault/*` upgrades before the vault WSS could claim
+// them. Routing both /terminal and /vault from a single
+// `server.on('upgrade')` (the upgrade dispatcher) gives each WSS exclusive
+// control over its own paths.
+const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
+
+attachTerminalConnectionHandler(wss, {
+  sessionManager,
+  log,
+  logWsEvent,
+  readiness: () => ({ initFlagObserved, terminalServiceReady }),
+  keepalivePingMs: WS_KEEPALIVE_PING_MS,
+  maxControlMsgLength: MAX_CONTROL_MSG_LENGTH,
+});
+
+const upgradeDispatcher = createUpgradeDispatcher({
+  terminalWss: wss,
+  activityTracker: state.activityTracker,
+  log,
+  silverbullet: SILVERBULLET,
+  openvscode: OPENVSCODE,
+  wsMaxPayload: WS_MAX_PAYLOAD,
+});
+
+server.on('upgrade', (req, socket, head) => upgradeDispatcher.handleUpgrade(req, socket, head));
 
 const parsedTabConfig: TabConfigEntry[] = (() => {
   try { return JSON.parse(process.env.TAB_CONFIG ?? '[]') as TabConfigEntry[]; } catch { return []; }
@@ -1125,7 +387,7 @@ function shutdown(signal: string): void {
   sessionManager.killAll();
   sessionManager.stopCleanup();
   wss.close();
-  vaultWss.close();
+  upgradeDispatcher.close();
   server.close();
   process.exit(0);
 }
