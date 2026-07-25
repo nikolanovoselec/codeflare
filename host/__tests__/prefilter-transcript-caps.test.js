@@ -49,11 +49,27 @@ describe('prefilter-transcript.sh payload ceilings', () => {
     assert.equal(Math.max(...rows.map((r) => r.text.length)), 4000);
   });
 
+  it('rescues citations that the truncation cut off', () => {
+    // The cap is allowed to cost prose. It is not allowed to cost a REQ id,
+    // an ADR, a PR number or a SHA -- those are what AD58 requires be verbatim
+    // and what a later graph query searches on.
+    const tail = 'closed REQ-AGENT-040 AC5 per AD58 in 4899fb6 and PR #709';
+    const { rows } = runPrefilter(['pre '.repeat(1600) + tail]);
+    for (const citation of ['REQ-AGENT-040', 'AD58', '4899fb6', '#709']) {
+      assert.match(rows[0].text, new RegExp(citation.replace('#', '#')),
+        `${citation} sat past the cap and must survive it`);
+    }
+    assert.ok(rows[0].text.length > 4000, 'the rescue line is appended after the cap');
+  });
+
   it('leaves a normal window untouched', () => {
     // A 15-prompt window is ~30-40 turns, so the ceiling must not bite there;
     // a cap that fires in the common case would silently lose ordinary history.
     const { rows } = runPrefilter(Array.from({ length: 30 }, () => 'body'));
     assert.equal(rows.length, 30);
     assert.match(rows[0].text, /^turn-0 /);
+    // An uncut turn must be byte-identical to an uncapped run: no marker, no
+    // rescue line, nothing appended.
+    assert.equal(rows[0].text, 'turn-0 body');
   });
 });

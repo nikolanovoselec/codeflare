@@ -84,6 +84,21 @@ sed -n "${START},${END}p" "$TRANSCRIPT" > "$OUT/slice.jsonl"
 # 2. Prefilter to NDJSON of {role, text, ts}. Single-quoted to keep
 #    jq variables ($c, $t) out of shell expansion.
 jq -c '
+# Truncation drops whatever sat past the cap, and what sits there is often the
+# turn conclusion: the REQ the change closed, the ADR it cited, the SHA it
+# landed as. Those are the tokens AD58 requires be verbatim and are exactly
+# what a later graph query searches for. Rescue them into a short trailing
+# line so the cap costs prose, never a citation. Only fires when a turn is
+# actually cut, so an ordinary turn is byte-identical to an uncapped run.
+def cites: [scan("REQ-[A-Z]+-[0-9]+|AD[0-9]+|#[0-9]{2,}|\\b[0-9a-f]{7,40}\\b")];
+def capped($text):
+  ($text[0:$maxchars]) as $kept
+  | if ($text | length) <= $maxchars then $kept
+    else (($text | cites | unique) - ($kept | cites)) as $lost
+      | if ($lost | length) > 0
+        then $kept + "\n[refs dropped in truncation: " + ($lost | join(", ")) + "]"
+        else $kept end
+    end;
 def is_synthetic_marker(s):
   (s | startswith("<"))
   or (s | startswith("Stop hook"))
@@ -95,13 +110,13 @@ select(.type == "user" or .type == "assistant") |
 if .type == "user" and (.message.content | type) == "string" then
   .message.content as $c |
   if ($c | length) > 0 and (is_synthetic_marker($c) | not) then
-    {role:"user", text:($c[0:$maxchars]), ts:(.timestamp // null)}
+    {role:"user", text:capped($c), ts:(.timestamp // null)}
   else empty end
 elif .type == "assistant" and (.message.content | type) == "array" then
   ([.message.content[] | select(.type == "text") | .text]
    | map(select(length > 0)) | join("\n\n")) as $t |
   if ($t | length) > 0 then
-    {role:"assistant", text:($t[0:$maxchars]), ts:(.timestamp // null)}
+    {role:"assistant", text:capped($t), ts:(.timestamp // null)}
   else empty end
 else empty end
 ' --argjson maxchars "$MAX_TURN_CHARS" < "$OUT/slice.jsonl" \
