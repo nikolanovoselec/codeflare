@@ -2241,7 +2241,8 @@ as `R2_SSE_DISABLED` (mirrors the `_strictEgress` state field): emitted only whe
 - **Bake the seed into the image.**
 
 A new `scripts/materialize-agent-seed.mjs` writes `getConfigsForMode('default'/'advanced', false)` to an on-disk tree; the Dockerfile generates it **in-image** from the committed, freshness-enforced `src/lib/agent-seed.generated.ts` (the single source of truth — `getConfigsForMode` is a pure filter, so the bake is byte-identical to what is seeded to R2). The byte-identity is the load-bearing precondition for the checksum-skip and is guarded by a behavioral drift test. The tier-gated context-mode subtree is intentionally excluded (it delta-syncs from R2).
-- **Lay it down before the sync.** A new `lay_down_agent_seed_preseed` copies the mode's baked tree into the user home before `initial_sync_from_r2`, and the initial sync switches `--size-only` → `--checksum`. The unchanged ~627 seed files are skipped and only user deltas transfer.
+- **Lay it down before the sync.** A new `lay_down_agent_seed_preseed` copies the mode's baked tree into the user home before `initial_sync_from_r2`, and the initial sync switches `--size-only` → `--checksum`.
+- The unchanged ~627 seed files are skipped and only user deltas transfer.
 - **Gated on Governed Mode.**
 
 Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`, because only an SSE-C-off bucket exposes usable MD5 ETags. Under SSE-C (the default), `--size-only` cannot detect a same-size edit to a seed file, so laying down the bake there could silently lose an in-container seed edit; the path stays byte-identical to before (no lay-down, `--size-only`).
@@ -2789,7 +2790,8 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 - A `summary` job keeps the required `test` status context; skipped lanes pass, failed or cancelled lanes fail.
 - The teardown-crash guard becomes one composite action (since renamed `.github/actions/vitest-suite`, which every suite now runs through) gated by the vitest JSON report (since renamed `scripts/ci/check-vitest-report.mjs`); reporter-prose grepping is gone.
 - Non-zero exits are accepted only with a parsed report showing >0 tests, 0 failures, and the exact crash fingerprint — missing or corrupt reports fail closed.
-- Deploy stages into `prepare` → (`build-worker` ∥ `container`) → `deploy`, drops the in-deploy test re-run, uploads secrets via one `wrangler secret bulk` call, and prunes the registry via `scripts/ci/prune-registry.mjs`. (The `/health` smoke check and the public `/health` route were both removed later; the deploy currently performs no post-deploy verification.)
+- Deploy stages into `prepare` → (`build-worker` ∥ `container`) → `deploy`, drops the in-deploy test re-run, uploads secrets via one `wrangler secret bulk` call, and prunes the registry via `scripts/ci/prune-registry.mjs`.
+- The `/health` smoke check and the public `/health` route were both removed later; the deploy currently performs no post-deploy verification.
 - Container build/scan/push moves to the reusable `container-image.yml`, parameterized by registry (`registry: dockerhub` dispatch input replaces `deploy-dockerhub.yml`).
 - Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned image.
 - A COPY-coverage guard disables reuse when the hash list goes stale; the weekly salt bounds agent-`@latest` and CVE-verdict staleness at seven days.
