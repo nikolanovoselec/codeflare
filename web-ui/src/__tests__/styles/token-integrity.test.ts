@@ -9,7 +9,10 @@ import { resolve, join } from 'path';
 // survived for months (--color-danger painted no colour on error states).
 // A reference that carries a fallback is fine — the fallback renders — and some
 // tokens are legitimately injected per-element at runtime, which is exactly why
-// only the no-fallback references are asserted here.
+// only the no-fallback references are asserted here. Tokens assigned solely via
+// element.style.setProperty() are not seen as definitions; today every such
+// token is also defined statically, and a future runtime-only one would fail
+// loudly by name rather than slip through.
 const SRC = resolve(__dirname, '../..');
 const SKIP = /(^|\/)(__tests__|node_modules)(\/|$)/;
 

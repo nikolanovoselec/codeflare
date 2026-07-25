@@ -64,7 +64,7 @@
   box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
   transition: all 150ms ease-out; margin-bottom: var(--space-4);
 }
-.subscribe-action-button:hover:not(:disabled) { background: #2563eb; box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4); transform: translateY(-1px); }
+.subscribe-action-button:hover:not(:disabled) { background: var(--color-info-hover); box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4); transform: translateY(-1px); }
 .subscribe-action-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .subscribe-logout-button {
@@ -242,7 +242,7 @@
 }
 .subscribe-tier-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.2); }
 .subscribe-tier-btn--primary { background: var(--color-accent); color: var(--color-accent-contrast); border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
-.subscribe-tier-btn--primary:hover:not(:disabled) { background: #2563eb; border-color: rgba(59, 130, 246, 0.7); box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35); }
+.subscribe-tier-btn--primary:hover:not(:disabled) { background: var(--color-info-hover); border-color: rgba(59, 130, 246, 0.7); box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35); }
 .subscribe-tier-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .subscribe-turnstile { margin-top: var(--space-4); display: flex; justify-content: center; }

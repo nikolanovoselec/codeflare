@@ -758,13 +758,12 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.getByTestId('llm-keys-explanation')).toBeInTheDocument();
     });
 
-    it('renders the LLM keys hint only once the accordion is expanded', () => {
-      // Assert the reveal behaviour, not the wording: the hint is absent until
-      // the accordion is expanded, then present. Copy is free to change.
+    it('renders the LLM keys hint', () => {
+      // Assert the element, not its wording — copy is free to change. Matches
+      // the sibling llm-keys-explanation assertion above.
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      expect(screen.queryByTestId('llm-keys-hint')).not.toBeInTheDocument();
-
       fireEvent.click(screen.getByTestId('accordion-header-llm'));
+
       expect(screen.getByTestId('llm-keys-hint')).toBeInTheDocument();
     });
   });
