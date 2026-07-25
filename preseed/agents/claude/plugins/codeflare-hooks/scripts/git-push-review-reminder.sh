@@ -351,28 +351,8 @@ if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
   elif [ "$TRIGGER" = "pr-open" ] && [ -n "${PR_INFO_OPEN:-}" ]; then
     GH_PR_HEAD=$(echo "$PR_INFO_OPEN" | jq -r '.headRefOid // empty' 2>/dev/null)
   fi
-  LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
-
-  # GitHub's PR metadata lags its own ref update: a `gh pr view` issued
-  # milliseconds after a successful push can still report the PREVIOUS head.
-  # That stale SHA became the right-hand side of the incremental range, so
-  # the directive named a range ending one commit BEFORE the push that
-  # triggered it, and the new commit went unreviewed for that round.
-  #
-  # Prefer local HEAD only when it provably CONTAINS what gh reported --
-  # --is-ancestor is true for equal SHAs too. Under that condition the range
-  # can only widen, never narrow, and a wider file set can only produce the
-  # same or more lanes. Every other relationship (SHA unknown locally, gh
-  # ahead of us, divergent, empty local HEAD) keeps gh's value: a push of a
-  # non-current refspec, a rejected push, or a concurrent push from
-  # elsewhere must not be reviewed against a narrower range than the PR
-  # actually has.
-  CURRENT_PR_HEAD="$GH_PR_HEAD"
-  if [ -n "$LOCAL_HEAD" ] \
-     && { [ -z "$GH_PR_HEAD" ] \
-          || git merge-base --is-ancestor "$GH_PR_HEAD" "$LOCAL_HEAD" 2>/dev/null; }; then
-    CURRENT_PR_HEAD="$LOCAL_HEAD"
-  fi
+  # Shared with the Stop gate so both classify over the same range.
+  CURRENT_PR_HEAD=$(resolve_review_head "$GH_PR_HEAD")
 
   if [ -n "$CURRENT_PR_HEAD" ]; then
     REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")

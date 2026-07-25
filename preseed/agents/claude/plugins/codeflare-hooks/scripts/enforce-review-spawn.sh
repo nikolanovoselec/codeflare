@@ -763,9 +763,13 @@ emit_block() {
 # Initial state (no LAST_ACK) or unresolvable git diff -> same conservative
 # all-three posture inside compute_required_lanes itself.
 # ---------------------------------------------------------------------------
+# The RANGE ends at the resolved head, the ACK still records the gh head.
+# Separating the two is what lets this agree with the nudge's classification
+# without ever acking a commit the PR does not carry.
+REVIEW_RANGE_HEAD=$(resolve_review_head "$CURRENT_PR_HEAD")
 REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
 if . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null; then
-  REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")
+  REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD")
 fi
 
 # No lanes required -> already-clean PR HEAD for this diff shape. Ack
