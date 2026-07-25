@@ -90,6 +90,14 @@
   --color-brand-copilot: #6e5494;
   --color-brand-opencode: #e5e5e5;
 
+  /* Admin actions — each full-width settings action carries its own identity
+     colour so the destinations stay distinguishable at a glance. */
+  --color-action-setup: #2563eb;
+  --color-action-users: #7c3aed;
+  --color-action-subscriptions: #059669;
+  --color-action-docs: #0891b2;
+  --color-action-agents: #e11d48;
+
   /* Info */
   --color-info: #3b82f6;           /* Blue 500 */
 

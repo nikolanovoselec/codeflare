@@ -39,6 +39,46 @@ function settingsConfigs() {
   return { advanced, standard };
 }
 
+// A command path the merge classifies as managed (its regex anchors on the
+// literal `plugins/` segment), so pruning applies to it.
+const MANAGED = '/home/user/.claude/plugins/codeflare-hooks/scripts';
+
+// The settings-merge block, lifted verbatim out of entrypoint.sh. Every `fi`
+// inside it is indented, so the first column-0 `fi` closes it.
+function settingsMergeBlock() {
+  const start = entrypoint.indexOf('if [ -f "$SETTINGS_FILE" ]; then');
+  assert.notEqual(start, -1, 'entrypoint.sh no longer has a settings-merge block');
+  const end = entrypoint.indexOf('\nfi\n', start);
+  assert.notEqual(end, -1, 'the settings-merge block is unterminated');
+  return entrypoint.slice(start, end + '\nfi\n'.length);
+}
+
+// Runs that block for real against a throwaway settings.json. `existing` seeds
+// the file (omit it to exercise the no-file branch) and may be an object or a
+// raw string; `config` is the managed SETTINGS_CONFIG. Executing the shell is
+// the point: a merge that silently stops merging cannot pass these.
+function runSettingsMerge({ existing, config }) {
+  const file = join(mkdtempSync(join(tmpdir(), 'settings-merge-')), 'settings.json');
+  if (existing !== undefined) {
+    writeFileSync(file, typeof existing === 'string' ? existing : JSON.stringify(existing));
+  }
+
+  const result = spawnSync('sh', ['-c', settingsMergeBlock()], {
+    env: { ...process.env, SETTINGS_FILE: file, SETTINGS_CONFIG: JSON.stringify(config) },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, `settings-merge block exited ${result.status}: ${result.stderr}`);
+
+  const raw = readFileSync(file, 'utf8');
+  let settings = null;
+  try {
+    settings = JSON.parse(raw);
+  } catch {
+    settings = null;
+  }
+  return { settings, raw, stdout: result.stdout };
+}
+
 // Every hook entry registered for one event type, flattened across matchers.
 function hookEntries(config, event) {
   return (config.hooks?.[event] ?? []).flatMap((entry) =>
@@ -105,20 +145,13 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
   // literal rather than string-matched, so the test still fails if the key is
   // present but false, or if only one of the two modes carries it.
   it('both SETTINGS_CONFIG literals disable agent view', () => {
-    const literals = [...entrypoint.matchAll(/^\s*SETTINGS_CONFIG='(\{.*\})'$/gm)].map((m) => m[1]);
-    assert.equal(
-      literals.length,
-      2,
-      'expected exactly two SETTINGS_CONFIG literals (advanced + default)'
-    );
-    for (const raw of literals) {
-      // The literal interpolates the plugin dir as '"$PLUGIN_DIR"' inside single
-      // quotes; substitute a placeholder path so the result parses as JSON.
-      const parsed = JSON.parse(raw.replaceAll(`'"$PLUGIN_DIR"'`, '/plugins'));
+    const { advanced, standard } = settingsConfigs();
+
+    for (const [mode, config] of [['advanced', advanced], ['default', standard]]) {
       assert.equal(
-        parsed.disableAgentView,
+        config.disableAgentView,
         true,
-        'each session mode must set disableAgentView:true (agent view is unusable on mobile)'
+        `${mode} mode must set disableAgentView:true (agent view is unusable on mobile)`
       );
     }
   });
@@ -152,38 +185,84 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     );
   });
 
-  it('uses jq recursive merge to preserve existing settings', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    // The exact merge expression, not just any `*`: non-hook keys merge
-    // recursively while hooks are rebuilt separately, which is what preserves
-    // user-added settings such as disableAgentView across restarts.
-    assert.ok(
-      entrypoint.includes('(del(.hooks) * ($cfg | del(.hooks)))'),
-      'settings merge should recursively merge non-hook keys and rebuild hooks separately'
+  it('merges managed settings into an existing file without discarding user keys', () => {
+    const { settings } = runSettingsMerge({
+      existing: {
+        theme: 'dark',
+        disableAgentView: false,
+        hooks: {
+          PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '/home/user/my-own-hook.sh' }] }],
+        },
+      },
+      config: {
+        skipDangerousModePermissionPrompt: true,
+        disableAgentView: true,
+        hooks: {
+          PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `${MANAGED}/block.sh` }] }],
+        },
+      },
+    });
+
+    assert.equal(settings.theme, 'dark', 'a setting the managed config never mentions must survive the merge');
+    assert.equal(settings.skipDangerousModePermissionPrompt, true, 'managed keys must be applied');
+    // Managed keys are the right operand of jq's `*`, so they win a conflict.
+    // This is deliberate: the mobile default cannot be sticky-overridden by a
+    // stale settings.json synced in from an older session.
+    assert.equal(settings.disableAgentView, true, 'the managed value must win over the existing one');
+
+    const commands = settings.hooks.PreToolUse.flatMap((entry) => entry.hooks.map((hook) => hook.command));
+    assert.ok(commands.includes('/home/user/my-own-hook.sh'), 'a user-added hook must survive the rebuild');
+    assert.ok(commands.includes(`${MANAGED}/block.sh`), 'the managed hook must be registered');
+  });
+
+  it('prunes managed hooks the current config no longer registers', () => {
+    const { settings } = runSettingsMerge({
+      existing: {
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [
+                { type: 'command', command: `${MANAGED}/removed-upstream.sh` },
+                { type: 'command', command: '/home/user/my-own-hook.sh' },
+              ],
+            },
+          ],
+        },
+      },
+      config: { skipDangerousModePermissionPrompt: true },
+    });
+
+    const commands = (settings.hooks?.PreToolUse ?? []).flatMap((entry) =>
+      entry.hooks.map((hook) => hook.command)
     );
+    // Without pruning, a hook deleted from the image keeps firing forever in any
+    // container whose settings.json was synced from before the deletion.
+    assert.ok(
+      !commands.some((command) => command.includes('removed-upstream.sh')),
+      'a managed hook absent from the current config must not survive'
+    );
+    assert.ok(commands.includes('/home/user/my-own-hook.sh'), 'pruning must not take user hooks with it');
   });
 
   it('creates settings.json when it does not exist', () => {
-    // Pin the creation branch itself: without SETTINGS_CONFIG being written to
-    // SETTINGS_FILE, a fresh container starts with no managed settings at all.
-    assert.ok(
-      /else\s*\n\s*echo "\$SETTINGS_CONFIG" \| jq '\.' > "\$SETTINGS_FILE"/.test(entrypoint),
-      'the no-file branch must write SETTINGS_CONFIG to SETTINGS_FILE'
-    );
+    // Without the no-file branch a fresh container starts with no managed
+    // settings at all — no hooks, no mobile agent-view default.
+    const config = { skipDangerousModePermissionPrompt: true, disableAgentView: true };
+    const { settings } = runSettingsMerge({ config });
+
+    assert.deepEqual(settings, config, 'the no-file branch must write the managed config verbatim');
   });
 
   it('handles malformed settings.json gracefully (skip with warning)', () => {
-    // The specific failure path: jq fails, the temp file is discarded and the
-    // existing settings.json is left untouched with a warning.
-    assert.ok(
-      entrypoint.includes('WARNING: Could not merge settings config'),
-      'should warn by name when the settings merge fails'
-    );
-    assert.ok(
-      /Could not merge settings config[\s\S]{0,200}rm -f "\$TMP_SETTINGS"/.test(entrypoint),
-      'a failed merge must discard the temp file rather than overwrite settings.json'
-    );
+    const malformed = '{ not json';
+    const { raw, stdout } = runSettingsMerge({
+      existing: malformed,
+      config: { skipDangerousModePermissionPrompt: true },
+    });
+
+    assert.equal(raw, malformed, 'a failed merge must leave the existing file untouched, not truncate it');
+    assert.match(stdout, /WARNING/, 'a failed merge must be reported, not swallowed');
   });
 
   it('settings merge runs before bisync baseline', () => {

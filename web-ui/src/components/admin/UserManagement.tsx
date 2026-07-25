@@ -262,7 +262,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
           >
             Save
           </button>
-          <span style={{ color: '#888', 'font-size': '12px' }}>0 = unlimited</span>
+          <span style={{ color: 'var(--color-text-muted)', 'font-size': 'var(--text-xs)' }}>0 = unlimited</span>
         </div>
       </Show>
 

@@ -17,6 +17,7 @@ import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
 import LlmKeysSection from './settings/LlmKeysSection';
+import AdminActionButton from './settings/AdminActionButton';
 // SubscriptionManagement moved to standalone admin page at /admin/subscriptions
 import '../styles/settings-panel.css';
 
@@ -411,27 +412,21 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   Manage user roles and access tiers in User Management.
                 </p>
                 <div class="settings-admin-actions">
-                  <button
-                    type="button"
-                    class="provider-row-connect-btn"
-                    style={{ background: '#2563eb' }}
+                  <AdminActionButton
+                    tone="--color-action-setup"
+                    icon={mdiWrenchOutline}
+                    label="Setup Wizard"
                     onClick={() => { window.location.href = '/setup'; }}
-                  >
-                    <Icon path={mdiWrenchOutline} size={24} style={{ color: 'white' }} />
-                    <span>Setup Wizard</span>
-                  </button>
+                  />
                   {/* REQ-ENTERPRISE-008 AC1: user administration is delegated to
                       Cloudflare Access in enterprise mode — hide the entry. */}
                   <Show when={!props.enterpriseMode}>
-                    <button
-                      type="button"
-                      class="provider-row-connect-btn"
-                      style={{ background: '#7c3aed' }}
+                    <AdminActionButton
+                      tone="--color-action-users"
+                      icon={mdiAccountGroupOutline}
+                      label="Manage Users"
                       onClick={() => { window.location.href = '/admin/users'; }}
-                    >
-                      <Icon path={mdiAccountGroupOutline} size={24} style={{ color: 'white' }} />
-                      <span>Manage Users</span>
-                    </button>
+                    />
                   </Show>
                 </div>
                 <span class="settings-hint type-hint" data-testid="settings-r2-warning">
@@ -451,15 +446,12 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     Configure monthly hours, pricing, trial periods, and session modes for each tier.
                   </p>
                   <div class="settings-admin-actions">
-                    <button
-                      type="button"
-                      class="provider-row-connect-btn"
-                      style={{ background: '#059669' }}
+                    <AdminActionButton
+                      tone="--color-action-subscriptions"
+                      icon={mdiCogOutline}
+                      label="Manage Subscriptions"
                       onClick={() => { window.location.href = '/admin/subscriptions'; }}
-                    >
-                      <Icon path={mdiCogOutline} size={24} style={{ color: 'white' }} />
-                      <span>Manage Subscriptions</span>
-                    </button>
+                    />
                   </div>
                 </section>
               </Show>

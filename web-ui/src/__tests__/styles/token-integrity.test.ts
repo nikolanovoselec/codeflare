@@ -54,4 +54,23 @@ describe('design token integrity', () => {
 
     expect(dangling).toEqual([]);
   });
+
+  // AdminActionButton receives a bare token name and wraps it in var() at
+  // runtime, so the scan above cannot see those references. Check the call
+  // sites directly: a mistyped or deleted tone paints no background at all.
+  it('every AdminActionButton tone names a defined token', () => {
+    const defined = new Set<string>();
+    const tones: Array<{ name: string; file: string }> = [];
+
+    for (const file of sourceFiles(SRC)) {
+      const text = readFileSync(file, 'utf-8');
+      for (const m of text.matchAll(/^\s*(--[a-zA-Z0-9-]+)\s*:/gm)) defined.add(m[1]);
+      for (const m of text.matchAll(/\btone="(--[a-zA-Z0-9-]+)"/g)) {
+        tones.push({ name: m[1], file: file.slice(SRC.length + 1) });
+      }
+    }
+
+    expect(tones.length).toBeGreaterThan(0);
+    expect(tones.filter((tone) => !defined.has(tone.name)).map((tone) => `${tone.name} (${tone.file})`)).toEqual([]);
+  });
 });
