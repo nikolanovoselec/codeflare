@@ -247,7 +247,9 @@ describe('plugin enablement', () => {
     // Slice the whole plugin-enablement section and assert it never consults
     // SESSION_MODE — wrapping it in an advanced-only branch is the regression
     // this test exists to catch, and a mere reference check cannot see that.
-    const start = entrypoint.indexOf("PLUGINS_CONFIG='");
+    // Anchor at the section header, not the first literal: a mode gate would be
+    // written ABOVE the literals, so a slice starting there cannot see it.
+    const start = entrypoint.indexOf('# Enable plugins');
     const end = entrypoint.indexOf('plugins enabled in .claude.json', start);
     assert.ok(start > -1 && end > start, 'plugin enablement section should exist');
 

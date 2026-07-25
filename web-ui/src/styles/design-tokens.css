@@ -86,6 +86,9 @@
   --color-brand-cloud-hover: #ff9633;
   --color-brand-openai: #10a37f;
   --color-brand-google: #4285f4;
+  --color-brand-anthropic: #d4a27f;
+  --color-brand-copilot: #6e5494;
+  --color-brand-opencode: #e5e5e5;
 
   /* Info */
   --color-info: #3b82f6;           /* Blue 500 */
