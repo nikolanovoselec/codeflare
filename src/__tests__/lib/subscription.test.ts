@@ -96,6 +96,7 @@ describe('SubscriptionTierConfig interface / REQ-SUB-002 (tier property definiti
   });
 });
 
+// REQ-SUB-005 AC1: getDefaultTiers defines the admin-configurable per-tier trialQuotaHours trial cap.
 describe('getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)', () => {
   it('returns 8 tiers', () => {
     const tiers = getDefaultTiers();

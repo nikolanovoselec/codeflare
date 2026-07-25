@@ -60,9 +60,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Visiting the root URL in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button. <!-- @impl: src/routes/github-auth.ts::callbackRateLimiter --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
+1. Visiting the root URL in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect). <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
-3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
+3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @impl: src/lib/oauth-state.ts::claimOauthNonce --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 4. Valid callbacks create a session and redirect active users to workspaces or pending/blocked users to subscriptions; the exchanged GitHub access token exists only during callback and is never persisted. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 5. State-validation failure redirects to the login page with an error indicator. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes. <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
@@ -95,7 +95,7 @@ None. Authentication is foundational; other domains depend on it.
 1. Accessing protected application pages or API endpoints triggers a CF Access redirect to the configured identity provider. <!-- @impl: src/middleware/auth.ts::requireIdentity --> <!-- @manual -->
 2. After IdP authentication, CF Access issues a session credential that the Worker validates on every request. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 3. The Worker verifies the credential signature against the CF Access JWKS endpoint. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
-4. User email is extracted from the credential claims, normalized, and resolved from persistent storage. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
+4. User email is extracted from the credential claims, normalized, and resolved from persistent storage. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @impl: src/lib/access.ts::normalizeEmail --> <!-- @impl: src/lib/access.ts::resolveUserFromKV --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 5. The setup wizard provisions a CF Access Application covering all protected paths and creates Access Groups scoped to admin and regular user roles. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (Setup Access) -->
 
 **Constraints:**
@@ -152,12 +152,12 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. The identity middleware resolves the authenticated user from the active auth mechanism and auto-provisions first-time SaaS users with a pending subscription tier. <!-- @impl: src/middleware/auth.ts::requireIdentity --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (Three-tier auth middleware (SaaS mode) / REQ-AUTH-005 (requireIdentity + requireActiveUser + requireAdmin layered stack)) -->
-2. The active-user middleware additionally verifies the user holds an active subscription tier; pending users are rejected with code PENDING, blocked users with code BLOCKED; tier checking is skipped outside SaaS mode for backward compatibility. <!-- @impl: src/middleware/auth.ts::requireActiveUser --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (Three-tier auth middleware (SaaS mode) / REQ-AUTH-005 (requireIdentity + requireActiveUser + requireAdmin layered stack)) -->
+2. The active-user middleware additionally verifies the user holds an active subscription tier; pending users are rejected with code PENDING, blocked users with code BLOCKED; tier checking is skipped outside the app-owned OIDC modes (SaaS and onboarding) for backward compatibility. <!-- @impl: src/middleware/auth.ts::requireActiveUser --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (Three-tier auth middleware (SaaS mode) / REQ-AUTH-005 (requireIdentity + requireActiveUser + requireAdmin layered stack)) -->
 3. The admin middleware restricts access to users with the admin role and must be composed after one of the user-identity middlewares. <!-- @impl: src/middleware/auth.ts::requireAdmin --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (Three-tier auth middleware (SaaS mode) / REQ-AUTH-005 (requireIdentity + requireActiveUser + requireAdmin layered stack)) -->
 
 **Constraints:**
 
-- Outside SaaS mode, the active-user check does not enforce tier (backward compatibility with pre-subscription deployments).
+- Outside the app-owned OIDC modes (SaaS and onboarding), the active-user check does not enforce tier (backward compatibility with pre-subscription deployments).
 - Users with no tier field are treated as active for backward compatibility.
 
 **Priority:** P0
@@ -454,7 +454,7 @@ None.
 **Acceptance Criteria:**
 
 1. Clicking avatar/username in header opens dropdown with Profile, Guided Setup, Logout. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
-2. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+2. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 3. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 
 **Constraints:**

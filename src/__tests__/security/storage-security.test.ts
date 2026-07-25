@@ -2,7 +2,7 @@
  * Security-gap tests for storage path traversal and Content-Disposition hardening
  *
  *   REQ-SEC-010 AC1  — decodeURIComponent applied before traversal check
- *   REQ-SEC-010 AC2  — double-encoded (%252E%252E) attacks are caught
+ *   REQ-SEC-010 AC2  — double-encoded (%252E%252E) input is neutralized to an inert literal (single decode, used verbatim)
  *   REQ-SEC-010 AC3  — malformed URI encoding throws ValidationError
  *   REQ-SEC-010 AC4  — decoded key returned to callers
  *   REQ-SEC-013 AC2  — special characters stripped from Content-Disposition filename
@@ -25,7 +25,7 @@ describe('REQ-SEC-010 AC1/AC2: URI-decoded traversal attacks are caught', () => 
     expect(() => validateKey('foo/%2e%2e%2fbar')).toThrow('path traversal not allowed');
   });
 
-  it('REQ-SEC-010 AC2: double-encoded %252E%252E decodes to ".." is rejected', () => {
+  it('REQ-SEC-010 AC2: double-encoded %252E%252E decodes once to an inert literal, used verbatim and never re-decoded', () => {
     // %252E decodes to %2E on first pass, then %2E decodes to "."
     // decodeURIComponent('%252E%252E') === '%2E%2E', then a second call would give '..'
     // Production code calls decodeURIComponent once — which gives "%2E%2E", not ".."

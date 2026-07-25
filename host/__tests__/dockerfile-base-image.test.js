@@ -31,7 +31,7 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
     );
   });
 
-  it('REQ-OPS-011 AC2 (precondition): agent CLI packages are present in the image for Claude Code, Codex, Gemini CLI, Copilot, OpenCode', () => {
+  it('REQ-OPS-011 AC2 (precondition): agent CLI packages are present in the image for Claude Code, Codex, Antigravity, Copilot, OpenCode', () => {
     // AC2 runtime verification (CLIs start without crashes) requires a live
     // container. This audit verifies the Dockerfile install layers that are
     // the structural precondition for AC2: the npm global installs for each
