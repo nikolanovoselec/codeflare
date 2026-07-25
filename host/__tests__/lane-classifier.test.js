@@ -12,7 +12,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -225,6 +225,22 @@ describe('compute_required_lanes - rename safety (--no-renames)', () => {
       classify(cwd, base, next),
       'code-reviewer spec-reviewer doc-updater',
     );
+  });
+});
+
+describe('compute_required_lanes - file mode changes', () => {
+  it('a mode-only change on an eligible file is not inert', () => {
+    // The two blobs are byte-identical, so the content projection compares
+    // equal and only the raw diff carries the mode. chmod +x and a
+    // regular-file-to-symlink swap are both real changes with an unchanged
+    // body, so neither may be proven inert.
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/a.mjs', 'export const a = 1;\n', 'feat: seed');
+    chmodSync(join(cwd, 'src/a.mjs'), 0o755);
+    run('add', '-A');
+    run('commit', '-q', '-m', 'chore: make executable');
+    const head = run('rev-parse', 'HEAD').stdout.trim();
+    assert.equal(classify(cwd, base, head), 'code-reviewer spec-reviewer doc-updater');
   });
 });
 

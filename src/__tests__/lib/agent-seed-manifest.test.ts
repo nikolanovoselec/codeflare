@@ -461,9 +461,15 @@ describe('Retired preseed keys', () => {
     const constitution = AGENTS_SEEDED_CONFIGS.find(
       (doc) => doc.key === '.claude/rules/engineering-constitution.md',
     );
+    // Assert a load-bearing sentence from each absorbed rule, not the heading:
+    // emptying a section to a bare heading while the standalone rule keeps
+    // being deleted from every bucket is exactly the policy loss this guards.
     expect(constitution!.content).toMatch(/^## Working principles$/m);
+    expect(constitution!.content).toMatch(/Don't assume and don't hide confusion/);
     expect(constitution!.content).toMatch(/^## Coding concretes$/m);
+    expect(constitution!.content).toMatch(/Never set a field to `undefined`/);
     expect(constitution!.content).toMatch(/^## Graph first$/m);
+    expect(constitution!.content).toMatch(/graphify-out\/graph\.json/);
   });
 });
 

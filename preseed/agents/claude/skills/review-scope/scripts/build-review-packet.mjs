@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const LANES = new Set(['code-reviewer', 'spec-reviewer', 'doc-updater']);
-const ROOT_DOC = /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$/;
+const ROOT_DOC = /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$|^LICENSE$/;
 const FULL_SHA = /^[0-9a-f]{40}$/;
 
 function git(repo, args, encoding = 'utf8') {

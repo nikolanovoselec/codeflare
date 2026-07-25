@@ -410,6 +410,8 @@ elif [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
   DIRECTIVE="$DIRECTIVE Parallel: spec-reviewer (sdd/ lane) and doc-updater (docs/ lane) - run concurrently and return structured reports. Code lane silently excluded by Stop hook (no source files in diff)."
 elif [ "$needs_doc" = "1" ] && [ "$needs_code" = "0" ] && [ "$needs_spec" = "0" ]; then
   DIRECTIVE="$DIRECTIVE Spawn: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
+elif [ "$needs_code" = "1" ] && [ "$needs_doc" = "1" ] && [ "$needs_spec" = "0" ]; then
+  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane) and doc-updater (docs/ lane) - run concurrently and return structured reports. Spec lane silently excluded by Stop hook (the source delta is comments and whitespace only, so the spec surface is unchanged)."
 elif [ "$needs_code" = "1" ] && [ "$needs_spec" = "0" ] && [ "$needs_doc" = "0" ]; then
   DIRECTIVE="$DIRECTIVE Spawn: code-reviewer (source lane) only. Spec and doc lanes silently excluded by Stop hook (the source delta is comments and whitespace only, so behaviour, the spec surface, and the documentation surface are all unchanged - but whether the new comment is TRUE is still a code-review question)."
 else

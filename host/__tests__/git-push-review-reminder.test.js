@@ -791,6 +791,30 @@ describe('git-push-review-reminder.sh - inert source delta emission', () => {
       'a comment-only delta cannot have moved the documentation surface');
   });
 
+  it('emits code-reviewer and doc-updater when an inert source delta ships with a doc change', () => {
+    // This lane pair became reachable when content-based reduction landed.
+    // With no branch of its own it fell through to the all-three directive,
+    // which asks for a spec lane the Stop hook then excludes -- the exact
+    // nudge/gate disagreement the shared classifier exists to prevent.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // old\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 1; // new\n');
+    mkdirSync(join(cwd, 'documentation'), { recursive: true });
+    writeFileSync(join(cwd, 'documentation/architecture.md'), '# arch\n');
+    spawnSync('git', ['add', '-A'], { cwd });
+    spawnSync('git', ['commit', '-q', '-m', 'docs: reword and document'], { cwd });
+    const headSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /doc-updater/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'nothing under sdd/ changed, so the spec lane must not be requested');
+  });
+
   it('still emits all three lanes when the same file changes a code token', () => {
     const cwd = makeFixture();
     withSdd(cwd);

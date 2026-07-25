@@ -1222,7 +1222,7 @@ None.
 **Constraints:**
 
 - Pi lane classification consumes NUL-delimited paths with Git rename detection disabled.
-- Content-based lane reduction never removes the code lane, and never applies to an added, deleted, renamed, binary, ineligible-extension, or unparseable file.
+- Content-based lane reduction never removes the code lane, and never applies to an added, deleted, renamed, mode-changed, binary, ineligible-extension, or unparseable file.
 - One prover decides content-based reduction for every runtime. It is seeded from the canonical Claude tree and both classifiers shell out to it, so the scanner cannot drift between them; a missing prover or runtime reduces nothing.
 
 **Priority:** P1

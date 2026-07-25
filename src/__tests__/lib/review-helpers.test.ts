@@ -370,14 +370,15 @@ describe('Claude-equivalent review boundary helpers', () => {
     ] as const) {
       // The shell classifier resolves the prover relative to its own location,
       // so both runtimes run the one program this range is decided by.
-      // Every value reaches bash as a positional argument, never interpolated
-      // into the script text: the classifier path comes from process.cwd(), and
-      // JSON quoting is not shell quoting, so a checkout path containing a
-      // quote or a dollar sign would otherwise escape the source command.
+      // The script is fed on stdin and every value arrives as a positional
+      // argument, so no command string is built from an environment value at
+      // all. This is the form host/__tests__/lane-classifier.test.js already
+      // uses: CodeQL flags `bash -c` even when the values are passed as argv,
+      // because it does not model "$1" quoting as a safety boundary.
       const claude = execFileSync(
         'bash',
-        ['-c', 'source "$1"; compute_required_lanes "$2" "$3"', 'bash', LANE_CLASSIFIER, base, head],
-        { cwd: repo, encoding: 'utf8' },
+        ['-s', '--', LANE_CLASSIFIER, base, head],
+        { cwd: repo, encoding: 'utf8', input: 'source "$1"; compute_required_lanes "$2" "$3"' },
       ).trim().split(/\s+/).filter(Boolean);
       expect(claude, name).toEqual(requiredReviewLanes({ repo, ackHead: base, head, prover: PROVER }));
     }

@@ -161,18 +161,24 @@ export function inert(base, head, paths) {
   if (paths.length === 0) return false;
   for (const p of paths) {
     if (!ELIGIBLE.test(p)) return false;
-    let status;
+    let raw;
     try {
+      // --raw carries the old and new mode, which --name-status does not.
       // :(top,literal) - pathspecs are cwd-relative and glob-active by
       // default; diff output is repo-root-relative and may contain glob
       // metacharacters, so both magics are required.
-      status = git(['diff', '--no-renames', '--name-status', base, head,
-                    '--', `:(top,literal)${p}`]).trim();
+      raw = git(['diff', '--no-renames', '--raw', base, head,
+                 '--', `:(top,literal)${p}`]).trim();
     } catch { return false; }
     // Only a plain modification can be inert. An add or a delete changes the
     // set of modules even when the file body is nothing but comments, and a
     // rename arrives here as an add+delete pair under --no-renames.
-    if (status.split('\n').length !== 1 || !status.startsWith('M\t')) return false;
+    const entry = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ M\t/.exec(raw);
+    if (raw.split('\n').length !== 1 || !entry) return false;
+    // The two blobs can be byte-identical while the mode changed: chmod +x, or
+    // a regular file swapped for a symlink (100644 -> 120000). Both are real
+    // changes that the content projection cannot see, so they are not inert.
+    if (entry[1] !== entry[2]) return false;
     try {
       if (project(git(['show', `${base}:${p}`])) !== project(git(['show', `${head}:${p}`]))) {
         return false;

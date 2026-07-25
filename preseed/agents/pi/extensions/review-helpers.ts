@@ -366,7 +366,7 @@ export function inertSourceDelta(input: {
 const isGeneratedPath = (file: string) => file.startsWith("graphify-out/");
 const isSpecPath = (file: string) => file.startsWith("sdd/");
 const isDocPath = (file: string) =>
-  file.startsWith("documentation/") || /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$/.test(file);
+  file.startsWith("documentation/") || /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$|^LICENSE$/.test(file);
 
 /** The paths whose content decides the code lane -- the prover's input set. */
 function behaviouralPaths(files: string[]): string[] {
