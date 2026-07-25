@@ -109,9 +109,14 @@ files are never deleted. Implements
 
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds
 mode-appropriate files then deletes preseed-managed files not in
-the current mode. Strictly scoped to keys from
-`AGENTS_SEEDED_CONFIGS` -- no bucket listing, no prefix scans,
-never touches user-created files. `getPreseedKeysNotInMode()`
+the current mode. Strictly scoped -- no bucket listing, no prefix
+scans, never touches user-created files. Two sources feed the delete
+list: `getPreseedKeysNotInMode()` for keys in `AGENTS_SEEDED_CONFIGS`
+that the target mode does not want, and the enumerated
+`RETIRED_PRESEED_KEYS` for keys the current build no longer produces
+at all, which are invisible to the derived list and would otherwise
+survive in the bucket forever. A retired key still present in the
+target mode is never deleted. `getPreseedKeysNotInMode()`
 excludes variant-per-mode keys (instruction files that exist in
 both modes with different content) to avoid deleting a file that
 was just seeded. Partial delete failures return `warnings` without
@@ -232,9 +237,11 @@ references Claude-specific `mcp__graphify__*` tools and the vault hook system.
 `vault-note-capture` is advanced-only and routes "take a note" phrases to the
 `vault-note-capture` skill.
 
-`graph-first` is advanced-only (graphify discipline,
-[REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)).
-`karpathy` is advanced-only (LLM coding-mistakes principles). `frontend-components`
+The graphify discipline
+([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
+and the LLM coding-mistakes principles were standalone `graph-first.md` and
+`karpathy.md` rules until 2026-07-25; both are now sections of the advanced-only
+`engineering-constitution`. `frontend-components`
 is advanced-only and covers composable-UI standards: extract repeated structures,
 separate content from components, and write behavioral tests only.
 
@@ -247,9 +254,11 @@ stopping point unless the user says to stop, pause, or reprioritize.
 The stricter PR-boundary review push gate is present in default+advanced
 `git-workflow` and repeated in advanced `engineering-constitution`, so generated
 agent instructions receive it through [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) AC6 and advanced sessions also receive the constitution copy through [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents). Source: `preseed/agents/claude/rules/git-workflow.md::Review push gate` and `preseed/agents/claude/rules/engineering-constitution.md::Review push gate`.
-ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs
-are advanced-only. `common/coding-style.md` covers shared style; per-language
-`security.md` files stand alone after `common/security.md` removal.
+ECC-derived language rules in `{typescript,python,golang,swift}/` subdirs
+are advanced-only. Each `coding-style.md` extends the constitution's "Coding
+concretes" section directly, `common/coding-style.md` having been absorbed there
+on 2026-07-25; per-language `security.md` files stand alone after
+`common/security.md` removal.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds
 the official Anthropic plugin marketplace URL for user discovery.
@@ -302,9 +311,9 @@ retries. Implements
 
 The `rules/` tree includes core rules for both modes: cloudflare-environment,
 no-local-builds, and git-workflow. Advanced mode adds memory, spec-discipline,
-documentation-discipline, tdd-discipline, graph-first, karpathy,
+documentation-discipline, tdd-discipline,
 frontend-components, engineering-constitution, and vault-note-capture. It also
-includes common coding-style rules plus standalone language security rules for
+includes per-language coding-style rules plus standalone language security rules for
 TypeScript, Python, Go, and Swift.
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
@@ -418,7 +427,7 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact Pi planning, TDD/SDD, capability, and review gates |
 | `preseed/agents/pi/extensions/capability.ts` + `capability-helpers.ts` | default, advanced | `~/.pi/agent/extensions/` | Registered-tool search and additive activation through Pi's public API |
 | `preseed/agents/pi/skills/review-scope/SKILL.md` | advanced | `~/.pi/agent/skills/review-scope/SKILL.md` | Shared `diff`/`all` scope resolver |
-| `preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs` | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |
+| `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs` (reaches Pi through the seed transform) | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |
 | `preseed/agents/pi/agents/{code-reviewer,spec-reviewer,doc-updater}.md` | advanced | `~/.pi/agent/agents/` | Native report-only review lanes |
 | `preseed/agents/pi/extensions/review-tool-guard.ts` | advanced | `~/.pi/agent/extensions/review-tool-guard.ts` | Reviewer-only direct-execution intent stripping |
 | `preseed/agents/pi/skills/{spec-enforce*,doc-enforce*}/SKILL.md` | advanced | `~/.pi/agent/skills/` | Native scoped SDD enforcement |

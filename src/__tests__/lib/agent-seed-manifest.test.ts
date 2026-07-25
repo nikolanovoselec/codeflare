@@ -481,7 +481,7 @@ describe('Reviewer agents can access their enforce policy', () => {
     }
   });
 
-  it('REQ-AGENT-086 AC7/AC8: Claude PR reviewers carry the packet transport and no repository-wide scan tools', () => {
+  it('REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools', () => {
     // Something has to keep raw scan output out of reviewer context. It used to
     // be indexed retrieval; stripping that without a replacement regressed
     // review cost by an order of magnitude. It is now the review-scope packet

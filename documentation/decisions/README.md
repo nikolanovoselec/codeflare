@@ -906,7 +906,7 @@ doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and P
 **Decision:** Split delivery on a discipline-vs-capability axis, not on tier:
 
 - **Plugin folder + `plugin.json` + MCP server registration**: ships in both `default` and `advanced` session modes. The `graphify` MCP server is registered in `~/.claude.json` whenever the preseed manifest is present, which is every paid tier.
-- **SessionStart context-injection hook, PostToolUse-on-clone triage hook, `graph-first.md` rule, and `graphify/SKILL.md`**: ship in `advanced` session mode only. These are the load-bearing pieces that teach the agent to use the graph proactively.
+- **SessionStart context-injection hook, PostToolUse-on-clone triage hook, the graph-first discipline (a `graph-first.md` rule until 2026-07-25, now a section of `engineering-constitution.md`), and `graphify/SKILL.md`**: ship in `advanced` session mode only. These are the load-bearing pieces that teach the agent to use the graph proactively.
 
 Tier-gating is not part of the decision: graphify ships uniformly across standard, advanced, max, and custom paid tiers. The discipline gating is keyed only on session mode.
 
