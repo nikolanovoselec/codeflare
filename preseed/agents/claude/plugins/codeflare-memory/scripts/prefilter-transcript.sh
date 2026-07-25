@@ -45,6 +45,15 @@ END="${3:?end line required}"
 OUT="${4:?out dir required}"
 CHUNK_SIZE="${5:-20}"
 
+# Payload ceilings, mirroring Pi's MEMORY_CAPTURE_MAX_TURNS and
+# MEMORY_CAPTURE_MAX_TURN_CHARS. Without them the slice grows with session
+# length: a resumed session produced 50 chunks and cost 220k tokens to
+# summarise. They are inactive on a normal 15-prompt window (~30-40 turns) and
+# bite exactly on the pathological one. Capping here also collapses the chunk
+# count, which is what keeps the per-chunk pass short.
+MAX_TURNS=40
+MAX_TURN_CHARS=4000
+
 # Fail-loud integer validation of START/END/CHUNK_SIZE. Empty captures
 # (START=END=0) or non-numeric args previously silently slid through
 # sed's ",p" handling and emitted a zero-byte slice, which the capture
@@ -86,16 +95,17 @@ select(.type == "user" or .type == "assistant") |
 if .type == "user" and (.message.content | type) == "string" then
   .message.content as $c |
   if ($c | length) > 0 and (is_synthetic_marker($c) | not) then
-    {role:"user", text:$c, ts:(.timestamp // null)}
+    {role:"user", text:($c[0:$maxchars]), ts:(.timestamp // null)}
   else empty end
 elif .type == "assistant" and (.message.content | type) == "array" then
   ([.message.content[] | select(.type == "text") | .text]
    | map(select(length > 0)) | join("\n\n")) as $t |
   if ($t | length) > 0 then
-    {role:"assistant", text:$t, ts:(.timestamp // null)}
+    {role:"assistant", text:($t[0:$maxchars]), ts:(.timestamp // null)}
   else empty end
 else empty end
-' < "$OUT/slice.jsonl" > "$OUT/clean.ndjson"
+' --argjson maxchars "$MAX_TURN_CHARS" < "$OUT/slice.jsonl" \
+  | tail -n "$MAX_TURNS" > "$OUT/clean.ndjson"
 
 # 3. Chunk and render. split -a 2 gives chunk-aa, chunk-ab, ... chunk-zz
 #    (676 chunks max - more than any sane 15-prompt window will produce).
