@@ -76,6 +76,28 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     );
   });
 
+  // REQ-AGENT-008 AC7: every session mode disables agent view. Parsed from the
+  // literal rather than string-matched, so the test still fails if the key is
+  // present but false, or if only one of the two modes carries it.
+  it('both SETTINGS_CONFIG literals disable agent view', () => {
+    const literals = [...entrypoint.matchAll(/^\s*SETTINGS_CONFIG='(\{.*\})'$/gm)].map((m) => m[1]);
+    assert.equal(
+      literals.length,
+      2,
+      'expected exactly two SETTINGS_CONFIG literals (advanced + default)'
+    );
+    for (const raw of literals) {
+      // The literal interpolates the plugin dir as '"$PLUGIN_DIR"' inside single
+      // quotes; substitute a placeholder path so the result parses as JSON.
+      const parsed = JSON.parse(raw.replaceAll(`'"$PLUGIN_DIR"'`, '/plugins'));
+      assert.equal(
+        parsed.disableAgentView,
+        true,
+        'each session mode must set disableAgentView:true (agent view is unusable on mobile)'
+      );
+    }
+  });
+
   // REQ-MEM-011 AC1: hooks (PreToolUse and UserPromptSubmit) are merged into
   // settings.json ONLY in advanced mode. Default mode gets only
   // skipDangerousModePermissionPrompt -- no hook registrations.
