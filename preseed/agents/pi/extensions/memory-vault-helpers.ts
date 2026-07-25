@@ -2,7 +2,7 @@ import { isAbsolute, relative } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 15;
 export const MEMORY_CAPTURE_MAX_TURNS = 40;
-export const MEMORY_CAPTURE_MAX_TURN_CHARS = 4000;
+export const MEMORY_CAPTURE_MAX_TURN_CHARS = 10000;
 export const EXTRACTION_RUNNING_TTL_MS = 30 * 60 * 1000;
 
 export type ExtractionJob = "memory-capture" | "vault-extract";

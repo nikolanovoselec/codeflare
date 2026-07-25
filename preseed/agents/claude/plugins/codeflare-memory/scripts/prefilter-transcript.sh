@@ -46,13 +46,16 @@ OUT="${4:?out dir required}"
 CHUNK_SIZE="${5:-20}"
 
 # Payload ceilings, mirroring Pi's MEMORY_CAPTURE_MAX_TURNS and
-# MEMORY_CAPTURE_MAX_TURN_CHARS. Without them the slice grows with session
+# MEMORY_CAPTURE_MAX_TURN_CHARS. Measured over 1,546 real turns: the median
+# turn is 196 characters and p90 is 2,557, so the per-turn cap only ever
+# touches the tail -- at 10,000 it cuts 2.1% of turns and keeps 88% of all
+# content. Without them the slice grows with session
 # length: a resumed session produced 50 chunks and cost 220k tokens to
 # summarise. They are inactive on a normal 15-prompt window (~30-40 turns) and
 # bite exactly on the pathological one. Capping here also collapses the chunk
 # count, which is what keeps the per-chunk pass short.
 MAX_TURNS=40
-MAX_TURN_CHARS=4000
+MAX_TURN_CHARS=10000
 
 # Fail-loud integer validation of START/END/CHUNK_SIZE. Empty captures
 # (START=END=0) or non-numeric args previously silently slid through

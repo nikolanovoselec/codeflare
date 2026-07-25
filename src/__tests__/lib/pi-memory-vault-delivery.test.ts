@@ -933,11 +933,11 @@ describe('capTurn citation rescue', () => {
     // The cap may cost prose. It may not cost a REQ id, an ADR, a PR number or
     // a SHA: those must be verbatim (AD58) and are what a later graph query
     // searches on, so a byte count must never be what removes them.
-    const capped = capTurn('pre '.repeat(1600) + TAIL);
+    const capped = capTurn('pre '.repeat(4000) + TAIL);
     for (const citation of ['REQ-AGENT-040', 'AD58', '4899fb6', '#709']) {
       expect(capped, `${citation} sat past the cap`).toContain(citation);
     }
-    expect(capped.length).toBeGreaterThan(4000);
+    expect(capped.length).toBeGreaterThan(10000);
   });
 
   it('leaves a turn that fits byte-identical', () => {
@@ -947,14 +947,14 @@ describe('capTurn citation rescue', () => {
 
   it('appends nothing when the cut loses no citation', () => {
     // Prose-only overflow must not grow a rescue line it has no use for.
-    const capped = capTurn('a'.repeat(5000));
-    expect(capped).toBe('a'.repeat(4000));
+    const capped = capTurn('a'.repeat(12000));
+    expect(capped).toBe('a'.repeat(10000));
   });
 
   it('emits the same rescue line the Claude prefilter emits', () => {
     // Both runtimes cap the same way; a divergence here means one runtime's
     // captures become unsearchable for citations the other kept.
-    expect(capTurn('pre '.repeat(1600) + TAIL).split('\n').pop())
+    expect(capTurn('pre '.repeat(4000) + TAIL).split('\n').pop())
       .toBe('[refs dropped in truncation: #709, 4899fb6, AD58, REQ-AGENT-040]');
   });
 });

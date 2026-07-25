@@ -44,9 +44,9 @@ describe('prefilter-transcript.sh payload ceilings', () => {
   });
 
   it('truncates an oversized turn instead of passing it through', () => {
-    const { rows } = runPrefilter(['short', 'x'.repeat(12000), 'short']);
+    const { rows } = runPrefilter(['short', 'x'.repeat(24000), 'short']);
     assert.equal(rows.length, 3);
-    assert.equal(Math.max(...rows.map((r) => r.text.length)), 4000);
+    assert.equal(Math.max(...rows.map((r) => r.text.length)), 10000);
   });
 
   it('rescues citations that the truncation cut off', () => {
@@ -54,12 +54,12 @@ describe('prefilter-transcript.sh payload ceilings', () => {
     // an ADR, a PR number or a SHA -- those are what AD58 requires be verbatim
     // and what a later graph query searches on.
     const tail = 'closed REQ-AGENT-040 AC5 per AD58 in 4899fb6 and PR #709';
-    const { rows } = runPrefilter(['pre '.repeat(1600) + tail]);
+    const { rows } = runPrefilter(['pre '.repeat(4000) + tail]);
     for (const citation of ['REQ-AGENT-040', 'AD58', '4899fb6', '#709']) {
       assert.match(rows[0].text, new RegExp(citation.replace('#', '#')),
         `${citation} sat past the cap and must survive it`);
     }
-    assert.ok(rows[0].text.length > 4000, 'the rescue line is appended after the cap');
+    assert.ok(rows[0].text.length > 10000, 'the rescue line is appended after the cap');
   });
 
   it('leaves a normal window untouched', () => {
