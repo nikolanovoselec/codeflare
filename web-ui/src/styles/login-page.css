@@ -257,23 +257,8 @@
   flex-shrink: 0;
 }
 
-/* ── Footer ── */
-
-.login-footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  margin: var(--space-8) 0 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  letter-spacing: 0.02em;
-}
-
-.login-footer-flag {
-  font-size: var(--text-base);
-  line-height: 1;
-}
+/* The footer that used to live here moved to page-footer.css when PageFooter
+   was extracted — it renders on three pages, so it is not login chrome. */
 
 /* ── Responsive ── */
 

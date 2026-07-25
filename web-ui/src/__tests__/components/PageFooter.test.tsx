@@ -12,16 +12,16 @@ describe('PageFooter', () => {
   it('renders both footer paragraphs, only the second marked legal', () => {
     const { container } = render(() => <PageFooter />);
 
-    const footers = container.querySelectorAll('.login-footer');
+    const footers = container.querySelectorAll('.page-footer');
     expect(footers.length).toBe(2);
-    expect(footers[0].classList.contains('login-footer-legal')).toBe(false);
-    expect(footers[1].classList.contains('login-footer-legal')).toBe(true);
+    expect(footers[0].classList.contains('page-footer-legal')).toBe(false);
+    expect(footers[1].classList.contains('page-footer-legal')).toBe(true);
   });
 
   it('renders the flag element with an accessible label', () => {
     const { container } = render(() => <PageFooter />);
 
-    const flag = container.querySelector('.login-footer-flag');
+    const flag = container.querySelector('.page-footer-flag');
     expect(flag).not.toBeNull();
     expect(flag?.getAttribute('aria-label')).toBe('Swiss flag');
   });
@@ -29,7 +29,7 @@ describe('PageFooter', () => {
   it('links to the company site with a safe external-link contract', () => {
     const { container } = render(() => <PageFooter />);
 
-    const link = container.querySelector<HTMLAnchorElement>('.login-footer-legal a');
+    const link = container.querySelector<HTMLAnchorElement>('.page-footer-legal a');
     expect(link).not.toBeNull();
     expect(link?.getAttribute('href')).toBe('https://graymatter.ch');
     expect(link?.getAttribute('target')).toBe('_blank');

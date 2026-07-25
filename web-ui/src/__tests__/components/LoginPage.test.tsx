@@ -80,7 +80,7 @@ describe('LoginPage / REQ-AUTH-013 (branded SaaS login page)', () => {
 
       const { container } = render(() => <LoginPage />);
 
-      expect(container.querySelectorAll('.login-footer').length).toBe(2);
+      expect(container.querySelectorAll('.page-footer').length).toBe(2);
     });
   });
 

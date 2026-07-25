@@ -60,7 +60,7 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
   it('renders the shared page footer', async () => {
     const { container } = render(() => <OnboardingPage />);
     await waitFor(() => {
-      expect(container.querySelectorAll('.login-footer').length).toBe(2);
+      expect(container.querySelectorAll('.page-footer').length).toBe(2);
     });
   });
 

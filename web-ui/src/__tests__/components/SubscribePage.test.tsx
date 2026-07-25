@@ -123,7 +123,7 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(container.querySelectorAll('.login-footer').length).toBe(2);
+        expect(container.querySelectorAll('.page-footer').length).toBe(2);
       });
     });
 

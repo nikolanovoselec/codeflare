@@ -595,7 +595,7 @@
   font-size: var(--text-xs);
   color: var(--color-info);
   text-decoration: underline;
-  text-decoration-color: rgba(59, 130, 246, 0.4);
+  text-decoration-color: rgb(var(--color-info-rgb) / 0.4);
   text-underline-offset: 2px;
   transition: color var(--transition-fast);
 }

@@ -46,7 +46,13 @@ const MANAGED = '/home/user/.claude/plugins/codeflare-hooks/scripts';
 // The settings-merge block, lifted verbatim out of entrypoint.sh. Every `fi`
 // inside it is indented, so the first column-0 `fi` closes it.
 function settingsMergeBlock() {
-  const start = entrypoint.indexOf('if [ -f "$SETTINGS_FILE" ]; then');
+  // Anchor on the SETTINGS_FILE assignment, which is unique: the `if [ -f
+  // "$SETTINGS_FILE" ]` line itself also opens the later Read(/**) permission
+  // seeder, so matching that alone would silently exercise the wrong block if
+  // the two were ever reordered.
+  const assignment = entrypoint.indexOf('SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"');
+  assert.notEqual(assignment, -1, 'entrypoint.sh no longer assigns SETTINGS_FILE');
+  const start = entrypoint.indexOf('if [ -f "$SETTINGS_FILE" ]; then', assignment);
   assert.notEqual(start, -1, 'entrypoint.sh no longer has a settings-merge block');
   const end = entrypoint.indexOf('\nfi\n', start);
   assert.notEqual(end, -1, 'the settings-merge block is unterminated');
