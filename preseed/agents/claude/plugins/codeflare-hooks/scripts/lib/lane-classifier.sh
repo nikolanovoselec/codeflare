@@ -27,7 +27,8 @@
 #   - behavioral files whose delta is provably comments/whitespace only
 #                              -> "code-reviewer" (plus any sdd//docs lanes the
 #                                 same diff independently earns). Proven by
-#                                 lib/inert-source-delta.mjs; unprovable for ANY
+#                                 skills/review-scope/scripts/inert-source-delta.mjs,
+#                                 the same prover Pi runs; unprovable for ANY
 #                                 reason keeps the all-three posture. The code
 #                                 lane is never dropped. REQ-AGENT-040 AC5
 #   - sdd/** only              -> "spec-reviewer doc-updater"
@@ -167,7 +168,7 @@ compute_required_lanes() {
      && [ "${#behavioral_files[@]}" -gt 0 ] \
      && command -v node >/dev/null 2>&1; then
     if printf '%s\0' "${behavioral_files[@]}" \
-       | node "$(dirname "${BASH_SOURCE[0]}")/inert-source-delta.mjs" \
+       | node "$(dirname "${BASH_SOURCE[0]}")/../../../../skills/review-scope/scripts/inert-source-delta.mjs" \
               "$last_ack" "$current" >/dev/null 2>&1; then
       has_behavioral=0
       inert_source=1

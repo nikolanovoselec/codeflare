@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
@@ -326,20 +327,72 @@ function fullSha(value: string | undefined): value is string {
   return Boolean(value && /^[0-9a-f]{40}$/.test(value));
 }
 
-function reviewLanesForFiles(files: string[]): ReviewLane[] {
+/**
+ * The comment/whitespace prover, seeded from the canonical Claude tree and
+ * reaching Pi byte-identically through the standard transform. Both runtimes
+ * shell out to this one program rather than carrying a scanner each, because
+ * two hand-kept copies of a JavaScript lexer cannot stay in agreement.
+ */
+const INERT_SOURCE_PROVER = join(homedir(), ".pi", "agent", "skills", "review-scope", "scripts", "inert-source-delta.mjs");
+
+/**
+ * True only when every behavioural path in the range provably differs by
+ * comments and whitespace alone. Every failure is a false: a missing prover, a
+ * missing runtime, an added or deleted or renamed file, an ineligible
+ * extension, an unparseable construct. The reduction is one-directional, so
+ * doubt always costs a lane rather than saving one.
+ */
+export function inertSourceDelta(input: {
+  repo: string;
+  base: string;
+  head: string;
+  files: string[];
+  prover?: string;
+}): boolean {
+  const prover = input.prover ?? INERT_SOURCE_PROVER;
+  if (input.files.length === 0 || !existsSync(prover)) return false;
+  try {
+    execFileSync("node", [prover, input.base, input.head], {
+      cwd: input.repo,
+      input: input.files.join("\0"),
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const isGeneratedPath = (file: string) => file.startsWith("graphify-out/");
+const isSpecPath = (file: string) => file.startsWith("sdd/");
+const isDocPath = (file: string) =>
+  file.startsWith("documentation/") || /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$/.test(file);
+
+/** The paths whose content decides the code lane -- the prover's input set. */
+function behaviouralPaths(files: string[]): string[] {
+  return files.filter((file) => !isGeneratedPath(file) && !isSpecPath(file) && !isDocPath(file));
+}
+
+function reviewLanesForFiles(files: string[], inertSource = false): ReviewLane[] {
   let source = false;
   let spec = false;
   let docs = false;
   for (const file of files) {
-    if (file.startsWith("graphify-out/")) continue;
-    if (file.startsWith("sdd/")) spec = true;
-    else if (file.startsWith("documentation/") || /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$/.test(file)) docs = true;
+    if (isGeneratedPath(file)) continue;
+    if (isSpecPath(file)) spec = true;
+    else if (isDocPath(file)) docs = true;
     else source = true;
   }
-  if (source) return [...ALL_REVIEW_LANES];
-  if (spec) return ["spec-reviewer", "doc-updater"];
-  if (docs) return ["doc-updater"];
-  return [];
+  // A proven-inert source delta contributes the code lane alone -- whether the
+  // new comment is TRUE is still a code-review question, and a directive
+  // comment still changes behaviour -- while the spec and documentation
+  // surfaces provably cannot have drifted. Any lane the same diff independently
+  // earns is still added, in canonical order.
+  if (source && !inertSource) return [...ALL_REVIEW_LANES];
+  const lanes: ReviewLane[] = source ? ["code-reviewer"] : [];
+  if (spec) lanes.push("spec-reviewer", "doc-updater");
+  else if (docs) lanes.push("doc-updater");
+  return lanes;
 }
 
 export function reviewRange(input: { repo: string; ackHead?: string; head: string }): string | undefined {
@@ -355,7 +408,10 @@ export function reviewRange(input: { repo: string; ackHead?: string; head: strin
   }
 }
 
-export function requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[] {
+export function requiredReviewLanes(
+  // `prover` overrides the seeded prover path; production passes nothing.
+  input: { repo: string; ackHead?: string; head: string; prover?: string },
+): ReviewLane[] {
   if (input.ackHead === input.head && fullSha(input.head)) return [];
   const range = reviewRange(input);
   if (!range) return [...ALL_REVIEW_LANES];
@@ -366,7 +422,10 @@ export function requiredReviewLanes(input: { repo: string; ackHead?: string; hea
       { cwd: input.repo, encoding: "buffer", stdio: ["ignore", "pipe", "ignore"] },
     );
     const files = output.toString("utf8").split("\0").filter(Boolean);
-    return files.length === 0 ? [...ALL_REVIEW_LANES] : reviewLanesForFiles(files);
+    if (files.length === 0) return [...ALL_REVIEW_LANES];
+    const [base, head] = range.split("..");
+    const inertSource = inertSourceDelta({ repo: input.repo, base, head, files: behaviouralPaths(files), prover: input.prover });
+    return reviewLanesForFiles(files, inertSource);
   } catch {
     return [...ALL_REVIEW_LANES];
   }

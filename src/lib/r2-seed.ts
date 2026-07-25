@@ -214,27 +214,21 @@ export function getConfigsForMode(
 }
 
 /**
- * Return the R2 keys of preseed-managed files that are NOT in the given mode
- * (or are tier-gated context-mode files when contextModeEnabled is false).
- * These are candidates for cleanup on mode switch or tier downgrade.
- *
- * Keys that have a variant in the target deploy set (same key, different
- * content per mode) are excluded - they were just seeded and must not be
- * deleted.
- */
-/**
  * Keys an earlier build seeded that the current build no longer produces.
  *
- * getPreseedKeysNotInMode derives its delete list FROM AGENTS_SEEDED_CONFIGS, so
- * a file dropped from the manifest also disappears from that list and would
- * otherwise survive in the bucket forever. That is harmless for a file whose
- * content moved nowhere, and actively wrong for one whose content was folded
- * into another file: the retired copy keeps loading beside its replacement and
- * the same policy is delivered twice.
+ * Cleanup derives its delete list FROM AGENTS_SEEDED_CONFIGS, so a file dropped
+ * from the manifest also disappears from that list and would otherwise survive
+ * in the bucket forever. That is harmless for a file whose content moved
+ * nowhere, and actively wrong for one whose content was folded into another
+ * file: the retired copy keeps loading beside its replacement and the same
+ * policy is delivered twice.
  *
  * Listing the bucket would find these, but this module deliberately never
- * scans it, so retirements are enumerated instead. An entry may be removed once
- * every environment has run a deploy that processed it.
+ * scans it, so retirements are enumerated instead. They are applied where the
+ * deletes are issued rather than inside getPreseedKeysNotInMode, whose contract
+ * (REQ-AGENT-014 AC7) is exactly the keys of THIS build that this mode does not
+ * want. An entry may be removed once every environment has run a deploy that
+ * processed it.
  */
 export const RETIRED_PRESEED_KEYS: readonly string[] = [
   // Absorbed into .claude/rules/engineering-constitution.md (2026-07-25):
@@ -244,6 +238,15 @@ export const RETIRED_PRESEED_KEYS: readonly string[] = [
   '.claude/rules/graph-first.md',
 ];
 
+/**
+ * Return the R2 keys of preseed-managed files that are NOT in the given mode
+ * (or are tier-gated context-mode files when contextModeEnabled is false).
+ * These are candidates for cleanup on mode switch or tier downgrade.
+ *
+ * Keys that have a variant in the target deploy set (same key, different
+ * content per mode) are excluded - they were just seeded and must not be
+ * deleted.
+ */
 export function getPreseedKeysNotInMode(
   mode: SessionMode,
   contextModeEnabled = false,
@@ -258,19 +261,17 @@ export function getPreseedKeysNotInMode(
       })
       .map((doc) => doc.key)
   );
-  const outOfMode = AGENTS_SEEDED_CONFIGS
+  return AGENTS_SEEDED_CONFIGS
     .filter((doc) => isPiContextModeKey(doc.key) || !doc.modes.includes(mode) || (!contextModeEnabled && isContextModeKey(doc.key)))
-    .map((doc) => doc.key);
-  // Retired keys are unconditional: they belong to no mode in this build. The
-  // keysInMode guard still applies, so re-introducing one of these paths later
-  // cannot delete the freshly seeded file.
-  return [...outOfMode, ...RETIRED_PRESEED_KEYS].filter((k) => !keysInMode.has(k));
+    .map((doc) => doc.key)
+    .filter((k) => !keysInMode.has(k));
 }
 
 /**
  * Delete preseed-managed files that don't belong to the current mode (or
- * are tier-gated context-mode files when contextModeEnabled is false).
- * Only deletes keys from the known generated set - never lists or scans the bucket.
+ * are tier-gated context-mode files when contextModeEnabled is false), plus
+ * the enumerated retirements. Only deletes keys this module names - never
+ * lists or scans the bucket.
  */
 export async function deleteNonModeConfigs(
   env: SeedEnv,
@@ -279,7 +280,13 @@ export async function deleteNonModeConfigs(
   mode: SessionMode,
   contextModeEnabled = false,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
-  const keysToDelete = getPreseedKeysNotInMode(mode, contextModeEnabled);
+  // A retired key that is somehow still seeded must never be deleted right
+  // after being written; the generated set is the authority on what is live.
+  const seededKeys = new Set(getConfigsForMode(mode, contextModeEnabled).map((doc) => doc.key));
+  const keysToDelete = [
+    ...getPreseedKeysNotInMode(mode, contextModeEnabled),
+    ...RETIRED_PRESEED_KEYS.filter((key) => !seededKeys.has(key)),
+  ];
   if (keysToDelete.length === 0) {
     return { deleted: [], warnings: [] };
   }

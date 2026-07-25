@@ -32,7 +32,7 @@ type TranscriptFacts = {
 type PlannedReviewHelpers = {
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
   isReviewTransitionSuspended(repo: string): boolean;
-  requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[];
+  requiredReviewLanes(input: { repo: string; ackHead?: string; head: string; prover?: string }): ReviewLane[];
   reviewTranscriptFacts(input: {
     sessionFile: string;
     entries?: Record<string, unknown>[];
@@ -42,6 +42,10 @@ type PlannedReviewHelpers = {
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
+// Both runtimes decide an inert delta with this one program; the shell lane
+// classifier is the other half of the parity contract.
+const PROVER = join(process.cwd(), 'preseed/agents/claude/skills/review-scope/scripts/inert-source-delta.mjs');
+const LANE_CLASSIFIER = join(process.cwd(), 'preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh');
 const roots: string[] = [];
 
 async function plannedHelpers(): Promise<PlannedReviewHelpers> {
@@ -301,6 +305,78 @@ describe('Claude-equivalent review boundary helpers', () => {
     const newlinePath = 'src/line\nbreak.ts';
     const newlineHead = commit(second.repo, newlinePath, 'export {};\n', 'newline path');
     expect(requiredReviewLanes({ repo: second.repo, ackHead: second.base, head: newlineHead })).toEqual(ALL_LANES);
+  });
+
+  it('REQ-AGENT-040: reduces a proven comment-only source delta to the code lane alone', async () => {
+    const { requiredReviewLanes } = await plannedHelpers();
+    const { repo } = makeRepo();
+    const seeded = commit(repo, 'src/a.ts', 'const x = 1; // one\nconst y = 2;\n', 'seed');
+    const reworded = commit(repo, 'src/a.ts', 'const x = 1; // uno\nconst y = 2;\n', 'reword the comment');
+    expect(requiredReviewLanes({ repo, ackHead: seeded, head: reworded, prover: PROVER })).toEqual(['code-reviewer']);
+
+    // The reduction is one-directional: no prover, no reduction.
+    expect(requiredReviewLanes({ repo, ackHead: seeded, head: reworded, prover: join(repo, 'absent.mjs') })).toEqual(ALL_LANES);
+
+    const rewritten = commit(repo, 'src/a.ts', 'const x = 9; // uno\nconst y = 2;\n', 'change the code');
+    expect(requiredReviewLanes({ repo, ackHead: reworded, head: rewritten, prover: PROVER })).toEqual(ALL_LANES);
+  });
+
+  it('REQ-AGENT-040: an inert source delta still earns the lanes its other paths touch, and any undecidable file keeps all three', async () => {
+    const { requiredReviewLanes } = await plannedHelpers();
+    const cases: Array<{ name: string; also?: [string, string]; expected: ReviewLane[] }> = [
+      { name: 'comment only', expected: ['code-reviewer'] },
+      { name: 'comment plus spec', also: ['sdd/spec/agents.md', 'spec\n'], expected: ALL_LANES },
+      { name: 'comment plus docs', also: ['documentation/security.md', 'docs\n'], expected: ['code-reviewer', 'doc-updater'] },
+      // An added file changes the module set even when its body is all comments.
+      { name: 'comment plus added source', also: ['src/added.ts', '// only a comment\n'], expected: ALL_LANES },
+    ];
+
+    for (const [index, testCase] of cases.entries()) {
+      const { repo } = makeRepo();
+      const seeded = commit(repo, 'src/a.ts', 'const x = 1; // one\n', 'seed');
+      write(repo, 'src/a.ts', `const x = 1; // ${index}\n`);
+      if (testCase.also) write(repo, testCase.also[0], testCase.also[1]);
+      git(repo, 'add', '-A');
+      git(repo, 'commit', '-m', testCase.name);
+      expect(requiredReviewLanes({ repo, ackHead: seeded, head: git(repo, 'rev-parse', 'HEAD'), prover: PROVER }), testCase.name)
+        .toEqual(testCase.expected);
+    }
+
+    // JSX text is content, so .tsx is ineligible however the delta reads.
+    const { repo } = makeRepo();
+    const seeded = commit(repo, 'src/a.tsx', 'export const a = 1; // one\n', 'seed');
+    const reworded = commit(repo, 'src/a.tsx', 'export const a = 1; // uno\n', 'reword');
+    expect(requiredReviewLanes({ repo, ackHead: seeded, head: reworded, prover: PROVER })).toEqual(ALL_LANES);
+  });
+
+  it('REQ-AGENT-040: Pi and Claude resolve the same range to the same lanes', async () => {
+    const { requiredReviewLanes } = await plannedHelpers();
+    const { repo } = makeRepo();
+    const seeded = commit(repo, 'src/a.ts', 'const x = 1; // one\n', 'seed');
+    const reworded = commit(repo, 'src/a.ts', 'const x = 1; // uno\n', 'reword');
+    const rewritten = commit(repo, 'src/a.ts', 'const x = 9; // uno\n', 'change the code');
+    write(repo, 'src/a.ts', 'const x = 9; // tres\n');
+    write(repo, 'sdd/spec/agents.md', 'spec\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-m', 'comment plus spec');
+    const mixed = git(repo, 'rev-parse', 'HEAD');
+    const docsOnly = commit(repo, 'documentation/security.md', 'docs\n', 'docs');
+
+    for (const [base, head, name] of [
+      [seeded, reworded, 'comment only'],
+      [reworded, rewritten, 'code change'],
+      [rewritten, mixed, 'comment plus spec'],
+      [mixed, docsOnly, 'docs only'],
+    ] as const) {
+      // The shell classifier resolves the prover relative to its own location,
+      // so both runtimes run the one program this range is decided by.
+      const claude = execFileSync(
+        'bash',
+        ['-c', `source ${JSON.stringify(LANE_CLASSIFIER)}; compute_required_lanes "$1" "$2"`, 'bash', base, head],
+        { cwd: repo, encoding: 'utf8' },
+      ).trim().split(/\s+/).filter(Boolean);
+      expect(claude, name).toEqual(requiredReviewLanes({ repo, ackHead: base, head, prover: PROVER }));
+    }
   });
 
   it('REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements', async () => {

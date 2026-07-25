@@ -10,7 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { project } from '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/inert-source-delta.mjs';
+import { project } from '../../preseed/agents/claude/skills/review-scope/scripts/inert-source-delta.mjs';
 
 describe('inert-source-delta project()', () => {
   it('projects a comment-only edit to an identical form', () => {

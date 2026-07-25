@@ -130,8 +130,8 @@ describe('getPreseedKeysNotInMode tier gating', () => {
     expect(keys).not.toContain('.claude/rules/common.md');
   });
 
-  it('contextModeEnabled=true in advanced mode returns only retired keys (everything else is in scope)', () => {
-    expect(getPreseedKeysNotInMode('advanced', true)).toEqual([...RETIRED_PRESEED_KEYS]);
+  it('contextModeEnabled=true in advanced mode returns empty (everything is in scope)', () => {
+    expect(getPreseedKeysNotInMode('advanced', true)).toEqual([]);
   });
 });
 
@@ -178,11 +178,12 @@ describe('reconcileAgentConfigs tier gating', () => {
       contextModeEnabled: false,
     });
 
-    // 2 advanced non-context-mode files written, 2 context-mode files deleted
+    // 2 advanced non-context-mode files written, 2 context-mode files deleted,
+    // plus the retirement sweep every mode issues.
     expect(result.written).toHaveLength(2);
     expect(result.deleted).toContain('.claude/plugins/context-mode/.claude-plugin/plugin.json');
     expect(result.deleted).toContain('.claude/plugins/context-mode/README.md');
-    expect(result.deleted).toHaveLength(2);
+    expect(result.deleted).toHaveLength(2 + RETIRED_PRESEED_KEYS.length);
   });
 
   it('Standard mode never deploys context-mode regardless of contextModeEnabled', async () => {

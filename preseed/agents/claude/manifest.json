@@ -124,11 +124,6 @@
       "advanced"
     ]
   },
-  "plugins/codeflare-hooks/scripts/lib/inert-source-delta.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/codeflare-memory/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"
@@ -644,6 +639,11 @@
     ]
   },
   "skills/review-scope/scripts/build-review-packet.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/inert-source-delta.mjs": {
     "modes": [
       "advanced"
     ]
