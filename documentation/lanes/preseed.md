@@ -670,7 +670,7 @@ correctly by excluding keys that have a variant in the target mode.
 
 ## Settings.json Merge
 
-Implements [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) AC3 - AC5.
+Implements [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) AC3 - AC5, AC7.
 
 `entrypoint.sh` merges settings into `~/.claude/settings.json`
 using a two-phase strategy. Non-hooks settings (statusLine,
@@ -706,6 +706,14 @@ Handles three cases:
   pre-existing settings)
 - **File malformed**: Skips with warning (includes the jq error
   text), does not overwrite
+
+Both literals also set `"disableAgentView": true`. Claude Code
+otherwise replaces the terminal with a full-screen agent view — a
+dispatch input plus a left/right session switcher — whenever a
+background agent starts, and that switcher is unusable on a mobile
+terminal. Disabling it also removes `claude agents`, `--bg`, and
+`/background`. Background subagents themselves keep running, so the
+memory and vault capture hooks are unaffected.
 
 ## Plugin Enablement
 
