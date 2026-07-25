@@ -59,23 +59,31 @@
      Colors - Semantic
      ========================================================================== */
 
+  /* Semantic channel triplets. Every alpha variant of a semantic colour is
+     derived from these via `rgb(var(--…-rgb) / α)`, so retuning the base colour
+     propagates to the glows, borders and tinted backgrounds built on it instead
+     of leaving hardcoded rgba() copies behind. */
+  --color-success-rgb: 34 197 94;
+  --color-warning-rgb: 245 158 11;
+  --color-error-rgb: 239 68 68;
+
   /* Success */
   --color-success: #22c55e;        /* Green 500 */
   --color-success-hover: #16a34a;  /* Green 600 */
   --color-success-strong: #15803d; /* Green 700 */
-  --color-success-muted: rgba(34, 197, 94, 0.15);
-  --color-success-bg: rgba(34, 197, 94, 0.1);
+  --color-success-muted: rgb(var(--color-success-rgb) / 0.15);
+  --color-success-bg: rgb(var(--color-success-rgb) / 0.1);
 
   /* Warning */
   --color-warning: #f59e0b;        /* Amber 500 */
-  --color-warning-muted: rgba(245, 158, 11, 0.15);
+  --color-warning-muted: rgb(var(--color-warning-rgb) / 0.15);
 
   /* Error */
   --color-error: #ef4444;          /* Red 500 */
   --color-error-hover: #dc2626;    /* Red 600 */
-  --color-error-muted: rgba(239, 68, 68, 0.15);
-  --color-error-bg: rgba(239, 68, 68, 0.1);
-  --color-error-border: rgba(239, 68, 68, 0.3);
+  --color-error-muted: rgb(var(--color-error-rgb) / 0.15);
+  --color-error-bg: rgb(var(--color-error-rgb) / 0.1);
+  --color-error-border: rgb(var(--color-error-rgb) / 0.3);
 
   /* Brand — third-party marks. Semantic tokens above must not be reused for
      these: the values coincide today, but "GitHub blue" and "warning amber"

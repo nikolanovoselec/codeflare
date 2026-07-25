@@ -1,9 +1,17 @@
 import { Component, JSX } from 'solid-js';
 import Icon from '../Icon';
 
+// The button's identity colour, as a token name rather than a colour: a literal
+// would interpolate to `var(#2563eb)`, which is invalid and paints nothing.
+type ActionTone =
+  | '--color-action-setup'
+  | '--color-action-users'
+  | '--color-action-subscriptions'
+  | '--color-action-docs'
+  | '--color-action-agents';
+
 interface AdminActionButtonProps {
-  /** A `--color-action-*` token name; the button's identity colour. */
-  tone: string;
+  tone: ActionTone;
   /** MDI path. */
   icon: string;
   label: JSX.Element;
@@ -24,7 +32,8 @@ const AdminActionButton: Component<AdminActionButtonProps> = (props) => (
     onClick={props.onClick}
     data-testid={props.testId}
   >
-    <Icon path={props.icon} size={24} style={{ color: 'white' }} />
+    {/* The icon fills with currentColor, which the button class already sets. */}
+    <Icon path={props.icon} size={24} />
     <span>{props.label}</span>
   </button>
 );

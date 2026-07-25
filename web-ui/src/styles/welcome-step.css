@@ -48,12 +48,12 @@
 
         .token-status--success {
           background: rgba(22, 101, 52, 0.2);
-          border: 1px solid rgba(34, 197, 94, 0.15);
+          border: 1px solid rgb(var(--color-success-rgb) / 0.15);
         }
 
         .token-status--error {
           background: rgba(127, 29, 29, 0.2);
-          border: 1px solid rgba(239, 68, 68, 0.15);
+          border: 1px solid rgb(var(--color-error-rgb) / 0.15);
         }
 
         .token-status-icon {

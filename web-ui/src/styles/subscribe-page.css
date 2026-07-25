@@ -151,7 +151,7 @@
    must override .subscribe-lifeline-stop--selected specificity */
 .subscribe-lifeline-icon.subscribe-lifeline-icon--current {
   border: 2px solid var(--color-success) !important;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.3) !important;
+  box-shadow: 0 0 8px rgb(var(--color-success-rgb) / 0.3) !important;
 }
 
 .subscribe-mode-pro-label {
@@ -229,7 +229,7 @@
 .subscribe-tier-badge {
   font-size: var(--text-sm); color: var(--color-success);
   letter-spacing: 0.02em;
-  background: var(--color-success-bg); border: 1px solid rgba(34, 197, 94, 0.2);
+  background: var(--color-success-bg); border: 1px solid rgb(var(--color-success-rgb) / 0.2);
   border-radius: var(--radius-md); padding: var(--space-1) var(--space-2);
   display: inline-block; margin-bottom: var(--space-4);
 }

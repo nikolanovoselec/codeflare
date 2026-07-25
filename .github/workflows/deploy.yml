@@ -130,6 +130,12 @@ jobs:
     # non-main -> integration.
     environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
     outputs:
+      # The authority for what actually deploys. run-name and the concurrency
+      # group resolve the same target but lead with an extra
+      # `github.event_name == 'workflow_run'` clause: they are evaluated before
+      # any job runs, so they cannot read this output. The two agree because a
+      # workflow_run always executes on the default branch, making the ref test
+      # below true on that path too.
       env_name: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
       # Pin to the exact commit that was verified: on workflow_run the SHA whose
       # PR Checks just ended green, on dispatch the SHA the `verify` job above

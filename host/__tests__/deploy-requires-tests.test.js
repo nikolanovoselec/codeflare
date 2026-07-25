@@ -102,6 +102,16 @@ describe('manual deploys cannot skip tests', () => {
       /inputs\.environment/,
       'the run title must resolve the dispatched environment, not a constant'
     );
+
+    // The title is what a reader trusts without opening the run, so it must
+    // resolve the environment exactly as the concurrency group does — the two
+    // expressions are duplicated only because run-name cannot read job outputs.
+    const group = deployYml.match(/^ {2}group: deploy-(.*)$/m);
+    assert.ok(group, 'deploy.yml declares no concurrency group');
+    assert.ok(
+      runName[1].includes(group[1]),
+      'the run title and the concurrency group must resolve the environment identically'
+    );
   });
 
   // A called workflow inherits the CALLER's concurrency context, so two deploy
@@ -117,7 +127,10 @@ describe('manual deploys cannot skip tests', () => {
       'the concurrency_key must be per-run; anything coarser lets one dispatch cancel another'
     );
 
-    const group = testYml.match(/^ {2}group: (.*)$/m);
+    // Anchor on the concurrency block, not on indentation alone — another
+    // top-level mapping could grow its own `group:` key.
+    const concurrency = testYml.slice(testYml.indexOf('\nconcurrency:'));
+    const group = concurrency.match(/^ {2}group: (.*)$/m);
     assert.ok(group, 'test.yml declares no concurrency group');
     assert.match(
       group[1],

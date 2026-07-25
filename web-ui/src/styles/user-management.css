@@ -328,7 +328,7 @@
 }
 
 .user-mgmt-btn--delete:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgb(var(--color-error-rgb) / 0.15);
   border-color: var(--color-error);
 }
 

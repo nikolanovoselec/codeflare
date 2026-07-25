@@ -98,13 +98,13 @@
 
 /* Limited state for dashboard new-session button */
 .dashboard-new-session-btn--limited {
-  border-color: rgba(245, 158, 11, 0.3);
+  border-color: rgb(var(--color-warning-rgb) / 0.3);
   color: var(--color-warning);
 }
 
 .dashboard-new-session-btn--limited:hover {
   background: var(--color-warning-muted);
-  border-color: rgba(245, 158, 11, 0.4);
+  border-color: rgb(var(--color-warning-rgb) / 0.4);
 }
 
 /* ======================================

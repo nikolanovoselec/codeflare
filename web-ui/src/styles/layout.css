@@ -51,13 +51,13 @@ html, body {
 .layout-error button {
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-xs);
-  background: rgba(239, 68, 68, 0.2);
+  background: rgb(var(--color-error-rgb) / 0.2);
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
 }
 
 .layout-error button:hover {
-  background: rgba(239, 68, 68, 0.3);
+  background: rgb(var(--color-error-rgb) / 0.3);
 }
 
 .layout-auth-banner {
@@ -66,7 +66,7 @@ html, body {
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   background: var(--color-warning-muted);
-  border-bottom: 1px solid rgba(245, 158, 11, 0.5);
+  border-bottom: 1px solid rgb(var(--color-warning-rgb) / 0.5);
   color: var(--color-warning);
   font-size: var(--text-sm);
   z-index: 100;
@@ -75,14 +75,14 @@ html, body {
 .layout-auth-banner button {
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-xs);
-  background: rgba(245, 158, 11, 0.25);
+  background: rgb(var(--color-warning-rgb) / 0.25);
   border-radius: var(--radius-sm);
   color: var(--color-warning);
   transition: background var(--transition-fast);
 }
 
 .layout-auth-banner button:hover {
-  background: rgba(245, 158, 11, 0.4);
+  background: rgb(var(--color-warning-rgb) / 0.4);
 }
 
 .layout-auth-banner .layout-banner-dismiss {

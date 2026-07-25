@@ -712,7 +712,9 @@ otherwise replaces the terminal with a full-screen agent view — a
 dispatch input plus a left/right session switcher — whenever a
 background agent starts, and that switcher is unusable on a mobile
 terminal. The setting also gates the agent-listing command
-(`claude agents --json`), which refuses to run while it is set.
+(`claude agents --json`), which refuses to run while it is set —
+verified against Claude Code 2.1.219 on 2026-07-25, and upstream
+behaviour rather than something this repository implements.
 Background subagents themselves keep running, so the memory and vault
 capture hooks are unaffected.
 

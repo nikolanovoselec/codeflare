@@ -45,8 +45,12 @@ describe('design token integrity', () => {
       }
     }
 
+    // Guard the scan itself: if the regex, the extension filter or SKIP ever
+    // regresses to matching nothing, an empty reference set would make the
+    // assertion below pass while the guard has silently stopped guarding.
     expect(files.length).toBeGreaterThan(0);
     expect(defined.size).toBeGreaterThan(0);
+    expect(references.length).toBeGreaterThan(0);
 
     for (const ref of references) {
       if (!defined.has(ref.name)) dangling.push(`${ref.name} (${ref.file})`);
