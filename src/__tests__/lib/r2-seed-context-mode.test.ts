@@ -63,6 +63,7 @@ vi.mock('../../lib/agent-seed.generated', () => ({
 import {
   getConfigsForMode,
   getPreseedKeysNotInMode,
+  RETIRED_PRESEED_KEYS,
   reconcileAgentConfigs,
   reseedContextModePlugin,
 } from '../../lib/r2-seed';
@@ -129,8 +130,8 @@ describe('getPreseedKeysNotInMode tier gating', () => {
     expect(keys).not.toContain('.claude/rules/common.md');
   });
 
-  it('contextModeEnabled=true in advanced mode returns empty (everything is in scope)', () => {
-    expect(getPreseedKeysNotInMode('advanced', true)).toEqual([]);
+  it('contextModeEnabled=true in advanced mode returns only retired keys (everything else is in scope)', () => {
+    expect(getPreseedKeysNotInMode('advanced', true)).toEqual([...RETIRED_PRESEED_KEYS]);
   });
 });
 

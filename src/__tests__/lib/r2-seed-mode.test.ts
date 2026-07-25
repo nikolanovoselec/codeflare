@@ -71,6 +71,7 @@ vi.mock('../../lib/agent-seed.generated', () => ({
 import {
   getConfigsForMode,
   getPreseedKeysNotInMode,
+  RETIRED_PRESEED_KEYS,
   seedAgentConfigs,
   deleteNonModeConfigs,
   reconcileAgentConfigs,
@@ -132,6 +133,7 @@ describe('getPreseedKeysNotInMode', () => {
     expect(keys).toEqual([
       '.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json',
       '.claude/skills/consult-llm/SKILL.md',
+      ...RETIRED_PRESEED_KEYS,
     ]);
   });
 
@@ -141,8 +143,10 @@ describe('getPreseedKeysNotInMode', () => {
     expect(keys).not.toContain('.codex/AGENTS.md');
   });
 
-  it('returns empty array for "advanced"', () => {
-    expect(getPreseedKeysNotInMode('advanced')).toEqual([]);
+  it('returns only the retired keys for "advanced"', () => {
+    // Advanced is the superset mode, so nothing is out-of-mode; what remains is
+    // the retirement sweep, which belongs to no mode in this build.
+    expect(getPreseedKeysNotInMode('advanced')).toEqual([...RETIRED_PRESEED_KEYS]);
   });
 });
 

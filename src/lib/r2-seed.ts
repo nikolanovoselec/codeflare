@@ -222,6 +222,28 @@ export function getConfigsForMode(
  * content per mode) are excluded - they were just seeded and must not be
  * deleted.
  */
+/**
+ * Keys an earlier build seeded that the current build no longer produces.
+ *
+ * getPreseedKeysNotInMode derives its delete list FROM AGENTS_SEEDED_CONFIGS, so
+ * a file dropped from the manifest also disappears from that list and would
+ * otherwise survive in the bucket forever. That is harmless for a file whose
+ * content moved nowhere, and actively wrong for one whose content was folded
+ * into another file: the retired copy keeps loading beside its replacement and
+ * the same policy is delivered twice.
+ *
+ * Listing the bucket would find these, but this module deliberately never
+ * scans it, so retirements are enumerated instead. An entry may be removed once
+ * every environment has run a deploy that processed it.
+ */
+export const RETIRED_PRESEED_KEYS: readonly string[] = [
+  // Absorbed into .claude/rules/engineering-constitution.md (2026-07-25):
+  // working principles, coding concretes, and the graph-first discipline.
+  '.claude/rules/karpathy.md',
+  '.claude/rules/common/coding-style.md',
+  '.claude/rules/graph-first.md',
+];
+
 export function getPreseedKeysNotInMode(
   mode: SessionMode,
   contextModeEnabled = false,
@@ -236,10 +258,13 @@ export function getPreseedKeysNotInMode(
       })
       .map((doc) => doc.key)
   );
-  return AGENTS_SEEDED_CONFIGS
+  const outOfMode = AGENTS_SEEDED_CONFIGS
     .filter((doc) => isPiContextModeKey(doc.key) || !doc.modes.includes(mode) || (!contextModeEnabled && isContextModeKey(doc.key)))
-    .map((doc) => doc.key)
-    .filter((k) => !keysInMode.has(k));
+    .map((doc) => doc.key);
+  // Retired keys are unconditional: they belong to no mode in this build. The
+  // keysInMode guard still applies, so re-introducing one of these paths later
+  // cannot delete the freshly seeded file.
+  return [...outOfMode, ...RETIRED_PRESEED_KEYS].filter((k) => !keysInMode.has(k));
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
+import { RETIRED_PRESEED_KEYS } from '../../lib/r2-seed';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
@@ -431,6 +432,39 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     expect(localBuildBlockReason('git status', fs)).toBeUndefined();
   });
 
+});
+
+describe('Retired preseed keys', () => {
+  it('never lists a key the current build still seeds', () => {
+    // Seed cleanup derives its delete list from the generated set, so a file
+    // dropped from the manifest is never queued for deletion and survives in
+    // the bucket beside whatever replaced it. RETIRED_PRESEED_KEYS closes that
+    // gap, which makes the inverse the dangerous mistake: a path listed as
+    // retired while still live would be deleted immediately after being
+    // written. This is the assertion that catches it.
+    const live = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
+    for (const key of RETIRED_PRESEED_KEYS) {
+      expect(live.has(key), `${key} is retired but still in the generated seed`).toBe(false);
+    }
+  });
+
+  it('lists the rules absorbed into the engineering constitution', () => {
+    // Their content now ships inside the constitution; leaving the standalone
+    // copies in the bucket would deliver the same policy twice.
+    for (const key of [
+      '.claude/rules/karpathy.md',
+      '.claude/rules/common/coding-style.md',
+      '.claude/rules/graph-first.md',
+    ]) {
+      expect(RETIRED_PRESEED_KEYS).toContain(key);
+    }
+    const constitution = AGENTS_SEEDED_CONFIGS.find(
+      (doc) => doc.key === '.claude/rules/engineering-constitution.md',
+    );
+    expect(constitution!.content).toMatch(/^## Working principles$/m);
+    expect(constitution!.content).toMatch(/^## Coding concretes$/m);
+    expect(constitution!.content).toMatch(/^## Graph first$/m);
+  });
 });
 
 describe('Reviewer agents can access their enforce policy', () => {
