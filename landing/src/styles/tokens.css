@@ -51,6 +51,8 @@
   --accent: #ff5c3c;
   --accent-rgb: 255 92 60;
   --accent-hover: #ff734f;
+  /* Ink that sits ON the accent — dark enough to stay legible on both shades */
+  --accent-contrast: #160a06;
   --accent-soft: rgb(var(--accent-rgb) / 0.12);
   --accent-line: rgb(var(--accent-rgb) / 0.32);
 

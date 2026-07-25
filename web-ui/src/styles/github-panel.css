@@ -310,7 +310,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-6);
-  color: var(--color-danger);
+  color: var(--color-error);
   text-align: center;
 }
 
@@ -487,9 +487,9 @@
 
 .clone-picker-result--exists,
 .clone-picker-result--failed {
-  color: var(--color-danger);
+  color: var(--color-error);
   background: transparent;
-  border: 1px solid var(--color-danger);
+  border: 1px solid var(--color-error);
 }
 
 .clone-picker-result-text {

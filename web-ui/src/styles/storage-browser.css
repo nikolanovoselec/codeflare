@@ -298,7 +298,7 @@
 }
 
 .storage-pagination-status--error {
-  color: var(--color-danger);
+  color: var(--color-error);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -313,7 +313,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-6);
-  color: var(--color-danger);
+  color: var(--color-error);
   text-align: center;
 }
 
@@ -376,7 +376,7 @@
 }
 
 .upload-item--error .upload-item-status {
-  color: var(--color-danger);
+  color: var(--color-error);
 }
 
 .storage-action-btn {

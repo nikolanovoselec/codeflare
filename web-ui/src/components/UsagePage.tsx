@@ -50,7 +50,11 @@ const UsagePage: Component = () => {
   const hasQuota = () => quotaSeconds() !== null;
 
   const barColor = () =>
-    usagePercent() >= 100 ? '#ef4444' : usagePercent() >= 80 ? '#f59e0b' : '#3b82f6';
+    usagePercent() >= 100
+      ? 'var(--color-error)'
+      : usagePercent() >= 80
+        ? 'var(--color-warning)'
+        : 'var(--color-info)';
 
   return (
     <div class="login-page">

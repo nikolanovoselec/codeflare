@@ -8,6 +8,7 @@ declare global {
 }
 
 import { Component, onMount, onCleanup, createSignal, createEffect, createMemo, Show, For, type JSX } from 'solid-js';
+import PageFooter from './PageFooter';
 import {
   mdiRocketLaunchOutline,
   mdiSourceBranch,
@@ -127,7 +128,7 @@ const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string | (() => JSX.El
   { icon: mdiRobotOutline, text: 'Choose your agent — or just use Bash' },
   { icon: mdiConsole, text: 'Full Linux terminal per session' },
   { icon: mdiSync, text: 'Persistent storage with auto-sync' },
-  { icon: mdiSourceBranch, text: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> built in</> },
+  { icon: mdiSourceBranch, text: () => <><span style={{ color: 'var(--color-brand-github)' }}>GitHub</span> & <span style={{ color: 'var(--color-brand-cloud)' }}>Cloudflare</span> built in</> },
   { icon: mdiLightningBolt, text: 'Specialized skills to build & deploy' },
   { icon: mdiMicrophonePlus, text: 'Voice input — talk to your terminal' },
   { icon: mdiFileDocumentOutline, text: 'One click to start, zero to configure' },
@@ -686,10 +687,10 @@ const SubscribePage: Component = () => {
                             // Fallback: try simpler hours/month split
                             const simple = text.match(/^(.+?)\s*\/\s*(month.*)$/);
                             if (!simple) return text;
-                            return <>{<span style={{ color: '#3b82f6' }}>{simple[1]}</span>} / {<span style={{ color: '#f38020' }}>{simple[2]}</span>}</>;
+                            return <>{<span style={{ color: 'var(--color-brand-github)' }}>{simple[1]}</span>} / {<span style={{ color: 'var(--color-brand-cloud)' }}>{simple[2]}</span>}</>;
                           }
                           const [, hours, month, sep, count, sessions] = match;
-                          return <>{<span style={{ color: '#3b82f6' }}>{hours}</span>} / {<span style={{ color: '#f38020' }}>{month}</span>} {sep}{<span style={{ color: '#22c55e' }}>{count}</span>}{sessions}</>;
+                          return <>{<span style={{ color: 'var(--color-brand-github)' }}>{hours}</span>} / {<span style={{ color: 'var(--color-brand-cloud)' }}>{month}</span>} {sep}{<span style={{ color: 'var(--color-success)' }}>{count}</span>}{sessions}</>;
                         })()}</span>
                       </div>
 
@@ -852,7 +853,7 @@ const SubscribePage: Component = () => {
                       Voice input requires a compatible browser like Chrome or Samsung Internet.
                     </p>
                     <p class="subscribe-mode-card-feature" style={{ "margin-top": "0.5rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
-                      Coding agent subscription is <span style={{ color: '#22c55e', "font-weight": "700" }}>NOT INCLUDED</span>, bring your own.
+                      Coding agent subscription is <span style={{ color: 'var(--color-success)', "font-weight": "700" }}>NOT INCLUDED</span>, bring your own.
                     </p>
                   </div>
                 </div>
@@ -869,8 +870,7 @@ const SubscribePage: Component = () => {
           </Show>
         </Show>
 
-        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
-        <p class="login-footer login-footer-legal"><a href="https://graymatter.ch" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', 'text-decoration': 'none' }}>&copy; 2026 Gray Matter GmbH</a></p>
+        <PageFooter />
       </div>
     </div>
   );

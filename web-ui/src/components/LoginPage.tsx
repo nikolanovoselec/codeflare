@@ -3,6 +3,7 @@ import { getAuthProviders, getAuthStatus } from '../api/client';
 import type { AuthProvider } from '../types';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
+import PageFooter from './PageFooter';
 import { AGENTIC_ENGINE_LABEL, FEATURES } from '../lib/marketing-content';
 import { logger } from '../lib/logger';
 import '../styles/login-page.css';
@@ -184,8 +185,7 @@ const LoginPage: Component = () => {
           </div>
         </Show>
 
-        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
-        <p class="login-footer login-footer-legal"><a href="https://graymatter.ch" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', 'text-decoration': 'none' }}>&copy; 2026 Gray Matter GmbH</a></p>
+        <PageFooter />
       </div>
     </div>
   );

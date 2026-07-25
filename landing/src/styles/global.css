@@ -285,12 +285,12 @@ svg {
 
 .btn-primary {
   background: var(--accent);
-  color: #160a06;
+  color: var(--accent-contrast);
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
-  color: #160a06;
+  color: var(--accent-contrast);
 }
 
 .btn-ghost {

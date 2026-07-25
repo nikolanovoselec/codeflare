@@ -86,9 +86,9 @@
 }
 
 .subscribe-manage-button {
-  color: #f38020; border-color: rgba(243, 128, 32, 0.25);
+  color: var(--color-brand-cloud); border-color: rgba(243, 128, 32, 0.25);
 }
-.subscribe-manage-button:hover { color: #ff9633; border-color: rgba(243, 128, 32, 0.5); }
+.subscribe-manage-button:hover { color: var(--color-brand-cloud-hover); border-color: rgba(243, 128, 32, 0.5); }
 .subscribe-manage-button:disabled { opacity: 0.5; cursor: wait; }
 
 /* ── Mode section: toggle + Pro card + Standard card ── */
@@ -311,7 +311,7 @@
   display: inline-block;
   font-size: 0.55rem;
   font-weight: var(--font-bold);
-  color: var(--color-accent, #3b82f6);
+  color: var(--color-accent);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-left: 0.4rem;

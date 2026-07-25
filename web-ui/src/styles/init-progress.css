@@ -130,11 +130,11 @@
 }
 
 .init-progress-bar-fill--complete {
-  background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+  background: linear-gradient(90deg, var(--color-success-hover) 0%, var(--color-success) 100%);
 }
 
 .init-progress-bar-fill--error {
-  background: linear-gradient(90deg, #dc2626 0%, #ef4444 100%);
+  background: linear-gradient(90deg, var(--color-error-hover) 0%, var(--color-error) 100%);
 }
 
 .init-progress-bar-text {

@@ -277,7 +277,7 @@
 
 .user-mgmt-tier-select {
   padding: var(--space-1) var(--space-2);
-  background: var(--color-bg-tertiary, #1f1f23);
+  background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   color: var(--color-text-primary);

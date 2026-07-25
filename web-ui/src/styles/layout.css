@@ -65,9 +65,9 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
-  background: rgba(245, 158, 11, 0.15);
+  background: var(--color-warning-muted);
   border-bottom: 1px solid rgba(245, 158, 11, 0.5);
-  color: #f59e0b;
+  color: var(--color-warning);
   font-size: var(--text-sm);
   z-index: 100;
 }
@@ -77,7 +77,7 @@ html, body {
   font-size: var(--text-xs);
   background: rgba(245, 158, 11, 0.25);
   border-radius: var(--radius-sm);
-  color: #f59e0b;
+  color: var(--color-warning);
   transition: background var(--transition-fast);
 }
 
