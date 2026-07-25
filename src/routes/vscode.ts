@@ -136,7 +136,7 @@ function warmStartedAt(url: URL): number {
 
 /**
  * OpenVSCode is base-path-native and receives its own URL unchanged, so the
- * counter this route added must not survive into the forwarded request.
+ * episode start this route added must not survive into the forwarded request.
  */
 function stripWarmParam(url: URL): string {
   if (!url.searchParams.has(WARM_PARAM)) return url.toString();
