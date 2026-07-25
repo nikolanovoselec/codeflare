@@ -77,18 +77,18 @@
   --color-error-bg: rgba(239, 68, 68, 0.1);
   --color-error-border: rgba(239, 68, 68, 0.3);
 
-  /* Info */
-  --color-info-hover: #2563eb;     /* Blue 600 */
-
   /* Brand — third-party marks. Semantic tokens above must not be reused for
      these: the values coincide today, but "GitHub blue" and "warning amber"
      are free to drift apart. */
   --color-brand-github: #3b82f6;
   --color-brand-cloud: #f38020;
   --color-brand-cloud-hover: #ff9633;
+  --color-brand-openai: #10a37f;
+  --color-brand-google: #4285f4;
 
   /* Info */
   --color-info: #3b82f6;           /* Blue 500 */
+  --color-info-hover: #2563eb;     /* Blue 600 */
 
   /* ==========================================================================
      Colors - Special

@@ -99,7 +99,7 @@ const LlmKeysSection: Component = () => {
       <ProviderRow
         icon={OpenAIIcon}
         name="OpenAI"
-        brandColor="#10a37f"
+        brandColor="var(--color-brand-openai)"
         externalUrl="https://platform.openai.com/api-keys"
         externalLabel="Open OpenAI"
         placeholder="sk-..."
@@ -116,7 +116,7 @@ const LlmKeysSection: Component = () => {
       <ProviderRow
         icon={GeminiIcon}
         name="Gemini"
-        brandColor="#4285f4"
+        brandColor="var(--color-brand-google)"
         externalUrl="https://aistudio.google.com/apikey"
         externalLabel="Open Google AI Studio"
         placeholder="AI..."

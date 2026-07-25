@@ -1,4 +1,6 @@
 import { Component } from 'solid-js';
+// Owns its own styles so a future caller cannot render it unstyled.
+import '../styles/login-page.css';
 
 /**
  * Footer shared by LoginPage, OnboardingPage and SubscribePage. The markup was

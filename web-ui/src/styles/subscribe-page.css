@@ -58,13 +58,13 @@
 
 .subscribe-action-button {
   display: inline-block; padding: var(--space-3) var(--space-8);
-  background: var(--color-accent); border: 1px solid rgba(59, 130, 246, 0.5); border-radius: var(--radius-xl);
+  background: var(--color-accent); border: 1px solid hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.5); border-radius: var(--radius-xl);
   color: var(--color-accent-contrast); font-size: var(--text-base); font-weight: var(--font-medium);
   text-decoration: none; cursor: pointer;
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 16px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.3);
   transition: all 150ms ease-out; margin-bottom: var(--space-4);
 }
-.subscribe-action-button:hover:not(:disabled) { background: var(--color-info-hover); box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4); transform: translateY(-1px); }
+.subscribe-action-button:hover:not(:disabled) { background: var(--color-accent-hover); box-shadow: 0 6px 24px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.4); transform: translateY(-1px); }
 .subscribe-action-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .subscribe-logout-button {
@@ -121,7 +121,7 @@
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-mode-toggle-btn--active {
-  background: rgba(59, 130, 246, 0.15); color: var(--color-text-primary);
+  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15); color: var(--color-text-primary);
 }
 .subscribe-mode-toggle-btn:hover:not(.subscribe-mode-toggle-btn--active):not(:disabled) { color: var(--color-text-secondary); }
 .subscribe-mode-toggle-btn--disabled {
@@ -187,12 +187,12 @@
 .subscribe-detail-panel {
   background: rgba(24, 24, 27, 0.65);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 16px;
+  border: 1px solid hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.2); border-radius: 16px;
   padding: var(--space-8); margin-bottom: var(--space-8); width: 100%;
   max-width: 420px; margin-left: auto; margin-right: auto;
   text-align: center;
   animation: fadeSlideIn 0.5s ease-out;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.05) inset;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.05) inset;
 }
 
 .subscribe-detail-name {
@@ -241,8 +241,8 @@
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-tier-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.2); }
-.subscribe-tier-btn--primary { background: var(--color-accent); color: var(--color-accent-contrast); border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
-.subscribe-tier-btn--primary:hover:not(:disabled) { background: var(--color-info-hover); border-color: rgba(59, 130, 246, 0.7); box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35); }
+.subscribe-tier-btn--primary { background: var(--color-accent); color: var(--color-accent-contrast); border-color: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.5); box-shadow: 0 2px 8px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.25); }
+.subscribe-tier-btn--primary:hover:not(:disabled) { background: var(--color-accent-hover); border-color: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.7); box-shadow: 0 4px 16px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.35); }
 .subscribe-tier-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .subscribe-turnstile { margin-top: var(--space-4); display: flex; justify-content: center; }

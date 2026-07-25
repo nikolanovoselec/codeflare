@@ -6,7 +6,10 @@ import { resolve, join } from 'node:path';
 // Same guard as web-ui's token-integrity test: a `var(--x)` with no fallback and
 // no definition invalidates the whole declaration silently. Landing sets some
 // tokens per-element from markup (`style={`--i:${i}`}`), so .astro files count
-// as definition sources and fallback-carrying references are excluded.
+// as definition sources and fallback-carrying references are excluded. Tokens
+// assigned solely via element.style.setProperty() are not seen as definitions;
+// today those (--hero-kicker-width, --ticker-offset) are only ever referenced
+// with a fallback, and a future runtime-only one would fail loudly by name.
 const SRC = resolve(__dirname, '..');
 const SKIP = /(^|\/)(__tests__|node_modules)(\/|$)/;
 
