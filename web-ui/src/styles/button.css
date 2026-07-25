@@ -53,7 +53,7 @@
         }
 
         .button[data-variant="secondary"]:hover:not(:disabled) {
-          background: var(--color-bg-hover);
+          background: var(--color-bg-muted);
           border-color: var(--color-text-muted);
         }
 
@@ -68,7 +68,7 @@
         }
 
         .button[data-variant="ghost"]:hover:not(:disabled) {
-          background: var(--color-bg-hover);
+          background: var(--color-bg-muted);
           color: var(--color-text-primary);
         }
 

@@ -91,7 +91,7 @@
         }
 
         .progress-step-item.pending .step-icon {
-          color: var(--color-text-tertiary);
+          color: var(--color-text-muted);
         }
 
         .step-label {
