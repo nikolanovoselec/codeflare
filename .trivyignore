@@ -753,6 +753,8 @@ CVE-2026-59873
 CVE-2026-59874
 # brace-expansion 5.0.5/5.0.6 — exponential-time DoS; fixed 5.0.7:
 CVE-2026-13149
+# brace-expansion 5.0.5 — DoS via unbounded expansion length; fixed 5.0.8:
+CVE-2026-14257
 # shell-quote 1.8.3 — inefficient-parse DoS; fixed 1.9.0 (npm has no 1.8.x fix release):
 CVE-2026-13311
 # grpc-go in the apt-distributed gh binary — bundles an xDS RBAC fail-open
