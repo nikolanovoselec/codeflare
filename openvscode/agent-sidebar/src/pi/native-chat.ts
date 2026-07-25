@@ -222,8 +222,11 @@ function boundedTail<T, U>(
     break;
   }
   // Walked newest-first to decide what survives; the replay itself must still
-  // read oldest-first or the model sees the conversation backwards.
-  return kept.toReversed();
+  // read oldest-first or the model sees the conversation backwards. `kept` is
+  // built here and never escapes, so reversing it in place mutates nothing the
+  // caller owns -- and it avoids toReversed(), which needs a newer lib target
+  // than this extension compiles against.
+  return kept.reverse();
 }
 
 function truncateRecord<T>(value: T, maxBytes: number): T {
