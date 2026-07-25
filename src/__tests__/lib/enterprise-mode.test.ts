@@ -55,7 +55,7 @@ describe('REQ-ENTERPRISE-001 AC1 / REQ-ENTERPRISE-006 AC3: isEnterpriseMode', ()
   });
 });
 
-describe('REQ-ENTERPRISE-001 AC2: getEffectiveTier enterprise override', () => {
+describe('REQ-ENTERPRISE-001 AC1: getEffectiveTier enterprise override', () => {
   it("returns 'unlimited' for a pending user when enterprise", () => {
     expect(getEffectiveTier('pending', 'pending', undefined, undefined, enterpriseEnv)).toBe('unlimited');
   });

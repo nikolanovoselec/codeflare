@@ -345,8 +345,8 @@ describe('REQ-AGENT-078: OAuth mode — AI Gateway data-plane (gateway.ai.cloudf
 
 describe('REQ-AGENT-078: enterprise isolation — the AI Gateway host is OAuth-mode only', () => {
   it('has gateway.ai.cloudflare.com in the OAuth host list but NEVER in the enterprise browser host list', () => {
-    // Enterprise wiring (wireCloudflareBrowserInterception) iterates INTERCEPTED_CF_BROWSER_HOSTS;
-    // OAuth wiring (wireCloudflareApiInterception) iterates INTERCEPTED_CF_OAUTH_HOSTS. If the gateway
+    // Enterprise wiring (browserRendering registry entry) iterates INTERCEPTED_CF_BROWSER_HOSTS;
+    // OAuth wiring (cloudflareOauthApi registry entry) iterates INTERCEPTED_CF_OAUTH_HOSTS. If the gateway
     // host ever leaked into the enterprise list, enterprise would intercept its own LlmInterceptor
     // gateway rewrites and break LLM routing — this pins the separation.
     expect(INTERCEPTED_CF_BROWSER_HOSTS).not.toContain('gateway.ai.cloudflare.com');

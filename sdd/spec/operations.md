@@ -48,7 +48,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../host/__tests__/deploy-requires-tests.test.js)
+**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
 
 **Status:** Implemented
 
@@ -97,6 +97,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml --> <!-- @manual -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
+6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
+7. A Browser IDE image change cannot pass the required PR status unless a non-publishing complete-image smoke succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status) -->
 
 **Constraints:**
 
@@ -110,7 +112,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js)); workflow-trigger, lint, typecheck, and audit ACs verified manually
 
 **Status:** Implemented
 
@@ -151,7 +153,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Containers hibernate after a configurable idle period of no user input (default 30 minutes, range 5 minutes to 2 hours). <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
+1. Containers hibernate after a configurable idle period of no user input (default 30 minutes, settable range 15 minutes to 4 hours; a legacy `5m` value is still accepted for a pre-existing stored preference but is no longer offered in the picker). <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
 2. Hibernated containers consume zero CPU, memory, and disk cost. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 3. Active-container cost is approximately $11/user/month for a typical workload on the default tier. <!-- @manual -->
 
@@ -197,7 +199,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** [Automated test](../../host/__tests__/workflow-deploy-max-instances.test.js)
+**Verification:** Automated test ([workflow-deploy-max-instances](../../host/__tests__/workflow-deploy-max-instances.test.js))
 
 **Status:** Implemented
 
@@ -227,7 +229,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/middleware/rate-limit.test.ts)
+**Verification:** Automated test ([rate-limit](../../src/__tests__/middleware/rate-limit.test.ts))
 
 **Status:** Implemented
 
@@ -287,7 +289,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-shutdown.test.js)
+**Verification:** Automated test ([entrypoint-shutdown](../../host/__tests__/entrypoint-shutdown.test.js))
 
 **Status:** Implemented
 
@@ -302,7 +304,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The container base image is a glibc-based Node.js 24 distribution (Debian bookworm-slim). <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011: Container base image is Debian bookworm-slim) --> <!-- @manual -->
-2. All supported agent CLIs (Claude Code, Codex, Antigravity, Copilot, OpenCode) start without crashes. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC2 (precondition): agent CLI packages are present in the image for Claude Code, Codex, Gemini CLI, Copilot, OpenCode) --> <!-- @manual -->
+2. All supported agent CLIs (Claude Code, Codex, Antigravity, Copilot, OpenCode) start without crashes. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC2 (precondition): agent CLI packages are present in the image for Claude Code, Codex, Antigravity, Copilot, OpenCode) --> <!-- @manual -->
 3. Essential developer tools for terminal-based workflows are pre-installed. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC3: system packages include essential tools: git, ripgrep, neovim, tmux, fzf, jq, python) --> <!-- @manual -->
 
 **Constraints:** None.
@@ -325,7 +327,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Operators can override the default concurrent-instance cap per deployment. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
+1. Operators can override the default concurrent-instance cap per deployment. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012: Per-environment container concurrency limit) --> <!-- @manual -->
 2. The override is independent of resource tier. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012: Per-environment container concurrency limit) --> <!-- @manual -->
 3. The override must be a positive integer. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC3: MAX_INSTANCES must be a positive integer (enforced with regex validation)) --> <!-- @manual -->
 4. The override is applied at deploy time as part of the deployment configuration. <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 AC4: MAX_INSTANCES is applied during deploy via wrangler.toml patching) --> <!-- @manual -->
@@ -363,7 +365,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/lib/access.test.ts)
+**Verification:** Automated test ([access](../../src/__tests__/lib/access.test.ts))
 
 **Status:** Implemented
 
@@ -391,7 +393,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -407,7 +409,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The idle-timeout preference is persisted durably so it survives container-orchestration resets. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (sleepAfter persists across GET/PATCH round-trip) -->
 2. The preference is persisted on both initial bucket configuration and any subsequent updates. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (sleepAfter persists across GET/PATCH round-trip) -->
-3. On startup, the stored preference is loaded and validated. <!-- @impl: src/container/index.ts::onStart --> <!-- @manual -->
+3. On startup, the stored preference is loaded and validated. <!-- @impl: src/container/index.ts::container --> <!-- @manual -->
 4. On session destruction, the persisted preference is removed. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:**
@@ -435,7 +437,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The idle-detection layer fails safe toward preserving user work, not saving compute: when the configured idle timeout cannot be resolved (corrupt storage, a missing/garbage value, or a skipped pref-resolution path), it falls back to the maximum supported value (4h), never the minimum. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 14_400_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
 2. A change to the persisted idle-timeout preference takes effect within one idle-check cycle, regardless of which code path wrote it. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
 3. In-memory copies of the preference do not outlive a single idle-check cycle. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
-4. Any code path that hands the resolved idle timeout to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer is never silently replaced by a shorter default. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
+4. On any missing or corrupt idle-timeout value, resolution substitutes the maximum supported value (4h) and logs the fallback, never a shorter default — so a resolution failure can only lengthen, never shorten, the user's effective timeout. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
 
 **Constraints:**
 
@@ -445,7 +447,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
-**Verification:** [Automated test](../../src/__tests__/container-metrics.test.ts)
+**Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
 
 **Status:** Implemented
 
@@ -503,21 +505,20 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-020: Shadow-pin version bump automation
 
-**Intent:** Pinned versions living outside package.json — Dockerfile binaries, globally installed npm packages, and workflow-embedded tool pins — are invisible to Dependabot. A weekly workflow checks upstream releases and opens one PR per tool when a newer version is available, with SHA256 intentionally invalidated to force manual checksum verification before merge.
+**Intent:** Every release pin outside a package manifest has one explicit weekly update owner and a fail-closed verification path.
 
 **Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver --> <!-- @manual -->
-2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
-3. Each remaining non-Dependabot pin (bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable, the Graphify plugin, actionlint, and each Pi extension) bumps in its own PR via a dedicated job or matrix leg. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
-4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, failing the build until the operator verifies it; the actionlint job instead resolves the checksum from the release manifest and re-verifies it against the downloaded artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::sum --> <!-- @manual -->
-5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch --> <!-- @manual -->
-6. The context-mode and pi-extensions jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
-7. The same jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
+1. Zoxide, yazi, lazygit, and SilverBullet each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @manual -->
+2. Actionlint and Antigravity each have a dedicated release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
+3. OpenVSCode, the official Claude Open VSX extension, and supported agent CLI pins each have a dedicated bump job whose PR runs Browser IDE compatibility smoke; the owned extension's npm dependencies remain Dependabot-owned. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::openvscode-server --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
+4. A Dockerfile bump invalidates its SHA256 until an operator verifies it; actionlint instead resolves the release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
+5. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
+6. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, and browser-run-mcp each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @manual -->
 
-**Notes:** Workflow execution (AC1-AC5, AC7) is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); AC6's lockfile regeneration additionally carries automated lifecycle-suppression coverage.
+**Notes:** Workflow execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md).
 
 **Constraints:** None.
 
@@ -525,7 +526,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js)
+**Verification:** Manual check (workflow execution)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-025: Pi preseed bump artifact coherence
+
+**Intent:** Updating a Pi-owned package pin cannot leave its lockfile or embedded seed stale, and regeneration cannot execute dependency lifecycle scripts.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The context-mode job bumps its Claude-plugin and Pi-prewarm pins atomically in one PR, and generated-artifact validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
+2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
+3. Those jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+
+**Verification:** Automated test ([Automated lockfile test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js); workflow execution manual)
 
 **Status:** Implemented
 
@@ -548,7 +573,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - The zizmor audit runs offline; its online known-vulnerable-actions audit fails fatally on advisory-API outages.
 - Findings that are correct as written carry an inline suppression stating the reason, so they stop masking new findings; the auditor's own version is pinned rather than tracking latest.
-- actionlint's shellcheck and pyflakes integrations stay disabled — script hygiene is zizmor's concern.
+- actionlint runs with its shellcheck integration enabled at `--severity=error` (syntax/error class only) to catch unparseable workflow `run:` scripts; its pyflakes integration stays disabled — deeper script hygiene is zizmor's concern.
 - The actionlint version and checksum are a shadow pin: Dependabot cannot see them, so [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation) bumps them weekly.
 
 **Priority:** P2
@@ -610,7 +635,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** [Automated test](../../src/__tests__/ci/suite-gates.test.ts)
+**Verification:** Automated test ([suite-gates](../../src/__tests__/ci/suite-gates.test.ts))
 
 **Status:** Implemented
 

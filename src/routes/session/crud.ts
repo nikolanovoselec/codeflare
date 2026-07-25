@@ -110,11 +110,20 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
   const body = await parseJsonBody(c, CreateSessionBody);
 
-  // Enterprise deploys restrict the selectable agent set (REQ-ENTERPRISE-003).
-  // Outside enterprise mode allowedAgents() returns all 7, so this never rejects.
-  if (body.agentType && !allowedAgents(c.env).includes(body.agentType)) {
+  // Enterprise deploys restrict the selectable agent set to the wizard-chosen
+  // active agents (REQ-ENTERPRISE-003). Outside enterprise mode allowedAgents()
+  // returns all 7, so this never rejects.
+  const selectableAgents = await allowedAgents(c.env);
+  if (body.agentType && !selectableAgents.includes(body.agentType)) {
     throw new ValidationError(`Agent type '${body.agentType}' is not available in this deployment`);
   }
+
+  // Enterprise: an omitted agentType would fall back to claude-code at container
+  // start (routes/container/lifecycle.ts), which is never enterprise-selectable —
+  // stamp the first active coding agent instead so the stored session always
+  // carries an allowed agent (REQ-ENTERPRISE-003).
+  const agentType = body.agentType
+    ?? (isEnterpriseMode(c.env) ? (selectableAgents.find((a) => a !== 'bash') ?? 'bash') : undefined);
 
   // Storage quota check — block session start if over quota. Enterprise users
   // are unlimited (custom tier, no storage cap), so the gate is skipped entirely.
@@ -148,7 +157,7 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
     userId: bucketName,
     createdAt: now,
     lastAccessedAt: now,
-    ...(body.agentType && { agentType: body.agentType }),
+    ...(agentType && { agentType }),
     ...(body.tabConfig && { tabConfig: body.tabConfig }),
     ...(body.clone && { clone: body.clone }),
   };

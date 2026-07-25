@@ -19,6 +19,7 @@ import {
   hasVaultBootstrapCookie,
   filterVaultFsListing,
   inferOriginValidated,
+  isBootstrapHopRequest,
   rewriteVaultBaseHref,
   rewriteVaultHtmlResponse,
 } from '../../routes/vault';
@@ -199,7 +200,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       void requestForAuth.headers.get('cf-access-jwt-assertion');
       // Step 3: forward to the container by constructing a new Request
       // around requestForAuth (the production code path at
-      // src/routes/vault.ts -> `container.fetch(new Request(vaultUrl, requestForAuth))`).
+      // src/routes/vault/index.ts -> `container.fetch(new Request(vaultUrl, requestForAuth))`).
       const forwarded = new Request('https://internal.container.local/vault/notes/x.md', requestForAuth);
       const arrived = await forwarded.text();
       expect(arrived).toBe(payload);
@@ -562,6 +563,27 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     it('returns input unchanged when no </head> tag exists (fail-safe)', () => {
       const html = '<html><body>no head</body></html>';
       expect(injectVaultIdbRecorder(html)).toBe(html);
+    });
+  });
+
+  describe('isBootstrapHopRequest (REQ-VAULT-024 AC1: GET-only bootstrap-hop gate)', () => {
+    it('matches a GET to the bootstrap-hop path', () => {
+      expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, 'GET')).toBe(true);
+    });
+
+    it('does NOT match non-GET methods (the key-bearing hop must not render on POST/PUT/etc.)', () => {
+      for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
+        expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, method)).toBe(false);
+      }
+    });
+
+    it('does NOT match a WebSocket upgrade even on GET', () => {
+      expect(isBootstrapHopRequest('/.codeflare-bootstrap', true, 'GET')).toBe(false);
+    });
+
+    it('does NOT match other paths', () => {
+      expect(isBootstrapHopRequest('/.vault-key', false, 'GET')).toBe(false);
+      expect(isBootstrapHopRequest('/', false, 'GET')).toBe(false);
     });
   });
 

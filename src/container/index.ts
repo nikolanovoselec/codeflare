@@ -22,22 +22,17 @@
  * The class below is a thin composition shell (CF-012): per-seam logic lives in
  * container-config.ts (state + setBucketName/getBucketName/updateEnvVars/
  * ensureVaultKey), container-router.ts (typed internal-route dispatch, CF-016),
- * and container-lifecycle.ts (onStart/collectMetrics/destroy/onStop/onError).
+ * container-lifecycle.ts (onStart/collectMetrics/destroy/onStop/onError), and
+ * container-interception.ts (the outbound-HTTPS interception registry wired
+ * pre-start).
  */
 import { Container } from '@cloudflare/containers';
 import type { Env, TabConfig } from '../types';
 import { getR2Config } from '../lib/r2-config';
-import { getAigConfig } from '../lib/aig-config';
-import { toError, toErrorMessage } from '../lib/error-types';
+import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
-import { isEnterpriseMode } from '../lib/subscription';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
-import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
-import { interceptedGithubHosts } from '../github-interceptor';
-import { INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS } from '../cloudflare-browser-interceptor';
-import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
-import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
-import { getOrImportKey } from '../lib/kv-crypto';
+import { wireContainerInterception, type InterceptionHost } from './container-interception';
 import {
   validateBucketNameInput,
   type ContainerEnvState,
@@ -274,7 +269,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       }
 
       // Resolve the strict Gateway egress toggle once (REQ-ENTERPRISE-016 AC2) so buildEnvVars
-      // emits placeholder R2 creds and setupEnterpriseInterception wires the catch-all — both
+      // emits placeholder R2 creds and the interception registry wires the catch-all — both
       // without a per-request KV read. hasStrictGatewayEgress fails closed (false) on error.
       this._strictEgress = await hasStrictGatewayEgress(this.env);
       // REQ-ENTERPRISE-016: when strict Gateway egress is active, also deny the container
@@ -298,6 +293,9 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   /** This DO as the LifecycleHost surface the lifecycle helpers consume. */
   private get lifecycleHost(): LifecycleHost { return this as unknown as LifecycleHost; }
+
+  /** This DO as the InterceptionHost surface the interception registry consumes. */
+  private get interceptionHost(): InterceptionHost { return this as unknown as InterceptionHost; }
 
   /** Set the bucket name for this container (called by worker on first access). */
   async setBucketName(name: string, r2Creds?: SetBucketNameCreds): Promise<void> {
@@ -428,7 +426,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /**
-   * Wire enterprise LLM interception BEFORE the container boots.
+   * Wire outbound-HTTPS interception BEFORE the container boots.
    *
    * REQ-ENTERPRISE-004: `interceptOutboundHttps` must be registered before the
    * SDK calls `container.start()`, so the platform mounts the ephemeral
@@ -441,233 +439,17 @@ export class container extends Container<Env> implements ContainerEnvState {
    * The SDK applies its own pre-start interception at this same point; all start
    * paths (explicit start + containerFetch auto-start) funnel through here.
    *
-   * Enterprise interception is a no-op unless enterprise mode + gateway configured. The OAuth
-   * api.cloudflare.com interception (REQ-AGENT-078) is a no-op unless this is a non-enterprise
+   * Which transports wire (and their guards) is data-driven: see the registry
+   * in container-interception.ts. Enterprise transports are a no-op unless
+   * enterprise mode + gateway configured; the OAuth api.cloudflare.com
+   * transport (REQ-AGENT-078) is a no-op unless this is a non-enterprise
    * "Connect to Cloudflare" session (detected by the injected OAuth placeholder).
    */
   override async startAndWaitForPorts(
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
-    this.wireCloudflareApiInterception();
-    await this.setupEnterpriseInterception();
+    await wireContainerInterception(this.interceptionHost);
     await super.startAndWaitForPorts(...args);
-  }
-
-  /**
-   * Enterprise-mode (REQ-ENTERPRISE-004): route the container's outbound HTTPS to
-   * the LLM provider hosts through the LlmInterceptor WorkerEntrypoint, which
-   * holds the AI Gateway secrets and stamps per-user attribution. No credential,
-   * gateway URL, or token is ever placed inside the container; the interception
-   * is platform-internal so it never traverses Cloudflare Access. The per-session
-   * `user` prop is the user's email (stamped into cf-aig-metadata for the gateway's
-   * per-user analytics), falling back to the bucket id if no email is set; the
-   * optional `groups` prop carries the user's matched Access groups for per-group
-   * gateway policies (one cf-aig-metadata tag each). Both _userEmail and _bucketName are populated by the
-   * internal-config handler (which also calls setBucketName) BEFORE the container
-   * is started, so they are already set when startAndWaitForPorts wires interception.
-   *
-   * No-op unless ENTERPRISE_MODE=active and the gateway is configured, so a
-   * non-enterprise container's egress is byte-identical to today. interceptOutbound*
-   * + ctx.exports are on by default at this worker's compatibility_date (the
-   * enable_ctx_exports flag became the default on 2025-11-17, so no flag is set —
-   * see wrangler.toml); the cast isolates the runtime surface from the generated
-   * types.
-   */
-  private async setupEnterpriseInterception(): Promise<void> {
-    if (!isEnterpriseMode(this.env)) return;
-    // Strict Gateway egress (REQ-ENTERPRISE-016, AD86): a global enterprise toggle read
-    // from KV (the ENTERPRISE_MODE precedent), default OFF. When ON, a catch-all
-    // EgressController forces the container's egress through env.EGRESS (→ the customer's
-    // Zero Trust Gateway) for inspection, EXCEPT this account's own R2 + CF API / Browser
-    // Rendering, which egress direct (account-scoped exemption). GitHub (external) rides
-    // the Gateway via its interceptor; the LLM interceptor forwards to the AI Gateway
-    // direct, worker-side (the container only ever calls the intercepted provider host).
-    // Resolved once in the constructor (REQ-ENTERPRISE-016 AC2) — no per-start KV re-read,
-    // and guarantees buildEnvVars (placeholder creds) and the wiring agree.
-    const strict = this._strictEgress;
-    // Independent egress-injection transports, each gated separately so one missing
-    // config (e.g. no AI Gateway) never disables the other.
-    await this.wireLlmInterception();
-    this.wireGithubInterception(strict);
-    await this.wireCloudflareBrowserInterception(strict);
-    this.wireEgressInterception(strict);
-  }
-
-  /**
-   * Wire api.cloudflare.com -> the CloudflareBrowserInterceptor in OAuth mode (REQ-AGENT-078).
-   * NON-enterprise ONLY, and ONLY for OAuth "Connect to Cloudflare" sessions — detected by the
-   * injected OAuth placeholder (`applyCloudflareOAuthToken` sets it; a PAT session keeps its real
-   * long-lived token, a plain session has none). The `!isEnterpriseMode` guard means this can
-   * never wire the host the enterprise Browser Rendering interceptor owns, so the two never
-   * collide. The container holds only the placeholder; the interceptor stamps a fresh, refreshed
-   * token per request. Independently try/catch-guarded so a wiring failure never breaks start.
-   */
-  private wireCloudflareApiInterception(): void {
-    if (isEnterpriseMode(this.env)) return;
-    if (this._cloudflareApiToken !== CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER) return;
-    const bucket = this._bucketName;
-    if (!bucket) return;
-    try {
-      const cctx = this.ctx as unknown as {
-        exports: { CloudflareBrowserInterceptor(opts: { props: { bucket: string } }): Fetcher };
-        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
-      };
-      const interceptor = cctx.exports.CloudflareBrowserInterceptor({ props: { bucket } });
-      for (const host of INTERCEPTED_CF_OAUTH_HOSTS) {
-        cctx.container?.interceptOutboundHttps(host, interceptor);
-      }
-      this.logger.info('Cloudflare OAuth API interception wired', { hostCount: INTERCEPTED_CF_OAUTH_HOSTS.length });
-    } catch (err) {
-      this.logger.error('Failed to wire Cloudflare OAuth API interception', toError(err));
-    }
-  }
-
-  /**
-   * Wire the LLM provider hosts -> LlmInterceptor (REQ-ENTERPRISE-004). The AI Gateway
-   * URL + token are resolved wizard-first (KV) with deploy-secret (env) fallback via
-   * {@link getAigConfig} (REQ-ENTERPRISE-017) and passed Worker-side via props — the
-   * secret is resolved once here and never enters the container.
-   */
-  private async wireLlmInterception(): Promise<void> {
-    const aig = await getAigConfig(this.env);
-    if (!aig.gatewayUrl) {
-      this.logger.warn('Enterprise mode active but AI Gateway URL unset (wizard + env); skipping LLM interception');
-      return;
-    }
-    if (!aig.token) {
-      // Wire interception anyway, but warn loudly: without the gateway token the
-      // interceptor cannot send the `Authorization: Bearer` header, so the customer's
-      // AI Gateway will reject every request unless it is configured for unauthenticated
-      // access. This is almost always a config omission (wizard or deploy secret).
-      this.logger.warn('Enterprise mode active and AI Gateway configured but token unset; gateway requests will be unauthenticated');
-    }
-    const user = this._userEmail ?? this._bucketName ?? 'unknown';
-    // Per-session attribution + the resolved AI Gateway URL/token. Groups included only
-    // when non-empty. Props are Worker-internal (never enter the container).
-    const props: { user: string; groups?: string[]; gatewayUrl?: string; token?: string } = {
-      user,
-      ...(this._userGroups.length > 0 ? { groups: this._userGroups } : {}),
-      gatewayUrl: aig.gatewayUrl,
-      token: aig.token,
-    };
-    try {
-      const ictx = this.ctx as unknown as {
-        exports: { LlmInterceptor(opts: { props: { user: string; groups?: string[]; gatewayUrl?: string; token?: string } }): Fetcher };
-        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
-      };
-      const interceptor = ictx.exports.LlmInterceptor({ props });
-      for (const host of INTERCEPTED_LLM_HOSTS) {
-        ictx.container?.interceptOutboundHttps(host, interceptor);
-      }
-      this.logger.info('Enterprise LLM interception wired', { hostCount: INTERCEPTED_LLM_HOSTS.length });
-    } catch (err) {
-      this.logger.error('Failed to wire enterprise LLM interception', toError(err));
-    }
-  }
-
-  /**
-   * Wire the GitHub hosts -> GitHubInterceptor (REQ-GITHUB-003). The interceptor
-   * resolves the per-user token from the deploy-keys KV entry keyed by the BOUND
-   * session bucket (fixed here, never read from the request), so the real token
-   * never enters the container. Skipped without a bucket (no user to resolve).
-   */
-  private wireGithubInterception(strict: boolean): void {
-    const bucket = this._bucketName;
-    if (!bucket) {
-      this.logger.warn('Enterprise mode active but bucket name unset; skipping GitHub interception');
-      return;
-    }
-    const user = this._userEmail ?? bucket;
-    // REQ-ENTERPRISE-016: only add `strict` when ON so an OFF deploy passes the
-    // exact same { user, bucket } props as before (byte-identical).
-    const props: { user: string; bucket: string; strict?: boolean } = strict
-      ? { user, bucket, strict: true }
-      : { user, bucket };
-    try {
-      const gctx = this.ctx as unknown as {
-        exports: { GitHubInterceptor(opts: { props: { user: string; bucket: string; strict?: boolean } }): Fetcher };
-        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
-      };
-      const interceptor = gctx.exports.GitHubInterceptor({ props });
-      const hosts = interceptedGithubHosts(this.env);
-      for (const host of hosts) {
-        gctx.container?.interceptOutboundHttps(host, interceptor);
-      }
-      this.logger.info('Enterprise GitHub interception wired', { hostCount: hosts.length });
-    } catch (err) {
-      this.logger.error('Failed to wire enterprise GitHub interception', toError(err));
-    }
-  }
-
-  /**
-   * Wire api.cloudflare.com -> CloudflareBrowserInterceptor (REQ-BROWSER-008). The container
-   * holds only the non-secret CLOUDFLARE_API_TOKEN placeholder; this interceptor strips it and
-   * injects the real admin Browser Rendering token worker-side, but ONLY for the wizard-
-   * configured browser account's /browser-rendering/* path (REST + CDP WebSocket). Wired
-   * independent of `strict` so browser-run works in every enterprise configuration; the per-host
-   * registration takes precedence over the strict-egress catch-all. `strict` is passed so the
-   * interceptor routes any non-browser-rendering api.cloudflare.com call to the Gateway (else 403).
-   *
-   * Resolved once at wiring (no per-request KV/decrypt): the real token + account id are read
-   * worker-side. Skipped when nothing is configured — without the placeholder the container
-   * registers no browser-run, so there is no api.cloudflare.com traffic to intercept.
-   */
-  private async wireCloudflareBrowserInterception(strict: boolean): Promise<void> {
-    try {
-      const cryptoKey = await getOrImportKey(this.env);
-      const { token, accountId } = await getEnterpriseBrowserCreds(this.env, cryptoKey);
-      if (!token || !accountId) {
-        this.logger.info('Enterprise Browser Rendering interception not wired (no admin token/account configured)');
-        return;
-      }
-      const bctx = this.ctx as unknown as {
-        exports: { CloudflareBrowserInterceptor(opts: { props: { browserAccountId?: string; browserToken?: string; strict?: boolean } }): Fetcher };
-        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
-      };
-      const interceptor = bctx.exports.CloudflareBrowserInterceptor({ props: { browserAccountId: accountId, browserToken: token, strict } });
-      for (const host of INTERCEPTED_CF_BROWSER_HOSTS) {
-        bctx.container?.interceptOutboundHttps(host, interceptor);
-      }
-      this.logger.info('Enterprise Browser Rendering interception wired', { hostCount: INTERCEPTED_CF_BROWSER_HOSTS.length });
-    } catch (err) {
-      this.logger.error('Failed to wire enterprise Browser Rendering interception', toError(err));
-    }
-  }
-
-  /**
-   * Wire the strict Gateway egress catch-all -> EgressController (REQ-ENTERPRISE-016).
-   *
-   * Only when strict is ON. Registers the `'*'` catch-all so every host NOT already
-   * claimed by the LLM/GitHub per-host interceptors is routed through the
-   * EgressController — a transparent proxy that forces genuine DIRECT-INTERNET traffic
-   * through the mandatory env.EGRESS Workers VPC binding (and the customer's Zero Trust
-   * Gateway). The controller itself egresses ONLY this account's own platform hosts (its
-   * R2 + account-scoped CF API / Browser Rendering) DIRECT, off cf1:network; any other
-   * account's host rides the Gateway (AD86; see controllerFetch / isAccountScopedDestination).
-   * The per-host registrations co-exist and
-   * TAKE PRECEDENCE over this catch-all (SDK v0.3.7 precedence: deniedHosts > per-host >
-   * catch-all). Independently try/catch-guarded so a wiring failure here never disables
-   * the LLM/GitHub transports.
-   */
-  private wireEgressInterception(strict: boolean): void {
-    if (!strict) return;
-    try {
-      const ectx = this.ctx as unknown as {
-        exports: { EgressController(opts: { props: { accountId?: string; strict?: boolean } }): Fetcher };
-        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
-      };
-      // Account-scoped exemption (REQ-ENTERPRISE-016, AD86): the EgressController lets THIS
-      // account's R2 / CF API egress direct and forces every other host through the Gateway.
-      // `_r2AccountId` is resolved in the DO constructor (getR2Config) before wiring; absent ⇒
-      // fail-secure (nothing exempt, all egress Gateway-inspected). `strict` is read once here
-      // (REQ-016 AC2) and passed as a prop so the controller never re-reads KV per request —
-      // we only reach this line when strict is true (guarded above).
-      const controller = ectx.exports.EgressController({ props: { accountId: this._r2AccountId ?? undefined, strict: true } });
-      ectx.container?.interceptOutboundHttps('*', controller);
-      this.logger.info('Enterprise strict Gateway egress wired (catch-all)');
-    } catch (err) {
-      this.logger.error('Failed to wire enterprise strict Gateway egress', toError(err));
-    }
   }
 
   async collectMetrics(): Promise<void> {

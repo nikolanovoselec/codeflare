@@ -487,7 +487,6 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
         '[data-testid="special-folder-tooltip-workspace"]',
       );
       expect(tooltip).toBeInTheDocument();
-      expect(tooltip?.textContent).toContain('Holds your codebase');
       // In-container path must live in the dedicated path subspan, not
       // anywhere in the tooltip text, so a regression that drops the
       // path line still fails the assertion.

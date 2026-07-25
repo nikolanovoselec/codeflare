@@ -24,11 +24,45 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Symptom:** OpenVSCode connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
 
-**Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC7).
+**Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC6).
 
 **Fix:** Deploy a host build where `createVscodeWebSocketServer` gives the IDE its dedicated bounded payload limit. Do not raise `WS_MAX_PAYLOAD`; that 64 KiB limit still protects terminal and Vault traffic.
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
+
+### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent))
+
+**Symptom:** A Pi session shows Copilot setup instead of Codeflare in the main Chat, a Claude session has no Anthropic Spark panel, or an unsupported agent unexpectedly has an agent extension.
+
+**Cause:** The session may be non-advanced, tab 1 may not contain an exact supported command, the wrong immutable inventory may be selected, Pi's extension-qualified proposal may be absent, or the official Claude package may have failed identity/host validation.
+
+**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and `/opt/codeflare/openvscode/extensions/{pi,claude,none}`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports both host-discovered extension IDs, `DEFAULT_NATIVE_PI_OK`, and `OFFICIAL_CLAUDE_OK`.
+
+### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
+
+**Symptom:** Codeflare Pi reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
+
+**Cause:** `Language model unavailable` means OpenVSCode rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
+
+**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes vendor `codeflare-pi-rpc`, and complete-image smoke confirms a hidden default model whose generation path rejects. Do not sign into Copilot. For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
+
+### Official Claude panel fails ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
+
+**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, cannot connect to editor context, or OpenVSCode's native Chat/Copilot setup appears in a Claude session.
+
+**Cause:** The exact official extension or bundled linux-x64 binary may be missing, the temporary config/settings preparation may have failed, approved credentials/routing may be unavailable, or Anthropic's loopback IDE MCP lock directory may have been rejected. Anthropic's package contributes a separate Claude Code webview rather than a native Chat participant, so a visible native Chat setup means the managed `chat.disableAIFeatures` setting was not restored before launch.
+
+**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings contain `chat.disableAIFeatures: true`, the isolated `CLAUDE_CONFIG_DIR`, unrestricted `bypassPermissions` mode, dangerous permission skipping, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Use the Claude Code panel with a selection or an `@` reference. Generic Accounts authentication is outside the Claude integration; Codeflare adds no credential bridge. Never enable bypass permissions or expose the MCP port.
+
+### Browser IDE agent leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle))
+
+**Symptom:** A Pi request child or official Claude bundled process remains after cancellation, editor restart, or shutdown.
+
+**Cause:** Request or launch-generation cleanup did not converge before replacement.
+
+**Fix:** Do not delete pidfiles first. Stop or restart OpenVSCode and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
+
+See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
@@ -46,7 +80,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** Getting-started docs were seeded only by the one-shot bucket-creation gate, and a freshly created bucket is not always immediately writable on the R2 data plane. That single attempt could fail and be swallowed, and because the create-only gate never re-fired, the docs stayed missing. Agent configs survived because they have other reseed paths (the Recreate button, mode-change reconcile, and the preseed-hash upgrade) that getting-started docs lacked.
 
-**Fix (REQ-STOR-009 AC6):** The seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button.
+**Fix:** Under REQ-STOR-009 AC6, the seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button.
 
 **Verify** in Workers logs by querying the worker for:
 
@@ -77,7 +111,7 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 **Symptom:** In onboarding mode (`ONBOARDING_LANDING_PAGE=active`, `SAAS_MODE=inactive`), clicking "Continue with GitHub" lands the user back on the marketing landing, and visiting `/app` shows "Authentication Error: Authentication required. Please refresh the page." `/auth/github/login` itself 302s to GitHub correctly.
 
-**Cause (two independent failure modes):**
+**Cause:** Two independent failure modes apply:
 
 **App-owned session not trusted in onboarding (code).** The onboarding GitHub callback issues a `codeflare_session` cookie. The access layer (`getUserFromRequest` / `validateSessionOidc`), the session-refresh in `src/index.ts`, and the `requireActiveUser` tier gate honour that cookie only in an *app-owned OIDC mode* (`isSessionOidcMode` = `SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active; [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) AC4).
 
@@ -93,7 +127,7 @@ A classic OAuth App allows one callback URL, so each deployment domain needs its
 
 **Symptom:** In a non-enterprise mode, "Connect to Cloudflare" ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)) never completes. The consent screen works and Cloudflare returns a real authorization code, but the server-side token exchange fails with `401 invalid_client` ("Client authentication failed…"), surfaced in the connect logs via Cloudflare's `error_description` (AC1). Re-entering the secret in the Setup wizard, or rotating it in the Cloudflare dashboard, does not help — it stays unconnected.
 
-**Cause (two independent failure modes):**
+**Cause:** Two independent failure modes apply:
 
 **Wrong token-endpoint auth method (config).** codeflare sends the secret in the request body, so the operator's client must be registered with `token_endpoint_auth_method = client_secret_post`. A `none` (public/PKCE) or `client_secret_basic` client is rejected with `401 invalid_client` (REQ-AGENT-064 Constraints). Client *visibility* (private vs public) is orthogonal and does **not** affect secret auth — a public client authenticates with a secret fine.
 
@@ -262,7 +296,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | Zombie restarts | Stale DO state | Self-terminates via missing-identifiers guard |
 | Stop/delete loses the session's recent edits — the next session restores stale or empty state (transcripts, credentials, config missing) | See note below. | See [note](#stop-delete-loses-the-session-s-recent-edits-the-next-session-restores). |
 | Deleted session reappears | `onStop()` resurrects KV entry | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
-| Container dies during active use | Auth issue on internal paths | Verify `/activity` in `authExemptPaths` in `host/src/server.ts` |
+| Container dies during active use | Auth issue on internal paths | Verify `/activity` in `AUTH_EXEMPT_PATHS` in `host/src/auth-check.ts` |
 | Container sleeps before configured timeout | Stale `idleTimeoutPref` cache in DO | Each 60s tick re-reads `sleepAfter` from DO storage ([REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) AC2); if storage holds a corrupt value it is ignored and the previous cached value applies. Check DO storage via `wrangler tail` for `collectMetrics: storage holds invalid sleepAfter value`. |
 | Container sleeps later than expected (up to 4h) | `parseSleepAfterMs` fail-safe | When the stored `sleepAfter` is missing or unrecognized, the system defaults to 4h max to avoid losing user work ([REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) AC1). Correct via Settings panel - the new value writes to storage and takes effect on the next 60s tick. |
 | Claude Code reports "Settings Error: matcher Expected string, but received null" | `settings.json` hook entry has `matcher: null` (written by Claude Code's own self-install for `context-mode-cache-heal`); old entrypoint versions passed it through unchanged | Fixed automatically by entrypoint.sh since PR #299. Redeploy (re-run `entrypoint.sh`) to pick up the fix. |
@@ -299,7 +333,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | Vault readiness button never goes ready and the SilverBullet service worker never registers (browser console shows a `SyntaxError` from `service_worker.js`, e.g. `Identifier 'o' has already been declared`) | Duplicate `o=` declarator in the served worker's sync-cycle declaration list, so the browser refuses to register the SW. | See [note](#vault-readiness-button-never-goes-ready-and-the-silverbullet-service-w). |
 | Vault re-indexes from scratch on every new session open (SilverBullet shows "Syncing…" for several minutes and re-downloads all notes each session) | The bucket-stable IndexedDB persistence from [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) has broken: SilverBullet is being served under a different `location.href` per session, so its `sb_data_*`/`sb_files_*` IDB names differ and the prior store is unreachable | See [note](#vault-re-indexes-from-scratch-on-every-new-session-open). |
 | Vault button "re-indexes" (breathes accent for ~10s) on every click after the first, then returns green without opening — but the store is healthy (SW log shows "0 operations" / "already configured", same `sb_data_*` reused) | See note below. | See [note](#vault-button-re-indexes-on-every-click-after-the-first-then-returns-gr). |
-| Vault first/cold open bounces to `/.auth` and shows "Authentication not enabled" (403); closing and reopening loads cleanly. SW log shows "No more clients, flushing encryption key" then "Recovered encryption key from codeflare" just before the 403 | SilverBullet's native worker wipes the in-memory key 5s after the last client disconnects; the bootstrap-hop's brief 0-client gap during its editor redirect can land in that window, wiping the key before `__cfRecover` re-fetches it ([AD84](../decisions/README.md#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC4/AC5) | Fixed: a graft neuters the proactive flush (`ANCHOR_PROACTIVE_FLUSH` in `src/routes/vault-native-sw.ts`, [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC4), retaining the key for the worker's lifetime. If it recurs after a re-vendor, re-verify the flush anchor and that the served worker parses. |
+| Vault first/cold open bounces to `/.auth` and shows "Authentication not enabled" (403); closing and reopening loads cleanly. SW log shows "No more clients, flushing encryption key" then "Recovered encryption key from codeflare" just before the 403 | SilverBullet's native worker wipes the in-memory key 5s after the last client disconnects; the bootstrap-hop's brief 0-client gap during its editor redirect can land in that window, wiping the key before `__cfRecover` re-fetches it ([AD84](../decisions/README.md#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC4/AC5) | Fixed: a graft neuters the proactive flush (`ANCHOR_PROACTIVE_FLUSH` in `src/routes/vault/native-sw.ts`, [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC4), retaining the key for the worker's lifetime. If it recurs after a re-vendor, re-verify the flush anchor and that the served worker parses. |
 | Enterprise Mode: Strict Gateway Egress ON and a container network call is denied / times out (some hosts reachable, others not) | Egress now rides the account's existing Cloudflare (Zero Trust) Gateway policies on `cf1:network`; a block / isolate / DLP rule is dropping the destination ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)) | Codeflare never modifies Gateway policies — curate them in the customer's Zero Trust dashboard so required destinations are allowed. Cross-check `wrangler tail` against the Gateway activity log for the matching block rule. This is policy enforcement, not a bug. |
 | Enterprise Governed Mode: after flipping the R2 SSE-C toggle, R2 sync fails and the vault never becomes ready (some objects 400 on read) | The bucket is **mixed** — objects exist in both regimes after an opposite-regime write or partial migration. | See [note](#enterprise-governed-mode-after-flipping-the-r2-sse-c-toggle-r2-sync-fa). |
 | Enterprise Governed Mode: the New Session button is stuck on "Migrating" / a flip never starts | A flip waits for the bucket's running sessions to stop (D1: no force-kill); `batch-status` reports `bucketMigrationPending` while a container is healthy ([REQ-ENTERPRISE-020](../../sdd/spec/enterprise-mode.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) AC3, [REQ-ENTERPRISE-021](../../sdd/spec/enterprise-mode.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary) AC3) | Stop the bucket's sessions in the dashboard; the next `batch-status` poll flips the bucket to `migrating` and advances a chunk per poll. Keep the dashboard open until completion. A stuck `migrating` state self-recovers once the per-chunk lease (`leaseExpiresAt`) elapses. |
@@ -432,14 +466,14 @@ The remote `fetchFileList()` in the native worker's sync cycle returned a non-ar
 
 **Fix detail:**
 
-Fixed by a graft-layer `Array.isArray` coercion in `src/routes/vault-native-sw.ts` (`ANCHOR_REMOTE_LIST_COERCE`, [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC2): a non-array remote response now coerces to `[]` for a safe no-op cycle instead of crashing. Paired with the `isSessionOidcMode` setup fix above, which removes the stray CF Access 302 that was one trigger. If it recurs, check the proxy/`/api/vault/*` path is returning JSON arrays for the file-list endpoint and is not behind an unexpected redirect.
+Fixed by a graft-layer `Array.isArray` coercion in `src/routes/vault/native-sw.ts` (`ANCHOR_REMOTE_LIST_COERCE`, [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC2): a non-array remote response now coerces to `[]` for a safe no-op cycle instead of crashing. Paired with the `isSessionOidcMode` setup fix above, which removes the stray CF Access 302 that was one trigger. If it recurs, check the proxy/`/api/vault/*` path is returning JSON arrays for the file-list endpoint and is not behind an unexpected redirect.
 
 <a id="vault-readiness-button-never-goes-ready-and-the-silverbullet-service-w"></a>
 #### Vault readiness button never goes ready and the SilverBullet service worker never registers (browser console shows a `SyntaxError` from `service_worker.js`, e.g. `Identifier 'o' has already been declared`)
 
 **Fix detail:**
 
-The coercion graft was added for the runtime non-array crash described in the row above; this fix keeps that behaviour while making it parseable. Fixed in `src/routes/vault-native-sw.ts`: the coercion now wraps the `o=` initializer with an array-coercing IIFE (`o=(a=>Array.isArray(a)?a:[])(await this.secondary.fetchFileList())`), keeping `o` a single declarator so the served worker stays syntactically valid. `vault-native-sw-direct.test.ts` guards this by constructing a `Function` from the served worker (parse check) and asserting the duplicate-`let` form is rejected. If it recurs after a SilverBullet re-vendor, re-verify the graft anchors and that the served worker parses.
+The coercion graft was added for the runtime non-array crash described in the row above; this fix keeps that behaviour while making it parseable. Fixed in `src/routes/vault/native-sw.ts`: the coercion now wraps the `o=` initializer with an array-coercing IIFE (`o=(a=>Array.isArray(a)?a:[])(await this.secondary.fetchFileList())`), keeping `o` a single declarator so the served worker stays syntactically valid. `vault-native-sw-direct.test.ts` guards this by constructing a `Function` from the served worker (parse check) and asserting the duplicate-`let` form is rejected. If it recurs after a SilverBullet re-vendor, re-verify the graft anchors and that the served worker parses.
 
 <a id="vault-re-indexes-from-scratch-on-every-new-session-open"></a>
 #### Vault re-indexes from scratch on every new session open (SilverBullet shows "Syncing…" for several minutes and re-downloads all notes each session)
@@ -577,6 +611,10 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
 - [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
+- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Native agent inventory and launch diagnostics
+- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor-context and isolation diagnostics
+- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted-tool diagnostics
+- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent cleanup diagnostics
 - [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
 - [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll (fullscreen alternate-buffer wheel routing for Claude Code `/tui fullscreen` on mobile)
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants

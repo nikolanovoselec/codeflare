@@ -6,18 +6,24 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
-type BoundaryEvent = 'push' | 'pr-create' | 'pr-edit' | 'pr-update-branch' | 'pr-merge';
+type BoundaryEvent = 'push' | 'pr-create';
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: BoundaryEvent;
-  protectedRetarget?: true;
-  prTarget?: string;
+  pushSource?: string;
+  pushTarget?: string;
+  pushRemote?: string;
 };
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
   reviewRange?: string;
+  reviewRepo?: string;
+  reviewBranch?: string;
+  reviewPrNumber?: number;
+  reviewBase?: 'main' | 'master';
+  reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
   triageComplete: boolean;
@@ -29,6 +35,7 @@ type PlannedReviewHelpers = {
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[];
   reviewTranscriptFacts(input: {
     sessionFile: string;
+    entries?: Record<string, unknown>[];
     requiredLanes: ReviewLane[];
     ciHead?: string;
   }): TranscriptFacts;
@@ -122,9 +129,21 @@ function triageMessage(): Record<string, unknown> {
   return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|');
 }
 
-function toolResult(toolUseId: string, toolName = 'subagent', isError = false): Record<string, unknown> {
+function toolResult(
+  toolUseId: string,
+  toolName = 'subagent',
+  isError = false,
+  options: { text?: string; details?: Record<string, unknown> } = {},
+): Record<string, unknown> {
   return sessionEntry('message', {
-    message: { role: 'toolResult', toolCallId: toolUseId, toolName, content: [{ type: 'text', text: isError ? 'failed' : 'ok' }], isError },
+    message: {
+      role: 'toolResult',
+      toolCallId: toolUseId,
+      toolName,
+      content: [{ type: 'text', text: options.text ?? (isError ? 'failed' : 'ok') }],
+      details: options.details,
+      isError,
+    },
   });
 }
 
@@ -132,7 +151,15 @@ function reviewReminder(head: string, reviewRange: string): Record<string, unkno
   return sessionEntry('custom_message', {
     customType: 'pr-boundary-launch-plan',
     content: `review_range=${reviewRange}`,
-    details: { head, reviewRange },
+    details: {
+      head,
+      reviewRange,
+      repo: '/workspace/repo',
+      branch: 'pi',
+      prNumber: 42,
+      base: 'main',
+      boundaryToolUseId: 'push-1',
+    },
     display: true,
   });
 }
@@ -158,9 +185,17 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063: distinguishes supported reminder and settled command surfaces', async () => {
+  it('REQ-AGENT-063: recognizes implicit and explicit branch pushes while rejecting non-branch forms', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
-    const push = { reminder: true, settled: true, event: 'push' as const };
+    const push = {
+      reminder: true,
+      settled: true,
+      event: 'push' as const,
+      pushSource: 'refs/heads/pi',
+      pushTarget: 'pi',
+    };
+    const inferredPush = { reminder: true, settled: true, event: 'push' as const };
+    const originPush = { ...inferredPush, pushRemote: 'origin' };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
       ['git push origin pi', push],
@@ -174,15 +209,33 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['cat <<EOF-TEXT\ngit push origin pi\nEOF-TEXT', none],
       ['cat <<A <<B\nfirst\nA\ngit push origin pi\nB\ngit push origin pi', push],
       ['printf done; git push origin pi', push],
+      ['git push origin HEAD:refs/heads/pi', { ...push, pushSource: 'HEAD' }],
+      ['git push', inferredPush],
+      ['git push origin', originPush],
+      ['git push origin HEAD', originPush],
+      ['git push -u origin HEAD', originPush],
+      ['git push --repo origin HEAD', originPush],
+      ['git push --repo=origin HEAD', originPush],
       ['gh pr create --base main --title review', { reminder: true, settled: true, event: 'pr-create' }],
-      ['gh pr edit 42 --base master', { reminder: true, settled: true, event: 'pr-edit', protectedRetarget: true }],
-      ['gh pr edit 42 --base main && git push origin pi', { reminder: true, settled: true, event: 'push', protectedRetarget: true }],
-      ['gh pr merge 42', { reminder: false, settled: true, event: 'pr-merge' }],
-      ['gh pr edit 42 --base develop', none],
-      ['gh pr update-branch 42', { reminder: true, settled: true, event: 'pr-update-branch', prTarget: '42' }],
-      ['gh pr update-branch 42 --repo other/repository', none],
-      ['gh pr update-branch -Rother/repository 42', none],
-      ['gh pr update-branch https://github.com/other/repository/pull/42', none],
+      ['gh pr edit 42 --base master', none],
+      ['gh pr edit 42 --base main && git push origin pi', push],
+      ['gh pr merge 42', none],
+      ['gh pr update-branch 42', none],
+      ['git push origin --delete pi', none],
+      ['git push origin :pi', none],
+      ['git push --repo', none],
+      ['git push --all origin', none],
+      ['git push --mirror origin', none],
+      ['git push --tags origin', none],
+      ['git push --force origin pi', push],
+      ['git push --force-with-lease origin pi', push],
+      ['git push --dry-run origin pi', none],
+      ['git push --follow-tags origin pi', none],
+      ['git push -fu origin pi', push],
+      ['git push origin +pi', push],
+      ['git push origin pi other', none],
+      ['git push origin refs/tags/v1:refs/heads/pi', none],
+      ['git push origin pi:HEAD', none],
       ['git -C /tmp/repo push origin pi', push],
     ];
 
@@ -268,12 +321,12 @@ describe('Claude-equivalent review boundary helpers', () => {
 });
 
 describe('native Pi transcript review facts', () => {
-  it('REQ-AGENT-055: uses only public subagent calls after the latest successful settled boundary', async () => {
+  it('REQ-AGENT-055: ignores non-boundary PR commands when correlating later public reviewer calls', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
       assistantTool('push-old', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
       toolResult('push-old', 'bash'),
-      assistantTool('code-old', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }, '2026-07-12T12:01:00.000Z'),
+      assistantTool('code-old', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }, '2026-07-12T12:01:00.000Z'),
       notification('code-old'),
       assistantTool('push-new', 'bash', { command: 'gh pr merge 42' }, '2026-07-12T12:05:00.000Z'),
       toolResult('push-new', 'bash'),
@@ -281,9 +334,9 @@ describe('native Pi transcript review facts', () => {
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
-    expect(facts.boundary).toEqual({ toolUseId: 'push-new', command: 'gh pr merge 42' });
+    expect(facts.boundary).toEqual({ toolUseId: 'push-old', command: 'git push origin pi' });
     expect(facts.lanes).toEqual({
-      'code-reviewer': { state: 'missing' },
+      'code-reviewer': { state: 'terminal', toolUseId: 'code-old' },
       'spec-reviewer': { state: 'missing' },
       'doc-updater': { state: 'in-flight', toolUseId: 'doc-new' },
     });
@@ -356,10 +409,63 @@ describe('native Pi transcript review facts', () => {
       notification('doc-1'),
       triageMessage(),
     ]);
+    const afterDuplicateNotification = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...calls,
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageMessage(),
+      notification('code-1'),
+      assistantTool('code-2', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+      }),
+      notification('code-2'),
+    ]);
 
     expect(reviewTranscriptFacts({ sessionFile: beforeFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalHeaderOnly, requiredLanes: ALL_LANES }).triageComplete).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: afterFinalNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
+    expect(reviewTranscriptFacts({ sessionFile: afterDuplicateNotification, requiredLanes: ALL_LANES }).triageComplete).toBe(true);
+  });
+
+  it('REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const lanes: Array<{ lane: ReviewLane; callId: string; agentId: string; resultId: string }> = [
+      { lane: 'code-reviewer', callId: 'code-1', agentId: 'agent-code', resultId: 'result-code' },
+      { lane: 'spec-reviewer', callId: 'spec-1', agentId: 'agent-spec', resultId: 'result-spec' },
+      { lane: 'doc-updater', callId: 'doc-1', agentId: 'agent-doc', resultId: 'result-doc' },
+    ];
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      ...lanes.flatMap(({ lane, callId, agentId, resultId }) => [
+        assistantTool(callId, 'subagent', { subagent_type: lane, run_in_background: true, inherit_context: false }),
+        toolResult(callId, 'subagent', false, {
+          details: { agentId, subagentType: lane },
+          text: `Agent started in background.\nAgent ID: ${agentId}\nType: ${lane}`,
+        }),
+        assistantTool(resultId, 'get_subagent_result', { agent_id: agentId, wait: true, verbose: false }),
+        toolResult(resultId, 'get_subagent_result', false, {
+          text: `Agent: ${agentId}\nType: ${lane} | Status: completed\nResult: reviewed`,
+        }),
+      ]),
+      triageMessage(),
+      assistantTool('result-code-late', 'get_subagent_result', { agent_id: 'agent-code', wait: true, verbose: false }),
+      toolResult('result-code-late', 'get_subagent_result', false, {
+        text: 'Agent: agent-code\nType: code-reviewer | Status: completed\nResult: reviewed again',
+      }),
+      notification('code-1'),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
+    expect(facts.lanes).toEqual({
+      'code-reviewer': { state: 'terminal', toolUseId: 'code-1' },
+      'spec-reviewer': { state: 'terminal', toolUseId: 'spec-1' },
+      'doc-updater': { state: 'terminal', toolUseId: 'doc-1' },
+    });
+    expect(facts.triageComplete).toBe(true);
   });
 
   it('REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification', async () => {
@@ -401,6 +507,11 @@ describe('native Pi transcript review facts', () => {
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
     expect(facts.reviewHead).toBe(head);
     expect(facts.reviewRange).toBe(reviewRange);
+    expect(facts.reviewRepo).toBe('/workspace/repo');
+    expect(facts.reviewBranch).toBe('pi');
+    expect(facts.reviewPrNumber).toBe(42);
+    expect(facts.reviewBase).toBe('main');
+    expect(facts.reviewBoundaryToolUseId).toBe('push-1');
     expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
   });

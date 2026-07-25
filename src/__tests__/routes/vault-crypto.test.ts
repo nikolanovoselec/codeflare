@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { getVaultEncryptionKey } from '../../routes/vault-crypto';
+import { getVaultEncryptionKey } from '../../routes/vault/crypto';
 
 // REQ-VAULT-021: the vault key is derived deterministically from the server master
 // secret + the user's bucket name, so every session for a bucket gets the same key —
 // the persisted (encrypted) IndexedDB cache decrypts next session instead of forcing
 // a full re-index.
+// REQ-VAULT-008 AC1/AC2: this same derivation is the zero-UI encryption-at-rest key —
+// HKDF over ENCRYPTION_KEY + bucket, no passphrase, stable per bucket, never rotated.
 describe('getVaultEncryptionKey (REQ-VAULT-021 bucket-derived key)', () => {
   const env = { ENCRYPTION_KEY: 'master-secret-value' };
 

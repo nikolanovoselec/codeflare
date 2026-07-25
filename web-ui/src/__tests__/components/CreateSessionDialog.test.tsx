@@ -6,6 +6,7 @@ import CreateSessionDialog from '../../components/CreateSessionDialog';
 const sessionStoreState = vi.hoisted(() => ({
   preferences: { lastAgentType: undefined as string | undefined },
   enterpriseMode: false as boolean,
+  allowedAgents: null as string[] | null,
 }));
 
 vi.mock('../../stores/session', () => ({
@@ -15,6 +16,9 @@ vi.mock('../../stores/session', () => ({
     },
     get enterpriseMode() {
       return sessionStoreState.enterpriseMode;
+    },
+    get allowedAgents() {
+      return sessionStoreState.allowedAgents;
     },
   },
 }));
@@ -29,6 +33,7 @@ describe('CreateSessionDialog', () => {
   beforeEach(() => {
     sessionStoreState.preferences = { lastAgentType: undefined };
     sessionStoreState.enterpriseMode = false;
+    sessionStoreState.allowedAgents = null;
   });
 
   afterEach(() => {
@@ -471,28 +476,36 @@ describe('CreateSessionDialog', () => {
     });
   });
 
-  describe('Agent descriptions', () => {
-    it('shows description text for each agent', () => {
+  describe('Agent selection (REQ-AGENT-002)', () => {
+    it('renders one testid-keyed card per agent and reports the exact AgentType on click', () => {
+      const onSelect = vi.fn();
       render(() => (
         <CreateSessionDialog
           isOpen={true}
           onClose={() => {}}
-          onSelect={() => {}}
+          onSelect={onSelect}
         />
       ));
 
-      expect(screen.getByText('Full Claude Code experience')).toBeInTheDocument();
-      expect(screen.getByText('OpenAI Codex agent')).toBeInTheDocument();
-      expect(screen.getByText("Google's terminal coding agent")).toBeInTheDocument();
-      expect(screen.getByText("GitHub's AI coding agent")).toBeInTheDocument();
-      expect(screen.getByText('Multi-model agent')).toBeInTheDocument();
-      expect(screen.getByText('Plain terminal session')).toBeInTheDocument();
+      // Each agent renders a card keyed by its AgentType (structural map),
+      // not by its marketing description.
+      const dialog = screen.getByTestId('create-session-dialog');
+      const cards = dialog.querySelectorAll('[data-testid^="csd-agent-"]');
+      expect(cards.length).toBeGreaterThanOrEqual(2);
+
+      // Selecting a card is load-bearing: onSelect must receive that card's
+      // AgentType verbatim (this is what create-session actually submits).
+      fireEvent.click(screen.getByTestId('csd-agent-codex'));
+      expect(onSelect).toHaveBeenCalledWith('codex');
+      fireEvent.click(screen.getByTestId('csd-agent-bash'));
+      expect(onSelect).toHaveBeenLastCalledWith('bash');
     });
   });
 
   // REQ-ENTERPRISE-003: enterprise mode restricts the agent set to the
-  // gateway-routed allowlist {copilot, pi, bash} (OpenAI-wire-format only;
-  // Claude Code excluded — AD74).
+  // wizard-activated agents delivered by GET /api/user, falling back to the
+  // static gateway-capable list {copilot, pi, bash} until that response
+  // hydrates (OpenAI-wire-format only; Claude Code excluded — AD74).
   describe('Enterprise mode agent allowlist', () => {
     it('renders all 7 agents when enterpriseMode is false (default, unchanged)', () => {
       sessionStoreState.enterpriseMode = false;
@@ -504,7 +517,32 @@ describe('CreateSessionDialog', () => {
       expect(buttons).toHaveLength(7);
     });
 
-    it('renders only the 3 allowlisted agents when enterpriseMode is true', () => {
+    it('renders only the wizard-activated agents delivered by /api/user', () => {
+      sessionStoreState.enterpriseMode = true;
+      sessionStoreState.allowedAgents = ['pi', 'bash'];
+      render(() => (
+        <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
+      ));
+
+      const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
+      expect(buttons).toHaveLength(2);
+      expect(screen.getByTestId('csd-agent-pi')).toBeInTheDocument();
+      expect(screen.getByTestId('csd-agent-bash')).toBeInTheDocument();
+      expect(screen.queryByTestId('csd-agent-copilot')).not.toBeInTheDocument();
+    });
+
+    it('ignores allowedAgents outside enterprise mode', () => {
+      sessionStoreState.enterpriseMode = false;
+      sessionStoreState.allowedAgents = ['pi', 'bash'];
+      render(() => (
+        <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
+      ));
+
+      const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
+      expect(buttons).toHaveLength(7);
+    });
+
+    it('falls back to the static enterprise list until /api/user hydrates', () => {
       sessionStoreState.enterpriseMode = true;
       render(() => (
         <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />

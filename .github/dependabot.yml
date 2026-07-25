@@ -57,6 +57,15 @@ updates:
       default-days: 7
       semver-major-days: 30
 
+  - package-ecosystem: npm
+    directory: /openvscode/agent-sidebar
+    target-branch: develop
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+
   # Pi agent preseed (@gotgenes/pi-subagents, context-mode)
   # is intentionally NOT managed by Dependabot. Although it has a real
   # package.json + lockfile, every version here is ALSO pinned as a literal
@@ -76,14 +85,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
-    # Cooldown before a freshly published version is proposed. The npm
-    # compromise pattern is publish-malicious-version then wait for automation
-    # to pull it within hours; a waiting period lets the ecosystem revoke it
-    # first. 7 days is zizmor's floor for default-days; majors get 30 because
-    # they carry the most change and get the least scrutiny in review.
+    # Docker supports the default waiting period but not semver-specific
+    # cooldown keys.
     cooldown:
       default-days: 7
-      semver-major-days: 30
     ignore:
       # Stay on Node LTS (even majors: 22, 24, 26, ...). Dependabot kept proposing
       # Node 25 Current (non-LTS), which should not ship to the production Container DO.
@@ -98,11 +103,7 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
-    # Cooldown before a freshly published version is proposed. The npm
-    # compromise pattern is publish-malicious-version then wait for automation
-    # to pull it within hours; a waiting period lets the ecosystem revoke it
-    # first. 7 days is zizmor's floor for default-days; majors get 30 because
-    # they carry the most change and get the least scrutiny in review.
+    # GitHub Actions supports the default waiting period but not semver-specific
+    # cooldown keys.
     cooldown:
       default-days: 7
-      semver-major-days: 30

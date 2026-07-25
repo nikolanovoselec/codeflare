@@ -62,6 +62,7 @@ import * as api from '../../api/client';
 import * as storageApi from '../../api/storage';
 import * as terminal from '../../stores/terminal';
 import * as vaultCache from '../../lib/vault-cache';
+import { SESSION_LIST_POLL_INTERVAL_MS } from '../../lib/constants';
 
 // Get typed mocks
 const mockGetSessions = vi.mocked(api.getSessions);
@@ -1340,6 +1341,19 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
 
       expect(mockDisposeSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('session list polling', () => {
+    it('REQ-SESSION-010 AC3: requests batch status again after the configured interval', async () => {
+      mockGetBatchSessionStatus.mockClear();
+
+      sessionStore.startSessionListPolling();
+      await vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_INTERVAL_MS - 1);
+      expect(mockGetBatchSessionStatus).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledTimes(1);
     });
   });
 

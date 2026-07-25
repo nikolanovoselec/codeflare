@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleVaultRequest, validateVaultRoute, VAULT_NATIVE_SERVICE_WORKER_JS } from '../../routes/vault';
 import { getVaultBucketToken } from '../../lib/vault-bucket-token';
-import { getVaultEncryptionKey } from '../../routes/vault-crypto';
+import { getVaultEncryptionKey } from '../../routes/vault/crypto';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 

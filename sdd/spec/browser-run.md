@@ -38,8 +38,8 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. `chrome-devtools-mcp` is registered for Claude Code (in `~/.claude.json`) only in Pro (advanced) session mode AND only when a Cloudflare API token + account id are present; Standard mode and token-less deploys omit it (byte-identical to today). <!-- @impl: entrypoint.sh::GRAPHIFY_MANIFEST --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
-2. The registration points the MCP server at the Cloudflare Browser Run CDP `/devtools` endpoint, passes the API token as an `Authorization: Bearer` header via `--wsHeaders`, and invokes the Dockerfile-baked `chrome-devtools-mcp` stable bin whose version is pinned in the image (not `@latest`). <!-- @impl: entrypoint.sh::GRAPHIFY_MCP_CONFIG --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
+1. `chrome-devtools-mcp` is registered for Claude Code (in `~/.claude.json`) only in Pro (advanced) session mode AND only when a Cloudflare API token + account id are present; Standard mode and token-less deploys omit it (byte-identical to today). <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
+2. The registration points the MCP server at the Cloudflare Browser Run CDP `/devtools` endpoint, passes the API token as an `Authorization: Bearer` header via `--wsHeaders`, and invokes the Dockerfile-baked `chrome-devtools-mcp` stable bin whose version is pinned in the image (not `@latest`). <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
 3. A `browser-run` skill is seeded (advanced mode) that positions the browser as a retry path for WebFetch failures caused by bot protection, login walls, redirect chains, or JS-only pages. <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (advanced + token: keeps the browser-run/browser-e2e skills for both agents) --> <!-- @manual -->
 4. The fallback loads public targets only; it does not perform end-to-end testing or execute code in the browser. <!-- @manual -->
 
@@ -52,7 +52,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-browser-run-mcp.test.js)
+**Verification:** Automated test ([entrypoint-browser-run-mcp](../../host/__tests__/entrypoint-browser-run-mcp.test.js))
 
 **Status:** Implemented
 
@@ -94,7 +94,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 **Acceptance Criteria:**
 
 1. A Pi extension registers native `browser_markdown`, `browser_content`, and `browser_scrape` tools (via `pi.registerTool`) that call the Cloudflare Browser Run REST Quick Actions (`/markdown`, `/content`, `/scrape`). <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
-2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts::AgentToolResult --> <!-- @manual -->
+2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts::default --> <!-- @manual -->
 3. The tools load public targets only, cap their output to protect the context window, and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::truncate --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 4. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 
@@ -135,7 +135,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity), [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-multi-agent.test.ts)
+**Verification:** Automated test ([agent-seed-multi-agent](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
 
 **Status:** Implemented
 
@@ -180,7 +180,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 1. Advanced Pi registers the image-baked Chrome DevTools server against Claude's Browser Run CDP endpoint only with token and account ID, passing WS headers and lazy lifecycle so idle sessions hold no browser. <!-- @impl: entrypoint.sh::PLUGIN_DIR --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
 2. Pi reaches the `chrome-devtools` tools through the `pi-mcp-adapter` `mcp` proxy; the `pi-mcp-adapter` skill is seeded so Pi knows how to drive a bridged server. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
 3. The Pi `browser-run` and `browser-e2e` skills name the interactive `chrome-devtools` surface (navigate / click / screenshot / `resize_page`) alongside the native read tools, establishing parity with Claude. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
-4. Standard mode and token-less deploys register nothing (byte-identical to today); Pi's native read tools ([REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)) are unchanged and remain the cheap path. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
+4. Standard mode and token-less deploys register nothing (byte-identical to today); Pi's native read tools ([REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)) are unchanged and remain the cheap path. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring) -->
 
 **Constraints:**
 
@@ -191,7 +191,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-browser-run-mcp.test.js)
+**Verification:** Automated test ([entrypoint-browser-run-mcp](../../host/__tests__/entrypoint-browser-run-mcp.test.js))
 
 **Status:** Implemented
 
@@ -219,7 +219,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage), [REQ-SETUP-006](setup.md#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** [Setup storage](../../src/__tests__/routes/setup-enterprise-groups.test.ts) + [masked prefill](../../src/__tests__/routes/setup/handlers.test.ts) + [placeholder substitution](../../src/__tests__/lib/browser-render-token.test.ts) + [container placeholder-only](../../src/__tests__/container/container-env-llm.test.ts) + [admin UI](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) + [accordion hidden](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) + [skill strip](../../host/__tests__/entrypoint-browser-run-mcp.test.js)
+**Verification:** Automated test ([Setup storage](../../src/__tests__/routes/setup-enterprise-groups.test.ts) + [masked prefill](../../src/__tests__/routes/setup/handlers.test.ts) + [placeholder substitution](../../src/__tests__/lib/browser-render-token.test.ts) + [container placeholder-only](../../src/__tests__/container/container-env-llm.test.ts) + [admin UI](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) + [accordion hidden](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) + [skill strip](../../host/__tests__/entrypoint-browser-run-mcp.test.js))
 
 **Status:** Implemented
 
@@ -234,7 +234,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 **Acceptance Criteria:**
 
 1. The container's `CLOUDFLARE_API_TOKEN` is the non-secret placeholder `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` (`'codeflare-enterprise'`), emitted only when an admin token is configured (else absent → browser-run unregistered per [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token) AC4). The real token is read worker-side and never written to container env. <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/lib/browser-render-token.ts::getEnterpriseBrowserCreds --> <!-- @test: src/__tests__/lib/browser-render-token.test.ts (REQ-BROWSER-008: enterprise + configured sets the PLACEHOLDER (never the real token) + admin account, preserves githubToken) -->
-2. A WorkerEntrypoint `CloudflareBrowserInterceptor` is wired (enterprise, whenever an admin token + account are configured) for `api.cloudflare.com` via `interceptOutboundHttps`, INDEPENDENT of the strict-egress toggle so browser-run works in every enterprise configuration; the per-host registration takes precedence over the strict-egress `'*'` catch-all. <!-- @impl: src/container/index.ts::wireCloudflareBrowserInterception --> <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (strips the placeholder + injects the real token on the configured account path, egress DIRECT (not Gateway)) -->
+2. A WorkerEntrypoint `CloudflareBrowserInterceptor` is wired (enterprise, whenever an admin token + account are configured) for `api.cloudflare.com` via `interceptOutboundHttps`, INDEPENDENT of the strict-egress toggle so browser-run works in every enterprise configuration; the per-host registration takes precedence over the strict-egress `'*'` catch-all. <!-- @impl: src/container/container-interception.ts::browserRendering --> <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (strips the placeholder + injects the real token on the configured account path, egress DIRECT (not Gateway)) -->
 3. On the TRUSTED path `api.cloudflare.com/client/v4/accounts/<acct>/browser-rendering/*` where `<acct>` equals the wizard-configured Browser Rendering account id the interceptor strips the placeholder `authorization` and injects the real token (`Bearer`), egressing direct. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/cloudflare-browser-interceptor.ts::isBrowserRenderingPath --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket) -->
 4. EVERY other `api.cloudflare.com` request a different account id, or any non-`browser-rendering` path is NOT injected: forwarded through `env.EGRESS` for inspection when strict egress is on, else rejected `403`. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/cloudflare-browser-interceptor.ts::isBrowserRenderingPath --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor REST path) -->
 
@@ -249,7 +249,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token), [REQ-ENTERPRISE-004](enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
 
-**Verification:** [interceptor tests](../../src/__tests__/cloudflare-browser-interceptor.test.ts) (account-scoped REST + CDP WS injection, rest→Gateway, fail-closed) + [container placeholder](../../src/__tests__/container/container-env-llm.test.ts) + [worker-side resolver](../../src/__tests__/lib/browser-render-token.test.ts)
+**Verification:** Automated test ([interceptor tests](../../src/__tests__/cloudflare-browser-interceptor.test.ts) (account-scoped REST + CDP WS injection, rest→Gateway, fail-closed) + [container placeholder](../../src/__tests__/container/container-env-llm.test.ts) + [worker-side resolver](../../src/__tests__/lib/browser-render-token.test.ts))
 
 **Status:** Implemented
 

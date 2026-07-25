@@ -736,3 +736,31 @@ CVE-2026-4800
 # the Foundry Local provider, and the blast radius is that user's own sandboxed
 # session:
 CVE-2026-39244
+
+# 2026-07-22 — CVEs in transitive deps vendored inside the agent CLIs
+# (claude-code/codex/copilot/opencode npm trees) and the apt-installed
+# gh binary. All fixable upstream, none rebuilt into a vendored release yet
+# (agent-CLI pins bumped to latest same-day — current pins live in the
+# Dockerfile ARGs — entries stay until scans confirm clean,
+# reviewed monthly per policy). The npm-tree entries are DoS-class and
+# reached-but-confined: worst case is DoS of the user's own CLI process
+# inside their single-tenant ephemeral container. The grpc-go entry rests
+# on unreachability instead — see its own comment.
+#
+# node-tar 7.5.13 — DoS via crafted gzip bomb (CRITICAL) / malformed tar
+# header (HIGH); fixed 7.5.19/7.5.18:
+CVE-2026-59873
+CVE-2026-59874
+# brace-expansion 5.0.5/5.0.6 — exponential-time DoS; fixed 5.0.7:
+CVE-2026-13149
+# brace-expansion 5.0.5 — DoS via unbounded expansion length; fixed 5.0.8:
+CVE-2026-14257
+# shell-quote 1.8.3 — inefficient-parse DoS; fixed 1.9.0 (npm has no 1.8.x fix release):
+CVE-2026-13311
+# grpc-go in the apt-distributed gh binary — bundles an xDS RBAC fail-open
+# auth-bypass (HIGH, not DoS-class) plus two server-side DoS issues (an
+# HTTP/2 rapid-reset bypass and an xDS RBAC engine panic). All
+# three are server-side surfaces and UNREACHABLE here: gh is an outbound-only
+# CLI with no listening gRPC/xDS server. apt re-resolves gh on every deploy,
+# entry drops once Debian ships a rebuilt gh:
+GHSA-hrxh-6v49-42gf

@@ -300,6 +300,11 @@
       "advanced"
     ]
   },
+  "extensions/sidebar-approval.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/review-enforcement.ts": {
     "modes": [
       "default",
@@ -393,6 +398,16 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/adapt.native.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/android.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/animate.md": {
     "modes": [
       "advanced"
@@ -403,12 +418,12 @@
       "advanced"
     ]
   },
-  "skills/impeccable/reference/bolder.md": {
+  "skills/impeccable/reference/audit.native.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/impeccable/reference/brand.md": {
+  "skills/impeccable/reference/bolder.md": {
     "modes": [
       "advanced"
     ]
@@ -418,12 +433,12 @@
       "advanced"
     ]
   },
-  "skills/impeccable/reference/codex.md": {
+  "skills/impeccable/reference/colorize.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/impeccable/reference/colorize.md": {
+  "skills/impeccable/reference/craft-floor.md": {
     "modes": [
       "advanced"
     ]
@@ -444,6 +459,11 @@
     ]
   },
   "skills/impeccable/reference/distill.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/doctor.md": {
     "modes": [
       "advanced"
     ]
@@ -473,7 +493,7 @@
       "advanced"
     ]
   },
-  "skills/impeccable/reference/interaction-design.md": {
+  "skills/impeccable/reference/ios.md": {
     "modes": [
       "advanced"
     ]
@@ -488,7 +508,17 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/new-work.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/onboard.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/operate.md": {
     "modes": [
       "advanced"
     ]
@@ -508,12 +538,12 @@
       "advanced"
     ]
   },
-  "skills/impeccable/reference/product.md": {
+  "skills/impeccable/reference/quieter.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/impeccable/reference/quieter.md": {
+  "skills/impeccable/reference/routing.md": {
     "modes": [
       "advanced"
     ]
@@ -528,7 +558,17 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/visualize.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/command-metadata.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/concept-seed.mjs": {
     "modes": [
       "advanced"
     ]
@@ -643,12 +683,27 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/detector/shared/fonts.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/detector/shared/inline-ignores.mjs": {
     "modes": [
       "advanced"
     ]
   },
   "skills/impeccable/scripts/detector/shared/page.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/doctor.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/generate-image.mjs": {
     "modes": [
       "advanced"
     ]
@@ -673,6 +728,21 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/artifact-schema.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/composition-catalog.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/concept-catalog.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/design-parser.mjs": {
     "modes": [
       "advanced"
@@ -693,7 +763,42 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/provider.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/staleness-deep.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/staleness-notice.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/staleness.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/surface-briefs.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/target-args.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/target-slug.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/template-extensions.mjs": {
     "modes": [
       "advanced"
     ]
@@ -803,6 +908,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/live/generation-preflight.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/live/insert-ui.mjs": {
     "modes": [
       "advanced"
@@ -823,7 +933,22 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/live/poll-lanes.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/live/session-store.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/source-lock.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/source-search.mjs": {
     "modes": [
       "advanced"
     ]
@@ -834,6 +959,11 @@
     ]
   },
   "skills/impeccable/scripts/live/sveltekit-adapter.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/tanstack-adapter.mjs": {
     "modes": [
       "advanced"
     ]
@@ -859,6 +989,16 @@
     ]
   },
   "skills/impeccable/scripts/pin.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/serve-question.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/surface-brief.mjs": {
     "modes": [
       "advanced"
     ]

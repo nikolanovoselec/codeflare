@@ -198,7 +198,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         container: { ...mockContainerRuntime, interceptOutboundHttps },
         exports: { LlmInterceptor: vi.fn() },
       };
-      // mockEnv has no ENTERPRISE_MODE -> setupEnterpriseInterception is a no-op.
+      // mockEnv has no ENTERPRISE_MODE -> enterprise interception entries are a no-op.
       const instance = new ContainerClass(ctx as any, mockEnv);
 
       await instance.startAndWaitForPorts(8080);
@@ -481,7 +481,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         container: { ...mockContainerRuntime, interceptOutboundHttps },
         exports: { LlmInterceptor: vi.fn(), GitHubInterceptor: vi.fn(), EgressController },
       };
-      // mockEnv has no ENTERPRISE_MODE -> setupEnterpriseInterception is a no-op
+      // mockEnv has no ENTERPRISE_MODE -> enterprise interception entries are a no-op
       // and never reads the strict toggle.
       const instance = new ContainerClass(ctx as any, mockEnv);
 

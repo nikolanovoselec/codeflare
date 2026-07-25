@@ -22,6 +22,7 @@ function renderSection(overrides: {
   saasMode?: boolean;
   currentSessionMode?: 'default' | 'advanced';
   canUseAdvanced?: boolean;
+  canChangeSleepAfter?: boolean;
   onSessionModeChange?: ModeChange;
 } = {}) {
   const props = {
@@ -33,7 +34,7 @@ function renderSection(overrides: {
     workspaceSyncEnabled: () => false,
     clipboardAccess: () => false,
     sleepAfter: () => '30m',
-    canChangeSleepAfter: () => true,
+    canChangeSleepAfter: () => overrides.canChangeSleepAfter ?? true,
     isFreeUser: () => false,
     recreateDocsLoading: () => false,
     recreateDocsMessage: () => null,
@@ -102,5 +103,21 @@ describe('REQ-AGENT-004 AC3: mode selection in Settings session-defaults', () =>
     expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
     expect(screen.queryByTestId('session-mode-default')).not.toBeInTheDocument();
     expect(screen.queryByTestId('session-mode-advanced')).not.toBeInTheDocument();
+  });
+});
+
+describe('REQ-SESSION-004 AC6: idle-timeout dropdown gating', () => {
+  afterEach(() => cleanup());
+
+  it('enables the sleep-after select when the user may change the idle timeout', () => {
+    renderSection({ canChangeSleepAfter: true });
+
+    expect((screen.getByTestId('settings-sleep-after-select') as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it('disables the sleep-after select when the user may not change the idle timeout', () => {
+    renderSection({ canChangeSleepAfter: false });
+
+    expect((screen.getByTestId('settings-sleep-after-select') as HTMLSelectElement).disabled).toBe(true);
   });
 });

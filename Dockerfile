@@ -19,6 +19,63 @@ RUN npm run build
 # Remove devDependencies after build to keep runtime image lean
 RUN npm prune --omit=dev
 
+# ---- Codeflare native Pi Chat extension builder (OpenVSCode Node 22) ----
+FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
+
+WORKDIR /app/openvscode/agent-sidebar
+COPY openvscode/agent-sidebar/package.json openvscode/agent-sidebar/package-lock.json ./
+RUN npm ci
+COPY openvscode/agent-sidebar/tsconfig.json openvscode/agent-sidebar/esbuild.mjs openvscode/agent-sidebar/official-claude.json ./
+COPY openvscode/agent-sidebar/src/ ./src/
+RUN npm run typecheck && NODE_ENV=production npm run build
+
+RUN mkdir -p /out/extension && \
+    cp package.json /out/extension/package.json && \
+    cp -a dist /out/extension/dist
+COPY openvscode/agent-sidebar/media/ /out/extension/media/
+
+# ---- Official Claude Code Open VSX extension ----
+# Owner-accepted license risk: install Anthropic's exact unmodified linux-x64
+# package into the image, configured externally at runtime. Never serve the VSIX.
+FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-official-claude-extension
+
+COPY openvscode/agent-sidebar/official-claude.json /tmp/official-claude.json
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
+RUN CLAUDE_VSCODE_NAMESPACE="$(node -p 'require("/tmp/official-claude.json").namespace')" && \
+    CLAUDE_VSCODE_NAME="$(node -p 'require("/tmp/official-claude.json").name')" && \
+    CLAUDE_VSCODE_VERSION="$(node -p 'require("/tmp/official-claude.json").version')" && \
+    CLAUDE_VSCODE_PLATFORM="$(node -p 'require("/tmp/official-claude.json").targetPlatform')" && \
+    CLAUDE_VSCODE_SHA256="$(node -p 'require("/tmp/official-claude.json").sha256')" && \
+    export CLAUDE_VSCODE_VERSION && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
+      "https://open-vsx.org/api/${CLAUDE_VSCODE_NAMESPACE}/${CLAUDE_VSCODE_NAME}/${CLAUDE_VSCODE_PLATFORM}/${CLAUDE_VSCODE_VERSION}/file/${CLAUDE_VSCODE_NAMESPACE}.${CLAUDE_VSCODE_NAME}-${CLAUDE_VSCODE_VERSION}@${CLAUDE_VSCODE_PLATFORM}.vsix" \
+      -o /tmp/anthropic.claude-code.vsix && \
+    echo "${CLAUDE_VSCODE_SHA256}  /tmp/anthropic.claude-code.vsix" | sha256sum -c - && \
+    mkdir -p /tmp/anthropic-claude && \
+    unzip -q /tmp/anthropic.claude-code.vsix 'extension/*' -d /tmp/anthropic-claude && \
+    mv /tmp/anthropic-claude/extension /out && \
+    node -e 'const pin=require("/tmp/official-claude.json"),p=require("/out/package.json"); if(p.name!==pin.name||p.publisher!==pin.namespace||p.version!==pin.version||p.main!==pin.main||p.engines?.vscode!==pin.vscodeEngine) process.exit(1)' && \
+    test -x /out/resources/native-binary/claude && \
+    test -z "$(find /out -type l -print -quit)" && \
+    test -z "$(find /out -iname '*.vsix' -print -quit)" && \
+    DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+      /out/resources/native-binary/claude --version | grep -F "${CLAUDE_VSCODE_VERSION}" && \
+    rm -rf /tmp/anthropic.claude-code.vsix /tmp/anthropic-claude
+
+# ---- Assemble immutable agent inventories once, before the runtime image ----
+FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-inventories
+
+COPY --from=openvscode-agent-sidebar-builder /out/extension /tmp/codeflare-sidebar-extension
+COPY --from=openvscode-official-claude-extension /out /tmp/official-claude-extension
+RUN /usr/local/bin/node --input-type=module -e \
+      'const { stageSidebarExtension } = await import("file:///tmp/codeflare-sidebar-extension/dist/package-extension.mjs"); await stageSidebarExtension({ sourceDirectory: "/tmp/codeflare-sidebar-extension", claudeSourceDirectory: "/tmp/official-claude-extension", rootDirectory: "/out/openvscode" });' && \
+    rm -rf /tmp/codeflare-sidebar-extension /tmp/official-claude-extension && \
+    test -f /out/openvscode/extensions/pi/codeflare-agent-sidebar/dist/extension.cjs && \
+    test -f /out/openvscode/extensions/claude/anthropic.claude-code/extension.js && \
+    test -x /out/openvscode/extensions/claude/anthropic.claude-code/resources/native-binary/claude && \
+    test -z "$(find /out/openvscode/extensions/none -mindepth 1 -print -quit)" && \
+    test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)"
+
 # ---- Stage 2: Runtime ----
 FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf
 
@@ -154,6 +211,32 @@ RUN OPENVSCODE_VERSION="1.109.5" && \
     /usr/local/bin/openvscode-server --version && \
     rm -rf /tmp/openvscode.tar.gz
 
+# Fixed immutable inventories: Codeflare's native Pi participant, Anthropic's
+# exact official Claude extension, and an empty unsupported-agent inventory.
+# The assembled tree is copied once, so the 285 MiB official package is not
+# duplicated through a runtime staging layer.
+COPY --from=openvscode-agent-inventories /out/openvscode /opt/codeflare/openvscode
+
+# Official Claude sessions use an isolated config projection. Managed settings
+# and hooks remain root-owned; terminal history and runtime state are never
+# copied into the projection.
+COPY openvscode/claude/managed-settings.mjs \
+     openvscode/claude/pre-tool-use-permission.mjs \
+     openvscode/claude/prepare-sidebar-config.mjs \
+     openvscode/claude/prepare-sidebar-config.sh \
+     openvscode/claude/sidebar-settings.json \
+     /opt/codeflare/openvscode/claude/
+RUN mkdir -p /etc/codeflare/claude-sidebar && \
+    cp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json && \
+    chmod 0555 /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh && \
+    find /opt/codeflare/openvscode/claude -type f ! -name prepare-sidebar-config.sh -exec chmod 0444 {} + && \
+    chmod 0555 /opt/codeflare/openvscode/claude /etc/codeflare/claude-sidebar && \
+    chmod 0444 /etc/codeflare/claude-sidebar/settings.json && \
+    cmp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json
+
+COPY scripts/ci/smoke-openvscode-sidebar-image.mjs /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
+RUN chmod 0444 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
+
 # REQ-STOR-017 / AD90: bake the agent-config seed tree into the image so a Governed Mode
 # (R2 SSE-C disabled) container can lay it down locally BEFORE the initial R2 sync — the
 # `--checksum` sync then skips the unchanged seed files and transfers only user deltas.
@@ -196,7 +279,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gh \
 # up a bad version within 7 days. Trivy detects CVEs, not malicious publishes.
 # Still auto-updates weekly, but through a reviewable bump PR: see the
 # `agent-clis` job in .github/workflows/bump-shadow-pins.yml.
-ARG CLAUDE_CODE_VERSION=2.1.215
+ARG CLAUDE_CODE_VERSION=2.1.219
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
@@ -216,10 +299,10 @@ RUN claude --version
 # the registry served at build time. The jiti warm-up layer below stays correct
 # because it runs with the pi installed here, so the baked cache is always
 # generated by the same pi/jiti that consumes it at runtime.
-ARG CODEX_VERSION=0.144.6
+ARG CODEX_VERSION=0.145.0
 ARG OPENCODE_VERSION=1.18.4
-ARG COPILOT_VERSION=1.0.71
-ARG PI_CODING_AGENT_VERSION=0.80.10
+ARG COPILOT_VERSION=1.0.74
+ARG PI_CODING_AGENT_VERSION=0.82.0
 RUN npm install -g \
       "@openai/codex@${CODEX_VERSION}" \
       "opencode-ai@${OPENCODE_VERSION}" \

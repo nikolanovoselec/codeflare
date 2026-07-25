@@ -150,6 +150,8 @@ describe('User Profile Routes', () => {
         enterpriseMode: false,
         // View-only storage: non-enterprise default is OFF (no KV read).
         downloadsDisabled: false,
+        // REQ-ENTERPRISE-003: non-enterprise delivers the full agent enum.
+        allowedAgents: ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'],
       });
     });
 

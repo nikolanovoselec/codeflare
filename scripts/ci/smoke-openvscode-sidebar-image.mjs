@@ -1,0 +1,272 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const ROOT = '/opt/codeflare/openvscode';
+const EXTENSION_NAME = 'codeflare-agent-sidebar';
+
+async function main() {
+  const inventoriesRoot = join(ROOT, 'extensions');
+  assert.deepEqual((await readdir(inventoriesRoot)).sort(), ['claude', 'none', 'pi']);
+  assert.deepEqual(await readdir(join(inventoriesRoot, 'none')), []);
+
+  const officialPinPath = join(ROOT, 'official-claude.json');
+  const officialPin = JSON.parse(await readFile(officialPinPath, 'utf8'));
+  assert.equal((await stat(officialPinPath)).uid, 0);
+  assert.equal((await stat(officialPinPath)).mode & 0o222, 0);
+  const piInventory = join(inventoriesRoot, 'pi');
+  const claudeInventory = join(inventoriesRoot, 'claude');
+  assert.deepEqual(await readdir(piInventory), [EXTENSION_NAME]);
+  assert.deepEqual(await readdir(claudeInventory), ['anthropic.claude-code']);
+  const piRoot = join(piInventory, EXTENSION_NAME);
+  const claudeRoot = join(claudeInventory, 'anthropic.claude-code');
+  const piManifest = JSON.parse(await readFile(join(piRoot, 'package.json'), 'utf8'));
+  assert.equal(piManifest.name, EXTENSION_NAME);
+  assert.equal(piManifest.publisher, 'codeflare');
+  assert.equal(piManifest.version, '0.0.0');
+  assert.equal(piManifest.main, './dist/extension.cjs');
+  assert.equal(piManifest.engines.vscode, '^1.109.0');
+  assert.deepEqual(piManifest.extensionKind, ['workspace']);
+  assert.equal(piManifest.capabilities.untrustedWorkspaces.supported, false);
+  await assertImmutable(piRoot);
+  await assertImmutable(claudeRoot);
+
+  const piMain = join(piRoot, 'dist', 'extension.cjs');
+  const extensionHash = createHash('sha256').update(await readFile(piMain)).digest('hex');
+  assert.equal((await collect(ROOT)).some((path) => path.toLowerCase().endsWith('.vsix')), false);
+  const nativeChat = await verifyPackagedNativeChat(piRoot);
+  const officialClaude = verifyOfficialClaudeExtension(claudeRoot, officialPin);
+
+  const managedModule = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
+  const managedSettings = managedModule.buildManagedSettings();
+  const optSettings = JSON.parse(await readFile(join(ROOT, 'claude', 'sidebar-settings.json'), 'utf8'));
+  const etcSettings = JSON.parse(await readFile('/etc/codeflare/claude-sidebar/settings.json', 'utf8'));
+  assert.deepEqual(optSettings, managedSettings);
+  assert.deepEqual(etcSettings, managedSettings);
+  assert.equal(managedSettings.permissions.defaultMode, 'bypassPermissions');
+  assert.equal(managedSettings.disableRemoteControl, true);
+
+  await verifyConfigProjection();
+  await verifyOpenVscodeSettings();
+  await verifyPermissionHook();
+  const claudeVersion = execFileSync('/usr/local/bin/claude', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
+  const piVersion = execFileSync('/usr/local/bin/pi', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
+
+  process.stdout.write(`${JSON.stringify({
+    result: 'SIDEBAR_IMAGE_SMOKE_OK',
+    extensionHash,
+    nativeChat,
+    officialClaude,
+    claudeVersion,
+    piVersion,
+  })}\n`);
+}
+
+async function verifyPackagedNativeChat(extensionRoot) {
+  const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
+  assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
+  assert.deepEqual(manifest.contributes?.languageModelChatProviders, [{
+    vendor: 'codeflare-pi-rpc',
+    displayName: 'Codeflare Pi (Local RPC)',
+  }]);
+  const [participant] = manifest.contributes?.chatParticipants ?? [];
+  assert.equal(participant?.id, 'codeflare.pi');
+  assert.equal(participant?.name, 'codeflare');
+  assert.equal(participant?.isDefault, true);
+  assert.equal(participant?.isSticky, true);
+  assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
+  assert.equal(manifest.contributes?.views, undefined);
+
+  const require = createRequire(import.meta.url);
+  const Module = require('node:module');
+  const originalLoad = Module._load;
+  let handler;
+  let hostModelProvider;
+  const disposable = () => ({ dispose() {} });
+  const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
+  const vscode = new Proxy({
+    Uri: { joinPath: (base, ...parts) => uri(join(base.fsPath ?? base.path, ...parts)) },
+    DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
+    chat: {
+      createChatParticipant: (id, candidate) => {
+        assert.equal(id, 'codeflare.pi');
+        handler = candidate;
+        return disposable();
+      },
+    },
+    languages: { getDiagnostics: () => [] },
+    lm: {
+      registerLanguageModelChatProvider: (vendor, provider) => {
+        assert.equal(vendor, 'codeflare-pi-rpc');
+        hostModelProvider = provider;
+        return disposable();
+      },
+    },
+    window: {
+      activeTextEditor: undefined,
+      showWarningMessage: async () => undefined,
+      showTextDocument: async () => undefined,
+    },
+    workspace: { textDocuments: [], openTextDocument: async () => ({}) },
+  }, {
+    get(target, property, receiver) {
+      assert.notEqual(property, 'authentication');
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  let extension;
+
+  try {
+    Module._load = function load(request, parent, isMain) {
+      if (request === 'vscode') return vscode;
+      return originalLoad.call(this, request, parent, isMain);
+    };
+    extension = require(join(extensionRoot, String(manifest.main).replace(/^\.\//, '')));
+    const subscriptions = [];
+    extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
+    assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
+    assert.equal(typeof hostModelProvider, 'object', 'packaged extension did not register its host compatibility model');
+    const models = await hostModelProvider.provideLanguageModelChatInformation({}, {});
+    assert.equal(models.length, 1);
+    assert.deepEqual(models[0].isDefault, { 1: true });
+    assert.equal(models[0].isUserSelectable, false);
+    assert.equal(models[0].requiresAuthorization, undefined);
+    await assert.rejects(
+      hostModelProvider.provideLanguageModelChatResponse(),
+      /compatibility.*cannot generate|cannot generate.*compatibility/i,
+    );
+    assert.equal(await hostModelProvider.provideTokenCount(), 0);
+    await handler(
+      { prompt: 'cancelled smoke', references: [] },
+      { history: [] },
+      { markdown: () => assert.fail('cancelled request emitted markdown'), progress: () => assert.fail('cancelled request emitted progress') },
+      { isCancellationRequested: true, onCancellationRequested: () => disposable() },
+    );
+    return 'DEFAULT_NATIVE_PI_OK';
+  } finally {
+    await extension?.deactivate?.();
+    Module._load = originalLoad;
+  }
+}
+
+function verifyOfficialClaudeExtension(extensionRoot, pin) {
+  const manifest = JSON.parse(execFileSync('/usr/local/bin/node', [
+    '-e',
+    'const p=require(process.argv[1]); process.stdout.write(JSON.stringify(p))',
+    join(extensionRoot, 'package.json'),
+  ], { encoding: 'utf8', timeout: 10_000 }));
+  assert.equal(pin.targetPlatform, 'linux-x64');
+  assert.match(pin.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(manifest.name, pin.name);
+  assert.equal(manifest.publisher, pin.namespace);
+  assert.equal(manifest.version, pin.version);
+  assert.equal(manifest.main, pin.main);
+  assert.equal(manifest.engines.vscode, pin.vscodeEngine);
+  assert.match(manifest.license, /Anthropic PBC.*All rights reserved/i);
+  const bundledVersion = execFileSync(join(extensionRoot, 'resources', 'native-binary', 'claude'), ['--version'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+    env: {
+      ...process.env,
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      DISABLE_AUTOUPDATER: '1',
+    },
+  }).trim();
+  assert.match(bundledVersion, new RegExp(pin.version.replaceAll('.', '\\.')));
+  return { result: 'OFFICIAL_CLAUDE_OK', version: manifest.version, bundledVersion, archiveSha256: pin.sha256 };
+}
+
+async function verifyConfigProjection() {
+  const root = await mkdtemp(join(tmpdir(), 'sidebar-image-smoke-'));
+  try {
+    const sourceRoot = join(root, 'source');
+    const targetRoot = join(root, 'target');
+    await mkdir(sourceRoot);
+    await writeFile(join(sourceRoot, '.credentials.json'), 'image-smoke-secret-canary\n', { mode: 0o600 });
+    await writeFile(join(sourceRoot, 'history.jsonl'), 'terminal-history-must-not-project\n');
+    const module = await import(pathToFileURL(join(ROOT, 'claude', 'prepare-sidebar-config.mjs')).href);
+    await module.prepareSidebarConfig({ sourceRoot, targetRoot });
+    assert.equal((await lstat(join(targetRoot, '.credentials.json'))).isSymbolicLink(), true);
+    assert.equal(await readlink(join(targetRoot, '.credentials.json')), join(sourceRoot, '.credentials.json'));
+    await assert.rejects(lstat(join(targetRoot, 'history.jsonl')), { code: 'ENOENT' });
+    assert.equal(JSON.parse(await readFile(join(targetRoot, '.codeflare-projection.json'), 'utf8')).version, 1);
+    assert.equal((await stat(targetRoot)).mode & 0o777, 0o700);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function verifyOpenVscodeSettings() {
+  const root = await mkdtemp(join(tmpdir(), 'claude-vscode-settings-smoke-'));
+  try {
+    const serverDataRoot = join(root, 'openvscode-data');
+    const claudeConfigRoot = join(root, 'claude-config');
+    const preparation = await import(pathToFileURL(join(ROOT, 'claude', 'prepare-sidebar-config.mjs')).href);
+    const managed = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
+    await preparation.prepareOpenVscodeSettings({ serverDataRoot, claudeConfigRoot });
+    const settings = JSON.parse(await readFile(join(serverDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
+    assert.deepEqual(settings, managed.buildOpenVscodeSettings(claudeConfigRoot));
+    assert.equal(settings['chat.disableAIFeatures'], true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function verifyPermissionHook() {
+  const hook = await import(pathToFileURL(join(ROOT, 'claude', 'pre-tool-use-permission.mjs')).href);
+  const input = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} });
+  const outcome = await hook.runPreToolUse(input);
+  assert.equal(outcome.exitCode, 0);
+  assert.equal(JSON.parse(outcome.stdout).hookSpecificOutput.permissionDecision, 'allow');
+  const guarded = await hook.runPreToolUse(JSON.stringify({
+    hook_event_name: 'PreToolUse',
+    tool_name: 'mcp__ide__executeCode',
+    tool_input: {},
+  }));
+  assert.equal(JSON.parse(guarded.stdout).hookSpecificOutput.permissionDecision, 'allow');
+  const diagnostics = await hook.runPreToolUse(JSON.stringify({
+    hook_event_name: 'PreToolUse',
+    tool_name: 'mcp__ide__getDiagnostics',
+    tool_input: {},
+  }));
+  assert.equal(JSON.parse(diagnostics.stdout).hookSpecificOutput.permissionDecision, 'allow');
+  const failed = await hook.runPreToolUse(input, { evaluate: () => { throw new Error('canary'); } });
+  assert.equal(failed.exitCode, 2);
+}
+
+async function assertImmutable(root) {
+  for (const path of await collect(root)) {
+    const info = await lstat(path);
+    assert.equal(info.uid, 0, `${path} is not root-owned`);
+    assert.equal(info.mode & 0o222, 0, `${path} is writable`);
+  }
+}
+
+async function collect(root, output = []) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    output.push(path);
+    if (entry.isDirectory()) await collect(path, output);
+  }
+  return output;
+}
+
+main().catch((error) => {
+  process.stderr.write(`SIDEBAR_IMAGE_SMOKE_FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+});

@@ -15,6 +15,7 @@ import { reconcileAgentConfigs } from '../lib/r2-seed';
 import { isR2SseDisabledForBucket, isBucketMigrating } from '../lib/r2-migration';
 import { getR2Config } from '../lib/r2-config';
 import { getEffectiveTier, getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../lib/subscription';
+import { withEffectiveSessionMode } from '../lib/session-mode';
 import { allowedAgents } from '../lib/agent-allowlist';
 import { createLogger } from '../lib/logger';
 
@@ -80,7 +81,10 @@ app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
   const key = getPreferencesKey(bucketName);
   const stored = await c.env.KV.get<UserPreferences & { lastPresetId?: unknown }>(key, 'json') || {};
-  return c.json(withoutLegacyPresetId(stored));
+  // REQ-ENTERPRISE-001 AC2: surface the enterprise-forced Pro mode to the client
+  // (computed, not stored) so advanced-gated dashboard surfaces render for JIT
+  // users who never wrote a preference. Byte-identical when the flag is unset.
+  return c.json(withEffectiveSessionMode(withoutLegacyPresetId(stored), c.env));
 });
 
 /**
@@ -90,11 +94,19 @@ app.get('/', async (c) => {
 app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
 
-  const body = await parseJsonBody(c, UpdatePreferencesBody);
+  const parsedBody = await parseJsonBody(c, UpdatePreferencesBody);
 
-  // Enterprise deploys restrict the selectable agent set (REQ-ENTERPRISE-003).
-  // Outside enterprise mode allowedAgents() returns all 7, so this never rejects.
-  if (body.lastAgentType && !allowedAgents(c.env).includes(body.lastAgentType)) {
+  // REQ-ENTERPRISE-001 AC2: enterprise never honors a client-supplied session-mode
+  // downgrade — the write path is coerced to Pro so a stale client cannot regress
+  // the stored value or trigger a default-mode reconcile of a live bucket.
+  const body = parsedBody.sessionMode && isEnterpriseMode(c.env)
+    ? { ...parsedBody, sessionMode: 'advanced' as const }
+    : parsedBody;
+
+  // Enterprise deploys restrict the selectable agent set to the wizard-chosen
+  // active agents (REQ-ENTERPRISE-003). Outside enterprise mode allowedAgents()
+  // returns all 7, so this never rejects.
+  if (body.lastAgentType && !(await allowedAgents(c.env)).includes(body.lastAgentType)) {
     throw new ValidationError(`Agent type '${body.lastAgentType}' is not available in this deployment`);
   }
 
@@ -157,7 +169,10 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     }
   }
 
-  return c.json(updated);
+  // REQ-ENTERPRISE-001 AC2: the response reports the enterprise-forced Pro mode.
+  // Non-sessionMode fields keep the raw client value; sessionMode itself is
+  // coerced to Pro at the top of this handler under enterprise.
+  return c.json(withEffectiveSessionMode(updated, c.env));
 });
 
 export default app;

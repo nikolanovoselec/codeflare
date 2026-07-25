@@ -31,19 +31,31 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
     );
   });
 
-  it('REQ-OPS-011 AC2 (precondition): agent CLI packages are present in the image for Claude Code, Codex, Gemini CLI, Copilot, OpenCode', () => {
+  it('REQ-OPS-011 AC2 (precondition): agent CLI packages are present in the image for Claude Code, Codex, Antigravity, Copilot, OpenCode', () => {
     // AC2 runtime verification (CLIs start without crashes) requires a live
-    // container. This audit verifies the Dockerfile install layers that are
-    // the structural precondition for AC2: the npm global installs for each
-    // agent CLI must be present in the image build.
+    // container. This audit verifies each agent CLI's real install layer that
+    // is the structural precondition for AC2. Claude Code / Codex / Copilot /
+    // OpenCode ship as npm globals; Antigravity is a Go binary installed via
+    // its own curl installer, so it is verified against that layer, not npm.
     assert.ok(
-      dockerfile.includes('@anthropic-ai/claude-code') || dockerfile.includes('claude-code') || dockerfile.includes('@anthropic-ai'),
-      'Dockerfile must install Claude Code (npm global install)'
+      dockerfile.includes('@anthropic-ai/claude-code'),
+      'Dockerfile must install Claude Code (@anthropic-ai/claude-code)'
     );
-    // At minimum, the core dev-tool layer must be present
     assert.ok(
-      dockerfile.includes('npm install -g') || dockerfile.includes('npm i -g'),
-      'Dockerfile must have npm global install steps for agent CLIs'
+      dockerfile.includes('@openai/codex'),
+      'Dockerfile must install Codex (@openai/codex)'
+    );
+    assert.ok(
+      dockerfile.includes('@github/copilot'),
+      'Dockerfile must install Copilot (@github/copilot)'
+    );
+    assert.ok(
+      dockerfile.includes('opencode-ai'),
+      'Dockerfile must install OpenCode (opencode-ai)'
+    );
+    assert.ok(
+      dockerfile.includes('antigravity.google/cli/install.sh'),
+      'Dockerfile must install Antigravity via its Go-binary curl installer'
     );
   });
 

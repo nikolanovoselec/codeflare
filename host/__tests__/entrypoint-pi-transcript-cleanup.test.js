@@ -128,7 +128,12 @@ describe('cleanup_old_pi_transcripts / REQ-STOR-012 (keeps 5 newest Pi .jsonl, d
   test('no-op when sessions directory does not exist', () => {
     const scratch = makeScratch();
     try {
+      const sessionsDir = join(scratch.dir, '.pi', 'agent', 'sessions');
+      // Positively verify the no-op: the sessions dir is absent before AND after,
+      // so cleanup neither crashes nor fabricates the tree it was asked to prune.
+      assert.equal(existsSync(sessionsDir), false, 'precondition: sessions dir absent');
       runCleanupIn(scratch.dir);
+      assert.equal(existsSync(sessionsDir), false, 'no-op must not create the sessions dir');
     } finally {
       scratch.cleanup();
     }

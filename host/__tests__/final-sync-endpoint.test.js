@@ -101,7 +101,7 @@ describe('REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behav
 // endpoint's I/O wiring (in the monolithic http handler) and the shell-side
 // completion signal (entrypoint.sh). Source-text assertions, not behavioral.
 // ---------------------------------------------------------------------------
-const server = readFileSync(resolve(repoRoot, 'host/src/server.ts'), 'utf8');
+const server = readFileSync(resolve(repoRoot, 'host/src/request-router.ts'), 'utf8');
 const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
 // Read the DO drain budget from its source of truth so the host>DO ordering
 // guard below compares the two REAL constants — never a hardcoded comparator

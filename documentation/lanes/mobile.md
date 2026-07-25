@@ -147,11 +147,11 @@ In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, no
 **Scroll preservation after `fit()`:** Every `fit()` call site must preserve or restore scroll position, because `fit()` recalculates terminal dimensions and can reset the viewport to the top. The rules are:
 
 - **Mobile with keyboard open:** Always anchor to the bottom after `fit()` via `scrollBufferToBottom()` (buffer-authoritative — the public `scrollToBottom()` resolves relative to clamp-vulnerable DOM scroll state, [AD110](../decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)). The user expects to see the prompt whenever the keyboard is open.
-- **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollBufferToBottom()` after `fit()`. If the user had scrolled up into scrollback, preserve their position and call `resyncViewportScrollState()` so the DOM scroll state is re-commanded from the buffer instead of drifting toward the next divergence jump.
+- **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollBufferToBottom()` after `fit()`; if they had scrolled up into scrollback, preserve their position and call `resyncViewportScrollState()`.
 - **Zero-height guard:** All `fit()` call sites check `containerEl.clientHeight === 0` and bail early.
     - Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
 
-This applies to all three `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
+`resyncViewportScrollState()` re-commands the DOM scroll state from the buffer instead of letting it drift toward the next divergence jump. This applies to all three `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
 
 ## Touch Input
 
@@ -161,7 +161,7 @@ Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` 
 
 **Solution:** Register `touchend`/`touchcancel` in capture phase (`{ capture: true }`) matching `touchstart`/`touchmove`. Our handler now fires before xterm's, guaranteeing the repeat timer is always cleared.
 
-**xterm 6.1 Gesture shield (git: Fix 20).** xterm 6.1 (`6.1.0-beta.288`) vendored VS Code's touch-scroll rewrite (upstream PR #5377, absent from 6.0.0), which registers a document-level `Gesture` singleton via `MouseService` → `Gesture.addTarget(.xterm-screen)` and calls `preventDefault()` on any `touchstart`/`touchend` starting inside the terminal. Per the Touch Events spec that cancels the browser's synthesized `click` — codeflare's ONLY mobile-keyboard-open trigger (`Terminal.tsx` `on:click`) — so upgrading past 6.0.0 silently broke tap-to-open-keyboard on mobile (the keyboard never appeared; scrolling still worked).
+**xterm 6.1 Gesture shield (git: Fix 20).** xterm 6.1 (`6.1.0-beta.291`) vendored VS Code's touch-scroll rewrite (upstream PR #5377, absent from 6.0.0), which registers a document-level `Gesture` singleton via `MouseService` → `Gesture.addTarget(.xterm-screen)` and calls `preventDefault()` on any `touchstart`/`touchend` starting inside the terminal. Per the Touch Events spec that cancels the browser's synthesized `click` — codeflare's ONLY mobile-keyboard-open trigger (`Terminal.tsx` `on:click`) — so upgrading past 6.0.0 silently broke tap-to-open-keyboard on mobile (the keyboard never appeared; scrolling still worked).
 
 Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmove`/`touchend` on the terminal container in `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) — codeflare's own capture-phase handlers still run first, `stopPropagation()` (never `preventDefault`) does not affect browser click synthesis, and xterm's document-level Gesture singleton never sees a terminal-container touch. Removed on terminal cleanup. Covered by `touch-gestures.test.ts` (shield blocks container-origin touches from reaching document-level listeners; outside-container touches unaffected; cleanup removes the shield). Kept on top of the beta pin rather than reverting it — pinning an intermediate build is impossible (both breaking commits are ancestors of #5770's branch, the Pi-flicker mitigation this repo needs; see [Pi Terminal Flicker](troubleshooting.md#pi-terminal-flicker-or-scrollback-snaps-to-an-edge)). ([REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) AC6)
 
@@ -192,7 +192,7 @@ The mobile terminal input system uses several techniques to work around browser/
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
 6. **Touch scroll routing**
 
-   With the keyboard closed and normal scrollback active, vertical swipes in `touch-gestures.ts` scroll xterm's buffer service directly through `scrollBufferLines()` (`xterm-internals.ts`) — never the public viewport-relative `terminal.scrollLines()`, whose DOM scroll state can desync and yank the viewport (see [Viewport DOM Desync](#viewport-dom-desync-instant-yank-to-top)). The gesture handler accumulates pixel deltas and converts them to lines using the terminal font metrics; the pinned xterm `6.1.0-beta.288` scroll layer is JS-based (`SmoothScrollableElement`), not native overflow.
+   With the keyboard closed and normal scrollback active, vertical swipes in `touch-gestures.ts` scroll xterm's buffer service directly through `scrollBufferLines()` (`xterm-internals.ts`) — never the public viewport-relative `terminal.scrollLines()`, whose DOM scroll state can desync and yank the viewport (see [Viewport DOM Desync](#viewport-dom-desync-instant-yank-to-top)). The gesture handler accumulates pixel deltas and converts them to lines using the terminal font metrics; the pinned xterm `6.1.0-beta.291` scroll layer is JS-based (`SmoothScrollableElement`), not native overflow.
 
    An alternate-screen application with wheel-capable mouse tracking owns its own history. `attachSwipeGestures()`'s `scrollTouchLines()` helper (`web-ui/src/lib/touch-gestures.ts`) turns the same accumulated lines into DOM wheel events on xterm's terminal element, allowing xterm to encode application mouse reports instead of attempting to move nonexistent terminal scrollback.
 7. **Floating page navigation**
@@ -211,7 +211,7 @@ Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constr
 
 ### Root Cause
 
-`@xterm/xterm` is pinned to `6.1.0-beta.288`. Its deferred viewport-DOM synchronization fixes Pi's synchronized-output flicker, and its full-buffer trimming owns the surviving-content anchor for a user reading scrollback. The Codeflare regression was not an xterm defect: write-side distance restoration and scroll-event reset correction both tried to override xterm, then reacted to the programmatic scroll events they generated.
+`@xterm/xterm` is pinned to `6.1.0-beta.291`. Its deferred viewport-DOM synchronization fixes Pi's synchronized-output flicker, and its full-buffer trimming owns the surviving-content anchor for a user reading scrollback. The Codeflare regression was not an xterm defect: write-side distance restoration and scroll-event reset correction both tried to override xterm, then reacted to the programmatic scroll events they generated.
 
 xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would jump to the top of scrollback during burst output (git: Fix 8). Root cause was a vicious cycle between two performance hacks:
 

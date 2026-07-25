@@ -12,15 +12,34 @@
 // typed (the real SDK is far richer); the command-handler signature IS typed so
 // the handler parameters are contextually typed and noImplicitAny is satisfied.
 declare module "@earendil-works/pi-coding-agent" {
-  export function getAgentDir(): string;
-
   export type NotifyLevel = "info" | "warning" | "error";
 
   export interface ExtensionContext {
+    cwd: string;
+    hasUI: boolean;
+    mode: string;
+    ui: {
+      confirm(title: string, message: string, options?: unknown): Promise<boolean>;
+      [key: string]: any;
+    };
     [key: string]: any;
   }
 
   export type ExtensionCommandContext = ExtensionContext;
+
+  export interface AgentToolResult<T> {
+    content: Array<{ type: "text"; text: string } | { type: "image"; [key: string]: any }>;
+    details: T;
+  }
+
+  export interface ToolDefinition {
+    name: string;
+    label: string;
+    description: string;
+    parameters: any;
+    execute(...args: any[]): Promise<AgentToolResult<any>>;
+    [key: string]: any;
+  }
 
   export interface ExtensionAPI {
     registerCommand(
@@ -31,6 +50,13 @@ declare module "@earendil-works/pi-coding-agent" {
         handler: (args: string, ctx: ExtensionCommandContext) => void | Promise<void>;
       },
     ): void;
+    registerTool(tool: ToolDefinition): void;
+    on(event: string, handler: (event: any, ctx: ExtensionContext) => any): void;
+    getAllTools(): Array<{
+      name: string;
+      sourceInfo?: { path: string; source: string; [key: string]: any };
+      [key: string]: any;
+    }>;
     [key: string]: any;
   }
 }

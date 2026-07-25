@@ -11,10 +11,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { validateVaultRoute } from '../../routes/vault-validation';
+import { validateVaultRoute } from '../../routes/vault/validation';
 import { VAULT_BUCKET_TOKEN_PATTERN, getVaultBucketToken } from '../../lib/vault-bucket-token';
 import { SESSION_ID_PATTERN } from '../../lib/constants';
-import { graftVaultKeyRecovery, VAULT_NATIVE_SW_VERBATIM } from '../../routes/vault-native-sw';
+import { graftVaultKeyRecovery, VAULT_NATIVE_SW_VERBATIM } from '../../routes/vault/native-sw';
 import { getRegimeState, resolveReadRegime, type RegimeState } from '../../lib/r2-regime-state';
 import {
   parseSessionMessages,

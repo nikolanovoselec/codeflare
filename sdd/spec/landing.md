@@ -95,10 +95,10 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. POST `/public/contact` validates name (1-100), email, company (optional, ≤200), topic (shared `CONTACT_TOPICS` enum), and message (10-4000); invalid input is rejected with 400. <!-- @impl: src/lib/contact-topics.ts::CONTACT_TOPICS --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
 2. The endpoint is available when SaaS mode or onboarding mode is active and returns 404 otherwise; the waitlist endpoint stays onboarding-only. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
-3. Submissions require a passing Turnstile verification; failures are rejected with a CAPTCHA validation error. <!-- @impl: src/routes/public/index.ts::requireOnboardingMode --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
+3. Submissions require a passing Turnstile verification; failures are rejected with a CAPTCHA validation error. <!-- @impl: src/routes/public/index.ts::requireVerifiedSubmission --> <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) -->
 4. Accepted submissions are relayed as email to all admin users with reply-to set to the submitter, and every user-controlled field is HTML-escaped before rendering into the email body. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
 5. Submission content is never persisted — the only KV writes on the contact path are rate-limiter bookkeeping. <!-- @test: src/__tests__/routes/public-contact.test.ts (Public contact route (REQ-LANDING-002)) --> <!-- @manual -->
-6. GET `/public/contact-config` exposes the Turnstile site key under the same mode gate, for the landing form widget. <!-- @impl: src/routes/public/index.ts::ContactRequestSchema --> <!-- @test: src/__tests__/routes/public-contact.test.ts (returns the Turnstile site key in SaaS mode) -->
+6. GET `/public/contact-config` exposes the Turnstile site key under the same mode gate, for the landing form widget. <!-- @impl: src/routes/public/index.ts --> <!-- @test: src/__tests__/routes/public-contact.test.ts (returns the Turnstile site key in SaaS mode) -->
 
 **Constraints:**
 
@@ -110,7 +110,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** [Automated test](../../src/__tests__/routes/public-contact.test.ts)
+**Verification:** Automated test ([public-contact](../../src/__tests__/routes/public-contact.test.ts))
 
 **Status:** Implemented
 
@@ -125,7 +125,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The landing exposes the full Open Graph set: `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image` (1200x630 with type/alt), `og:locale`. <!-- @impl: landing/src/layouts/BaseLayout.astro::og:description --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC1: emits the Open Graph meta tags with their contract values) -->
-2. Twitter Card metadata is set with `summary_large_image` plus title, description, image, and image alt. <!-- @impl: landing/src/layouts/BaseLayout.astro::flare-field --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC2: emits the Twitter Card meta tags) -->
+2. Twitter Card metadata is set with `summary_large_image` plus title, description, image, and image alt. <!-- @impl: landing/src/layouts/BaseLayout.astro --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC2: emits the Twitter Card meta tags) -->
 3. The canonical URL is the served root (`https://codeflare.ch/`), not the `/landing/` asset path. <!-- @impl: landing/src/layouts/BaseLayout.astro::title --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003 AC3: emits a canonical link with a non-empty href) -->
 4. The social-share card and structured data carry the product's canonical positioning phrase, "agentic engineering engine": the OG image tagline (`og.svg`, rasterized to `og.png`), the `og:title`, and the `Organization` / `SoftwareApplication` JSON-LD descriptions; the meta and OG description give the fuller external summary. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003: external metadata (SEO, social, structured data)) -->
 5. The landing emits a JSON-LD `@graph` of schema.org structured data: a site-wide `Organization` (named, logo, `sameAs` the public repo) and `WebSite`, with the home page grafting on a `SoftwareApplication` entity, so search engines and LLMs resolve Codeflare to a named entity. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/metadata.test.ts (REQ-LANDING-003: external metadata (SEO, social, structured data)) -->
@@ -210,11 +210,11 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The landing renders a dedicated `#inference-mesh` hero band as a `<header>` directly after the primary hero and before the `#shift` section, reusing the existing section rhythm and tint and creating no second `h1`. <!-- @impl: landing/src/pages/index.astro::gate-crit --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
+1. The landing renders a dedicated `#inference-mesh` hero band as a `<header>` directly after the primary hero and before the `#shift` section, reusing the existing section rhythm and tint and creating no second `h1`. <!-- @impl: landing/src/components/InferenceMeshHero.astro --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 2. `Inference Mesh` is a plain white, unscrambled section heading with a shared `~/inference` kicker; both align right on desktop, and Codeflare is not repeated. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 3. Copy presents Inference Mesh as optional private, low-cost capacity from owned idle machines with warm sessions and boundary-local sensitive work; any hosted provider remains a first-class default or fallback. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 4. The band includes one external CTA labelled `See it on GitHub` linking to the public Inference Mesh repository, rendered as the shared `.micro-cta` text link (the same treatment as the dogfood CTA), with no secondary CTA and no dedicated detail route. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
-5. The band uses the existing Terminal and Transcript proof system as a concrete inference-call artifact carrying the shared `proof-terminal` chrome, with its bottom command line driven by the shared typed reel (`data-ft-loop`) cycling the content-model beats, introducing no new animation system or terminal chrome. <!-- @impl: landing/src/content/site.ts::TERMINAL --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the shared typed reel on the terminal command line, looping over the beats) -->
+5. The band uses the existing Terminal and Transcript proof system as a concrete inference-call artifact carrying the shared `proof-terminal` chrome, with its bottom command line driven by the shared typed reel (`data-ft-loop`) cycling the content-model beats, introducing no new animation system or terminal chrome. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the shared typed reel on the terminal command line, looping over the beats) -->
 6. Desktop places the right-aligned kicker, heading, description, and sole micro-CTA opposite the proof terminal; mobile left-aligns them. No subtitle or repeated Codeflare wordmark appears. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 
 **Constraints:**
@@ -229,7 +229,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** [Landing render tests](../../landing/src/__tests__/index-page.test.ts), [Scramble behavior tests](../../landing/src/__tests__/scramble.script.test.ts)
+**Verification:** Automated test ([Landing render tests](../../landing/src/__tests__/index-page.test.ts), [Scramble behavior tests](../../landing/src/__tests__/scramble.script.test.ts))
 
 **Status:** Implemented
 
@@ -280,8 +280,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 3. The editor tab carries the file name and an unsaved-change dot. <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the VS Code chrome on the shared terminal frame with the editor tab + modified dot) --> <!-- @manual -->
 4. The explorer renders the workspace file tree from the content model, one row per node, with the open file selected. <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the explorer file tree with one row per model node and the open file selected) --> <!-- @manual -->
 5. The band shows a calm, line-numbered code pane whose gutter numbers come from a CSS counter, so no line numbers are hardcoded in the markup. <!-- @test: landing/src/__tests__/code-editor.test.ts (renders one line-numbered code row per source line) --> <!-- @manual -->
-6. The integrated terminal's command line is driven by the shared typed reel and nothing new: the `.code-editor` frame carries `data-ft-loop` (the content-model activity stream) plus `data-ft-shuffle`, and exactly one `[data-ft-typed]` line rests on the first beat. <!-- @impl: landing/src/components/CodeEditor.astro::ce-dot --> <!-- @test: landing/src/__tests__/code-editor.test.ts (wires the integrated terminal to the shared reel: data-ft-loop + data-ft-shuffle on the frame, resting log lines, one data-ft-typed line on the first beat) -->
-7. The editor status bar carries the branch and caret-position segments from the content model and is the custom foot slot, not the default prose-caption foot. <!-- @impl: landing/src/components/CodeEditor.astro::ce-dot --> <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the editor status bar with the branch and caret-position segments) -->
+6. The integrated terminal's command line is driven by the shared typed reel and nothing new: the `.code-editor` frame carries `data-ft-loop` (the content-model activity stream) plus `data-ft-shuffle`, and exactly one `[data-ft-typed]` line rests on the first beat. <!-- @impl: landing/src/components/CodeEditor.astro --> <!-- @test: landing/src/__tests__/code-editor.test.ts (wires the integrated terminal to the shared reel: data-ft-loop + data-ft-shuffle on the frame, resting log lines, one data-ft-typed line on the first beat) -->
+7. The editor status bar carries the branch and caret-position segments from the content model and is the custom foot slot, not the default prose-caption foot. <!-- @impl: landing/src/components/CodeEditor.astro --> <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the editor status bar with the branch and caret-position segments) -->
 
 **Constraints:**
 

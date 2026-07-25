@@ -267,7 +267,7 @@ export function buildEnvVars(
     // container — emit a non-secret placeholder so git/`gh` (and Copilot's GitHub
     // features) run in authed mode while the egress GitHubInterceptor swaps in the
     // real per-user token at the github.com / api.github.com boundary (see
-    // container/index.ts wireGithubInterception + github-interceptor.ts). Emitted
+    // container/container-interception.ts github entry + github-interceptor.ts). Emitted
     // only when the user is connected (a token exists to inject), so an unconnected
     // enterprise session gets no GH_TOKEN and git/`gh` stay unauthenticated.
     // Non-enterprise is unchanged: the real token (deploy-keys entry, now also
@@ -309,7 +309,7 @@ export function buildEnvVars(
     // Cloudflare containers CA and points each agent at the constant provider
     // base-URLs. Read straight from the Worker deploy var (no per-session
     // injection) - the actual LLM routing is done by the DO's outbound
-    // interception (see container/index.ts setupEnterpriseInterception), which
+    // interception (see container/container-interception.ts), which
     // keeps every credential, gateway URL, and token OUT of the container.
     // Emitted only when ENTERPRISE_MODE=active, so a non-enterprise container's
     // env is byte-identical to today.

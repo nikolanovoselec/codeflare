@@ -48,7 +48,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware) (requireActiveUser middleware)
 
-**Verification:** [Integration test](../../src/__tests__/routes/session-creation.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-creation.test.ts))
 
 **Status:** Implemented
 
@@ -65,7 +65,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. Each session maps to a deterministic, unique container address derived from the user's storage identity and the session ID. <!-- @impl: src/lib/container-helpers.ts::getContainerId --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002: One container per session (isolation)) -->
 2. The container address uniquely addresses a single isolated runtime; no two sessions share one. <!-- @impl: src/lib/container-helpers.ts::getContainerId --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002: One container per session (isolation)) -->
 3. Different sessions belonging to the same user run in separate containers with separate PTY processes. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002: One container per session (isolation)) -->
-4. A session's container cannot access files, processes, or network state of another session's container. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/fuzz/input-validation.fuzz.test.ts (escapeXml output never contains raw XML special characters) -->
+4. A session's container cannot access files, processes, or network state of another session's container. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002: One container per session (isolation)) -->
 
 **Constraints:**
 
@@ -76,7 +76,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** [Integration test](../../src/__tests__/lib/container-id-isolation.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/lib/container-id-isolation.test.ts))
 
 **Status:** Implemented
 
@@ -124,7 +124,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 3. The idle timer resets for classified terminal input and for each client-to-server Browser IDE frame; reconnections and server-to-client output do not reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
-6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/container-metrics.test.ts (Container final-sync drain / REQ-SESSION-011 (drain R2 sync before stop)) -->
+6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-SESSION-004 AC6: idle-timeout dropdown gating) -->
 
 **Constraints:**
 
@@ -137,7 +137,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** [Automated test](../../src/__tests__/container-metrics.test.ts)
+**Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
 
 **Status:** Implemented
 
@@ -152,8 +152,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. The host tracks one last-input timestamp shared by terminal input and client-to-server Browser IDE frames. <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
-2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: src/__tests__/fuzz/input-validation.fuzz.test.ts (escapeXml output never contains raw XML special characters) -->
-3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
+2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-contains-user-input.test.js (containsUserInput) -->
+3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-contains-user-input.test.js (containsUserInput) -->
 4. Terminal-emulator response sequences are stripped before being written to the PTY so the agent never sees them. <!-- @impl: host/src/session.ts::Session --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
 
@@ -197,7 +197,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** [Integration test](../../src/__tests__/routes/session-stop-delete.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-stop-delete.test.ts))
 
 **Status:** Implemented
 
@@ -226,7 +226,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** [Automated test](../../src/__tests__/routes/container-lifecycle-helpers.test.ts)
+**Verification:** Automated test ([container-lifecycle-helpers](../../src/__tests__/routes/container-lifecycle-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -254,7 +254,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** [Integration test](../../src/__tests__/routes/container-restart-prefs.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/container-restart-prefs.test.ts))
 
 **Status:** Implemented
 
@@ -282,7 +282,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -328,7 +328,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-2. The container exposes an awaitable final-sync endpoint that triggers a fresh bisync and responds only once that bisync has completed (success or failure) or an internal timeout elapses, distinguishing completion from failure and timeout. <!-- @impl: host/src/server.ts::PREWARM_ORPHAN_MS --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)) -->
+2. The container exposes an awaitable final-sync endpoint that triggers a fresh bisync and responds only once that bisync has completed (success or failure) or an internal timeout elapses, distinguishing completion from failure and timeout. <!-- @impl: host/src/request-router.ts --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)) -->
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts::FinalSyncEval --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behavioral)) -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->
 5. Total teardown is hard-capped: the container is force-terminated no later than 135s after teardown begins regardless of sync state, so a hung sync cannot wedge the session. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
@@ -347,7 +347,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** [Drain-before-stop ordering + best-effort](../../src/__tests__/container/index.test.ts), [drainFinalSync + idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint + completion signal](../../host/__tests__/final-sync-endpoint.test.js)
+**Verification:** Automated test ([Drain-before-stop ordering + best-effort](../../src/__tests__/container/index.test.ts), [drainFinalSync + idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint + completion signal](../../host/__tests__/final-sync-endpoint.test.js))
 
 **Status:** Implemented
 
@@ -376,7 +376,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/stores/session.test.ts)
+**Verification:** Automated test ([session](../../web-ui/src/__tests__/stores/session.test.ts))
 
 **Status:** Implemented
 
@@ -406,7 +406,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/lib/sleep-timer.test.ts)
+**Verification:** Automated test ([sleep-timer](../../web-ui/src/__tests__/lib/sleep-timer.test.ts))
 
 **Status:** Implemented
 
@@ -433,7 +433,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** [Integration test](../../src/__tests__/routes/session-sleep-timeout.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-sleep-timeout.test.ts))
 
 **Status:** Implemented
 
@@ -449,7 +449,7 @@ None.
 
 1. The serving port binds within Cloudflare's container port-wait window even while initialization (R2 sync, MCP config merges) is still in progress. <!-- @impl: entrypoint.sh::TERMINAL_PID --> <!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readiness gate)) -->
 2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail) --> <!-- @manual -->
-3. Tab-1 PTY pre-warm is gated on the init-complete signal, so it never starts before initial state restore is in place. <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig --> <!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readiness gate)) -->
+3. Tab-1 PTY pre-warm is gated on the init-complete signal, so it never starts before initial state restore is in place. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readiness gate)) -->
 4. The host terminal server rejects terminal WebSocket upgrades with a retriable ("try again later") close code and a human-readable container-warming reason until both the init-complete signal is observed and the pre-warm session is registered. <!-- @impl: host/src/server.ts::initFlagObserved --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (handleWebSocketUpgrade) -->
 5. The image bakes a pre-transpiled (jiti) cache for the full Pi extension set at build time warmed via a throwaway `pi` run with the package list derived from the preseed `package.json`, the build failing if the cache comes out empty. <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (Pi startup warm-up: baked jiti cache) --> <!-- @manual -->
 
@@ -519,7 +519,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** [Automated test](../../src/__tests__/routes/container-status.test.ts)
+**Verification:** Automated test ([container-status](../../src/__tests__/routes/container-status.test.ts))
 
 **Status:** Implemented
 
@@ -549,7 +549,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
 
-**Verification:** [collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts), [onError / onStop lifecycle](../../src/__tests__/container/lifecycle.test.ts)
+**Verification:** Automated test ([collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts), [onError / onStop lifecycle](../../src/__tests__/container/lifecycle.test.ts))
 
 **Status:** Implemented
 
@@ -571,6 +571,6 @@ None.
 
 **Dependencies:** [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
-**Verification:** [Drain auth on the delete path](../../src/__tests__/container/index.test.ts), [idle/quota-stop drain auth](../../src/__tests__/container/container-metrics-drain.test.ts)
+**Verification:** Automated test ([Drain auth on the delete path](../../src/__tests__/container/index.test.ts), [idle/quota-stop drain auth](../../src/__tests__/container/container-metrics-drain.test.ts))
 
 **Status:** Implemented

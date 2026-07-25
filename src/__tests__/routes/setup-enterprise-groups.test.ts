@@ -1049,6 +1049,97 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(getNdjsonSummary(lines).success).toBe(true);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:downloads_disabled', expect.anything());
       });
+
+      // ─── Active coding agents (REQ-ENTERPRISE-025) ────────────────────────────
+      it('REQ-ENTERPRISE-025: persists the active-agent selection as JSON with its own step', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ activeAgents: ['pi'] })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:active_agents', '["pi"]');
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_active_agents', status: 'success' }));
+      });
+
+      it('REQ-ENTERPRISE-025: canonicalizes the stored selection (deduped, catalog order)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ activeAgents: ['pi', 'pi', 'copilot'] })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:active_agents', '["copilot","pi"]');
+      });
+
+      it('REQ-ENTERPRISE-025: rejects an empty active-agent selection with 400', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ activeAgents: [] })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-025: rejects a selection containing a non-capable agent with 400', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ activeAgents: ['pi', 'claude-code'] })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-025: never writes the selection when the field is absent', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({})),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-025: never writes the selection in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ activeAgents: ['pi'] })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
+      });
     });
   });
 });

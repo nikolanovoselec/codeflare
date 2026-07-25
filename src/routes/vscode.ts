@@ -2,7 +2,7 @@
  * Browser IDE routes -- proxy from the Worker to the in-container OpenVSCode
  * Server that hosts the full VS Code editor over the session's ~/workspace.
  *
- * Mirrors the Vault proxy plumbing (src/routes/vault.ts) but is much simpler:
+ * Mirrors the Vault proxy plumbing (src/routes/vault/index.ts) but is much simpler:
  * OpenVSCode is launched with --server-base-path=/api/vscode/<sessionId>, so it
  * builds its own asset + service-worker URLs and needs no HTML base-href graft,
  * no bootstrap hop, and no encryption/CSRF machinery of its own. The path is
@@ -36,8 +36,8 @@ import { checkRateLimit } from '../lib/rate-limit-core';
 import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
 import { createLogger } from '../lib/logger';
 import { toError, toErrorMessage } from '../lib/error-types';
-import { checkVaultOrigin, authenticateVaultRequest, assertActiveTier } from './vault-auth';
-import { assertSessionOwnership } from './vault-access';
+import { checkVaultOrigin, authenticateVaultRequest, assertActiveTier } from './vault/auth';
+import { assertSessionOwnership } from './vault/access';
 import type { VscodeRouteResult } from './vscode-validation';
 
 // Re-export the boundary parser so src/index.ts imports the route pair from

@@ -1,0 +1,505 @@
+/**
+ * HTTP request router for the container host server (CF-014 companion).
+ *
+ * Owns every plain-HTTP branch the server exposes (health, activity,
+ * sessions CRUD, sync triggers, git clone, vault + vscode proxies); server.ts
+ * owns process lifecycle, readiness flags, and WebSocket wiring. Handlers
+ * receive their collaborators through {@link RequestRouterDeps} so the router
+ * is importable in unit tests without booting a listening server.
+ */
+import http from 'node:http';
+import { parse as parseUrl } from 'node:url';
+import fs from 'node:fs';
+import { spawn } from 'node:child_process';
+import { checkContainerAuth } from './auth-check.js';
+import { getSyncStatus, getSystemMetrics } from './metrics.js';
+import { evaluateFinalSync } from './final-sync.js';
+import type { HealthResponse } from './types.js';
+import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
+import { stripVaultPrefix } from './vault-proxy.js';
+import {
+  isVscodePath,
+  vscodeUpstreamPath,
+  requestOpenvscodeStart,
+  vscodeModeAllowed,
+  vscodeWarmingResponse,
+  vscodeDisabledResponse,
+} from './vscode-proxy.js';
+import type { SessionManager } from './session-manager.js';
+import type { ActivityTracker, Logger, WsEvent } from './types.js';
+
+/** A localhost upstream the host proxies to (SilverBullet / OpenVSCode). */
+export interface ProxyTarget {
+  host: string;
+  port: number;
+}
+
+/** Live readiness flags owned by server.ts's prewarm lifecycle. */
+export interface ReadinessFlags {
+  prewarmReady: boolean;
+  initFlagObserved: boolean;
+  terminalServiceReady: boolean;
+}
+
+export interface RequestRouterDeps {
+  sessionManager: SessionManager;
+  wsEventLog: WsEvent[];
+  activityTracker: ActivityTracker;
+  log: Logger;
+  serverStartTime: number;
+  /** Read the CURRENT readiness flags (they flip as server.ts warms up). */
+  readiness(): ReadinessFlags;
+  silverbullet: ProxyTarget;
+  openvscode: ProxyTarget;
+}
+
+// Hop-by-hop headers and any auth we injected for the container boundary
+// must NOT be forwarded to the in-container app.
+function filterProxyHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
+  const out: http.OutgoingHttpHeaders = {};
+  for (const [k, v] of Object.entries(headers)) {
+    const lk = k.toLowerCase();
+    if (lk === 'connection' || lk === 'keep-alive' || lk === 'transfer-encoding'
+      || lk === 'upgrade' || lk === 'proxy-authenticate' || lk === 'proxy-authorization'
+      || lk === 'te' || lk === 'trailer' || lk === 'authorization' || lk === 'host') continue;
+    if (v !== undefined) out[k] = v as string | string[];
+  }
+  return out;
+}
+
+export function createRequestHandler(deps: RequestRouterDeps): (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> {
+  const { sessionManager, log } = deps;
+
+  return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+    const { pathname } = parseUrl(req.url ?? '');
+    const method = req.method;
+
+    // REQ-SEC-022: container auth-token check. Logic extracted to
+    // ./auth-check.ts so it can be unit-tested without spawning node-pty.
+    const authOutcome = checkContainerAuth(
+      pathname ?? '',
+      req.headers['authorization'],
+      process.env.CONTAINER_AUTH_TOKEN,
+    );
+    if (!authOutcome.allowed) {
+      res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
+      res.end(authOutcome.body);
+      return;
+    }
+
+    // Health check with full metrics (consolidates separate health server)
+    if (pathname === '/health' && method === 'GET') {
+      const syncInfo = getSyncStatus();
+      const sysMetrics = await getSystemMetrics(log);
+      const { prewarmReady, initFlagObserved, terminalServiceReady } = deps.readiness();
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: 'healthy',
+          sessions: sessionManager.size,
+          uptime: Math.floor((Date.now() - deps.serverStartTime) / 1000),
+          syncStatus: syncInfo.status,
+          syncError: syncInfo.error,
+          userPath: syncInfo.userPath,
+          prewarmReady,
+          initFlagObserved,
+          terminalServiceReady,
+          cpu: sysMetrics.cpu,
+          mem: sysMetrics.mem,
+          hdd: sysMetrics.hdd,
+          timestamp: new Date().toISOString(),
+        } satisfies HealthResponse)
+      );
+      return;
+    }
+
+    // WebSocket event log for debugging disconnects
+    if (pathname === '/ws-events' && method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ events: deps.wsEventLog }));
+      return;
+    }
+
+    // Activity endpoint for smart hibernation (WS connection-based)
+    if (pathname === '/activity' && method === 'GET') {
+      deps.activityTracker.recordHeartbeat();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(deps.activityTracker.getActivityInfo(sessionManager)));
+      return;
+    }
+
+    // List sessions
+    if (pathname === '/sessions' && method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ sessions: sessionManager.list() }));
+      return;
+    }
+
+    // Create session
+    if (pathname === '/sessions' && method === 'POST') {
+      const MAX_BODY_SIZE = 64 * 1024; // 64KB
+      let body = '';
+      let bodySize = 0;
+      req.on('data', (chunk: Buffer) => {
+        bodySize += chunk.length;
+        if (bodySize > MAX_BODY_SIZE) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request body too large' }));
+          req.destroy();
+          return;
+        }
+        body += chunk;
+      });
+      req.on('end', () => {
+        if (bodySize > MAX_BODY_SIZE) return;
+        try {
+          const { id, name } = JSON.parse(body || '{}') as { id?: string; name?: string };
+          if (!id) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Session ID required' }));
+            return;
+          }
+
+          const session = sessionManager.getOrCreate(id, name ?? 'Terminal');
+          if (!session) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Session limit reached' }));
+            return;
+          }
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ session: session.toJSON() }));
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        }
+      });
+      return;
+    }
+
+    // Delete session
+    const deleteMatch = (pathname ?? '').match(/^\/sessions\/([^/]+)$/);
+    if (deleteMatch && method === 'DELETE') {
+      const id = deleteMatch[1];
+      const deleted = sessionManager.delete(id);
+      if (deleted) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ deleted: true, id }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Session not found' }));
+      }
+      return;
+    }
+
+    // Manual bisync trigger (REQ-STOR-015 AC1). Sends SIGUSR1 to the
+    // bisync daemon, which interrupts its sleep and runs an immediate
+    // bisync cycle. Idempotent: signals during a running bisync coalesce
+    // to exactly one rerun (see entrypoint.sh trap).
+    //
+    // Hibernation note: the daemon PID is read from /tmp/sync-daemon.pid
+    // at every call, never cached. If the container is sleeping or the
+    // daemon has not yet written its PID file, the call returns 503; the
+    // Worker fan-out treats 503 as "session not active, skip" rather
+    // than propagating a user-visible error.
+    if (pathname === '/internal/bisync-trigger' && method === 'POST') {
+      try {
+        const pidStr = fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim();
+        const pid = Number(pidStr);
+        if (!Number.isFinite(pid) || pid <= 0) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'not-running', error: 'invalid daemon PID' }));
+          return;
+        }
+        try {
+          process.kill(pid, 'SIGUSR1');
+        } catch {
+          // ESRCH: process gone (daemon crashed or container restarting).
+          // Treat as not-running; the next container wake forces a
+          // baseline bisync per REQ-STOR-004 AC4, absorbing this trigger.
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'not-running', error: 'daemon process not found' }));
+          return;
+        }
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'triggered' }));
+      } catch {
+        // PID file missing: daemon has not started yet (container still
+        // running initial sync) or has been torn down (shutdown trap).
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'not-running', error: 'sync daemon not started' }));
+      }
+      return;
+    }
+
+    // REQ-GITHUB-004: live clone into a running container's workspace. Mirrors the
+    // new-session entrypoint clone, but for an already-running session reached via
+    // POST /api/github/clone -> DO -> here. Already behind the REQ-SEC-022 auth
+    // gate above. The repo/ref validation + dir computation are the pure
+    // resolveGitClone() helper (git-clone.ts) so this handler owns only fs/spawn
+    // I/O. git runs as an argv (never a shell string) and auth flows through the
+    // container's existing credential helper ($GH_TOKEN / enterprise interceptor).
+    if (pathname === '/internal/git-clone' && method === 'POST') {
+      const MAX_BODY_SIZE = 8 * 1024;
+      let body = '';
+      let bodySize = 0;
+      let tooLarge = false;
+      req.on('data', (chunk: Buffer) => {
+        bodySize += chunk.length;
+        if (bodySize > MAX_BODY_SIZE) {
+          tooLarge = true;
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request body too large' }));
+          req.destroy();
+          return;
+        }
+        body += chunk;
+      });
+      req.on('end', () => {
+        if (tooLarge) return;
+        let parsed: { repo?: unknown; ref?: unknown };
+        try {
+          parsed = JSON.parse(body || '{}') as { repo?: unknown; ref?: unknown };
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON', code: 'INVALID_BODY' }));
+          return;
+        }
+        const resolution = resolveGitClone(parsed.repo, parsed.ref, resolveWorkspaceRoot(process.env));
+        if (!resolution.ok) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: resolution.error, code: 'INVALID_REQUEST' }));
+          return;
+        }
+        // Collision refuse: never overwrite an existing path.
+        if (fs.existsSync(resolution.dir)) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Clone target already exists', code: 'CLONE_TARGET_EXISTS', path: resolution.dir }));
+          return;
+        }
+        const args = buildCloneArgs(resolution.repo, resolution.ref, resolution.dir, process.env.GITHUB_HOST || 'github.com');
+        const child = spawn('git', args);
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          child.kill('SIGKILL');
+          res.writeHead(504, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Clone timed out', code: 'CLONE_TIMEOUT' }));
+        }, 120_000);
+        child.on('error', () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Clone failed to start', code: 'CLONE_FAILED' }));
+        });
+        child.on('close', (code) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (code === 0) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'cloned', path: resolution.dir }));
+          } else {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Clone failed', code: 'CLONE_FAILED' }));
+          }
+        });
+      });
+      return;
+    }
+
+    // Awaited final sync (REQ-SESSION-011 AC2). Triggers a fresh bisync (SIGUSR1
+    // to the daemon, the same proven path as /internal/bisync-trigger) and BLOCKS
+    // until that bisync reaches a terminal status, so the Durable Object can drain
+    // the workspace to R2 while the container is still fully alive instead of
+    // relying on the post-SIGTERM kill grace (far too short for a bisync). The DO
+    // calls this before stopping the container and bounds it with its own budget.
+    //
+    // Completion detection (REQ-SESSION-011 AC3): record the trigger time, then
+    // wait for a `syncing` transition stamped at/after the trigger (our run
+    // started), then for that run's `success`/`failed` transition (newer ts). The
+    // two-phase wait ignores a bisync that was already in flight when we
+    // triggered - the daemon coalesces our SIGUSR1 into a rerun whose `syncing`
+    // ts lands after our trigger.
+    if (pathname === '/internal/final-sync' && method === 'POST') {
+      const triggerTs = Date.now();
+      const readStatus = (): { status?: string; ts?: number } => {
+        try { return JSON.parse(fs.readFileSync('/tmp/sync-status.json', 'utf8')); }
+        catch { return {}; }
+      };
+      try {
+        const pid = Number(fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim());
+        if (!Number.isFinite(pid) || pid <= 0) throw new Error('invalid daemon PID');
+        process.kill(pid, 'SIGUSR1');
+      } catch {
+        // No daemon: container is mid-init or already tearing down. Nothing to
+        // drain; let the caller proceed to stop.
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ synced: false, reason: 'daemon-not-running' }));
+        return;
+      }
+      // MUST stay strictly ABOVE the DO's drain budget (FINAL_SYNC_BUDGET_MS =
+      // 120_000 in src/container/container-metrics.ts). The DO calls this endpoint
+      // with AbortSignal.timeout(120s) and that abort is the authoritative
+      // ceiling. If this host loop gives up FIRST it returns 504 while rclone is
+      // still flushing, the DO records 'incomplete', and the session deletes with
+      // the last edits unsynced. The previous value (115_000, < 120s) inverted
+      // exactly that: every final bisync landing in the 115-120s band was lost -
+      // the root cause behind ~10 failed "raise the budget" fixes. Keep host > DO.
+      const INTERNAL_TIMEOUT_MS = 125_000;
+      const POLL_MS = 500;
+      // Two-phase completion detection lives in the pure evaluateFinalSync state
+      // machine (final-sync.ts) so the syncing->success/failed discrimination is
+      // unit-testable without spawning the daemon; this loop owns only the I/O.
+      let runStartedTs = -1;
+      while (Date.now() - triggerTs < INTERNAL_TIMEOUT_MS) {
+        const ev = evaluateFinalSync(readStatus(), triggerTs, runStartedTs);
+        runStartedTs = ev.runStartedTs;
+        if (ev.result === 'success') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ synced: true }));
+          return;
+        }
+        if (ev.result === 'failed') {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ synced: false, reason: 'bisync-failed' }));
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      }
+      res.writeHead(504, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ synced: false, reason: 'timeout' }));
+      return;
+    }
+
+    // Sync log endpoint
+    if (pathname === '/sync-log' && method === 'GET') {
+      try {
+        const MAX_LOG_SIZE = 100 * 1024; // 100KB
+        const stat = fs.statSync('/tmp/sync.log');
+        let logContent: string;
+        if (stat.size > MAX_LOG_SIZE) {
+          // Read only the last 100KB
+          const buffer = Buffer.alloc(MAX_LOG_SIZE);
+          const fd = fs.openSync('/tmp/sync.log', 'r');
+          fs.readSync(fd, buffer, 0, MAX_LOG_SIZE, stat.size - MAX_LOG_SIZE);
+          fs.closeSync(fd);
+          logContent = '... (truncated)\n' + buffer.toString('utf8');
+        } else {
+          logContent = fs.readFileSync('/tmp/sync.log', 'utf8');
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ log: logContent }));
+      } catch {
+        res.writeHead(404);
+        res.end('No sync log found');
+      }
+      return;
+    }
+
+    // Vault HTTP proxy → SilverBullet at SILVERBULLET_HOST:SILVERBULLET_PORT.
+    // Strip the `/vault` prefix; the worker already strips its own
+    // `/api/vault/:sid` prefix before forwarding. SilverBullet sees a
+    // clean `/<remaining>` path.
+    if (pathname && (pathname === '/vault' || pathname.startsWith('/vault/'))) {
+      let upstreamPath = stripVaultPrefix(pathname);
+      // SilverBullet 2.8.0 serves the service worker only at the root path
+      // (/service_worker.js, with Content-Type text/javascript). Requests
+      // routed under /.client/service_worker.js fall through to the
+      // catch-all SPA handler and come back as text/html, which the
+      // browser then rejects with "ServiceWorker: bad MIME type" and the
+      // user sees the registration error from screenshot 1. The base-href
+      // rewrite in src/routes/vault/index.ts already makes SB client.js compute
+      // the URL via document.baseURI so first-time clients hit
+      // /api/vault/:sid/service_worker.js (which maps to root after both
+      // prefix-strips and works), but browsers with a stale ServiceWorker
+      // scope from a pre-rewrite session, or any future SB build that
+      // changes the URL composition, can still arrive at /.client/...
+      // Map both shapes to the canonical root path so the JS bundle is
+      // always served with the correct MIME.
+      if (upstreamPath === '/.client/service_worker.js') {
+        upstreamPath = '/service_worker.js';
+      } else if (
+        upstreamPath !== '/service_worker.js'
+        && upstreamPath.endsWith('/service_worker.js')
+      ) {
+        // Future SilverBullet build emitted a service-worker URL the proxy
+        // does not recognise. Log so a version-bump regression surfaces in
+        // structured logs instead of as a user-reported white-screen.
+        log('warn', 'Vault service worker path unexpected shape', { upstreamPath });
+      }
+      const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
+      const upstreamReq = http.request({
+        host: deps.silverbullet.host,
+        port: deps.silverbullet.port,
+        method,
+        path: upstreamPath + search,
+        headers: filterProxyHeaders(req.headers),
+      }, (upstreamRes) => {
+        res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+        upstreamRes.pipe(res);
+      });
+      upstreamReq.on('error', (err) => {
+        log('warn', 'Vault proxy upstream error', { error: err.message, path: upstreamPath });
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Vault editor unreachable', code: 'VAULT_UPSTREAM_UNREACHABLE' }));
+        } else {
+          res.end();
+        }
+      });
+      req.pipe(upstreamReq);
+      return;
+    }
+
+    // Browser IDE HTTP proxy -> OpenVSCode Server at OPENVSCODE_HOST:OPENVSCODE_PORT.
+    // Forward the path UNCHANGED (no strip): OpenVSCode runs with
+    // --server-base-path=/api/vscode/<sid> and expects its own path. The first
+    // request lazily triggers the supervisor to launch the server; while it is
+    // still warming, connect errors map to 503 VSCODE_WARMING. The injected
+    // container-auth Authorization header (validated above) is stripped before
+    // forwarding to the in-container app.
+    if (isVscodePath(pathname)) {
+      // Advanced-mode only (REQ-IDE-003): a non-advanced session never arms the
+      // supervisor, so return a clear NON-refreshing page instead of triggering a
+      // lazy start that will never complete and looping on the warming page.
+      if (!vscodeModeAllowed(process.env.SESSION_MODE)) {
+        const disabled = vscodeDisabledResponse();
+        res.writeHead(disabled.status, { 'Content-Type': disabled.contentType });
+        res.end(disabled.body);
+        return;
+      }
+      requestOpenvscodeStart();
+      const upstreamPath = vscodeUpstreamPath(pathname);
+      const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
+      const upstreamReq = http.request({
+        host: deps.openvscode.host,
+        port: deps.openvscode.port,
+        method,
+        path: upstreamPath + search,
+        headers: filterProxyHeaders(req.headers),
+      }, (upstreamRes) => {
+        res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+        upstreamRes.pipe(res);
+      });
+      upstreamReq.on('error', (err) => {
+        log('warn', 'Vscode proxy upstream error', { error: err.message, path: upstreamPath });
+        if (!res.headersSent) {
+          const warming = vscodeWarmingResponse();
+          res.writeHead(warming.status, { 'Content-Type': warming.contentType });
+          res.end(warming.body);
+        } else {
+          res.end();
+        }
+      });
+      req.pipe(upstreamReq);
+      return;
+    }
+
+    // 404 for unknown paths
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+  };
+}

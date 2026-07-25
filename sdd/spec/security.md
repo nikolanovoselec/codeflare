@@ -51,7 +51,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** [Automated test](../../src/__tests__/lib/access.test.ts)
+**Verification:** Automated test ([access](../../src/__tests__/lib/access.test.ts))
 
 **Status:** Implemented
 
@@ -79,7 +79,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-003](#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
 
-**Verification:** [Automated test](../../src/__tests__/lib/r2-admin.test.ts)
+**Verification:** Automated test ([r2-admin](../../src/__tests__/lib/r2-admin.test.ts))
 
 **Status:** Implemented
 
@@ -110,7 +110,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** [Integration test](../../src/__tests__/lib/r2-admin.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/lib/r2-admin.test.ts))
 
 **Status:** Implemented
 
@@ -139,7 +139,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/security/kv-crypto-security.test.ts)
+**Verification:** Automated test ([kv-crypto-security](../../src/__tests__/security/kv-crypto-security.test.ts))
 
 **Status:** Implemented
 
@@ -170,7 +170,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Integration test](../../src/__tests__/lib/r2-sse.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/lib/r2-sse.test.ts))
 
 **Status:** Implemented
 
@@ -201,7 +201,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** [Automated test](../../src/__tests__/security/kv-crypto-security.test.ts)
+**Verification:** Automated test ([kv-crypto-security](../../src/__tests__/security/kv-crypto-security.test.ts))
 
 **Status:** Implemented
 
@@ -217,7 +217,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. Rate limiting is keyed by authenticated user identity, with client IP as fallback for unauthenticated requests. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) -->
 2. Primary storage is persistent storage with automatic TTL expiry; the fallback is per-isolate in-memory with periodic cleanup. <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (rate-limit fallback on KV failure / REQ-SEC-007 AC2 (KV primary, in-memory fallback with periodic cleanup) / REQ-SEC-019 AC4 (general resource-protection endpoints fail open)) -->
-3. Exceeded limits return HTTP 429 with a stable error code and a human-readable retry-time message. <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/security/rate-limit-security.test.ts (REQ-SEC-007 AC3: 429 response body contains RATE_LIMIT_ERROR code) -->
+3. Exceeded limits return HTTP 429 with a stable error code and a human-readable retry-time message. <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @impl: src/lib/error-types.ts::RateLimitError --> <!-- @test: src/__tests__/security/rate-limit-security.test.ts (REQ-SEC-007 AC3: 429 response body contains RATE_LIMIT_ERROR code) -->
 4. All rate-limited responses include the standard rate-limit advisory headers. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) -->
 
 **Constraints:**
@@ -228,7 +228,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/security/rate-limit-security.test.ts)
+**Verification:** Automated test ([rate-limit-security](../../src/__tests__/security/rate-limit-security.test.ts))
 
 **Status:** Implemented
 
@@ -262,7 +262,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/security/security-headers.test.ts)
+**Verification:** Automated test ([security-headers](../../src/__tests__/security/security-headers.test.ts))
 
 **Status:** Implemented
 
@@ -280,7 +280,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. Setup wizard inputs (domain, emails, origins) are validated with shape-specific patterns. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @manual -->
 3. Session IDs are validated against the canonical format (8-24 lowercase alphanumeric characters) on every entry point. Invalid IDs are rejected with 400 before any session-side interaction. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> <!-- @test: src/__tests__/routes/terminal.test.ts (returns 400 errorResponse for invalid session ID format) -->
 4. Malformed base64 inputs are rejected with 400 immediately. <!-- @manual -->
-5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads). <!-- @impl: src/index.ts::SOCIAL_IDP_TYPES --> <!-- @manual -->
+5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads). <!-- @impl: src/index.ts --> <!-- @manual -->
 6. Email addresses are normalized before any lookup, comparison, or derivation operation. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (normalizes authenticated email before allowlist lookup) -->
 
 **Constraints:**
@@ -307,7 +307,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Acceptance Criteria:**
 
 1. Storage paths are URI-decoded before the parent-directory traversal check so encoded traversal sequences are caught. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC1/AC2: URI-decoded traversal attacks are caught) -->
-2. Both single- and double-encoded parent-directory sequences are rejected. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC2: double-encoded %252E%252E decodes to ".." is rejected) -->
+2. A single URI-decode catches single-encoded parent-directory sequences (`..`); a double-encoded sequence (`%252E%252E`) decodes only once to an inert literal segment (`%2E%2E`) that is used verbatim as an R2 object key and never re-decoded, so it cannot traverse. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC2: double-encoded %252E%252E decodes once to an inert literal, used verbatim and never re-decoded) -->
 3. Malformed URI encoding is rejected with a validation error. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC3: malformed URI encoding throws ValidationError) -->
 4. The validator returns the decoded key so callers operate on the value the user sees, not the encoded request form. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC4: validateKey returns decoded key for callers) -->
 5. The browse endpoint validates the prefix parameter against parent-directory traversal. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/routes/storage-browse.test.ts (rejects prefix with path traversal (..) with 400) -->
@@ -320,7 +320,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/security/storage-security.test.ts)
+**Verification:** Automated test ([storage-security](../../src/__tests__/security/storage-security.test.ts))
 
 **Status:** Implemented
 
@@ -376,7 +376,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** [Integration test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -403,7 +403,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-012](#req-sec-012-container-auth-token-per-do-lifecycle)
 
-**Verification:** [Integration test](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/container/index.test.ts))
 
 **Status:** Implemented
 
@@ -429,7 +429,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-009](#req-sec-009-input-validation-at-system-boundaries)
 
-**Verification:** [Automated test](../../src/__tests__/security/storage-security.test.ts)
+**Verification:** Automated test ([storage-security](../../src/__tests__/security/storage-security.test.ts))
 
 **Status:** Implemented
 
@@ -454,7 +454,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** [Automated test](../../src/__tests__/security/access-security.test.ts)
+**Verification:** Automated test ([access-security](../../src/__tests__/security/access-security.test.ts))
 
 **Status:** Implemented
 
@@ -482,7 +482,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SUB-012](subscription.md#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** [Integration test](../../src/__tests__/routes/auth-subscribe.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/routes/auth-subscribe.test.ts))
 
 **Status:** Implemented
 
@@ -508,7 +508,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** [Automated test](../../src/__tests__/security/access-security.test.ts)
+**Verification:** Automated test ([access-security](../../src/__tests__/security/access-security.test.ts))
 
 **Status:** Implemented
 
@@ -548,9 +548,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. WebSocket connections are rate-limited at 30 per 60-second window per user. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/lib/cross-package-constants.test.ts (Cross-Package Constants / REQ-TERM-001 AC1 (MAX_TABS=6 enforced session-wide, shared backend<->frontend constant)) -->
+1. WebSocket connections are rate-limited at 30 per 60-second window per user. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (stress test mode bypass / WebSocket rate limit enforced when STRESS_TEST_MODE is unset) -->
 2. Per-user concurrent session caps are enforced: 3 for standard users, 10 for admins. <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN with env overrides) / REQ-SEC-019 AC2 (per-user concurrent session caps)) -->
-3. Security-critical endpoints (request-access, Turnstile verification) use fail-closed rate limiting: persistent-storage failure returns 503 instead of allowing the request. <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (checkRateLimit failClosed semantics / REQ-SEC-019 AC3 (security-critical endpoints fail closed when KV is unavailable instead of fail-open)) -->
+3. Security-critical endpoints (request-access, Turnstile verification) use fail-closed rate limiting: on persistent-storage failure the request is denied with a 429 rate-limit error (`RATE_LIMIT_ERROR`) instead of being allowed through. <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (checkRateLimit failClosed semantics / REQ-SEC-019 AC3 (security-critical endpoints fail closed when KV is unavailable instead of fail-open)) -->
 4. General resource-protection endpoints use fail-open rate limiting (per [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity)). <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (rate-limit fallback on KV failure / REQ-SEC-007 AC2 (KV primary, in-memory fallback with periodic cleanup) / REQ-SEC-019 AC4 (general resource-protection endpoints fail open)) -->
 5. In stress-test deployment mode, all rate limits are bypassed with a one-time warning per worker instance. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) -->
 
@@ -562,7 +562,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure)
 
-**Verification:** [Automated test](../../src/__tests__/lib/cross-package-constants.test.ts)
+**Verification:** Automated test ([cross-package-constants](../../src/__tests__/lib/cross-package-constants.test.ts))
 
 **Status:** Implemented
 
@@ -588,7 +588,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure), [REQ-SEC-019](#req-sec-019-per-endpoint-rate-limit-policy)
 
-**Verification:** [Automated test](../../src/__tests__/routes/terminal-ws.test.ts)
+**Verification:** Automated test ([terminal-ws](../../src/__tests__/routes/terminal-ws.test.ts))
 
 **Status:** Implemented
 
@@ -612,6 +612,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
 
-**Verification:** [Automated test](../../src/__tests__/redirect-with-headers.test.ts)
+**Verification:** Automated test ([redirect-with-headers](../../src/__tests__/redirect-with-headers.test.ts))
 
 **Status:** Implemented

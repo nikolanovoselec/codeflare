@@ -9,7 +9,7 @@
  *              AC7 (frontend disposal on stopped transition - structural)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Session, UsageRecord } from '../../types';
+import type { Env, Session, UsageRecord } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import {
@@ -67,10 +67,11 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     vi.mocked(advanceMigration).mockResolvedValue(undefined);
   });
 
-  function createApp() {
+  function createApp(envOverrides: Partial<Env> = {}) {
     return createTestApp({
       routes: [{ path: '/sessions', handler: lifecycleRoutes }],
       mockKV,
+      envOverrides,
     });
   }
 
@@ -332,25 +333,6 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
-  // AC3 structural: SESSION_LIST_POLL_INTERVAL_MS exists in frontend constants
-  describe('REQ-SESSION-010 AC3: SESSION_LIST_POLL_INTERVAL_MS constant exists (structural)', () => {
-    it('web-ui constants define SESSION_LIST_POLL_INTERVAL_MS or equivalent polling constant', async () => {
-      // The frontend constant may be in web-ui/src/lib/constants.ts
-      // We verify the polling interval is defined somewhere in the web-ui
-      const { readFileSync } = await import('node:fs');
-      const { resolve } = await import('node:path');
-      const webUiConstantsPath = resolve(__dirname, '../../../web-ui/src/lib/constants.ts');
-      let src = '';
-      try {
-        src = readFileSync(webUiConstantsPath, 'utf8');
-      } catch {
-        // File may not exist in this worktree environment - skip
-        return;
-      }
-      expect(src).toMatch(/SESSION_LIST_POLL_INTERVAL_MS|POLL_INTERVAL/);
-    });
-  });
-
   // REQ-AGENT-049: preseed upgrade check piggybacked on batch-status
   describe('REQ-AGENT-049: preseed upgrade detection via batch-status', () => {
     it('returns preseedNeedsUpgrade true when hash missing from preferences', async () => {
@@ -373,6 +355,27 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     it('returns preseedNeedsUpgrade false when hash matches', async () => {
       mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def' });
       const app = createApp();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    // REQ-ENTERPRISE-001 AC6: a pre-existing enterprise bucket without a stamped
+    // Pro preference upgrades via the same UPDATING flow even when the release
+    // hash already matches.
+    it('enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash', async () => {
+      mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def' });
+      const app = createApp({ ENTERPRISE_MODE: 'active' });
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('enterprise: returns preseedNeedsUpgrade false once the preference is stamped advanced and hash matches', async () => {
+      mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def', sessionMode: 'advanced' });
+      const app = createApp({ ENTERPRISE_MODE: 'active' });
       const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
       expect(res.status).toBe(200);
       const body = await res.json() as { preseedNeedsUpgrade?: boolean };

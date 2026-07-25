@@ -145,4 +145,93 @@ describe('Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-EN
     const body = await res.json() as { lastAgentType?: string };
     expect(body.lastAgentType).toBe('opencode');
   });
+
+  // ── REQ-ENTERPRISE-001 AC2: effective Pro mode is surfaced to the client ──
+  // JIT-provisioned users have no user-prefs entry at all, yet the dashboard
+  // must see Pro so advanced-gated surfaces (browser IDE, Vault) render. The
+  // stored preference stays untouched: the forcing is computed at read time.
+  it('AC2 (REQ-ENTERPRISE-001): GET returns sessionMode=advanced under enterprise with no stored preference', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { sessionMode?: string };
+    expect(body.sessionMode).toBe('advanced');
+  });
+
+  it('AC2 (REQ-ENTERPRISE-001): GET returns sessionMode=advanced even when a stale default is stored', async () => {
+    mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default' });
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences');
+    const body = await res.json() as { sessionMode?: string };
+    expect(body.sessionMode).toBe('advanced');
+  });
+
+  it('AC2 (REQ-ENTERPRISE-001): PATCH response reports advanced under enterprise while persisting the raw preference', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lastAgentType: 'pi' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { sessionMode?: string; lastAgentType?: string };
+    expect(body.sessionMode).toBe('advanced');
+    expect(body.lastAgentType).toBe('pi');
+    // Stored preference is NOT rewritten — the forcing is computed at read time.
+    const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { sessionMode?: string } | null;
+    expect(stored?.sessionMode).toBeUndefined();
+  });
+
+  it('AC2 (REQ-ENTERPRISE-001): PATCH sessionMode=default under enterprise is coerced — stores advanced and never reconciles as default', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionMode: 'default' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { sessionMode?: string };
+    expect(body.sessionMode).toBe('advanced');
+    const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { sessionMode?: string } | null;
+    expect(stored?.sessionMode).toBe('advanced');
+    // A mode-change reconcile may fire, but never with the client's downgrade.
+    for (const call of mockReconcileAgentConfigs.mock.calls) {
+      expect((call as unknown[])[3]).toBe('advanced');
+    }
+  });
+
+  it('flag-off (AC5 byte-identical): GET does not inject sessionMode when ENTERPRISE_MODE is unset', async () => {
+    const app = createApp();
+    const res = await app.request('/preferences');
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect('sessionMode' in body).toBe(false);
+  });
+
+  // ── REQ-ENTERPRISE-003 AC2: wizard-configured active agents gate lastAgentType ──
+  it('AC2 (REQ-ENTERPRISE-003): a KV-deactivated lastAgentType is rejected 400 under enterprise', async () => {
+    mockKV._set('setup:active_agents', ['copilot']);
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lastAgentType: 'pi' }),
+    });
+    expect(res.status).toBe(400);
+    const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { lastAgentType?: string } | null;
+    expect(stored?.lastAgentType).toBeUndefined();
+  });
+
+  it('AC2 (REQ-ENTERPRISE-003): a KV-active lastAgentType is accepted under enterprise', async () => {
+    mockKV._set('setup:active_agents', ['copilot']);
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lastAgentType: 'copilot' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { lastAgentType?: string };
+    expect(body.lastAgentType).toBe('copilot');
+  });
 });

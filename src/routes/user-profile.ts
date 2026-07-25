@@ -9,6 +9,7 @@ import { getOrCreateScopedR2Token } from '../lib/r2-admin';
 import { getOrImportKey } from '../lib/kv-crypto';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { isDownloadsDisabled } from '../lib/downloads-policy';
+import { allowedAgents } from '../lib/agent-allowlist';
 
 /**
  * Rate limiter for ensure-r2-token
@@ -61,6 +62,11 @@ app.get('/', async (c) => {
     // View-only storage (enterprise anti-exfil): tells the client to hide the Download
     // action in the Storage Panel. Server-side download.ts is the actual enforcement.
     downloadsDisabled: await isDownloadsDisabled(c.env),
+    // REQ-ENTERPRISE-003: the creation-selectable agent set. The CreateSession dialog
+    // renders exactly this list in enterprise (wizard-chosen active agents + bash);
+    // non-enterprise returns the full enum, leaving the dialog unchanged. The
+    // session/preferences routes are the actual enforcement.
+    allowedAgents: await allowedAgents(c.env),
   });
 });
 

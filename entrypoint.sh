@@ -1266,6 +1266,122 @@ start_silverbullet_supervisor() {
 # server state leaks across sessions.
 # ============================================================================
 
+# Process-tree cleanup helpers are top-level so both PID 1's shutdown path and
+# each lazy OpenVSCode supervisor generation use exactly the same TERM/wait/KILL
+# behavior. Optional identity arguments prevent a stale pidfile from signaling a
+# reused PID; a generation token also reaches detached Pi and Claude children.
+walk_kill() {
+    local sig="$1" root="$2"
+    [[ "$root" =~ ^[0-9]+$ ]] || return 0
+    local descendants
+    descendants=$(pgrep -P "$root" 2>/dev/null || true)
+    for child in $descendants; do
+        walk_kill "$sig" "$child"
+    done
+    kill "-${sig}" "$root" 2>/dev/null || true
+}
+
+_process_start_time() {
+    local pid="$1"
+    [ -r "/proc/$pid/stat" ] || return 1
+    awk '{print $22}' "/proc/$pid/stat" 2>/dev/null
+}
+
+_process_generation() {
+    local pid="$1"
+    [ -r "/proc/$pid/environ" ] || return 1
+    tr '\000' '\n' < "/proc/$pid/environ" 2>/dev/null \
+        | awk -F= '$1 == "CODEFLARE_OPENVSCODE_GENERATION" {sub(/^[^=]*=/, ""); print; exit}'
+}
+
+_process_group() {
+    local pid="$1"
+    ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' '
+}
+
+_openvscode_generation_members() {
+    local generation="$1" proc pid
+    [[ "$generation" =~ ^[A-Za-z0-9._:-]{1,128}$ ]] || return 0
+    for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$(_process_generation "$pid" 2>/dev/null || true)" = "$generation" ] && printf '%s\n' "$pid"
+    done
+    return 0
+}
+
+_wait_then_kill_pid() {
+    local pid="$1" grace="${OPENVSCODE_TERM_GRACE_SECONDS:-2}" ticks=0 max_ticks
+    walk_kill TERM "$pid"
+    max_ticks=$(awk -v seconds="$grace" 'BEGIN { ticks = int((seconds * 10) + 0.999); print ticks < 1 ? 1 : ticks }')
+    while kill -0 "$pid" 2>/dev/null && [ "$ticks" -lt "$max_ticks" ]; do
+        sleep 0.1
+        ticks=$((ticks + 1))
+    done
+    kill -0 "$pid" 2>/dev/null && walk_kill KILL "$pid"
+    return 0
+}
+
+_wait_then_kill_generation() {
+    local generation="$1" grace="${OPENVSCODE_TERM_GRACE_SECONDS:-2}" pid ticks max_ticks members
+    max_ticks=$(awk -v seconds="$grace" 'BEGIN { ticks = int((seconds * 10) + 0.999); print ticks < 1 ? 1 : ticks }')
+
+    ticks=0
+    while [ "$ticks" -lt "$max_ticks" ]; do
+        members="$(_openvscode_generation_members "$generation")"
+        [ -z "$members" ] && return 0
+        for pid in $members; do
+            kill -TERM "$pid" 2>/dev/null || true
+        done
+        sleep 0.1
+        ticks=$((ticks + 1))
+    done
+
+    # Re-scan during the KILL phase as well. A TERM-ignoring member can fork
+    # between snapshots; every inherited-token child must be gone before the
+    # supervisor is allowed to start a replacement generation.
+    ticks=0
+    while [ "$ticks" -lt "$max_ticks" ]; do
+        members="$(_openvscode_generation_members "$generation")"
+        [ -z "$members" ] && return 0
+        for pid in $members; do
+            kill -KILL "$pid" 2>/dev/null || true
+        done
+        sleep 0.1
+        ticks=$((ticks + 1))
+    done
+    members="$(_openvscode_generation_members "$generation")"
+    [ -z "$members" ] && return 0
+    echo "[openvscode] generation cleanup did not converge; refusing restart" >&2
+    return 1
+}
+
+kill_pidfile_subtree() {
+    local pidfile="$1" expected_pid="${2:-}" expected_start="${3:-}" expected_generation="${4:-}" expected_pgid="${5:-}"
+    local pid stored_start stored_generation stored_pgid
+    pid="$(awk 'NR == 1 {print; exit}' "$pidfile" 2>/dev/null || true)"
+    stored_start="$(awk 'NR == 2 {print; exit}' "$pidfile" 2>/dev/null || true)"
+    stored_generation="$(awk 'NR == 3 {print; exit}' "$pidfile" 2>/dev/null || true)"
+    stored_pgid="$(awk 'NR == 4 {print; exit}' "$pidfile" 2>/dev/null || true)"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+    [ -z "$expected_pid" ] || [ "$pid" = "$expected_pid" ] || return 0
+    [ -n "$expected_start" ] || expected_start="$stored_start"
+    [ -n "$expected_generation" ] || expected_generation="$stored_generation"
+    [ -n "$expected_pgid" ] || expected_pgid="$stored_pgid"
+
+    # A generation token is independently safe to sweep even when the recorded
+    # leader exited, became a zombie, changed groups, or had its PID reused. The
+    # scan signals only processes that still carry that exact unguessable token.
+    if [ -n "$expected_generation" ]; then
+        _wait_then_kill_generation "$expected_generation"
+        return $?
+    fi
+
+    kill -0 "$pid" 2>/dev/null || return 0
+    [ -z "$expected_start" ] || [ "$(_process_start_time "$pid" 2>/dev/null || true)" = "$expected_start" ] || return 0
+    [ -z "$expected_pgid" ] || [ "$(_process_group "$pid" 2>/dev/null || true)" = "$expected_pgid" ] || return 0
+    _wait_then_kill_pid "$pid"
+}
+
 # Gate: may the IDE launch yet? Requires a resolved session id (so the base path
 # is correct), a completed init, and a first-request trigger. Fail-safe: with no
 # session id, never launch (a base-path mismatch would 404 anyway).
@@ -1276,31 +1392,139 @@ _openvscode_should_launch() {
         && [ -f "${OPENVSCODE_REQUEST_TRIGGER:-/tmp/openvscode-requested}" ]
 }
 
+# Closed, non-executing IDE-agent classification. TAB_CONFIG continues to own
+# terminal autostart under AD15; this helper only maps an exact tab-1 command to
+# one of three fixed extension inventories. Malformed, duplicate, and ambiguous
+# values fail closed. Only a genuinely absent TAB_CONFIG keeps the legacy Claude
+# default. REQ-IDE-005 AC1.
+_openvscode_agent_kind() {
+    if [ "${TAB_CONFIG+x}" != "x" ]; then
+        printf 'claude'
+        return 0
+    fi
+
+    local tab_one_command
+    if ! tab_one_command=$(printf '%s' "$TAB_CONFIG" | jq -er '
+        if type != "array" then error("TAB_CONFIG must be an array")
+        elif any(.[]; type != "object" or (.id | type) != "string" or (.command | type) != "string") then error("invalid tab entry")
+        elif ([.[].id] | length) != ([.[].id] | unique | length) then error("duplicate tab id")
+        elif ([.[] | select(.id == "1")] | length) != 1 then error("tab 1 must be unique")
+        else [.[] | select(.id == "1")][0].command
+        end
+    ' 2>/dev/null); then
+        printf 'none'
+        return 0
+    fi
+
+    case "$tab_one_command" in
+        pi) printf 'pi' ;;
+        claude|claude\ --dangerously-skip-permissions) printf 'claude' ;;
+        *) printf 'none' ;;
+    esac
+}
+
+_openvscode_extensions_dir() {
+    case "${1:-}" in
+        pi) printf '/opt/codeflare/openvscode/extensions/pi' ;;
+        claude) printf '/opt/codeflare/openvscode/extensions/claude' ;;
+        *) printf '/opt/codeflare/openvscode/extensions/none' ;;
+    esac
+}
+
+# Seed OpenVSCode User settings for EVERY agent kind before launch: the base
+# workspace settings (auto-trust + no extension recommendations) for pi/none,
+# and the full official-Claude config projection (which also carries the base
+# settings) for claude. A preparation failure fails closed at the call site and
+# refuses the launch. REQ-IDE-005 AC1, REQ-IDE-009.
+_openvscode_prepare_agent() {
+    /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh "$2" "$1"
+}
+
 # Launch OpenVSCode Server once in the foreground (the supervisor loop wraps this
 # in a restart loop). Session-isolated base path, workspace folder, ephemeral
 # per-container data dir; no connection token (the Worker is the auth boundary).
-# REQ-IDE-001, REQ-IDE-002.
+# REQ-IDE-001, REQ-IDE-002, REQ-IDE-005 AC1+AC2.
 _openvscode_launch_once() {
-    "${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}" \
+    local sidebar_agent extensions_dir data_dir
+    local -a proposed_api_args=()
+    sidebar_agent="$(_openvscode_agent_kind)"
+    extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
+    data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
+    if ! _openvscode_prepare_agent "$sidebar_agent" "$data_dir"; then
+        echo "[openvscode] IDE settings preparation failed; refusing launch" >&2
+        return 1
+    fi
+    if [ "$sidebar_agent" = "pi" ]; then
+        proposed_api_args=(--enable-proposed-api codeflare.codeflare-agent-sidebar)
+    fi
+
+    CODEFLARE_SIDEBAR_AGENT="$sidebar_agent" \
+    exec "${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}" \
         --host "${OPENVSCODE_HOST:-127.0.0.1}" \
         --port "${OPENVSCODE_PORT:-13337}" \
         --server-base-path "/api/vscode/${SESSION_ID}" \
         --without-connection-token \
         --default-folder "${OPENVSCODE_WORKSPACE:-$HOME/workspace}" \
-        --server-data-dir "${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}" \
+        --server-data-dir "$data_dir" \
+        --extensions-dir "$extensions_dir" \
+        "${proposed_api_args[@]}" \
         --telemetry-level off \
         --accept-server-license-terms
 }
 
-# Supervisor loop: wait for the gate, launch, restart on exit. REQ-IDE-003 AC4.
+# Supervisor loop: wait for the gate, launch each restart in a fresh process
+# group, and reap every process carrying that generation token before replacing
+# it. This reaches native Pi and official Claude descendants without sharing
+# terminal state. REQ-IDE-003 AC4, REQ-IDE-008 AC4.
 _openvscode_supervise_loop() {
+    local generation_pidfile current_pid="" current_start="" current_generation="" current_pgid="" exit_code
+    generation_pidfile="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation-${BASHPID}.pid}"
+
+    _openvscode_cleanup_current_generation() {
+        [ -n "$current_pid" ] || return 0
+        if [ -s "$generation_pidfile" ]; then
+            if ! kill_pidfile_subtree "$generation_pidfile" "$current_pid" "$current_start" "$current_generation" "$current_pgid"; then
+                echo "[openvscode] managed descendants remain; supervisor is stopping" >&2
+                return 1
+            fi
+        elif [ -n "$current_generation" ]; then
+            if ! _wait_then_kill_generation "$current_generation"; then
+                echo "[openvscode] managed descendants remain; supervisor is stopping" >&2
+                return 1
+            fi
+        fi
+        rm -f "$generation_pidfile" "${generation_pidfile}.tmp"
+        current_pid=""
+        current_start=""
+        current_generation=""
+        current_pgid=""
+    }
+    trap '_openvscode_cleanup_current_generation' EXIT
+    trap '_openvscode_cleanup_current_generation; exit 0' TERM INT
+
     while true; do
         if ! _openvscode_should_launch; then
             sleep 2
             continue
         fi
-        _openvscode_launch_once >> /tmp/openvscode.log 2>&1
-        echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $?), restarting in 5s..." >> /tmp/openvscode.log
+        current_generation="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%s-%s-%s' "$SESSION_ID" "$$" "$RANDOM")"
+        CODEFLARE_OPENVSCODE_GENERATION="$current_generation" \
+            setsid bash -c '_openvscode_launch_once' openvscode-generation \
+            >> /tmp/openvscode.log 2>&1 &
+        current_pid=$!
+        current_start="$(_process_start_time "$current_pid")"
+        current_pgid=""
+        for _ in $(seq 1 20); do
+            current_pgid="$(_process_group "$current_pid" 2>/dev/null || true)"
+            [ "$current_pgid" = "$current_pid" ] && break
+            kill -0 "$current_pid" 2>/dev/null || break
+            sleep 0.01
+        done
+        (umask 077; printf '%s\n%s\n%s\n%s\n' "$current_pid" "$current_start" "$current_generation" "$current_pgid" > "${generation_pidfile}.tmp")
+        mv -f "${generation_pidfile}.tmp" "$generation_pidfile"
+        if wait "$current_pid"; then exit_code=0; else exit_code=$?; fi
+        _openvscode_cleanup_current_generation
+        echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $exit_code), restarting in 5s..." >> /tmp/openvscode.log
         sleep 5
     done
 }
@@ -1319,7 +1543,9 @@ start_openvscode_supervisor() {
     # kill the supervisor AND its openvscode child in one kill_pidfile_subtree
     # walk (same reason as the SilverBullet supervisor). export -f makes the loop
     # helpers available inside the fresh non-interactive setsid bash.
-    export -f _openvscode_should_launch _openvscode_launch_once _openvscode_supervise_loop
+    export OPENVSCODE_GENERATION_PIDFILE="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
+    export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree
+    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_launch_once _openvscode_supervise_loop
     setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
         >> /tmp/openvscode.log 2>&1 &
 
@@ -1335,27 +1561,9 @@ shutdown_handler() {
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
 
-    # Kill background daemons via PID file. Walk the descendant tree so
-    # rclone/silverbullet grandchildren die alongside the supervising
-    # subshell - signalling the subshell alone would leave them orphaned
-    # and (for silverbullet) holding port 3030, breaking the next session.
-    walk_kill() {
-        local sig="$1" root="$2"
-        [ -z "$root" ] && return 0
-        local descendants
-        descendants=$(pgrep -P "$root" 2>/dev/null)
-        kill "-${sig}" "$root" 2>/dev/null || true
-        for child in $descendants; do
-            walk_kill "$sig" "$child"
-        done
-    }
-    kill_pidfile_subtree() {
-        local pidfile="$1"
-        local pid
-        pid="$(cat "$pidfile" 2>/dev/null)"
-        [ -z "$pid" ] && return 0
-        walk_kill TERM "$pid"
-    }
+    # Kill background daemons via identity-aware PID files. OpenVSCode's
+    # current generation goes first so its detached Pi/Claude children are
+    # reaped before the supervisor itself is stopped.
     # Kill the background init subshell FIRST. It wraps establish_bisync_baseline
     # (up to 600s x 3 recovery attempts) plus every start_* call, and it is not a
     # pidfile — so a shutdown landing between this sweep and start_silverbullet /
@@ -1370,6 +1578,7 @@ shutdown_handler() {
     kill_pidfile_subtree /tmp/sync-daemon.pid
     kill_pidfile_subtree /tmp/vault-monitor.pid
     kill_pidfile_subtree /tmp/silverbullet.pid
+    kill_pidfile_subtree "${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
     kill_pidfile_subtree /tmp/openvscode.pid
 
     # walk_kill only sends TERM; it does not reap. If the daemon's rclone bisync

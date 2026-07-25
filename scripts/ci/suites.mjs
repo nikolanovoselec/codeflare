@@ -39,6 +39,14 @@ export const SUITES = [
     exclude: [],
     artifacts: ['landing'],
   },
+  {
+    name: 'browser-ide',
+    lane: 'browser-ide',
+    dir: 'openvscode',
+    extensions: ['.test.ts', '.test.mjs'],
+    exclude: [],
+    artifacts: ['browser-ide'],
+  },
 ];
 
 // Re-exported so the backend entry's runtime split stays anchored to the one

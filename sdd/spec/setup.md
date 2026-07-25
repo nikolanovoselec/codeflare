@@ -49,7 +49,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** None.
 
-**Verification:** [Integration test](../../src/__tests__/setup-ac-coverage.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
 
 **Status:** Implemented
 
@@ -78,7 +78,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration)
 
-**Verification:** [Integration test](../../src/__tests__/setup-ac-coverage.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
 
 **Status:** Implemented
 
@@ -108,7 +108,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** [Integration test](../../src/__tests__/lib/onboarding.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/lib/onboarding.test.ts))
 
 **Status:** Implemented
 
@@ -137,7 +137,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** [Integration test](../../src/__tests__/setup-ac-coverage.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
 
 **Status:** Implemented
 
@@ -166,7 +166,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
+**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
 
 **Status:** Implemented
 
@@ -195,7 +195,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
+**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
 
 **Status:** Implemented
 
@@ -226,7 +226,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** [Integration test](../../src/__tests__/setup-007-custom-domain-ac.test.ts)
+**Verification:** Automated test ([Integration test](../../src/__tests__/setup-007-custom-domain-ac.test.ts))
 
 **Status:** Implemented
 
@@ -241,8 +241,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Acceptance Criteria:**
 
 1. The prefill endpoint reads existing CF Access group membership and persistent configuration so the setup form repopulates correctly on redeployment. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
-2. The token-detection endpoint validates the API token and returns its capabilities (account info, permissions). <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /detect-token) -->
-3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. The token-detection endpoint validates the API token and returns its account info (id and name); it does not enumerate the token's permissions/scopes. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /detect-token) -->
+3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 4. Both endpoints require admin auth after setup is complete, using the same conditional gate as the configure endpoint. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 
 **Constraints:**
@@ -254,7 +254,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
-**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
+**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
 
 **Status:** Implemented
 
@@ -281,7 +281,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** [Integration test](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
+**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/components/SubscribePage.test.tsx))
 
 **Status:** Implemented
 
@@ -309,7 +309,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/setup-010-og-metadata.test.ts)
+**Verification:** Automated test ([setup-010-og-metadata](../../web-ui/src/__tests__/setup-010-og-metadata.test.ts))
 
 **Status:** Implemented
 
@@ -324,7 +324,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Acceptance Criteria:**
 
 1. Successful completion carries the cumulative per-step status list, the workers.dev URL, and the custom-domain URL. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
-2. Failed completion carries the cumulative per-step status list plus a top-level error description. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. Failed completion carries the cumulative per-step status list plus a top-level error description. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
 3. Lock contention produces an immediate terminal completion with success=false and no intervening step progress messages. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 4. Clients detect completion by parsing stream entries until the terminal completion marker, then read the success flag. <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) -->
 
@@ -336,7 +336,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
+**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
 
 **Status:** Implemented
 
@@ -366,6 +366,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** [Automated test](../../src/__tests__/setup-ac-coverage.test.ts)
+**Verification:** Automated test ([setup-ac-coverage](../../src/__tests__/setup-ac-coverage.test.ts))
 
 **Status:** Implemented

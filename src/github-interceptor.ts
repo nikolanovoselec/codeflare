@@ -4,7 +4,7 @@
  * A WorkerEntrypoint the container DO wires into container egress for the GitHub
  * hosts (github.com + api.github.com + Copilot's api.githubcopilot.com MCP) via
  * `ctx.container.interceptOutboundHttps`
- * (see src/container/index.ts wireGithubInterception). The container holds only a
+ * (see the github entry in src/container/container-interception.ts). The container holds only a
  * NON-SECRET placeholder GH_TOKEN, so git / `gh` / Copilot's GitHub features run
  * in authed mode but never possess the real credential. Each intercepted request
  * is routed HERE at the platform level: the interceptor strips the placeholder

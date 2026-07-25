@@ -280,6 +280,7 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
+  // REQ-SEC-019 AC1: WebSocket connections are rate-limited (30 per 60s per user); enforced unless STRESS_TEST_MODE bypasses it.
   describe('stress test mode bypass', () => {
     it('WebSocket rate limit KV calls skipped when STRESS_TEST_MODE === "active"', async () => {
       (mockEnv as any).STRESS_TEST_MODE = 'active';

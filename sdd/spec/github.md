@@ -50,7 +50,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)
 
-**Verification:** [Unit test](../../src/__tests__/lib/github-token.test.ts)
+**Verification:** Automated test ([Unit test](../../src/__tests__/lib/github-token.test.ts))
 
 **Status:** Implemented
 
@@ -64,7 +64,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. `GET /api/github/status` reports connection state (connected, login, source) without exposing the token. <!-- @impl: src/routes/github.ts::GithubRepoApiResponse --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) -->
+1. `GET /api/github/status` reports connection state (connected, login, source) without exposing the token. <!-- @impl: src/routes/github.ts --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) -->
 2. `GET /api/github/repos` returns the repos the user can access (personal + org via `read:org`), searchable and paginated, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
 3. The panel renders beside the storage panel; its backend feature flag (`githubFeatureEnabled`) is on in every mode, and the dashboard renders the panel face whenever GitHub is enabled — with no session-tier entitlement ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (renders nothing when status.enabled is false) -->
 4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. The controls reuse one tested `IconButton` primitive. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
@@ -94,7 +94,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. `github.com`, `api.github.com`, and Copilot's remote GitHub MCP host `api.githubcopilot.com` are registered for outbound HTTPS interception and handled by a GitHub interceptor; AI hosts continue to route to the LLM interceptor. <!-- @impl: src/container/index.ts::wireGithubInterception --> <!-- @impl: src/github-interceptor.ts::interceptedGithubHosts --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-GITHUB-003: wires the GitHubInterceptor for the github hosts with the per-session user + bucket props) -->
+1. `github.com`, `api.github.com`, and Copilot's remote GitHub MCP host `api.githubcopilot.com` are registered for outbound HTTPS interception and handled by a GitHub interceptor; AI hosts continue to route to the LLM interceptor. <!-- @impl: src/container/container-interception.ts::github --> <!-- @impl: src/github-interceptor.ts::interceptedGithubHosts --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-GITHUB-003: wires the GitHubInterceptor for the github hosts with the per-session user + bucket props) -->
 2. Each request decrypts the bound user's token, strips supplied auth, then stamps git Basic, REST bearer plus API version, or Copilot MCP bearer without API version so remote MCP authenticates. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: Copilot remote GitHub MCP credential injection) -->
 3. When no valid token exists, the interceptor fails closed with a clear error and performs no upstream request. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: fail closed) -->
 4. The container holds only a non-secret placeholder `GH_TOKEN` identical for all users; user-scoping comes solely from the per-session interceptor binding (`props.bucket`), never from the request — a session can only ever inject its own user's token. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
@@ -110,7 +110,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container), [CON-GH-003](constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding)
 
-**Verification:** [Interceptor test](../../src/__tests__/github-interceptor.test.ts) (injection format per host incl. Copilot `api.githubcopilot.com/mcp` Bearer, fail-closed, no cross-user spoofing) + [wiring](../../src/__tests__/container/enterprise-llm.test.ts) (all three GitHub hosts) + [placeholder env](../../src/__tests__/container/container-env.test.ts)
+**Verification:** Automated test ([Interceptor test](../../src/__tests__/github-interceptor.test.ts) (injection format per host incl. Copilot `api.githubcopilot.com/mcp` Bearer, fail-closed, no cross-user spoofing) + [wiring](../../src/__tests__/container/enterprise-llm.test.ts) (all three GitHub hosts) + [placeholder env](../../src/__tests__/container/container-env.test.ts))
 
 **Status:** Implemented
 
@@ -164,7 +164,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** [Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) + [offboarding revoke](../../src/__tests__/lib/user-cleanup.test.ts)
+**Verification:** Automated test ([Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) + [offboarding revoke](../../src/__tests__/lib/user-cleanup.test.ts))
 
 **Status:** Implemented
 
@@ -189,7 +189,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials)
 
-**Verification:** [Container env test](../../src/__tests__/container/container-env.test.ts) (non-enterprise real `GH_TOKEN` vs enterprise placeholder)
+**Verification:** Automated test ([Container env test](../../src/__tests__/container/container-env.test.ts) (non-enterprise real `GH_TOKEN` vs enterprise placeholder))
 
 **Status:** Implemented
 
@@ -224,7 +224,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
 
-**Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts)
+**Verification:** Automated test ([Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts))
 
 **Status:** Implemented
 
@@ -244,8 +244,8 @@ None.
 1. The Setup wizard offers a provider chooser (GitHub App vs OAuth App); selecting one reveals that provider's Client ID + Client Secret inputs. Each provider's credentials are stored under their own KV keys so switching providers preserves the other's. <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx::GitHubProviderChooser --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
 2. On save (admin, any mode) the provider type + client ids are stored plain and each client secret is encrypted at rest (AES-256-GCM via the existing KV crypto); the active provider is resolved from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)) -->
 3. A blank secret on save keeps the stored secret (no clobber); a secret submitted while no `ENCRYPTION_KEY` is configured is rejected with a validation error, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-4. `GET /api/setup/prefill` echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts::resolveAccountId --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill returns provider type + client ids + secret-set flags, never the secrets) -->
-5. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind the `ENTERPRISE_MODE` gate; the active provider resolves from KV first ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC4), and the prefill echoes the provider type + client ids + `…ClientSecretSet` in non-enterprise too. <!-- @impl: src/routes/setup/handlers.ts::resolveAccountId --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)) -->
+4. `GET /api/setup/prefill` echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill returns provider type + client ids + secret-set flags, never the secrets) -->
+5. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind the `ENTERPRISE_MODE` gate; the active provider resolves from KV first ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC4), and the prefill echoes the provider type + client ids + `…ClientSecretSet` in non-enterprise too. <!-- @impl: src/routes/setup/handlers.ts --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)) -->
 
 **Constraints:**
 
@@ -283,7 +283,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)
 
-**Verification:** [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+**Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
 
 **Status:** Implemented
 
@@ -313,7 +313,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+**Verification:** Automated test ([Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
 
 **Status:** Implemented
 
@@ -347,6 +347,6 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states)
 
-**Verification:** [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts)
+**Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts))
 
 **Status:** Implemented

@@ -2,9 +2,15 @@ import type { Container } from '@cloudflare/containers';
 import { z } from 'zod';
 
 /**
- * Cloudflare environment bindings
+ * Cloudflare environment bindings, grouped by deploy mode (ARCH: the flat
+ * 39-field interface could not tell a reader which bindings exist in a
+ * default, SaaS, or Enterprise deploy). `Env` composes the named sub-shapes
+ * below; every member keeps its exact name and optionality, so the composed
+ * type is structurally identical to the previous flat interface.
  */
-export interface Env {
+
+/** Bindings and vars present (or optionally present) in EVERY deploy mode. */
+interface CoreEnv {
   // Static assets binding (auto-injected by Cloudflare when [assets] is configured)
   ASSETS: Fetcher;
 
@@ -13,6 +19,9 @@ export interface Env {
 
   // Container Durable Object
   CONTAINER: DurableObjectNamespace<Container<Env>>;
+
+  // Timekeeper Durable Object for per-user usage tracking
+  TIMEKEEPER?: DurableObjectNamespace;
 
   // Environment variables
   // Only available inside containers (set via envVars)
@@ -39,6 +48,23 @@ export interface Env {
   // Configurable log level (debug | info | warn | error)
   LOG_LEVEL?: string;
 
+  // Optional worker name override for forks (set via wrangler.toml [vars] or GitHub Actions)
+  CLOUDFLARE_WORKER_NAME?: string;
+
+  // Maximum concurrent running sessions per user role
+  MAX_SESSIONS_USER?: string;
+  MAX_SESSIONS_ADMIN?: string;
+
+  // Bypass all rate limits for stress testing (set to 'active' to enable)
+  STRESS_TEST_MODE?: string;
+
+  // Optional AES-256 key (base64) for encrypting KV values at rest.
+  // Set via wrangler secret. When absent, credentials stored as plaintext.
+  ENCRYPTION_KEY?: string;
+}
+
+/** Public-onboarding surface (waitlist landing + transactional email); optional in any mode. */
+interface OnboardingEnv {
   // Optional onboarding mode flag: when set to "active",
   // root (/) serves a public waitlist landing page.
   ONBOARDING_LANDING_PAGE?: string;
@@ -51,17 +77,10 @@ export interface Env {
 
   // Optional sender identity for outgoing emails (e.g. "Codeflare <noreply@example.com>").
   RESEND_EMAIL?: string;
+}
 
-  // Optional worker name override for forks (set via wrangler.toml [vars] or GitHub Actions)
-  CLOUDFLARE_WORKER_NAME?: string;
-
-  // Maximum concurrent running sessions per user role
-  MAX_SESSIONS_USER?: string;
-  MAX_SESSIONS_ADMIN?: string;
-
-  // Bypass all rate limits for stress testing (set to 'active' to enable)
-  STRESS_TEST_MODE?: string;
-
+/** SaaS-mode-only vars: custom login, JIT provisioning, billing. Absent in default and enterprise deploys. */
+interface SaasEnv {
   // SaaS mode: custom login page with JIT provisioning and admin approval gate.
   // When 'active', new users are auto-provisioned with 'pending' tier on first login.
   SAAS_MODE?: string;
@@ -77,16 +96,15 @@ export interface Env {
   // Set via wrangler secret. Required when STRIPE_SECRET_KEY is set.
   STRIPE_WEBHOOK_SECRET?: string;
 
-  // Optional AES-256 key (base64) for encrypting KV values at rest.
-  // Set via wrangler secret. When absent, credentials stored as plaintext.
-  ENCRYPTION_KEY?: string;
-
   // GitHub OAuth (SaaS mode only - replaces CF Access for authentication)
   // Create an OAuth App at github.com/settings/applications/new
   OAUTH_CLIENT_ID?: string;      // OAuth App client ID (wrangler.toml var, public)
   OAUTH_CLIENT_SECRET?: string;   // OAuth App client secret (wrangler secret)
   OAUTH_JWT_SECRET?: string;             // HMAC-SHA256 signing key for session JWTs (wrangler secret)
+}
 
+/** GitHub provider config: App credentials (enterprise/EMU) + host overrides for data-residency tenants. */
+interface GithubEnv {
   // GitHub App (enterprise / EMU). When set, the GitHub integration uses the App
   // user-to-server provider (refreshable ~8h tokens, acts AS the user) instead of
   // the OAuth App. Register an INTERNAL GitHub App in the customer's enterprise and
@@ -99,10 +117,10 @@ export interface Env {
   GITHUB_HOST?: string;       // web host for OAuth authorize/token (default github.com)
   GITHUB_API_HOST?: string;   // REST API host (default api.github.com)
   GITHUB_COPILOT_MCP_HOST?: string; // Copilot remote GitHub MCP host (default api.githubcopilot.com)
+}
 
-  // Timekeeper Durable Object for per-user usage tracking
-  TIMEKEEPER?: DurableObjectNamespace;
-
+/** Enterprise-mode-only bindings: AI Gateway routing + strict-egress transport (AD86). */
+interface EnterpriseEnv {
   // Enterprise mode: when 'active', codeflare is deployed inside a customer's
   // own Cloudflare account. All users resolve to unlimited tier + advanced mode,
   // the agent set is restricted to the enterprise allowlist, and LLM traffic is
@@ -124,8 +142,9 @@ export interface Env {
   // is undefined at runtime until Cloudflare Mesh is provisioned, so strict-ON
   // paths fail closed (503) rather than falling back to global fetch.
   EGRESS?: Fetcher;
-
 }
+
+export interface Env extends CoreEnv, OnboardingEnv, SaasEnv, GithubEnv, EnterpriseEnv {}
 
 /**
  * Possible user roles within the application

@@ -47,6 +47,7 @@ test_globs:
   - "web-ui/src/__tests__/**/*.test.{ts,tsx,jsx}"
   - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
   - "landing/src/__tests__/**/*.test.{ts,tsx}"
+  - "openvscode/**/test/**/*.test.{ts,js,mjs}"
 
 # Source discovery globs (optional override) — where spec-reviewer scans
 # for REQ-ID references in source code. Codeflare uses the standard
@@ -67,6 +68,16 @@ src_globs:
   - "wrangler.toml"
   - ".github/workflows/*.yml"
   - ".trivyignore"
+  - "openvscode/agent-sidebar/src/**"
+  - "openvscode/agent-sidebar/package.json"
+  - "openvscode/agent-sidebar/official-claude.json"
+  - "openvscode/agent-sidebar/esbuild.mjs"
+  - "openvscode/agent-sidebar/scripts/**"
+  - "openvscode/claude/**"
+  - "preseed/agents/pi/extensions/sidebar-approval.ts"
+  - "preseed/agents/pi/manifest.json"
+  - ".dockerignore"
+  - "scripts/ci/**"
 
 # Forbidden content allowlist — which categories are acceptable inside REQs.
 forbidden_content_allowlist:

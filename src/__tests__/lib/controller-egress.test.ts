@@ -56,7 +56,7 @@ describe('REQ-ENTERPRISE-016: hasStrictGatewayEgress', () => {
 
   it('defaults OFF (resolves false, never throws) when the KV read rejects at the start seam', async () => {
     // A transient KV error at the container-start seam must degrade to OFF, not fault
-    // setupEnterpriseInterception -> startAndWaitForPorts. Removing the try/catch makes this throw.
+    // the interception registry -> startAndWaitForPorts. Removing the try/catch makes this throw.
     const env = { ENTERPRISE_MODE: 'active', KV: { get: async () => { throw new Error('kv unavailable'); } } } as unknown as Env;
     await expect(hasStrictGatewayEgress(env)).resolves.toBe(false);
   });

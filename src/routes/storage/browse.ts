@@ -96,7 +96,7 @@ app.get('/', async (c) => {
         try {
           const prefsKey = getPreferencesKey(bucketName);
           const preferences = await c.env.KV.get<UserPreferences>(prefsKey, 'json');
-          const mode = resolveSessionMode(preferences ?? null);
+          const mode = resolveSessionMode(preferences ?? null, c.env);
           const user = c.get('user');
           const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
           const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';

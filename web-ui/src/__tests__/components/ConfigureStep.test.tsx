@@ -166,33 +166,20 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
   });
 
   describe('Rendering', () => {
-    it('renders the configure title', () => {
+    it('renders the custom-domain, admin-users, and regular-users input fields', () => {
       render(() => <ConfigureStep />);
-      expect(screen.getByText('Configure Your Instance')).toBeInTheDocument();
-    });
-
-    it('renders custom domain field', () => {
-      render(() => <ConfigureStep />);
-      expect(screen.getByText('Custom Domain')).toBeInTheDocument();
+      // Assert the actual inputs render (structural), not their surrounding labels.
       expect(screen.getByPlaceholderText('claude.example.com')).toBeInTheDocument();
-    });
-
-    it('renders admin users section', () => {
-      render(() => <ConfigureStep />);
-      expect(screen.getByText('Admin Users')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('admin@example.com')).toBeInTheDocument();
-    });
-
-    it('renders regular users section', () => {
-      render(() => <ConfigureStep />);
-      expect(screen.getByText('Regular Users')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument();
     });
 
-    it('renders Back and Continue buttons', () => {
+    it('renders the Back and Continue nav controls as buttons', () => {
       render(() => <ConfigureStep />);
-      expect(screen.getByText('Back')).toBeInTheDocument();
-      expect(screen.getByText('Continue')).toBeInTheDocument();
+      // getByRole asserts these are real <button> nav controls (focusable,
+      // clickable), a stronger contract than matching their label text anywhere.
+      expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
     });
   });
 

@@ -61,7 +61,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude capture pipeline tests](../../host/__tests__/memory-capture-pipeline.test.js)
+**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude capture pipeline tests](../../host/__tests__/memory-capture-pipeline.test.js))
 
 **Status:** Implemented
 
@@ -94,7 +94,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
 
-**Verification:** [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [child-session guard tests](../../src/__tests__/lib/pi-child-session-guard.test.ts), [session JSONL fuzz coverage](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts)
+**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [child-session guard tests](../../src/__tests__/lib/pi-child-session-guard.test.ts), [session JSONL fuzz coverage](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts))
 
 **Status:** Implemented
 
@@ -131,7 +131,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)
 
-**Verification:** [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude hook cadence tests](../../host/__tests__/memory-capture-hook.test.js)
+**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude hook cadence tests](../../host/__tests__/memory-capture-hook.test.js))
 
 **Status:** Implemented
 
@@ -161,7 +161,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-001](vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** [Behavioral test](../../host/__tests__/entrypoint-rclone-filters.test.js)
+**Verification:** Automated test ([Behavioral test](../../host/__tests__/entrypoint-rclone-filters.test.js))
 
 **Status:** Implemented
 
@@ -219,7 +219,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-AGENT-003](agents.md#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-multi-agent.test.ts)
+**Verification:** Automated test ([agent-seed-multi-agent](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
 
 **Status:** Implemented
 
@@ -249,7 +249,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) (vault is always-on in the global graph)
 
-**Verification:** [Automated test](../../host/__tests__/vault-extract-merge.test.js)
+**Verification:** Automated test ([vault-extract-merge](../../host/__tests__/vault-extract-merge.test.js))
 
 **Status:** Implemented
 
@@ -296,7 +296,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. In default mode, only baseline agent permissions are applied; capture hooks are not registered. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
 2. If no session mode has been explicitly set, the default mode applies. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) -->
-3. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-MEM-011 AC3: reconcileAgentConfigs gated on the new-bucket trigger) -->
+3. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click, new bucket creation, or the one-time enterprise Pro upgrade at session start ([REQ-ENTERPRISE-001](enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-MEM-011 AC3: reconcileAgentConfigs gated on the new-bucket trigger) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users) -->
 4. On a mode change, preseed files are reconciled to match the new mode: mode-appropriate files are written, preseed-managed files not in the new mode are removed, and user-created files are never modified. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) -->
 
 **Constraints:**
@@ -308,7 +308,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** [Integration test](../../host/__tests__/entrypoint-hooks-merge.test.js)
+**Verification:** Automated test ([Integration test](../../host/__tests__/entrypoint-hooks-merge.test.js))
 
 **Status:** Implemented
 
@@ -336,7 +336,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** [Automated test](../../host/__tests__/memory-capture-block.test.js)
+**Verification:** Automated test ([memory-capture-block](../../host/__tests__/memory-capture-block.test.js))
 
 **Status:** Implemented
 
@@ -366,7 +366,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-004](vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** [Automated test](../../host/__tests__/memory-context-inject.test.js)
+**Verification:** Automated test ([memory-context-inject](../../host/__tests__/memory-context-inject.test.js))
 
 **Status:** Implemented
 
@@ -403,7 +403,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-008](#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline)
 
-**Verification:** [Public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [generated agent contract tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts)
+**Verification:** Automated test ([Public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [generated agent contract tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
 
 **Status:** Implemented
 
@@ -431,7 +431,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)
 
-**Verification:** [Generated agent contract tests](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
+**Verification:** Automated test ([Generated agent contract tests](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
 
 **Status:** Implemented
 
@@ -458,7 +458,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-016](#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
-**Verification:** [Generated agent contract tests](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
+**Verification:** Automated test ([Generated agent contract tests](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
 
 **Status:** Implemented
 
@@ -486,6 +486,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
 
-**Verification:** [Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js)
+**Verification:** Automated test ([Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js))
 
 **Status:** Implemented

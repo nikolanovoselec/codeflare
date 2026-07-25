@@ -5,11 +5,12 @@
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 
 import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
@@ -82,6 +83,98 @@ function runCompleteness(lanes: Record<string, string>, cwd: string, artifactRoo
     [COMPLETENESS, join(work, artifactRoot), JSON.stringify({ ...allLanes, ...lanes })],
     { cwd, encoding: 'utf8' },
   );
+}
+
+describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
+  it('routes owned Browser IDE paths through the workflow classifier while leaving docs-only changes inert', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: { changes: { steps: Array<{ id?: string; with?: { filters?: string } }> } };
+    };
+    const filterSource = workflow.jobs.changes.steps.find((step) => step.id === 'filter')?.with?.filters;
+    expect(filterSource).toBeTypeOf('string');
+    const filters = parseYaml(filterSource!) as Record<string, unknown[]>;
+    const patterns = flattenPatterns(filters.ide);
+
+    expect(matchesAny('openvscode/agent-sidebar/src/extension.ts', patterns)).toBe(true);
+    expect(matchesAny('preseed/agents/pi/extensions/sidebar-approval.ts', patterns)).toBe(true);
+    expect(matchesAny('.github/workflows/test.yml', patterns)).toBe(true);
+    expect(matchesAny('documentation/lanes/container.md', patterns)).toBe(false);
+  });
+
+  it('registers every owned extension test file for fail-closed report reconciliation', () => {
+    expect(SUITES).toContainEqual({
+      name: 'browser-ide',
+      lane: 'browser-ide',
+      dir: 'openvscode',
+      extensions: ['.test.ts', '.test.mjs'],
+      exclude: [],
+      artifacts: ['browser-ide'],
+    });
+  });
+
+  it('REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: Record<string, {
+        if?: string;
+        needs?: string | string[];
+        'continue-on-error'?: boolean;
+        steps?: Array<{
+          name?: string;
+          if?: string;
+          run?: string;
+          uses?: string;
+          with?: Record<string, unknown>;
+          'continue-on-error'?: boolean;
+        }>;
+      }>;
+    };
+    const extensionJob = workflow.jobs['browser-ide'];
+    const imageJob = workflow.jobs['browser-ide-image'];
+    const summaryJob = workflow.jobs.summary;
+
+    expect(extensionJob).toBeDefined();
+    expect(imageJob).toBeDefined();
+    expect(imageJob.needs).toEqual(['changes', 'browser-ide']);
+    expect(imageJob['continue-on-error']).not.toBe(true);
+    expect(imageJob.if?.replace(/\s+/g, ' ').trim()).toBe(
+      "(needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') && needs.browser-ide.result == 'success'",
+    );
+
+    const imageSteps = imageJob.steps ?? [];
+    const criticalSteps = imageSteps.filter((step) => step.name !== 'Upload image evidence');
+    expect(criticalSteps.every((step) => step.if === undefined && step['continue-on-error'] !== true)).toBe(true);
+    const imageCommands = imageSteps.flatMap((step) => step.run ?? []).join('\n');
+    expect(imageCommands).toContain('docker build --tag "$IMAGE" .');
+    expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
+    expect(imageSteps.flatMap((step) => step.uses ?? [])).toEqual([
+      'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0',
+      'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+    ]);
+    expect(imageCommands).not.toMatch(
+      /\b(?:docker|podman)\s+(?:(?:image|manifest)\s+)?(?:login|push)\b|\bdocker\s+(?:buildx\s+build|build)\b[^;&]*--push\b|\b(?:npm\s+publish|oras\s+push|skopeo\s+copy)\b/i,
+    );
+    expect(JSON.stringify(imageSteps)).not.toMatch(/(?:login|build-push)-action/i);
+
+    const requiredJobs = Array.isArray(summaryJob.needs) ? summaryJob.needs : [summaryJob.needs];
+    expect(requiredJobs).toEqual(expect.arrayContaining(['browser-ide', 'browser-ide-image']));
+  });
+});
+
+function flattenPatterns(values: unknown[]): string[] {
+  const patterns: string[] = [];
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') patterns.push(value);
+    else if (Array.isArray(value)) value.forEach(visit);
+  };
+  values.forEach(visit);
+  return patterns;
+}
+
+function matchesAny(path: string, patterns: readonly string[]): boolean {
+  return patterns.some((pattern) => {
+    if (pattern.endsWith('/**')) return path === pattern.slice(0, -3) || path.startsWith(pattern.slice(0, -2));
+    return path === pattern;
+  });
 }
 
 describe('REQ-OPS-023 AC3: cross-suite completeness gate', () => {

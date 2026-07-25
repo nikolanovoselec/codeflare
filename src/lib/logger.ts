@@ -147,11 +147,15 @@ export function createLogger(module: string, context?: Record<string, unknown>):
       }),
     };
 
-    // Mask email addresses in log data to avoid PII in production logs
+    // Mask email addresses in log data to avoid PII in production logs. Masks
+    // when the field name signals an email OR the value itself is email-shaped,
+    // so an address under a non-obvious key (user, contact, from, sub) is caught.
     if (entry.data) {
+      const emailValue = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       for (const key of Object.keys(entry.data)) {
         const val = entry.data[key];
-        if (typeof val === 'string' && key.toLowerCase().includes('email') && val.includes('@')) {
+        if (typeof val === 'string' && val.includes('@') &&
+            (key.toLowerCase().includes('email') || emailValue.test(val))) {
           const [local, domain] = val.split('@');
           entry.data[key] = `${local.slice(0, 2)}***@${domain}`;
         }

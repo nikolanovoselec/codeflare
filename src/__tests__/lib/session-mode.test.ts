@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mode';
+import { resolveSessionMode, clampSessionModeToTier, withEffectiveSessionMode } from '../../lib/session-mode';
 import { getAllowedSessionModes } from '../../lib/subscription';
 import type { SubscriptionTierConfig } from '../../types';
 
@@ -20,6 +20,38 @@ describe('resolveSessionMode / REQ-AGENT-004 (two session modes: default and adv
 
   it('returns "default" when sessionMode is "default"', () => {
     expect(resolveSessionMode({ sessionMode: 'default' })).toBe('default');
+  });
+});
+
+describe('resolveSessionMode / REQ-ENTERPRISE-001 AC2 (enterprise forces Pro regardless of the stored preference)', () => {
+  it("returns 'advanced' for null prefs (JIT user, nothing stored) when ENTERPRISE_MODE=active", () => {
+    expect(resolveSessionMode(null, { ENTERPRISE_MODE: 'active' })).toBe('advanced');
+  });
+
+  it("returns 'advanced' even when the stored preference is 'default'", () => {
+    expect(resolveSessionMode({ sessionMode: 'default' }, { ENTERPRISE_MODE: 'active' })).toBe('advanced');
+  });
+
+  it('flag-off: an env without the flag keeps stored-preference resolution', () => {
+    expect(resolveSessionMode({}, {})).toBe('default');
+    expect(resolveSessionMode({ sessionMode: 'advanced' }, {})).toBe('advanced');
+  });
+});
+
+describe('withEffectiveSessionMode / REQ-ENTERPRISE-001 AC2 (API responses surface the forced mode without rewriting it)', () => {
+  it("overlays sessionMode='advanced' under enterprise and leaves the input object untouched", () => {
+    const stored = { sessionMode: 'default' as const, workspaceSyncEnabled: true };
+    const out = withEffectiveSessionMode(stored, { ENTERPRISE_MODE: 'active' });
+    expect(out.sessionMode).toBe('advanced');
+    expect(out.workspaceSyncEnabled).toBe(true);
+    expect(stored.sessionMode).toBe('default'); // immutability: new object, not mutation
+  });
+
+  it('flag-off: returns the input unchanged (no injected field)', () => {
+    const stored = { workspaceSyncEnabled: true };
+    const out = withEffectiveSessionMode(stored, {});
+    expect(out).toBe(stored);
+    expect('sessionMode' in out).toBe(false);
   });
 });
 

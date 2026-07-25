@@ -35,6 +35,7 @@ vi.mock('../../stores/session', () => ({
     stopAllPolling: vi.fn(),
     setEnterpriseMode: setEnterpriseModeSpy,
     setSaasMode: vi.fn(),
+    setAllowedAgents: vi.fn(),
   },
 }));
 
