@@ -215,13 +215,13 @@
   font-weight: var(--font-medium);
   text-decoration: none;
   cursor: pointer;
-  box-shadow: 0 4px 16px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.3);
+  box-shadow: 0 4px 16px hsla(var(--accent-hsl), 0.3);
   transition: all 150ms ease-out;
 }
 
 .onboarding-continue-btn:hover {
   background: var(--color-accent-hover);
-  box-shadow: 0 6px 24px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.4);
+  box-shadow: 0 6px 24px hsla(var(--accent-hsl), 0.4);
   transform: translateY(-1px);
 }
 

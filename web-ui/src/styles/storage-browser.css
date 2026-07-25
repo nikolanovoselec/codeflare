@@ -74,7 +74,7 @@
 }
 
 .storage-drop-zone--active {
-  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.05);
+  background: hsla(var(--accent-hsl), 0.05);
   outline: 2px dashed var(--color-accent);
   outline-offset: -2px;
 }
@@ -137,9 +137,9 @@
 }
 
 .storage-icon-btn--active {
-  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.14);
+  background: hsla(var(--accent-hsl), 0.14);
   color: var(--color-accent);
-  border-color: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.45);
+  border-color: hsla(var(--accent-hsl), 0.45);
 }
 
 .storage-sync-spinning {
@@ -171,9 +171,9 @@
 }
 
 .storage-sync-notice--info {
-  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.08);
+  background: hsla(var(--accent-hsl), 0.08);
   color: var(--color-text-primary);
-  border: 1px solid hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.25);
+  border: 1px solid hsla(var(--accent-hsl), 0.25);
 }
 
 .storage-sync-notice--error {

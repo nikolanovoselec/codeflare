@@ -1977,6 +1977,16 @@ jobs:
           - [ ] Container image builds and the agent starts (exercised on the next deploy)
           EOF
           )
+          # The entrypoint injects settings Claude Code owns. A rename or a
+          # behaviour change upstream cannot fail a test — the setting just
+          # stops applying — so the reminder rides the bump that invalidates it.
+          if [ "$ARG_NAME" = "CLAUDE_CODE_VERSION" ]; then
+            BODY=$(cat <<EOF
+          $BODY
+          - [ ] \`disableAgentView\` still suppresses the full-screen agent view, and background subagents still spawn under it (REQ-AGENT-008 AC7). Neither is covered by an automated test; if the second breaks, the memory-capture and vault-extract hooks stop firing silently.
+          EOF
+          )
+          fi
           gh pr create \
             --base develop \
             --head "$BRANCH" \

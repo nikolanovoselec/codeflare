@@ -395,9 +395,9 @@
 }
 
 .settings-role-badge--admin {
-  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
+  background: hsla(var(--accent-hsl), 0.15);
   color: hsl(var(--accent-hue), var(--accent-s), 69%);
-  border: 1px solid hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.3);
+  border: 1px solid hsla(var(--accent-hsl), 0.3);
 }
 
 .settings-role-badge--user {

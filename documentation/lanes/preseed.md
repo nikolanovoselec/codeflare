@@ -670,7 +670,7 @@ correctly by excluding keys that have a variant in the target mode.
 
 ## Settings.json Merge
 
-Implements [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) AC3 - AC5, AC7.
+Implements [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) AC3, AC4, AC6, AC7.
 
 `entrypoint.sh` merges settings into `~/.claude/settings.json`
 using a two-phase strategy. Non-hooks settings (statusLine,

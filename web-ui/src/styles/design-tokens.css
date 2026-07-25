@@ -44,9 +44,14 @@
   --accent-s: 100%;
   --accent-l: 62%;
 
-  --color-accent: hsl(var(--accent-hue), var(--accent-s), var(--accent-l));
+  /* The three channels as one substitution, so an alpha variant reads
+     `hsla(var(--accent-hsl), 0.3)` instead of repeating all three at every
+     call site. applyAccentColor sets the channels above; this follows. */
+  --accent-hsl: var(--accent-hue), var(--accent-s), var(--accent-l);
+
+  --color-accent: hsl(var(--accent-hsl));
   --color-accent-hover: hsl(var(--accent-hue), var(--accent-s), 53%);
-  --color-accent-muted: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
+  --color-accent-muted: hsla(var(--accent-hsl), 0.15);
 
   /* Foreground to place ON the accent (e.g. the New Session button). Bright
      accents (the coral default, yellows, light greens) need a near-black
@@ -115,7 +120,7 @@
      ========================================================================== */
 
   --color-terminal-bg: #0a0a0c;    /* Even darker for terminal */
-  --color-glow-accent: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.4);
+  --color-glow-accent: hsla(var(--accent-hsl), 0.4);
   --color-bg-overlay: rgba(24, 24, 27, 0.8);
   --color-bg-elevated-hover: rgba(39, 39, 42, 0.9);
   --color-bg-gradient: linear-gradient(135deg,
@@ -141,7 +146,7 @@
      ========================================================================== */
 
   /* Terminal tab type colors */
-  --color-tab-claude: hsl(var(--accent-hue), var(--accent-s), var(--accent-l));
+  --color-tab-claude: hsl(var(--accent-hsl));
   --color-tab-htop: #22c55e;      /* Green - htop */
   --color-tab-yazi: #3b82f6;      /* Blue - yazi */
   --color-tab-terminal: #f59e0b;  /* Amber - generic terminal */

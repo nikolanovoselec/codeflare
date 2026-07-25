@@ -178,7 +178,9 @@
 .login-spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid rgba(59, 130, 246, 0.15);
+  /* Track and arc share the accent: a fixed blue track under a themed arc
+     mismatched every accent but the original blue one. */
+  border: 3px solid hsla(var(--accent-hsl), 0.15);
   border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;

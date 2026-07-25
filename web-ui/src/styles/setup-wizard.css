@@ -85,7 +85,7 @@
 
         .setup-progress .progress-bar-fill {
           height: 100%;
-          box-shadow: 0 0 12px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.5);
+          box-shadow: 0 0 12px hsla(var(--accent-hsl), 0.5);
         }
 
         .setup-content {
