@@ -220,7 +220,7 @@ test('REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi 
   assert.deepEqual(events, ['listen', 'prompt', 'abort', 'dispose-listener', 'stop']);
 });
 
-test('REQ-IDE-006 AC1: an over-budget history replay keeps the newest turns and drops the oldest', () => {
+test('REQ-IDE-006 AC5: an over-budget history replay keeps the newest turns and drops the oldest', () => {
   // Each entry is large enough that only a handful fit the history budget, so
   // the boundary is crossed well inside the list rather than at its edge.
   const entries = Array.from({ length: 40 }, (_, index) => ({
@@ -264,7 +264,7 @@ test('REQ-IDE-006 AC1: an over-budget history replay keeps the newest turns and 
   assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
 });
 
-test('REQ-IDE-006 AC1: a context over the envelope drops whole sections and stays parseable', () => {
+test('REQ-IDE-006 AC5: a context over the envelope drops whole sections and stays parseable', () => {
   // Every per-section budget is respected here, yet the rendered envelope still
   // overflows: the active editor's content is measured raw, and each control
   // character costs six bytes once JSON-escaped. Clamping the rendered string
