@@ -221,7 +221,7 @@
 
 .onboarding-continue-btn:hover {
   background: var(--color-accent-hover);
-  box-shadow: 0 6px 24px hsla(var(--accent-hsl), 0.4);
+  box-shadow: 0 6px 24px var(--color-glow-accent);
   transform: translateY(-1px);
 }
 

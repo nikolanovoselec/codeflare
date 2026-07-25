@@ -460,7 +460,7 @@
   letter-spacing: 0.05em;
   padding: var(--space-1) var(--space-2);
   border-radius: 8px;
-  background: hsla(var(--accent-hsl), 0.15);
+  background: var(--color-accent-muted);
   color: var(--color-accent);
   line-height: 1.3;
 }

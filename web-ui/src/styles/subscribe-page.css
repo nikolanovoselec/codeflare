@@ -64,7 +64,7 @@
   box-shadow: 0 4px 16px hsla(var(--accent-hsl), 0.3);
   transition: all 150ms ease-out; margin-bottom: var(--space-4);
 }
-.subscribe-action-button:hover:not(:disabled) { background: var(--color-accent-hover); box-shadow: 0 6px 24px hsla(var(--accent-hsl), 0.4); transform: translateY(-1px); }
+.subscribe-action-button:hover:not(:disabled) { background: var(--color-accent-hover); box-shadow: 0 6px 24px var(--color-glow-accent); transform: translateY(-1px); }
 .subscribe-action-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .subscribe-logout-button {
@@ -121,7 +121,7 @@
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-mode-toggle-btn--active {
-  background: hsla(var(--accent-hsl), 0.15); color: var(--color-text-primary);
+  background: var(--color-accent-muted); color: var(--color-text-primary);
 }
 .subscribe-mode-toggle-btn:hover:not(.subscribe-mode-toggle-btn--active):not(:disabled) { color: var(--color-text-secondary); }
 .subscribe-mode-toggle-btn--disabled {

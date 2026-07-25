@@ -37,7 +37,7 @@
 
         .terminal-tab--active {
           color: var(--color-text-primary);
-          background: linear-gradient(135deg, hsla(var(--accent-hsl), 0.15), hsla(var(--accent-hsl), 0.05));
+          background: linear-gradient(135deg, var(--color-accent-muted), hsla(var(--accent-hsl), 0.05));
           border-color: hsla(var(--accent-hsl), 0.3);
           box-shadow:
             0 0 20px hsla(var(--accent-hsl), 0.2),
