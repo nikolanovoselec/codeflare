@@ -53,7 +53,7 @@ function getServiceWorker(): ServiceWorkerContainer | null {
   }
 }
 
-export function getVaultRecordedIdbNames(sessionId: string, storage: Storage | null = getLocalStorage()): string[] {
+function getVaultRecordedIdbNames(sessionId: string, storage: Storage | null = getLocalStorage()): string[] {
   if (!storage) return [];
   try {
     const raw = storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_IDBS_SUFFIX}`);

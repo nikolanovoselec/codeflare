@@ -25,6 +25,7 @@ import { getPrewarmConfig } from './prewarm-config.js';
 import { getSyncStatus, getSystemMetrics } from './metrics.js';
 import { checkContainerAuth } from './auth-check.js';
 import { evaluateFinalSync } from './final-sync.js';
+import type { HealthResponse } from './types.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
 import { stripVaultPrefix } from './vault-proxy.js';
 import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from './vscode-proxy.js';
@@ -233,7 +234,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
         mem: sysMetrics.mem,
         hdd: sysMetrics.hdd,
         timestamp: new Date().toISOString(),
-      })
+      } satisfies HealthResponse)
     );
     return;
   }

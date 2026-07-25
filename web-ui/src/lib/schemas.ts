@@ -186,7 +186,7 @@ export const DetectTokenResponseSchema = z.object({
 // Mirrors Pi's thinking-level enum exactly (see ReasoningLevel in stores/setup.ts
 // and reasoningSchema in src/routes/setup/index.ts) — the backend persists all
 // seven grades, so read-back must accept them all or saved config breaks prefill.
-export const RouteReasoningSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+const RouteReasoningSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 export const SetupPrefillResponseSchema = z.object({
   customDomain: z.string().optional(),
@@ -404,7 +404,7 @@ export const CloudflareStatusResponseSchema = z.object({
 });
 
 // A single repository from GET /api/github/repos.
-export const GithubRepoSchema = z.object({
+const GithubRepoSchema = z.object({
   full_name: z.string(),
   name: z.string(),
   owner: z.string(),

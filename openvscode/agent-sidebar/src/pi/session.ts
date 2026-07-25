@@ -36,7 +36,7 @@ export interface PiSessionOptions {
   readonly reapGeneration?: (token: string) => Promise<void>;
 }
 
-export const FIXED_PI_SPAWN_SPEC: PiSpawnSpec = Object.freeze({
+const FIXED_PI_SPAWN_SPEC: PiSpawnSpec = Object.freeze({
   executable: '/usr/local/bin/pi',
   args: Object.freeze(['--mode', 'rpc', '--no-session', '--no-themes'] as const),
   cwd: '/home/user/workspace',

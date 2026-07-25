@@ -506,7 +506,7 @@ export const MCP = {
   },
 };
 
-export const GITHUB_URL = 'https://github.com/nikolanovoselec/codeflare';
+const GITHUB_URL = 'https://github.com/nikolanovoselec/codeflare';
 
 /** Dogfooding proof: this very page is REQ-LANDING-001, built by Codeflare under
  *  its own spec / test / review enforcement. The @impl and @test anchors are

@@ -12,8 +12,6 @@
 // typed (the real SDK is far richer); the command-handler signature IS typed so
 // the handler parameters are contextually typed and noImplicitAny is satisfied.
 declare module "@earendil-works/pi-coding-agent" {
-  export function getAgentDir(): string;
-
   export type NotifyLevel = "info" | "warning" | "error";
 
   export interface ExtensionContext {
@@ -32,43 +30,6 @@ declare module "@earendil-works/pi-coding-agent" {
   export interface AgentToolResult<T> {
     content: Array<{ type: "text"; text: string } | { type: "image"; [key: string]: any }>;
     details: T;
-  }
-
-  export type AgentToolUpdateCallback<T> = (result: AgentToolResult<T>) => void | Promise<void>;
-
-  export interface EditToolInput {
-    path: string;
-    edits: Array<{ oldText: string; newText: string }>;
-  }
-
-  export interface WriteToolInput {
-    path: string;
-    content: string;
-  }
-
-  export interface BashToolInput {
-    command: string;
-    timeout?: number;
-  }
-
-  export interface EditOperations {
-    access(path: string): Promise<void>;
-    readFile(path: string): Promise<Buffer>;
-    writeFile(path: string, content: string): Promise<void>;
-  }
-
-  export interface WriteOperations {
-    mkdir(path: string): Promise<void>;
-    writeFile(path: string, content: string): Promise<void>;
-  }
-
-  export interface BashOperations {
-    exec(command: string, cwd: string, options: {
-      onData(data: Buffer): void;
-      signal?: AbortSignal;
-      timeout?: number;
-      env?: NodeJS.ProcessEnv;
-    }): Promise<{ exitCode: number | null }>;
   }
 
   export interface ToolDefinition {

@@ -145,6 +145,8 @@ export interface HealthResponse {
   readonly syncError: string | null;
   readonly userPath: string | null;
   readonly prewarmReady: boolean;
+  readonly initFlagObserved: boolean;
+  readonly terminalServiceReady: boolean;
   readonly cpu: string;
   readonly mem: string;
   readonly hdd: string;

@@ -16,7 +16,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 
 import officialClaude from '../official-claude.json' with { type: 'json' };
 
-export const OFFICIAL_CLAUDE_EXTENSION = Object.freeze({
+const OFFICIAL_CLAUDE_EXTENSION = Object.freeze({
   directoryName: `${officialClaude.namespace.toLowerCase()}.${officialClaude.name}`,
   name: officialClaude.name,
   publisher: officialClaude.namespace,
