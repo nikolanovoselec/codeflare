@@ -13,6 +13,11 @@ import { resolve, join } from 'path';
 // element.style.setProperty() are not seen as definitions; today every such
 // token is also defined statically, and a future runtime-only one would fail
 // loudly by name rather than slip through.
+//
+// Two known edges: `defined` is flat, so a token declared inside one selector or
+// @media block satisfies a reference from an unrelated element (modelling the
+// cascade is not worth it here), and landing/src/__tests__/token-integrity.test.ts
+// is a near-copy of this file — keep the two in step by hand.
 const SRC = resolve(__dirname, '../..');
 const SKIP = /(^|\/)(__tests__|node_modules)(\/|$)/;
 

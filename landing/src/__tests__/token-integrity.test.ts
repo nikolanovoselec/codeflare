@@ -10,6 +10,9 @@ import { resolve, join } from 'node:path';
 // assigned solely via element.style.setProperty() are not seen as definitions;
 // today those (--hero-kicker-width, --ticker-offset) are only ever referenced
 // with a fallback, and a future runtime-only one would fail loudly by name.
+// Same two edges as the web-ui copy (web-ui/src/__tests__/styles/token-integrity.test.ts):
+// `defined` is flat, so a scoped declaration satisfies an unrelated reference,
+// and these two files are near-copies kept in step by hand.
 const SRC = resolve(__dirname, '..');
 const SKIP = /(^|\/)(__tests__|node_modules)(\/|$)/;
 
