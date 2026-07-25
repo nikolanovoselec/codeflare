@@ -34,12 +34,24 @@ export interface SplashConfig {
 interface SplashSimulation {
   /** Start the animation loop */
   start(): void;
+  /** Halt the render loop without tearing down GL state (off-screen / hidden tab) */
+  pause(): void;
+  /** Resume the render loop after a pause */
+  resume(): void;
+  /**
+   * Drive the scroll pointer to a canvas-fraction position (x and y in 0..1).
+   * The first call primes the pointer without splatting; subsequent calls splat
+   * a trail toward the new point. Used on touch devices (no cursor) to make the
+   * fluid live and stream as the page scrolls.
+   */
+  pointerMove(xFrac: number, yFrac: number): void;
   /** Stop and clean up */
   destroy(): void;
 }
 
 export function createSplashSimulation(canvas: HTMLCanvasElement, config: SplashConfig): SplashSimulation | null {
   let isActive = true;
+  let isPaused = false;
   let animationFrameId: number | null = null;
 
   function pointerPrototype(this: any) {
@@ -56,6 +68,12 @@ export function createSplashSimulation(canvas: HTMLCanvasElement, config: Splash
   }
 
   const pointers = [new (pointerPrototype as any)()];
+  // A second pointer driven by page scroll on touch devices (which have no
+  // cursor). Kept separate from pointers[0] so a touch-drag and a scroll never
+  // fight over one pointer; applyInputs()/updateColors() iterate all pointers.
+  const scrollPointer = new (pointerPrototype as any)();
+  pointers.push(scrollPointer);
+  let scrollPointerPrimed = false;
 
   const glResult = getWebGLContext(canvas);
   if (!glResult) return null;
@@ -130,15 +148,19 @@ export function createSplashSimulation(canvas: HTMLCanvasElement, config: Splash
   let colorUpdateTimer = 0.0;
 
   function generateColor() {
-    let c = HSVtoRGB(Math.random(), 1.0, 1.0);
-    c.r *= 0.15;
-    c.g *= 0.15;
-    c.b *= 0.15;
+    // Pin to the Codeflare flare band (pink -> coral -> orange) instead of the
+    // original full-spectrum rainbow, so the fluid reads as one brand colour.
+    let h = Math.random() * 0.16 - 0.07;
+    if (h < 0) h += 1;
+    let c = HSVtoRGB(h, 0.85, 1.0);
+    c.r *= 0.18;
+    c.g *= 0.18;
+    c.b *= 0.18;
     return c;
   }
 
   function updateFrame() {
-    if (!isActive) return;
+    if (!isActive || isPaused) return;
     const dt = calcDeltaTime();
     if (resizeCanvas()) initFramebuffers();
     updateColors(dt);
@@ -270,10 +292,13 @@ export function createSplashSimulation(canvas: HTMLCanvasElement, config: Splash
   }
 
   function clickSplat(pointer: any) {
+    // Tamed from the original x10 burst: a click adds a brighter pop than a move
+    // splat, but capped so the dye never approaches white — text composited over
+    // the page-wide fluid keeps its AA contrast even directly under a click.
     const color = generateColor();
-    color.r *= 10.0;
-    color.g *= 10.0;
-    color.b *= 10.0;
+    color.r *= 4.0;
+    color.g *= 4.0;
+    color.b *= 4.0;
     let dx = 10 * (Math.random() - 0.5);
     let dy = 30 * (Math.random() - 0.5);
     splat(pointer.texcoordX, pointer.texcoordY, dx, dy, color);
@@ -388,6 +413,35 @@ export function createSplashSimulation(canvas: HTMLCanvasElement, config: Splash
   return {
     start() {
       updateFrame();
+    },
+    pause() {
+      if (isPaused) return;
+      isPaused = true;
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    },
+    resume() {
+      if (!isPaused) return;
+      isPaused = false;
+      lastUpdateTime = Date.now();
+      updateFrame();
+    },
+    pointerMove(xFrac: number, yFrac: number) {
+      const posX = xFrac * canvas.width;
+      const posY = yFrac * canvas.height;
+      if (!scrollPointerPrimed) {
+        // Seed position so the first real move does not splat one giant delta.
+        scrollPointer.color = generateColor();
+        scrollPointer.texcoordX = xFrac;
+        scrollPointer.texcoordY = 1.0 - yFrac;
+        scrollPointer.prevTexcoordX = scrollPointer.texcoordX;
+        scrollPointer.prevTexcoordY = scrollPointer.texcoordY;
+        scrollPointerPrimed = true;
+        return;
+      }
+      updatePointerMoveData(scrollPointer, posX, posY, scrollPointer.color);
     },
     destroy() {
       isActive = false;
