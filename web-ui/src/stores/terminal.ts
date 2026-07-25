@@ -4,16 +4,28 @@ import type { TerminalConnectionState } from '../types';
 import { getTerminalWebSocketUrl } from '../api/client';
 import type { Terminal } from '@xterm/xterm';
 import { logger } from '../lib/logger';
-import { recordFrame, recordFlush, recordRestore } from '../lib/ws-debug';
+import { recordFrame, recordRestore } from '../lib/ws-debug';
 import { scrollBufferToBottom } from '../lib/xterm-internals';
-import { createFrameAssembler, type FrameAssembler } from '../lib/terminal-frames';
 import {
-  WS_RECONNECT_BASE_MS,
-  WS_RECONNECT_MAX_MS,
   WS_CONNECT_TIMEOUT_MS,
   WS_RETRYABLE_CLOSE_CODES,
   WS_CONTAINER_STOPPED_CODE,
 } from '../lib/constants';
+import { parseControlMessage, reconnectBackoffMs } from './terminal-protocol';
+import {
+  scheduleWrite,
+  cancelPendingFlush,
+  releaseTrailingOutput,
+  cleanupOutputByPrefix,
+  clearAllOutput,
+} from './terminal-output';
+import { cleanupMapByPrefix } from '../lib/map-utils';
+
+// Re-exported for existing importers (tests and components) of the pre-split
+// terminal store surface; the implementations live in the seam modules.
+export { parseControlMessage, reconnectBackoffMs, cleanupMapByPrefix };
+export type { ControlMessage } from './terminal-protocol';
+export { READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from './terminal-output';
 import {
   registerUrlDetectionDeps,
   startUrlDetection as _startUrlDetection,
@@ -44,59 +56,9 @@ export function registerProcessNameCallback(
   onProcessName = cb;
 }
 
-// Discriminated result of inspecting a single WebSocket frame.
-// Server control messages always start with {"type": — raw PTY output never does.
-export type ControlMessage =
-  | { kind: 'restore'; state: string | undefined }
-  | { kind: 'process-name'; processName: string }
-  | { kind: 'raw' };
-
-/**
- * Classify a raw WebSocket frame as a server control message or raw terminal data.
- *
- * Pure (no side effects) so it can be unit-tested without a live WebSocket.
- * A frame is a control message only if it both starts with the `{"type":`
- * discriminator AND parses as JSON with a recognized `type`. A recognized
- * `restore` frame is always consumed (kind 'restore') even with no/empty
- * state — matching the original handler, which returned early on `type ===
- * 'restore'` and only conditionally rendered when `state` was present. A
- * `process-name` frame requires a non-empty `processName`. Everything else —
- * raw PTY bytes, malformed JSON, or unknown control types — is `raw`, which
- * the caller writes verbatim to the terminal.
- */
-export function parseControlMessage(messageData: string): ControlMessage {
-  if (!messageData.startsWith('{"type":')) {
-    return { kind: 'raw' };
-  }
-  try {
-    const msg = JSON.parse(messageData);
-    if (msg.type === 'restore') {
-      return { kind: 'restore', state: msg.state };
-    }
-    if (msg.type === 'process-name' && msg.processName) {
-      return { kind: 'process-name', processName: msg.processName };
-    }
-  } catch {
-    // Not JSON, fall through to raw
-  }
-  return { kind: 'raw' };
-}
-
 // Helper to create compound key from sessionId and terminalId
 function makeKey(sessionId: string, terminalId: string): string {
   return `${sessionId}:${terminalId}`;
-}
-
-/**
- * Equal-jitter exponential backoff for WebSocket reconnect (REQ-TERM-020 AC3).
- * raw = min(MAX, BASE * 2^(attempt-1)); returns raw scaled to 50–100% (jitter)
- * so multiple panes de-correlate. `attempt` is 1-based; `rand` is injectable for
- * deterministic tests. Worst-case settles at the MAX cap (~4 attempts/min),
- * keeping a stuck pane well under the per-user WS connect budget.
- */
-export function reconnectBackoffMs(attempt: number, rand: () => number = Math.random): number {
-  const raw = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * 2 ** Math.max(0, attempt - 1));
-  return Math.round(raw * (0.5 + rand() * 0.5));
 }
 
 /** Clear a pending connect-timeout for a key, if any. */
@@ -105,21 +67,6 @@ function clearConnectTimer(key: string): void {
   if (t) {
     clearTimeout(t);
     connectTimers.delete(key);
-  }
-}
-
-/**
- * Remove all entries from a Map whose keys start with `prefix`, optionally
- * calling `teardown` on each value before deletion (L14: extracted helper).
- */
-export function cleanupMapByPrefix<T>(map: Map<string, T>, prefix: string, teardown?: (value: T) => void): void {
-  for (const key of [...map.keys()]) {
-    if (key.startsWith(prefix)) {
-      if (teardown) {
-        teardown(map.get(key)!);
-      }
-      map.delete(key);
-    }
   }
 }
 
@@ -145,161 +92,6 @@ let nextConnectionOwner = 0;
 
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
-
-// Write batching — coalesce rapid WebSocket messages into a single terminal.write()
-// at 30fps (every ~33ms). At 60fps each frame triggers a render pass with layout
-// invalidation; halving to 30fps cuts renderRows style recalcs roughly in half
-// during burst output while keeping latency imperceptible (~33ms vs ~16ms).
-const WRITE_FLUSH_INTERVAL_MS = 33;
-const writeBuffers = new Map<string, string[]>();
-const pendingFlushes = new Map<string, number>();
-
-// DEC 2026 synchronized frames are reassembled at ingest so a full-screen
-// agent redraw split across WebSocket messages reaches xterm as ONE write —
-// keeping the frame inside xterm's synchronized-output window instead of
-// letting its 1,000 ms safety timeout paint a partially rebuilt transcript.
-// The queue below therefore holds atomic units: ordinary chunk runs or whole
-// frames (see lib/terminal-frames.ts).
-const frameAssemblers = new Map<string, FrameAssembler>();
-
-// Cap on output held while the user reads scrollback. Beyond this the OLDEST
-// held chunks are dropped (ring semantics) so held PTY output cannot grow
-// memory without bound. Dropped bytes were destined for scrollback trimming
-// anyway — writing them through a reader would drag the viewport to the top
-// line by line (xterm pins a scrolled-up viewport at ydisp 0 while a full
-// buffer trims).
-export const READ_HOLD_MAX_CHARS = 2_000_000;
-
-// Bound on characters released per flush tick once the viewport returns to
-// the bottom. Releasing the entire hold in one write() leaves xterm parsing
-// the backlog for seconds — a reader who scrolls up again mid-parse is
-// dragged to the top by the continuing trims. Bounded slices re-check the
-// reading state between ticks, so scrolling up mid-release re-defers the
-// remainder within one interval.
-export const RELEASE_SLICE_MAX_CHARS = 65_536;
-
-/**
- * Whether the user is reading normal-buffer scrollback (viewport above the
- * live bottom). Alternate-buffer applications have no scrollback to read, so
- * they never defer.
- */
-function isReadingScrollback(terminal: Terminal): boolean {
-  const active = terminal.buffer.active;
-  return active.type === 'normal' && active.viewportY < active.baseY;
-}
-
-function flushWriteBuffer(key: string, terminal: Terminal): void {
-  // Clear-then-delete: when invoked directly (the final-close drain loop)
-  // rather than as a fired timer callback, a previously armed timer may still
-  // be live — a bare map delete would orphan it to fire later against a
-  // future session's buffer for the same key. clearTimeout on an
-  // already-fired timer is a no-op, so this is safe on the timer path too.
-  const armed = pendingFlushes.get(key);
-  if (armed !== undefined) clearTimeout(armed);
-  pendingFlushes.delete(key);
-  const assembler = frameAssemblers.get(key);
-  let buffer = writeBuffers.get(key);
-
-  // Fail-open reap: a synchronized frame whose stream stalled, or an idle
-  // marker-prefix carry, is released into the queue instead of parking
-  // forever inside the assembler.
-  const reaped = assembler ? assembler.reap(Date.now()) : [];
-  if (reaped.length > 0) {
-    if (!buffer) {
-      buffer = [];
-      writeBuffers.set(key, buffer);
-    }
-    buffer.push(...reaped);
-  }
-
-  if (!buffer || buffer.length === 0) {
-    // Nothing queued, but a frame may still be assembling — keep the tick
-    // alive so the fail-open reaper runs even if no further bytes arrive.
-    if (assembler?.hasPending()) {
-      const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
-      pendingFlushes.set(key, timerId);
-    }
-    return;
-  }
-
-  // Defer the flush while the user reads scrollback: writing would trim the
-  // buffer beneath the reader, dragging the viewport line by line to the top
-  // (the "snaps to top during agent output" failure). Output accumulates and
-  // each tick re-checks; past the hold cap the oldest units are dropped so
-  // a reader is NEVER written through. Whole atomic units are dropped
-  // (WebSocket chunk runs or complete synchronized frames — dropping a whole
-  // frame is safe: the next full redraw supersedes it); a rare escape
-  // sequence split across the drop heals on the application's next repaint.
-  if (isReadingScrollback(terminal)) {
-    let heldChars = 0;
-    for (const chunk of buffer) heldChars += chunk.length;
-    while (heldChars > READ_HOLD_MAX_CHARS && buffer.length > 1) {
-      heldChars -= buffer[0].length;
-      buffer.shift();
-    }
-    const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
-    pendingFlushes.set(key, timerId);
-    return;
-  }
-
-  // Bounded release: write whole units up to the slice budget and leave the
-  // rest for the next tick, which re-checks the reading state first. The
-  // budget is checked BEFORE adding each unit, so the first unit always
-  // ships regardless of size — a synchronized frame larger than the budget
-  // is written whole in one call, never split (splitting would re-open
-  // xterm's synchronized-output timeout window mid-frame).
-  let sliceChars = 0;
-  let sliceCount = 0;
-  while (sliceCount < buffer.length && sliceChars < RELEASE_SLICE_MAX_CHARS) {
-    sliceChars += buffer[sliceCount].length;
-    sliceCount += 1;
-  }
-  const data = buffer.splice(0, sliceCount).join('');
-
-  recordFlush(key, data.length);
-
-  // xterm owns output-driven scrollback trimming; the write buffer never
-  // scrolls or restores a viewport position after a write.
-  terminal.write(data);
-
-  if (buffer.length > 0 || assembler?.hasPending()) {
-    const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
-    pendingFlushes.set(key, timerId);
-  }
-}
-
-function scheduleWrite(key: string, terminal: Terminal, data: string): void {
-  let assembler = frameAssemblers.get(key);
-  if (!assembler) {
-    assembler = createFrameAssembler();
-    frameAssemblers.set(key, assembler);
-  }
-  const units = assembler.ingest(data, Date.now());
-
-  let buffer = writeBuffers.get(key);
-  if (!buffer) {
-    buffer = [];
-    writeBuffers.set(key, buffer);
-  }
-  buffer.push(...units);
-
-  // Arm the tick even when ingest returned no units: a frame mid-assembly
-  // needs the tick alive for the fail-open reaper.
-  if ((buffer.length > 0 || assembler.hasPending()) && !pendingFlushes.has(key)) {
-    const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
-    pendingFlushes.set(key, timerId);
-  }
-}
-
-function cancelPendingFlush(key: string): void {
-  const timerId = pendingFlushes.get(key);
-  if (timerId !== undefined) {
-    clearTimeout(timerId);
-    pendingFlushes.delete(key);
-  }
-  writeBuffers.delete(key);
-  frameAssemblers.delete(key);
-}
 
 // L26: FitAddon management and layout resize delegated to terminal-layout.ts
 // Register layout module dependencies at module init
@@ -580,27 +372,10 @@ function connect(
       // host's serialize-based restore supersedes them (pure discard), while
       // a final close has no restore coming, so the at-most-one-tick of
       // already-complete output paints once before the state is dropped.
-      const releaseTrailingOutput = () => {
-        // Drain ALL queued complete units. The per-tick release budget exists
-        // to re-check reader ownership between ticks; at a final boundary
-        // there are no more ticks, so a single budgeted slice would strand
-        // every unit after an oversized frame for cancelPendingFlush to
-        // discard. Each iteration writes at least one whole unit, so the
-        // loop terminates; a reading user keeps the discard semantics — a
-        // reader is never written through, even at the end of the stream.
-        for (
-          let queued = writeBuffers.get(key);
-          queued && queued.length > 0 && !isReadingScrollback(terminal);
-          queued = writeBuffers.get(key)
-        ) {
-          flushWriteBuffer(key, terminal);
-        }
-        cancelPendingFlush(key);
-      };
 
       // Intentional disconnect from dashboard — do not reconnect
       if (event.reason === 'dashboard-disconnect') {
-        releaseTrailingOutput();
+        releaseTrailingOutput(key, terminal);
         setConnectionState(sessionId, terminalId, 'disconnected');
         return;
       }
@@ -609,7 +384,7 @@ function connect(
       // Don't retry — session status will be updated by KV polling or is already stopped.
       if (event.code === WS_CONTAINER_STOPPED_CODE) {
         logger.info(`[Terminal ${key}] Container stopped (4503)`);
-        releaseTrailingOutput();
+        releaseTrailingOutput(key, terminal);
         setConnectionState(sessionId, terminalId, 'disconnected');
         setRetryMessage(sessionId, terminalId, 'Session stopped');
         return;
@@ -627,7 +402,7 @@ function connect(
       }
 
       // Non-retryable close (normal closure, etc.)
-      releaseTrailingOutput();
+      releaseTrailingOutput(key, terminal);
       setConnectionState(sessionId, terminalId, 'disconnected');
       setRetryMessage(sessionId, terminalId, null);
     }
@@ -835,9 +610,7 @@ function disposeSession(sessionId: string): void {
   cleanupFitAddonsByPrefix(prefix);
   cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
-  cleanupMapByPrefix(pendingFlushes, prefix, (rafId) => clearTimeout(rafId));
-  cleanupMapByPrefix(writeBuffers, prefix);
-  cleanupMapByPrefix(frameAssemblers, prefix);
+  cleanupOutputByPrefix(prefix);
   for (const key of [...pendingFocusClaims]) {
     if (key.startsWith(prefix)) pendingFocusClaims.delete(key);
   }
@@ -883,12 +656,7 @@ function disposeAll(): void {
   retryTimeouts.clear();
 
   // Cancel all pending write flushes
-  for (const rafId of pendingFlushes.values()) {
-    clearTimeout(rafId);
-  }
-  pendingFlushes.clear();
-  writeBuffers.clear();
-  frameAssemblers.clear();
+  clearAllOutput();
 
   // Abort all retry loops
   for (const controller of abortControllers.values()) {
@@ -1034,12 +802,7 @@ function disconnectAll(): void {
   retryTimeouts.clear();
 
   // Cancel all pending write flushes
-  for (const rafId of pendingFlushes.values()) {
-    clearTimeout(rafId);
-  }
-  pendingFlushes.clear();
-  writeBuffers.clear();
-  frameAssemblers.clear();
+  clearAllOutput();
 
   // Abort all retry loops
   for (const controller of abortControllers.values()) {

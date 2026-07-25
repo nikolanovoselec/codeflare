@@ -7,98 +7,15 @@ let configLoaded = false;
 
 const TOTAL_STEPS = 3;
 
-export type ReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+import type { SetupState, ReasoningLevel, GroupRouting } from './setup-types';
+import { DEFAULT_ROUTE_CONTEXT_WINDOW } from './setup-types';
+import { buildConfigurePayload } from './setup-payload';
+import { applyEnterprisePrefill, applyReconfigPrefill, applyInitialPrefill } from './setup-prefill';
 
-/** Per-group routing entry (REQ-ENTERPRISE-013). */
-export interface GroupRouting {
-  routes: string[];
-  defaultRoute: string;
-  reasoning: ReasoningLevel;
-}
-
-interface SetupState {
-  step: number;
-  // Token detection (auto-detected from env)
-  tokenDetected: boolean;
-  tokenDetecting: boolean;
-  tokenDetectError: string | null;
-  accountInfo: { id: string; name: string } | null;
-  // Custom domain (optional)
-  customDomain: string;
-  customDomainError: string | null;
-  // Allowed users
-  adminUsers: string[];
-  allowedUsers: string[];
-  // Configuration progress
-  configuring: boolean;
-  configureSteps: Array<{ step: string; status: string; error?: string }>;
-  configureError: string | null;
-  setupComplete: boolean;
-  // Result URLs
-  customDomainUrl: string | null;
-  accountId: string | null;
-  // SaaS mode
-  saasMode: boolean;
-  // Enterprise mode (deploy-time flag, from /api/setup/status)
-  enterpriseMode: boolean;
-  // Enterprise-only: customer-managed Cloudflare Access group NAMES (chip list)
-  enterpriseAccessGroups: string[];
-  // REQ-ENTERPRISE-014: enterprise admin Access group NAMES (chip list). Members are
-  // granted admin (= Setup access); never used for per-group routing.
-  adminAccessGroups: string[];
-  // Feature C: enterprise gateway dynamic-route catalog + optional default.
-  dynamicRoutes: string[];
-  defaultRouteName: string;            // '' = no default
-  defaultRouteReasoning: ReasoningLevel;
-  // REQ-ENTERPRISE-012: per-route context window (route name -> tokens). Each route
-  // defaults to DEFAULT_ROUTE_CONTEXT_WINDOW; the admin can raise or reset it.
-  routeContextWindows: Record<string, number>;
-  // REQ-BROWSER-007: admin-global Cloudflare Browser Rendering token + account id.
-  // cloudflareBrowserToken holds only a freshly-typed value (the stored token is
-  // never returned); cloudflareBrowserTokenSet reflects whether one is already saved.
-  cloudflareBrowserToken: string;
-  cloudflareBrowserTokenSet: boolean;
-  cloudflareBrowserAccountId: string;
-  // REQ-ENTERPRISE-017: enterprise AI Gateway URL + token (wizard-configured, KV-persisted).
-  // aigToken holds only a freshly-typed value (the stored token is never returned);
-  // aigTokenSet reflects whether one is already saved; aigGatewayUrl is non-secret.
-  aigGatewayUrl: string;
-  aigToken: string;
-  aigTokenSet: boolean;
-  // REQ-ENTERPRISE-016: enterprise-only strict gateway egress toggle. Default OFF;
-  // routes the container's HTTP/HTTPS egress through the Cloudflare Gateway.
-  strictGatewayEgress: boolean;
-  // REQ-ENTERPRISE-018: enterprise-only Governed Mode toggle. Default OFF; disables
-  // R2 SSE-C so corporate bucket data is readable/scannable. Flipping it triggers a
-  // lossless re-encrypt of each bucket on its next session start.
-  r2SseDisabled: boolean;
-  // Enterprise-only view-only-storage toggle. Default OFF; blocks file downloads in the
-  // Storage panel (open/view only) to prevent bulk export of bucket contents.
-  downloadsDisabled: boolean;
-  // REQ-ENTERPRISE-025: wizard-governed active coding agents. configurableAgents is
-  // the server-delivered governable universe (one checkbox each — a newly capable
-  // agent appears without a UI change); activeAgents is the current selection
-  // (min 1, enforced in toggleActiveAgent and by the backend schema).
-  activeAgents: string[];
-  configurableAgents: string[];
-  // REQ-GITHUB-008: enterprise GitHub provider config. *ClientSecret holds only a
-  // freshly-typed value (the stored secret is never returned); *ClientSecretSet
-  // reflects whether one is already saved.
-  githubProviderType: 'app' | 'oauth';
-  githubAppClientId: string;
-  githubAppClientSecret: string;
-  githubAppClientSecretSet: boolean;
-  githubOauthClientId: string;
-  githubOauthClientSecret: string;
-  githubOauthClientSecretSet: boolean;
-  // Connect-to-Cloudflare OAuth client (admin, non-enterprise). Same masked-secret
-  // shape as the GitHub provider fields above.
-  cloudflareOauthClientId: string;
-  cloudflareOauthClientSecret: string;
-  cloudflareOauthClientSecretSet: boolean;
-  // REQ-ENTERPRISE-013: per-group routing, keyed by Access group name.
-  groupRouting: Record<string, GroupRouting>;
-}
+// Re-exported for existing importers of the pre-split setup store surface;
+// the definitions live in setup-types.ts.
+export { DEFAULT_ROUTE_CONTEXT_WINDOW } from './setup-types';
+export type { ReasoningLevel, GroupRouting } from './setup-types';
 
 const initialState: SetupState = {
   step: 1,
@@ -330,8 +247,6 @@ function applyGroupRoutingToAll(source: string): void {
 // REQ-ENTERPRISE-012: default per-route context window. Mirrors the worker's
 // DEFAULT_ROUTE_CONTEXT_WINDOW (src/lib/constants.ts); web-ui is a separate bundle so
 // the value is duplicated, like the enterprise placeholder credentials.
-export const DEFAULT_ROUTE_CONTEXT_WINDOW = 256000;
-
 function addDynamicRoute(name: string): void {
   if (name && !state.dynamicRoutes.includes(name)) {
     setState(produce((s) => {
@@ -456,41 +371,7 @@ async function loadExistingConfig(): Promise<void> {
       if (statusRes.enterpriseMode) {
         const prefill = await api.getSetupPrefill();
         setState(
-          produce((s) => {
-            if (statusRes.customDomain) {
-              s.customDomain = statusRes.customDomain;
-            }
-            s.adminUsers = Array.from(new Set(prefill.adminUsers.map((email) => email.trim().toLowerCase())));
-            s.enterpriseAccessGroups = prefill.enterpriseAccessGroup;
-            s.adminAccessGroups = prefill.adminAccessGroup;
-            s.dynamicRoutes = prefill.dynamicRoutes;
-            s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
-            s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
-            // REQ-ENTERPRISE-012: hydrate per-route windows, then fill the default for
-            // any catalog route the stored map doesn't cover so every field shows a value.
-            s.routeContextWindows = { ...prefill.routeContextWindows };
-            for (const r of prefill.dynamicRoutes) {
-              if (s.routeContextWindows[r] === undefined) s.routeContextWindows[r] = DEFAULT_ROUTE_CONTEXT_WINDOW;
-            }
-            s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
-            s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
-            s.aigGatewayUrl = prefill.aigGatewayUrl;
-            s.aigTokenSet = prefill.aigTokenSet;
-            s.strictGatewayEgress = prefill.strictGatewayEgress;
-            s.r2SseDisabled = prefill.r2SseDisabled;
-            s.downloadsDisabled = prefill.downloadsDisabled;
-            // REQ-ENTERPRISE-025: active coding agents + the governable universe.
-            s.activeAgents = prefill.activeAgents;
-            s.configurableAgents = prefill.configurableAgents;
-            s.githubProviderType = prefill.githubProviderType ?? 'app';
-            s.githubAppClientId = prefill.githubAppClientId;
-            s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
-            s.githubOauthClientId = prefill.githubOauthClientId;
-            s.githubOauthClientSecretSet = prefill.githubOauthClientSecretSet;
-            s.cloudflareOauthClientId = prefill.cloudflareOauthClientId;
-            s.cloudflareOauthClientSecretSet = prefill.cloudflareOauthClientSecretSet;
-            s.groupRouting = prefill.groupRouting;
-          })
+          produce((s) => applyEnterprisePrefill(s, prefill, statusRes.customDomain))
         );
         return;
       }
@@ -505,28 +386,7 @@ async function loadExistingConfig(): Promise<void> {
         reconfigPrefill = await api.getSetupPrefill();
       } catch { /* prefill is best-effort */ }
       setState(
-        produce((s) => {
-          if (statusRes.customDomain) {
-            s.customDomain = statusRes.customDomain;
-          }
-          s.adminUsers = usersRes
-            .filter((u) => u.role === 'admin')
-            .map((u) => u.email);
-          if (!statusRes.saasMode) {
-            s.allowedUsers = usersRes
-              .filter((u) => u.role !== 'admin')
-              .map((u) => u.email);
-          }
-          if (reconfigPrefill) {
-            s.githubProviderType = reconfigPrefill.githubProviderType ?? 'app';
-            s.githubAppClientId = reconfigPrefill.githubAppClientId;
-            s.githubAppClientSecretSet = reconfigPrefill.githubAppClientSecretSet;
-            s.githubOauthClientId = reconfigPrefill.githubOauthClientId;
-            s.githubOauthClientSecretSet = reconfigPrefill.githubOauthClientSecretSet;
-            s.cloudflareOauthClientId = reconfigPrefill.cloudflareOauthClientId;
-            s.cloudflareOauthClientSecretSet = reconfigPrefill.cloudflareOauthClientSecretSet;
-          }
-        })
+        produce((s) => applyReconfigPrefill(s, usersRes, reconfigPrefill, statusRes.customDomain, statusRes.saasMode))
       );
       return;
     }
@@ -538,38 +398,7 @@ async function loadExistingConfig(): Promise<void> {
 
     const prefill = await api.getSetupPrefill();
     setState(
-      produce((s) => {
-        if (prefill.customDomain) {
-          s.customDomain = prefill.customDomain;
-        }
-        const admins = Array.from(new Set(prefill.adminUsers.map((email) => email.trim().toLowerCase())));
-        const regularUsers = Array.from(new Set(prefill.allowedUsers.map((email) => email.trim().toLowerCase())))
-          .filter((email) => !admins.includes(email));
-        s.adminUsers = admins;
-        s.allowedUsers = regularUsers;
-        s.enterpriseAccessGroups = prefill.enterpriseAccessGroup;
-        s.adminAccessGroups = prefill.adminAccessGroup;
-        s.dynamicRoutes = prefill.dynamicRoutes;
-        s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
-        s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
-        s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
-        s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
-        s.aigGatewayUrl = prefill.aigGatewayUrl;
-        s.aigTokenSet = prefill.aigTokenSet;
-        s.strictGatewayEgress = prefill.strictGatewayEgress;
-        s.r2SseDisabled = prefill.r2SseDisabled;
-        s.downloadsDisabled = prefill.downloadsDisabled;
-        // REQ-ENTERPRISE-025: active coding agents + the governable universe.
-        s.activeAgents = prefill.activeAgents;
-        s.configurableAgents = prefill.configurableAgents;
-        s.githubProviderType = prefill.githubProviderType ?? 'app';
-        s.githubAppClientId = prefill.githubAppClientId;
-        s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
-        s.githubOauthClientId = prefill.githubOauthClientId;
-        s.githubOauthClientSecretSet = prefill.githubOauthClientSecretSet;
-        s.cloudflareOauthClientId = prefill.cloudflareOauthClientId;
-        s.cloudflareOauthClientSecretSet = prefill.cloudflareOauthClientSecretSet;
-      })
+      produce((s) => applyInitialPrefill(s, prefill))
     );
   } catch {
     // Silently fail — pre-fill is best-effort
@@ -581,7 +410,6 @@ async function configure(): Promise<boolean> {
   setState({ configuring: true, configureSteps: [], configureError: null });
 
   try {
-    const allUsers = [...state.adminUsers, ...state.allowedUsers];
     const response = await fetch('/api/setup/configure', {
       method: 'POST',
       credentials: 'same-origin',
@@ -590,52 +418,7 @@ async function configure(): Promise<boolean> {
         'X-Requested-With': 'XMLHttpRequest',
       },
       redirect: 'manual',
-      body: JSON.stringify({
-        customDomain: state.customDomain,
-        allowedUsers: allUsers,
-        adminUsers: state.adminUsers,
-        // REQ-GITHUB-008: provider config (admin, any mode). GitHub provider type +
-        // client ids; a blank secret => backend keeps the existing one (no clobber).
-        // The Connect-to-Cloudflare OAuth client mirrors the same shape.
-        githubProviderType: state.githubProviderType,
-        githubAppClientId: state.githubAppClientId,
-        githubAppClientSecret: state.githubAppClientSecret,
-        githubOauthClientId: state.githubOauthClientId,
-        githubOauthClientSecret: state.githubOauthClientSecret,
-        cloudflareOauthClientId: state.cloudflareOauthClientId,
-        cloudflareOauthClientSecret: state.cloudflareOauthClientSecret,
-        // Enterprise-only fields; omitted entirely for other modes so their
-        // request body is byte-identical to today.
-        ...(state.enterpriseMode ? {
-          enterpriseAccessGroup: state.enterpriseAccessGroups,
-          // REQ-ENTERPRISE-014: admin Access groups (Setup access; not routing).
-          adminAccessGroup: state.adminAccessGroups,
-          dynamicRoutes: state.dynamicRoutes,
-          defaultRoute: state.defaultRouteName || state.dynamicRoutes[0]
-            ? { route: state.defaultRouteName || state.dynamicRoutes[0], reasoning: state.defaultRouteName ? state.defaultRouteReasoning : 'off' }
-            : null,
-          // REQ-ENTERPRISE-012: per-route context windows (route name -> tokens).
-          routeContextWindows: state.routeContextWindows,
-          // REQ-BROWSER-007: a blank token => backend keeps the existing one (no clobber).
-          browserRenderToken: state.cloudflareBrowserToken,
-          browserRenderAccountId: state.cloudflareBrowserAccountId,
-          // REQ-ENTERPRISE-017: AI Gateway URL (non-secret) + token (blank => no clobber).
-          aigGatewayUrl: state.aigGatewayUrl,
-          aigToken: state.aigToken,
-          // REQ-ENTERPRISE-013: per-group routing map.
-          groupRouting: state.groupRouting,
-          // REQ-ENTERPRISE-016: strict gateway egress toggle.
-          strictGatewayEgress: state.strictGatewayEgress,
-          // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle.
-          r2SseDisabled: state.r2SseDisabled,
-          // View-only-storage toggle.
-          downloadsDisabled: state.downloadsDisabled,
-          // REQ-ENTERPRISE-025: active coding agents. Omitted while the prefill has
-          // not delivered a selection so an unrelated reconfigure cannot 400 on the
-          // backend's min-1 rule.
-          ...(state.activeAgents.length > 0 ? { activeAgents: state.activeAgents } : {}),
-        } : {}),
-      }),
+      body: JSON.stringify(buildConfigurePayload(state)),
     });
 
     // Detect CF Access auth redirects

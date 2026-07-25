@@ -2586,7 +2586,7 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 `MOBILE_INPUT_LOCKED` is the explicit exception: the keyboard lifecycle performs fit plus bottom anchoring, generic correction stays inactive, and vertical swipes remain terminal input or fullscreen application wheel gestures. The write buffer performs no scroll correction.
 <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
 <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
-<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer -->
 <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures -->
 
 **Consequences:** Sustained output cannot create a write/onScroll/programmatic-scroll feedback loop. A user reading history is never pulled toward the prompt, although content that has actually aged out cannot be preserved and correctly leaves the viewport at the oldest available line. Returning to bottom deterministically restores following. Mobile keyboard-open behavior remains intentionally bottom-locked instead of inheriting desktop manual-scroll ownership.
@@ -2614,7 +2614,7 @@ Separately, AD104 kept the keyboard-open fullscreen wheel exception, so with the
 **Decision:** Keep AD104's per-mode ownership (`FOLLOW_OUTPUT` / `READ_SCROLLBACK` / `MOBILE_INPUT_LOCKED`) and change four behaviors. (1) While manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output instead of writing it — the buffer freezes under the reader, and returning to the live bottom (or exceeding a 2,000,000-character held-output cap) releases everything in one write; alternate-buffer output never defers. (2) User-driven scrollback navigation is buffer-authoritative: touch scrolling and floating page controls call the internal `BufferService.scrollLines()` with buffer-derived deltas instead of the public viewport-relative API, each resulting buffer scroll event makes `Viewport._sync()` re-command the DOM scroll state absolutely — divergence is repaired every tick instead of amplified into an edge jump.
 
 (3) Vertical swipes with the touch keyboard open are always terminal input (arrow keys); fullscreen wheel routing applies only while the keyboard is closed. (4) `touchmove` refreshes the scroll-intent window so an in-progress drag is always correlated with its own scroll events.
-<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer -->
 <!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferLines -->
 <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures -->
 <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
@@ -2726,7 +2726,7 @@ Separately, AD105's hold released in ONE write and force-flushed past its cap �
 <!-- @impl: web-ui/src/lib/terminal-wheel.ts::attachWheelScrolling -->
 <!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferToBottom -->
 <!-- @impl: web-ui/src/lib/xterm-internals.ts::resyncViewportScrollState -->
-<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer -->
 
 **Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming), [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input).
 
@@ -2754,8 +2754,8 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Consequences:** Refines AD110 — buffer authority governs every scroll route, and atomic frame delivery is the missing half its "definitive" scope did not cover: corrections no longer race mid-frame buffer states because those states are never observable between writes. Applications that never emit the markers see byte-identical passthrough (one `indexOf` per chunk); Claude Code and Codex gain the same atomicity. First paint of a frame moves after its full arrival — no added latency in practice, since xterm's sync deferral already withheld painting until the end marker. Atomicity depends on xterm parsing one write chunk synchronously, so no asynchronous parser handlers may ever be registered on the terminal.
 <!-- @impl: web-ui/src/lib/terminal-frames.ts::createFrameAssembler -->
-<!-- @impl: web-ui/src/stores/terminal.ts::scheduleWrite -->
-<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite -->
+<!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer -->
 <!-- @impl: web-ui/src/stores/terminal.ts::handleWebSocketClose -->
 <!-- @impl: web-ui/src/lib/xterm-internals.ts::scrollBufferToBottom -->
 

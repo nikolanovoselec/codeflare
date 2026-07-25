@@ -1,0 +1,56 @@
+/**
+ * Pure terminal wire-protocol helpers (REQ-TERM-019 / REQ-TERM-020), extracted
+ * from the terminal store so frame classification and reconnect pacing are
+ * unit-testable without a live WebSocket or the store's connection state.
+ */
+import { WS_RECONNECT_BASE_MS, WS_RECONNECT_MAX_MS } from '../lib/constants';
+
+// Discriminated result of inspecting a single WebSocket frame.
+// Server control messages always start with {"type": — raw PTY output never does.
+export type ControlMessage =
+  | { kind: 'restore'; state: string | undefined }
+  | { kind: 'process-name'; processName: string }
+  | { kind: 'raw' };
+
+/**
+ * Classify a raw WebSocket frame as a server control message or raw terminal data.
+ *
+ * Pure (no side effects) so it can be unit-tested without a live WebSocket.
+ * A frame is a control message only if it both starts with the `{"type":`
+ * discriminator AND parses as JSON with a recognized `type`. A recognized
+ * `restore` frame is always consumed (kind 'restore') even with no/empty
+ * state — matching the original handler, which returned early on `type ===
+ * 'restore'` and only conditionally rendered when `state` was present. A
+ * `process-name` frame requires a non-empty `processName`. Everything else —
+ * raw PTY bytes, malformed JSON, or unknown control types — is `raw`, which
+ * the caller writes verbatim to the terminal.
+ */
+export function parseControlMessage(messageData: string): ControlMessage {
+  if (!messageData.startsWith('{"type":')) {
+    return { kind: 'raw' };
+  }
+  try {
+    const msg = JSON.parse(messageData);
+    if (msg.type === 'restore') {
+      return { kind: 'restore', state: msg.state };
+    }
+    if (msg.type === 'process-name' && msg.processName) {
+      return { kind: 'process-name', processName: msg.processName };
+    }
+  } catch {
+    // Not JSON, fall through to raw
+  }
+  return { kind: 'raw' };
+}
+
+/**
+ * Equal-jitter exponential backoff for WebSocket reconnect (REQ-TERM-020 AC3).
+ * raw = min(MAX, BASE * 2^(attempt-1)); returns raw scaled to 50–100% (jitter)
+ * so multiple panes de-correlate. `attempt` is 1-based; `rand` is injectable for
+ * deterministic tests. Worst-case settles at the MAX cap (~4 attempts/min),
+ * keeping a stuck pane well under the per-user WS connect budget.
+ */
+export function reconnectBackoffMs(attempt: number, rand: () => number = Math.random): number {
+  const raw = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * 2 ** Math.max(0, attempt - 1));
+  return Math.round(raw * (0.5 + rand() * 0.5));
+}
