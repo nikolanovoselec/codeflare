@@ -648,6 +648,16 @@
       "advanced"
     ]
   },
+  "skills/review-scope/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/build-review-packet.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/spec-enforce/scripts/round-limit.mjs": {
     "modes": [
       "advanced"

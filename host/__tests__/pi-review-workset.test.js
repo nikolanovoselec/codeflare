@@ -6,10 +6,10 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { buildReviewPacket, changedInputIntersects } from '../../preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs';
+import { buildReviewPacket, changedInputIntersects } from '../../preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs';
 
 const packetScript = fileURLToPath(new URL(
-  '../../preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs',
+  '../../preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs',
   import.meta.url,
 ));
 

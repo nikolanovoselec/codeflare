@@ -121,6 +121,31 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     }
   });
 
+  it('REQ-AGENT-085: the canonical packet CLI reaches Pi byte-identically', () => {
+    // The builder is one canonical source in the Claude tree; Pi receives it
+    // through the ordinary transform rather than owning a second copy. Two
+    // things make that worth pinning. Skill adaptation computes the Pi runtime
+    // rewrites BEFORE it decides a file is not a SKILL.md, so an executable
+    // aux file is in scope for those replacements -- a future comment
+    // containing a rewritten runtime name would silently corrupt Pi's copy.
+    // And byte-identity for this file is no longer covered by the
+    // manifest-driven check above, because Pi's manifest deliberately no
+    // longer owns it.
+    const canonical = readFileSync(
+      join(repoRoot, 'preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs'),
+      'utf8',
+    );
+    const seeded = documents.find(
+      (document) => document.key === '.pi/agent/skills/review-scope/scripts/build-review-packet.mjs',
+    );
+    assert.ok(seeded, 'Pi must receive the packet CLI at the path its SKILL.md invokes');
+    assert.equal(
+      seeded.content,
+      canonical,
+      'Pi runtime-name adaptation must never rewrite the executable packet CLI',
+    );
+  });
+
   it('REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker', () => {
     const script = join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs');
     const decide = (count, marker) => {
