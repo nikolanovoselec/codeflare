@@ -402,7 +402,7 @@ Launch a single Task agent (`code-reviewer` type). The agent:
 Task agent prompt:
 
 ```
-List existing `[REVIEW_DIR]/0*.md` files with direct `ctx_execute` or Bash evidence. Expected files:
+List existing `[REVIEW_DIR]/0*.md` files with direct Bash evidence. Expected files:
 - 01-security.md through 06-documentation.md (Phase 2 outputs)
 - 07-req-verify-NN.md (one per Phase 3 batch; ABSENT if --deep was not passed)
 Read ONLY the files that actually exist. Some review agents may have failed - do not attempt to read missing files.
@@ -529,7 +529,7 @@ After the Task agent completes, the root writes its complete response to `$REVIE
 
 The Reality Filter re-evaluates every Phase-5-active finding against six questions using direct local evidence: persisted triage history, ADR bodies, a compact current-session decision packet written by the root, recent Git history, specification changes, and current source. It returns the complete real-findings report and an audit reason for every drop or demotion.
 
-Before launch, the root writes only explicit user decisions relevant to this review from the current conversation to `$REVIEW_DIR/.root-decisions.md`; write `_No relevant current-session decisions._` when none exist. Launch one `code-reviewer` Task agent. It uses direct `ctx_execute` or Bash evidence only and returns its report without writing files.
+Before launch, the root writes only explicit user decisions relevant to this review from the current conversation to `$REVIEW_DIR/.root-decisions.md`; write `_No relevant current-session decisions._` when none exist. Launch one `code-reviewer` Task agent. It uses direct Bash evidence only and returns its report without writing files.
 
 Task agent prompt:
 

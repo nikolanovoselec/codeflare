@@ -71,6 +71,7 @@ vi.mock('../../lib/agent-seed.generated', () => ({
 import {
   getConfigsForMode,
   getPreseedKeysNotInMode,
+  RETIRED_PRESEED_KEYS,
   seedAgentConfigs,
   deleteNonModeConfigs,
   reconcileAgentConfigs,
@@ -186,20 +187,28 @@ describe('deleteNonModeConfigs', () => {
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'default');
 
+    // Out-of-mode keys first, then the retirement sweep, which belongs to no
+    // mode in this build and so is issued in every mode.
     expect(result.deleted).toEqual([
       '.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json',
       '.claude/skills/consult-llm/SKILL.md',
+      ...RETIRED_PRESEED_KEYS,
     ]);
     expect(result.warnings).toEqual([]);
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2 + RETIRED_PRESEED_KEYS.length);
   });
 
-  it('performs zero DELETEs for "advanced" mode', async () => {
+  it('deletes only the retired keys for "advanced" mode', async () => {
+    // Advanced is the superset mode, so nothing is out-of-mode. What is left is
+    // the reason retirements exist at all: a key the generated set no longer
+    // names is invisible to the derived list and would survive forever.
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
-    expect(result.deleted).toEqual([]);
+    expect(result.deleted).toEqual([...RETIRED_PRESEED_KEYS]);
     expect(result.warnings).toEqual([]);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(RETIRED_PRESEED_KEYS.length);
   });
 
   it('treats 404 as successful delete (idempotent)', async () => {
@@ -207,18 +216,19 @@ describe('deleteNonModeConfigs', () => {
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'default');
 
-    expect(result.deleted).toHaveLength(2);
+    expect(result.deleted).toHaveLength(2 + RETIRED_PRESEED_KEYS.length);
     expect(result.warnings).toEqual([]);
   });
 
   it('returns warnings for partial delete failure', async () => {
     mockFetch
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(new Response('', { status: 500 }));
+      .mockResolvedValueOnce(new Response('', { status: 500 }))
+      .mockResolvedValue(new Response(null, { status: 204 }));
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'default');
 
-    expect(result.deleted).toHaveLength(1);
+    expect(result.deleted).toHaveLength(1 + RETIRED_PRESEED_KEYS.length);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain('HTTP 500');
   });
@@ -243,7 +253,7 @@ describe('reconcileAgentConfigs / REQ-MEM-011 AC4', () => {
     });
 
     expect(result.written).toHaveLength(3);
-    expect(result.deleted).toHaveLength(2);
+    expect(result.deleted).toHaveLength(2 + RETIRED_PRESEED_KEYS.length);
     expect(result.warnings).toEqual([]);
   });
 

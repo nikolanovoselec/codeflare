@@ -342,17 +342,37 @@ if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
   fi
 
   # Resolve current PR HEAD. Both trigger paths may have queried gh
-  # already (PR_INFO for git-push, PR_INFO_OPEN for pr-open). Fall back
-  # to local HEAD: post-push the just-pushed SHA equals origin's HEAD
-  # equals headRefOid. The cached git-push path skips the gh query and
-  # has no PR_INFO, so the fallback is the normal case there.
-  CURRENT_PR_HEAD=""
+  # already (PR_INFO for git-push, PR_INFO_OPEN for pr-open). The cached
+  # git-push path skips the gh query and has no PR_INFO, so the local-HEAD
+  # resolution below is the normal case there.
+  GH_PR_HEAD=""
   if [ "$TRIGGER" = "git-push" ] && [ -n "${PR_INFO:-}" ]; then
-    CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+    GH_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
   elif [ "$TRIGGER" = "pr-open" ] && [ -n "${PR_INFO_OPEN:-}" ]; then
-    CURRENT_PR_HEAD=$(echo "$PR_INFO_OPEN" | jq -r '.headRefOid // empty' 2>/dev/null)
+    GH_PR_HEAD=$(echo "$PR_INFO_OPEN" | jq -r '.headRefOid // empty' 2>/dev/null)
   fi
-  [ -z "$CURRENT_PR_HEAD" ] && CURRENT_PR_HEAD=$(git rev-parse HEAD 2>/dev/null)
+  LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
+
+  # GitHub's PR metadata lags its own ref update: a `gh pr view` issued
+  # milliseconds after a successful push can still report the PREVIOUS head.
+  # That stale SHA became the right-hand side of the incremental range, so
+  # the directive named a range ending one commit BEFORE the push that
+  # triggered it, and the new commit went unreviewed for that round.
+  #
+  # Prefer local HEAD only when it provably CONTAINS what gh reported --
+  # --is-ancestor is true for equal SHAs too. Under that condition the range
+  # can only widen, never narrow, and a wider file set can only produce the
+  # same or more lanes. Every other relationship (SHA unknown locally, gh
+  # ahead of us, divergent, empty local HEAD) keeps gh's value: a push of a
+  # non-current refspec, a rejected push, or a concurrent push from
+  # elsewhere must not be reviewed against a narrower range than the PR
+  # actually has.
+  CURRENT_PR_HEAD="$GH_PR_HEAD"
+  if [ -n "$LOCAL_HEAD" ] \
+     && { [ -z "$GH_PR_HEAD" ] \
+          || git merge-base --is-ancestor "$GH_PR_HEAD" "$LOCAL_HEAD" 2>/dev/null; }; then
+    CURRENT_PR_HEAD="$LOCAL_HEAD"
+  fi
 
   if [ -n "$CURRENT_PR_HEAD" ]; then
     REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")
@@ -390,6 +410,8 @@ elif [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
   DIRECTIVE="$DIRECTIVE Parallel: spec-reviewer (sdd/ lane) and doc-updater (docs/ lane) - run concurrently and return structured reports. Code lane silently excluded by Stop hook (no source files in diff)."
 elif [ "$needs_doc" = "1" ] && [ "$needs_code" = "0" ] && [ "$needs_spec" = "0" ]; then
   DIRECTIVE="$DIRECTIVE Spawn: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
+elif [ "$needs_code" = "1" ] && [ "$needs_spec" = "0" ] && [ "$needs_doc" = "0" ]; then
+  DIRECTIVE="$DIRECTIVE Spawn: code-reviewer (source lane) only. Spec and doc lanes silently excluded by Stop hook (the source delta is comments and whitespace only, so behaviour, the spec surface, and the documentation surface are all unchanged - but whether the new comment is TRUE is still a code-review question)."
 else
   # Defensive: any unexpected combination falls back to the all-three parallel directive.
   # The Stop hook is still the source of truth and will correct any over-spawn by silently

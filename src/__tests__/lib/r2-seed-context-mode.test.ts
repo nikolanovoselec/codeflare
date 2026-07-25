@@ -63,6 +63,7 @@ vi.mock('../../lib/agent-seed.generated', () => ({
 import {
   getConfigsForMode,
   getPreseedKeysNotInMode,
+  RETIRED_PRESEED_KEYS,
   reconcileAgentConfigs,
   reseedContextModePlugin,
 } from '../../lib/r2-seed';
@@ -177,11 +178,12 @@ describe('reconcileAgentConfigs tier gating', () => {
       contextModeEnabled: false,
     });
 
-    // 2 advanced non-context-mode files written, 2 context-mode files deleted
+    // 2 advanced non-context-mode files written, 2 context-mode files deleted,
+    // plus the retirement sweep every mode issues.
     expect(result.written).toHaveLength(2);
     expect(result.deleted).toContain('.claude/plugins/context-mode/.claude-plugin/plugin.json');
     expect(result.deleted).toContain('.claude/plugins/context-mode/README.md');
-    expect(result.deleted).toHaveLength(2);
+    expect(result.deleted).toHaveLength(2 + RETIRED_PRESEED_KEYS.length);
   });
 
   it('Standard mode never deploys context-mode regardless of contextModeEnabled', async () => {

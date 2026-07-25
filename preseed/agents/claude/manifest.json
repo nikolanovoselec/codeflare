@@ -254,11 +254,6 @@
       "advanced"
     ]
   },
-  "rules/common/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/documentation-discipline.md": {
     "modes": [
       "advanced"
@@ -296,16 +291,6 @@
     ]
   },
   "rules/golang/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/graph-first.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/karpathy.md": {
     "modes": [
       "advanced"
     ]
@@ -644,6 +629,21 @@
     ]
   },
   "skills/spec-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/build-review-packet.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/inert-source-delta.mjs": {
     "modes": [
       "advanced"
     ]

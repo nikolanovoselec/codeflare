@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
+import { RETIRED_PRESEED_KEYS } from '../../lib/r2-seed';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
@@ -433,6 +434,39 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
 
 });
 
+describe('Retired preseed keys', () => {
+  it('never lists a key the current build still seeds', () => {
+    // Seed cleanup derives its delete list from the generated set, so a file
+    // dropped from the manifest is never queued for deletion and survives in
+    // the bucket beside whatever replaced it. RETIRED_PRESEED_KEYS closes that
+    // gap, which makes the inverse the dangerous mistake: a path listed as
+    // retired while still live would be deleted immediately after being
+    // written. This is the assertion that catches it.
+    const live = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
+    for (const key of RETIRED_PRESEED_KEYS) {
+      expect(live.has(key), `${key} is retired but still in the generated seed`).toBe(false);
+    }
+  });
+
+  it('lists the rules absorbed into the engineering constitution', () => {
+    // Their content now ships inside the constitution; leaving the standalone
+    // copies in the bucket would deliver the same policy twice.
+    for (const key of [
+      '.claude/rules/karpathy.md',
+      '.claude/rules/common/coding-style.md',
+      '.claude/rules/graph-first.md',
+    ]) {
+      expect(RETIRED_PRESEED_KEYS).toContain(key);
+    }
+    const constitution = AGENTS_SEEDED_CONFIGS.find(
+      (doc) => doc.key === '.claude/rules/engineering-constitution.md',
+    );
+    expect(constitution!.content).toMatch(/^## Working principles$/m);
+    expect(constitution!.content).toMatch(/^## Coding concretes$/m);
+    expect(constitution!.content).toMatch(/^## Graph first$/m);
+  });
+});
+
 describe('Reviewer agents can access their enforce policy', () => {
   // Claude invokes enforce skills through its Skill tool. Pi has no equivalent tool;
   // its generated reviewer system prompts embed the canonical policy documents.
@@ -447,29 +481,54 @@ describe('Reviewer agents can access their enforce policy', () => {
     }
   });
 
-  it('REQ-AGENT-086: Claude PR reviewers expose research and indexed-retrieval toolsets', () => {
-    // Indexed retrieval (ctx_search/ctx_batch_execute) is the transport that
-    // keeps raw scan output out of reviewer context; stripping it regressed
-    // review cost by an order of magnitude. Capability inclusion, not exact
-    // equality, so adding tools never breaks this contract.
-    const required = [
-      'Skill',
-      'Bash',
-      'Read',
-      'Grep',
-      'mcp__context-mode__ctx_search',
-      'mcp__context-mode__ctx_batch_execute',
-      'mcp__context-mode__ctx_execute',
-      'mcp__graphify__query_graph',
-    ];
+  it('REQ-AGENT-086 AC7/AC8: Claude PR reviewers carry the packet transport and no repository-wide scan tools', () => {
+    // Something has to keep raw scan output out of reviewer context. It used to
+    // be indexed retrieval; stripping that without a replacement regressed
+    // review cost by an order of magnitude. It is now the review-scope packet
+    // CLI, which returns lane-owned hunks and exact changed-input ranges. This
+    // asserts the replacement in both directions: the transport must be
+    // reachable, and the unbounded-scan tools it replaces must be absent. A
+    // regression either way fails here.
     for (const name of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
       const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
       expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
       const tools = JSON.parse(frontmatter(doc!.content).tools) as string[];
-      for (const tool of required) {
+
+      for (const tool of ['Skill', 'Bash', 'Read']) {
         expect(tools, `${name} must expose ${tool}`).toContain(tool);
       }
+      for (const tool of ['Grep', 'Glob', 'Write', 'Edit']) {
+        expect(tools, `${name} must not expose ${tool}`).not.toContain(tool);
+      }
+      expect(
+        tools.filter((t) => t.startsWith('mcp__context-mode__')),
+        `${name} must not expose indexed retrieval`,
+      ).toHaveLength(0);
+      // Cross-session preference lookup queries the unified graph of prior
+      // sessions, which has no shell analogue; the traversal tools do.
+      expect(
+        tools.filter((t) => t.startsWith('mcp__graphify__')),
+        `${name} keeps only the cross-session signal lookup`,
+      ).toEqual(['mcp__graphify__query_graph']);
+
+      expect(
+        doc!.content,
+        `${name} must invoke the seeded packet CLI`,
+      ).toContain('skills/review-scope/scripts/build-review-packet.mjs');
+      expect(doc!.content, `${name} must carry the packet section`).toMatch(
+        /^## Build the lane packet once$/m,
+      );
     }
+
+    const skill = AGENTS_SEEDED_CONFIGS.find(
+      (d) => d.key === '.claude/skills/review-scope/SKILL.md',
+    );
+    expect(skill, 'review-scope SKILL.md must be seeded for Claude').toBeTruthy();
+    expect(skill!.content).toContain('~/.claude/skills/review-scope/scripts/build-review-packet.mjs');
+    const script = AGENTS_SEEDED_CONFIGS.find(
+      (d) => d.key === '.claude/skills/review-scope/scripts/build-review-packet.mjs',
+    );
+    expect(script, 'the packet CLI the reviewers invoke must be seeded alongside it').toBeTruthy();
   });
 
   it('REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract', () => {

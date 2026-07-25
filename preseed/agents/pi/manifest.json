@@ -182,11 +182,6 @@
       "advanced"
     ]
   },
-  "skills/review-scope/scripts/build-review-packet.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/ci-monitoring/SKILL.md": {
     "modes": [
       "default",

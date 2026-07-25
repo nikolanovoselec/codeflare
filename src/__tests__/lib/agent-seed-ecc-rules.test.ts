@@ -11,11 +11,10 @@ import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
  * individual rule documents.
  */
 
-const ECC_SUBDIRS = ['common', 'typescript', 'python', 'golang', 'swift'] as const;
+const ECC_SUBDIRS = ['typescript', 'python', 'golang', 'swift'] as const;
 
 // Expected file count per subdirectory
 const ECC_FILES_PER_SUBDIR: Record<string, number> = {
-  common: 1, // coding-style only (security.md removed; per-language security rules stand alone)
   typescript: 4, // coding-style, patterns, security, testing
   python: 4,
   golang: 4,
@@ -42,12 +41,13 @@ function codeflareRules() {
 }
 
 describe('ECC rules in agent-seed', () => {
-  it('includes common/ rules with advanced mode only', () => {
-    const commonRules = eccRules().filter((doc) => doc.key.startsWith('.claude/rules/common/'));
-    expect(commonRules.length).toBe(ECC_FILES_PER_SUBDIR.common);
-    for (const rule of commonRules) {
-      expect(rule.modes).toEqual(['advanced']);
-    }
+  it('carries no language-agnostic common/ rules; those concretes live in the constitution', () => {
+    // rules/common/coding-style.md was absorbed into engineering-constitution.md
+    // (both advanced-only, so no audience changed). The per-language
+    // coding-style rules below still stand alone and remain path-scoped.
+    expect(eccRules().filter((doc) => doc.key.startsWith('.claude/rules/common/'))).toHaveLength(0);
+    const constitution = claudeDocs().find((doc) => doc.key === '.claude/rules/engineering-constitution.md');
+    expect(constitution!.content).toMatch(/^## Coding concretes$/m);
   });
 
   it('includes typescript/ rules with advanced mode only', () => {
@@ -102,17 +102,17 @@ describe('ECC rules in agent-seed', () => {
   // tdd-discipline.md is the third sibling in the discipline triad - Pro-mode
   //   only because default-mode users are vibe-coding and didn't opt into
   //   rigorous TDD enforcement.
-  // graph-first.md is the graphify discipline rule (REQ-AGENT-023, AD52).
-  //   The graphify MCP server is registered for all session modes (ambient
-  //   capability) but the rule that teaches the agent to prefer graph MCP
-  //   queries over Grep ships to advanced only - the discipline-vs-capability
-  //   split.
+  // The graphify discipline (REQ-AGENT-023, AD52), the Karpathy working
+  //   principles, and the common coding concretes now live in
+  //   engineering-constitution.md. All three were already advanced-only, and
+  //   the constitution is advanced-only too, so absorbing them preserved the
+  //   discipline-vs-capability split exactly: the graphify MCP server is still
+  //   registered for every session mode, only the discipline rule is gated.
   const ADVANCED_ONLY_CODEFLARE_RULES = [
     '.claude/rules/memory.md',
     '.claude/rules/spec-discipline.md',
     '.claude/rules/documentation-discipline.md',
     '.claude/rules/tdd-discipline.md',
-    '.claude/rules/graph-first.md',
     // vault-note-capture.md is the trigger rule that maps "take a note"
     // phrases to the vault-note-capture skill. The vault itself is
     // Pro-mode-only, so the trigger has no audience in default mode.
@@ -120,11 +120,6 @@ describe('ECC rules in agent-seed', () => {
     // are routed from rules/memory.md (Pro-mode-only), not from a
     // separate rules/vault.md (folded into memory.md).
     '.claude/rules/vault-note-capture.md',
-    // karpathy.md is the LLM-coding-mistakes principles file. Pro-mode
-    // only because default-mode users are vibe-coding and didn't opt
-    // into the rigorous coding-discipline checks Karpathy principles
-    // encourage.
-    '.claude/rules/karpathy.md',
     // frontend-components.md is the composable-UI coding-standards rule
     // (extract-don't-duplicate, central tokens/content, behavioral-only
     // tests). A sibling of karpathy.md / tdd-discipline.md: rigorous
@@ -186,15 +181,20 @@ describe('ECC rules in agent-seed', () => {
     expect(tddDisciplineRule!.modes).toEqual(['advanced']);
   });
 
-  it('graph-first rule is advanced-only (graphify discipline, REQ-AGENT-023 / AD52)', () => {
-    const graphFirstRule = codeflareRules().find(
-      (doc) => doc.key === '.claude/rules/graph-first.md'
+  it('graphify discipline is advanced-only and lives in the constitution (REQ-AGENT-023 / AD52)', () => {
+    // The discipline moved into engineering-constitution.md. The gating claim
+    // is what matters and it is unchanged: the MCP server is ambient across
+    // modes, the rule telling the agent to prefer the graph is advanced-only.
+    expect(codeflareRules().find((doc) => doc.key === '.claude/rules/graph-first.md')).toBeUndefined();
+    const constitution = codeflareRules().find(
+      (doc) => doc.key === '.claude/rules/engineering-constitution.md'
     );
-    expect(graphFirstRule).toBeDefined();
-    expect(graphFirstRule!.modes).toEqual(['advanced']);
+    expect(constitution).toBeDefined();
+    expect(constitution!.modes).toEqual(['advanced']);
+    expect(constitution!.content).toMatch(/^## Graph first$/m);
   });
 
-  it('total ECC rules count is 17', () => {
-    expect(eccRules().length).toBe(17);
+  it('total ECC rules count is 16', () => {
+    expect(eccRules().length).toBe(16);
   });
 });

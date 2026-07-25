@@ -24,11 +24,18 @@
 #                                 (conservative fall-through)
 #   - any behavioral file      -> "code-reviewer spec-reviewer doc-updater"
 #     (anything outside sdd/ + the doc-surface allowlist)
+#   - behavioral files whose delta is provably comments/whitespace only
+#                              -> "code-reviewer" (plus any sdd//docs lanes the
+#                                 same diff independently earns). Proven by
+#                                 skills/review-scope/scripts/inert-source-delta.mjs,
+#                                 the same prover Pi runs; unprovable for ANY
+#                                 reason keeps the all-three posture. The code
+#                                 lane is never dropped. REQ-AGENT-040 AC5
 #   - sdd/** only              -> "spec-reviewer doc-updater"
 #   - documentation/** etc.    -> "doc-updater"
 #   - sdd + docs (no source)   -> "spec-reviewer doc-updater"
 #   - graphify-out/** only     -> "" (generated, machine-authored knowledge graph;
-#                                 no reviewable behavior, caller auto-acks. REQ-AGENT-040 AC8)
+#                                 no reviewable behavior, caller auto-acks. REQ-AGENT-040 AC1)
 #
 # Classification details, NUL-byte hazards, and rename safety are
 # documented at each branch below; keep this file and the callers
@@ -100,13 +107,14 @@ compute_required_lanes() {
   # guards against any future NUL-handling regression or unexpected
   # git output.
   local has_behavioral=0 touches_sdd=0 touches_docs=0 file_count=0 generated_count=0
+  local behavioral_files=()
   while IFS= read -r -d '' file; do
     [ -z "$file" ] && continue
     file_count=$((file_count + 1))
     case "$file" in
       graphify-out/*)
         # Generated, machine-authored artifact (the checked-in graphify knowledge
-        # graph). Contributes no review lane (REQ-AGENT-040 AC8). Counted so a
+        # graph). Contributes no review lane (REQ-AGENT-040 AC1). Counted so a
         # generated-ONLY diff is distinguishable from an empty/errored diff below;
         # a diff mixing it with real source/sdd/docs is still classified by those.
         generated_count=$((generated_count + 1))
@@ -124,6 +132,7 @@ compute_required_lanes() {
         # changes), scripts, configs, schemas, sub-package READMEs,
         # CI workflows, and the preseed tree.
         has_behavioral=1
+        behavioral_files+=("$file")
         ;;
     esac
   done < <(git diff -z --name-only --no-renames "$last_ack" "$current" 2>/dev/null)
@@ -135,12 +144,35 @@ compute_required_lanes() {
     return
   fi
 
-  # Generated-only diff (REQ-AGENT-040 AC8): every changed file is a machine-authored
+  # Generated-only diff (REQ-AGENT-040 AC1): every changed file is a machine-authored
   # graphify-out/ artifact, so there is no reviewable behavior. Require no lanes; the
   # caller auto-acks the head (same empty-string contract as an already-acked same-SHA
   # advance). This is the only path that returns empty for a non-empty diff.
   if [ "$((file_count - generated_count))" = "0" ]; then
     return
+  fi
+
+  # Content-aware reduction (REQ-AGENT-040 AC5). A source file whose delta is
+  # provably comments and whitespace changes no behaviour, so neither the spec
+  # surface nor the documentation surface can have drifted and those two lanes
+  # have nothing to check. The code lane is NEVER dropped: the changed text is
+  # still reviewable prose ("is this comment still true?"), and keeping that
+  # lane is what bounds the damage if the prover is ever wrong about a file --
+  # a directive comment such as @ts-expect-error or eslint-disable is exactly
+  # the case where a comment DOES change behaviour, and it still lands in front
+  # of a reviewer. The prover proves; on ANY doubt -- no node, a non-zero exit,
+  # an unsupported extension, an added/deleted/renamed file, a binary blob, an
+  # unparseable construct -- the behavioural posture stands unchanged.
+  local inert_source=0
+  if [ "$has_behavioral" = "1" ] \
+     && [ "${#behavioral_files[@]}" -gt 0 ] \
+     && command -v node >/dev/null 2>&1; then
+    if printf '%s\0' "${behavioral_files[@]}" \
+       | node "$(dirname "${BASH_SOURCE[0]}")/../../../../skills/review-scope/scripts/inert-source-delta.mjs" \
+              "$last_ack" "$current" >/dev/null 2>&1; then
+      has_behavioral=0
+      inert_source=1
+    fi
   fi
 
   if [ "$has_behavioral" = "1" ]; then
@@ -152,14 +184,16 @@ compute_required_lanes() {
   # touched. A pure documentation push runs only doc-updater. A pure
   # spec push runs spec-reviewer + doc-updater (the doc-updater follow
   # picks up missing REQ backlinks, table-of-contents drift, etc.).
+  # A proven-inert source delta contributes the code lane alone.
   local lanes=""
+  [ "$inert_source" = "1" ] && lanes="code-reviewer"
   if [ "$touches_sdd" = "1" ]; then
-    lanes="spec-reviewer doc-updater"
+    lanes="${lanes:+$lanes }spec-reviewer doc-updater"
   fi
   if [ "$touches_docs" = "1" ]; then
     case " $lanes " in
       *" doc-updater "*) ;;
-      *) lanes="$lanes doc-updater" ;;
+      *) lanes="${lanes:+$lanes }doc-updater" ;;
     esac
   fi
   # Trim leading/trailing whitespace. Empty lanes here is structurally
