@@ -711,17 +711,14 @@ Both literals also set `"disableAgentView": true`. Claude Code
 otherwise replaces the terminal with a full-screen agent view — a
 dispatch input plus a left/right session switcher — whenever a
 background agent starts, and that switcher is unusable on a mobile
-terminal. The setting also gates the agent-listing command: running
-`claude agents --json` with `disableAgentView` set prints a refusal
-naming the setting instead of listing agents (Claude Code 2.1.219,
-checked 2026-07-25). That is upstream behaviour, not something this
-repository implements.
+terminal.
 
-Background subagents themselves keep running — checked the same way,
-by spawning them in a session with the setting on — so the memory and
-vault capture hooks are unaffected. That half is the load-bearing one:
-the capture hooks depend on it and it would fail silently, so it is
-worth re-checking when the pinned CLI version moves.
+Background subagents themselves keep running, so the memory and vault
+capture hooks are unaffected. Nothing automated covers that: it was
+checked by hand under Claude Code 2.1.219 on 2026-07-25, by spawning
+subagents in a session with the setting on. The capture hooks depend
+on it and it would fail silently, so re-check it when the pinned CLI
+version moves.
 
 ## Plugin Enablement
 
