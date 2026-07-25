@@ -86,9 +86,9 @@
 }
 
 .subscribe-manage-button {
-  color: var(--color-brand-cloud); border-color: rgba(243, 128, 32, 0.25);
+  color: var(--color-brand-cloud); border-color: rgb(var(--color-brand-cloud-rgb) / 0.25);
 }
-.subscribe-manage-button:hover { color: var(--color-brand-cloud-hover); border-color: rgba(243, 128, 32, 0.5); }
+.subscribe-manage-button:hover { color: var(--color-brand-cloud-hover); border-color: rgb(var(--color-brand-cloud-rgb) / 0.5); }
 .subscribe-manage-button:disabled { opacity: 0.5; cursor: wait; }
 
 /* ── Mode section: toggle + Pro card + Standard card ── */

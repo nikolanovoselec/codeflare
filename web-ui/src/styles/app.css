@@ -45,7 +45,7 @@
   padding: 12px 24px;
   font-size: 14px;
   font-weight: 500;
-  color: var(--color-bg-base);
+  color: var(--color-accent-contrast);
   background: var(--color-accent);
   border-radius: 6px;
   transition: background var(--transition-fast);

@@ -165,11 +165,11 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
   });
 
   it('creates settings.json when it does not exist', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
+    // Pin the creation branch itself: without SETTINGS_CONFIG being written to
+    // SETTINGS_FILE, a fresh container starts with no managed settings at all.
     assert.ok(
-      main.includes('settings.json') && main.includes('else'),
-      'should have else branch for creating settings.json when missing'
+      /else\s*\n\s*echo "\$SETTINGS_CONFIG" \| jq '\.' > "\$SETTINGS_FILE"/.test(entrypoint),
+      'the no-file branch must write SETTINGS_CONFIG to SETTINGS_FILE'
     );
   });
 
@@ -219,18 +219,19 @@ describe('plugin enablement', () => {
     );
   });
 
-  it('enables codeflare-hooks plugin alongside codeflare-memory', () => {
-    const pluginsMatch = entrypoint.match(/PLUGINS_CONFIG='(\{.*?\})'/);
-    assert.ok(pluginsMatch, 'PLUGINS_CONFIG assignment should exist');
-    const pluginsConfig = JSON.parse(pluginsMatch[1]);
-    assert.ok(
-      pluginsConfig.enabledPlugins['codeflare-memory'] === true,
-      'codeflare-memory should be enabled'
+  it('enables codeflare-hooks plugin alongside codeflare-memory in every branch', () => {
+    // Both literals matter: one for the context-mode-manifest-present branch and
+    // one for its else. Checking only the first would let the second ship a
+    // session with the managed plugins missing.
+    const configs = [...entrypoint.matchAll(/PLUGINS_CONFIG='(\{.*?\})'/g)].map((m) =>
+      JSON.parse(m[1])
     );
-    assert.ok(
-      pluginsConfig.enabledPlugins['codeflare-hooks'] === true,
-      'codeflare-hooks should be enabled'
-    );
+    assert.equal(configs.length, 2, 'expected both PLUGINS_CONFIG literals');
+
+    for (const config of configs) {
+      assert.equal(config.enabledPlugins['codeflare-memory'], true);
+      assert.equal(config.enabledPlugins['codeflare-hooks'], true);
+    }
   });
 
   it('plugin enablement uses jq merge into .claude.json', () => {
@@ -243,10 +244,18 @@ describe('plugin enablement', () => {
   });
 
   it('plugin enablement is NOT mode-gated (permanent)', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    const pluginIdx = main.indexOf('"codeflare-memory"');
-    assert.ok(pluginIdx > -1, 'should have codeflare-memory plugin reference');
+    // Slice the whole plugin-enablement section and assert it never consults
+    // SESSION_MODE — wrapping it in an advanced-only branch is the regression
+    // this test exists to catch, and a mere reference check cannot see that.
+    const start = entrypoint.indexOf("PLUGINS_CONFIG='");
+    const end = entrypoint.indexOf('plugins enabled in .claude.json', start);
+    assert.ok(start > -1 && end > start, 'plugin enablement section should exist');
+
+    const section = entrypoint.slice(start, end);
+    assert.ok(
+      !section.includes('SESSION_MODE'),
+      'plugin enablement must not be gated on SESSION_MODE'
+    );
   });
 });
 

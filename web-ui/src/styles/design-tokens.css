@@ -82,13 +82,13 @@
      are free to drift apart. */
   --color-brand-github: #3b82f6;
   --color-brand-cloud: #f38020;
+  --color-brand-cloud-rgb: 243 128 32;  /* alpha variants: rgb(var(--…-rgb) / α) */
   --color-brand-cloud-hover: #ff9633;
   --color-brand-openai: #10a37f;
   --color-brand-google: #4285f4;
 
   /* Info */
   --color-info: #3b82f6;           /* Blue 500 */
-  --color-info-hover: #2563eb;     /* Blue 600 */
 
   /* ==========================================================================
      Colors - Special
