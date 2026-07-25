@@ -713,23 +713,26 @@ codeflare-owned PreToolUse, PostToolUse, Stop, and UserPromptSubmit
 registrations reach Pro sessions only -- default (Standard) mode
 merges a literal with no `hooks` key at all.
 
-Both literals also set `"disableAgentView": true`. Claude Code
-otherwise replaces the terminal with a full-screen agent view — a
-dispatch input plus a left/right session switcher — whenever a
-background agent starts, and that switcher is unusable on a mobile
-terminal (upstream behaviour, observed under Claude Code 2.1.219 on
-2026-07-25).
+Both `SETTINGS_CONFIG` literals also set `"disableAgentView": true`
+(the rationale below is repeated as a comment above the advanced-mode
+literal in `entrypoint.sh`). Claude Code otherwise replaces the
+terminal with a full-screen agent view — a dispatch input plus a
+left/right session switcher — whenever a background agent starts, and
+that switcher is unusable on a mobile terminal (upstream behaviour,
+observed under Claude Code 2.1.219 as pinned by `CLAUDE_CODE_VERSION`
+in the `Dockerfile`, on 2026-07-25).
 
-Background subagents themselves keep running, so the memory and vault
-capture hooks are unaffected. Nothing automated covers that: it was
-checked by hand under Claude Code 2.1.219 on 2026-07-25, by spawning
-subagents in a session with the setting on. The capture hooks depend
-on it and it would fail silently, so re-check it when the pinned CLI
-version moves.
+Background subagents themselves keep running under that setting, so
+the memory and vault capture hooks registered in the `SETTINGS_CONFIG`
+literal above are unaffected. Nothing automated covers that: it was
+checked by hand under the same pinned Claude Code version on
+2026-07-25, by spawning subagents in a session with the setting on.
+The capture hooks depend on it and it would fail silently, so re-check
+it when `CLAUDE_CODE_VERSION` moves.
 
 ## Plugin Enablement
 
-(Implements [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
+(Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC3, [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
 
 `entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json`
 to enable both the `codeflare-memory` and `codeflare-hooks` plugins.

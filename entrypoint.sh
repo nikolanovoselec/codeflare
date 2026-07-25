@@ -3264,7 +3264,7 @@ SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
     JQ_ERR=$(mktemp)
-    # Implements REQ-AGENT-008
+    # Implements REQ-AGENT-099
     # Merge non-hooks settings with *, rebuild hooks separately to avoid
     # jq array-replace destroying user-added hooks or leaving stale managed hooks.
     # "Managed" = command path contains plugins/(codeflare-(hooks|memory|

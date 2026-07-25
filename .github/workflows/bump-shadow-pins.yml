@@ -1983,7 +1983,7 @@ jobs:
           if [ "$ARG_NAME" = "CLAUDE_CODE_VERSION" ]; then
             BODY=$(cat <<EOF
           $BODY
-          - [ ] \`disableAgentView\` still suppresses the full-screen agent view, and background subagents still spawn under it (REQ-AGENT-008 AC7). Neither is covered by an automated test; if the second breaks, the memory-capture and vault-extract hooks stop firing silently.
+          - [ ] \`disableAgentView\` still suppresses the full-screen agent view, and background subagents still spawn under it (REQ-AGENT-099 AC5). Neither is covered by an automated test; if the second breaks, the memory-capture and vault-extract hooks stop firing silently.
           EOF
           )
           fi
