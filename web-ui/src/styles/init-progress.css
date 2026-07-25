@@ -301,7 +301,7 @@
   font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   color: #ffffff;
-  background: linear-gradient(135deg, #16a34a 0%, var(--color-success) 100%);
+  background: linear-gradient(135deg, var(--color-success-hover) 0%, var(--color-success) 100%);
   border: none;
   border-radius: var(--radius-lg);
   cursor: pointer;
@@ -310,7 +310,7 @@
 }
 
 .init-progress-open-btn:hover {
-  background: linear-gradient(135deg, #15803d 0%, #16a34a 100%);
+  background: linear-gradient(135deg, #15803d 0%, var(--color-success-hover) 100%);
   box-shadow: 0 6px 16px var(--color-success-muted);
   transform: translateY(-2px);
 }

@@ -184,7 +184,7 @@
 }
 
 .user-mgmt-btn--approve:hover {
-  background: #16a34a;
+  background: var(--color-success-hover);
 }
 
 .user-mgmt-btn--block {

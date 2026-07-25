@@ -116,6 +116,17 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
   });
 
   describe('Home View', () => {
+    // Caller-side oracle for the PageFooter extraction: deleting <PageFooter />
+    // from this page must fail here, not just in PageFooter's own test.
+    it('renders the shared page footer', async () => {
+      const { container } = render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(container.querySelectorAll('.login-footer').length).toBe(2);
+      });
+    });
+
     it('should show features list and "See subscription plans" for pending users', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
