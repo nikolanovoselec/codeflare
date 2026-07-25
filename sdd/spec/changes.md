@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-25
 
+- **Background agents no longer take over the terminal with the full-screen agent view** ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start) AC7, Implemented). Both session-mode `SETTINGS_CONFIG` literals now set `disableAgentView`, so the agent view's dispatch input and session switcher can no longer replace the terminal — its swipe navigation made Claude Code unusable on a phone. `claude agents`, `--bg`, and `/background` become unavailable in session containers as a result.
+
 - **The Browser IDE now opens its workspace without a trust prompt or an extension-recommendation prompt, for every agent kind** ([REQ-IDE-009](browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent), new, Implemented; [AD114](../../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) amended). A kind-independent base settings seed disables workspace trust (`security.workspace.trust.enabled: false`) and ignores extension recommendations (`extensions.ignoreRecommendations: true`) for Pi, Claude, and the empty inventory. The previously Claude-only OpenVSCode User-settings seed now runs for every kind — Pi and the empty inventory receive the base settings alone, Claude receives them merged with its isolated config — and a preparation failure still fails closed and refuses the launch. Disabling workspace trust is consistent with the container-is-the-boundary posture ([REQ-IDE-007](browser-ide.md#req-ide-007-ide-guarded-approval)) because IDE agents already run unrestricted.
 
 ## 2026-07-24
