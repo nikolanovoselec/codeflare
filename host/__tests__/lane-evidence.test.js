@@ -231,6 +231,20 @@ describe('lane-evidence.mjs — a reference match must be literal', () => {
       'neither is declared; matching them against fooXbar/realXname is a false clean');
   });
 
+  // `[^=]` after the binding form admitted `=>`, so a callback parameter read
+  // as a declaration -- a false clean in the check whose job is the opposite.
+  it('does not treat an arrow-function parameter as a declaration', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/a.ts', 'items.map(ghostArrow => ghostArrow + 1);\nexport function realOne() {}\n');
+    write(cwd, 'documentation/x.md', 'Uses `ghostArrow` and `realOne`.\n');
+    const head = commit(cwd, 'docs: arrow param');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((row) => row.ref);
+
+    assert.ok(unresolved.includes('ghostArrow'), 'a parameter is bound, not declared');
+    assert.ok(!unresolved.includes('realOne'), 'and a genuine export still resolves');
+  });
+
   it('refuses a reference that would probe outside the repository', () => {
     const { cwd, base } = makeRepo();
     write(cwd, 'documentation/y.md', 'See `../../../../etc/passwd`.\n');
@@ -309,6 +323,22 @@ describe('lane-evidence.mjs — the spec manifest rows', () => {
 
     assert.equal(graph.reqs, 2);
     assert.ok(graph.cycles.length > 0, 'a cycle reported as clean is worse than not checking at all');
+  });
+
+  // A substring test on the raw index passed the row whenever the filename
+  // merely appeared in prose, or another file's name contained it.
+  it('counts a file as indexed only when a link targets it', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'sdd/README.md',
+      '# Index\n\n- [Agents](spec/agents.md)\n\nProse mentions notlinked.md by name only.\n');
+    write(cwd, 'sdd/spec/agents.md', '# Agents\n');
+    write(cwd, 'sdd/spec/notlinked.md', '# Orphan\n');
+    const head = commit(cwd, 'spec: one linked, one only mentioned');
+
+    const integrity = run(cwd, 'spec-reviewer', `${base}..${head}`).indexIntegrity;
+
+    assert.deepEqual(integrity.unindexed, ['sdd/spec/notlinked.md'],
+      'a name appearing in prose is not an index entry');
   });
 
   it('resolves index links relative to the index, not the spec glob', () => {

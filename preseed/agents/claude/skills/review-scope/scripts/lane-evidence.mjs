@@ -202,7 +202,7 @@ const declaredIn = (repo, symbol) => {
     // shape (`foo:` / `foo =` for an object member or a re-export).
     `((function|const|let|var|class|export|def|func|type|interface)[[:space:]]+${name}\\b`
     + `|(^|[[:space:]])${name}[[:space:]]*\\([^)]*\\)[[:space:]]*[{:]`
-    + `|(^|[[:space:]])${name}[[:space:]]*[:=][^=])`])
+    + `|(^|[[:space:]])${name}[[:space:]]*[:=][^=>])`])
     .split('\n').filter(Boolean).filter(live).filter((path) => CODE_PATH.test(path));
   return hits.length > 0;
 };
@@ -246,18 +246,17 @@ function callSites(repo, files, range) {
     const matched = git(repo, ['grep', '-n', '--fixed-strings', '-a', '--', symbol])
       .split('\n').filter(Boolean).filter(live)
       .filter((line) => CODE_PATH.test(line.split(':')[0] ?? ''));
-    // Cap BEFORE clipping: one over the cap is all that is needed to know the
-    // symbol is too common, and clipping the rest is work whose only outcome is
-    // being discarded -- inside a time budget whose expiry loses all evidence.
-    const hits = matched.slice(0, 13).map(clip);
-    // A name with more hits than the cap is too common for the list to be
-    // useful -- but DROPPING the row reads to the lane as "no callers", and the
-    // lane is told not to re-check what it was handed. Say so instead, so it
-    // knows to search this one symbol itself.
-    if (hits.length > 12) {
+    // Decide BEFORE clipping: a symbol over the cap emits no list at all, so
+    // clipping its matches is work whose only outcome is being discarded --
+    // inside a time budget whose expiry loses every other answer too.
+    //
+    // Dropping the row entirely would read to the lane as "no callers", and the
+    // lane is told not to re-check what it was handed, so it is marked instead.
+    if (matched.length > 12) {
       rows.push({ symbol, sites: [], tooCommon: true, hitCount: matched.length });
       continue;
     }
+    const hits = matched.map(clip);
     rows.push({ symbol, sites: hits });
   }
   return rows;
@@ -330,14 +329,19 @@ function main() {
     const indexPath = existsSync(join(repo, `${specGlob}/README.md`)) ? `${specGlob}/README.md` : 'sdd/README.md';
     const indexDir = indexPath.slice(0, indexPath.lastIndexOf('/'));
     const index = read(repo, indexPath) ?? '';
+    const linked = [...index.matchAll(/\]\(([^)#]+\.md)[^)]*\)/g)]
+      .map(([, target]) => target)
+      .filter((target) => !target.startsWith('http'));
+    const linkedNames = new Set(linked.map((target) => target.split('/').pop()));
     out.indexIntegrity = {
+      // Against the LINK TARGETS, not the raw text: a filename mentioned in
+      // prose, or a different file whose name merely contains this one, both
+      // satisfied a substring test and passed the row silently.
       unindexed: specFiles.filter((file) => {
         const base = file.split('/').pop() ?? '';
-        return base !== 'README.md' && !base.startsWith('.') && !index.includes(base);
+        return base !== 'README.md' && !base.startsWith('.') && !linkedNames.has(base);
       }),
-      dangling: [...index.matchAll(/\]\(([^)#]+\.md)[^)]*\)/g)]
-        .map(([, target]) => target)
-        .filter((target) => !target.startsWith('http') && !existsSync(join(repo, indexDir, target))),
+      dangling: linked.filter((target) => !existsSync(join(repo, indexDir, target))),
     };
     out.dependencyGraph = reqDependencyGraph(repo, specFiles);
     // Layout-resolved locally: this module does not carry the triage document,
@@ -352,8 +356,6 @@ function main() {
     out.changelog = dates.length > 1
       ? changelog.slice(dates[0].index, dates[1].index)
       : changelog.slice(0, 8000) || null;
-  }
-  if (lane === 'spec-reviewer') {
     out.specIndex = (read(repo, 'sdd/README.md') ?? '')
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*]\s*\[/.test(line)).join('\n') || null;
     out.pending = read(repo, 'sdd/spec/pending.md') ?? read(repo, 'sdd/pending.md');
