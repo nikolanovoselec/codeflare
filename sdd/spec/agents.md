@@ -2617,6 +2617,34 @@ None.
 
 ---
 
+### REQ-AGENT-104: Review Acknowledgement Requires a Published Verdict
+
+**Intent:** A checkpoint that advances on lane exit records that processes ran, not that findings were read, so a later range can be measured from a head whose findings nobody acted on.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. The review checkpoint advances only when every required lane has returned and the triage verdict has been published. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::triage_published_after_line --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+2. A verdict published before the last required lane returned does not advance the checkpoint. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::latest_required_completion_line --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+3. Lanes that returned without a published verdict produce a demand for the verdict in the shape the gate matches. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+4. Acknowledgement is followed by a fix directive that states the head is already acknowledged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+
+**Constraints:**
+
+- The verdict is recognised structurally, by its table header and divider in a message carrying no tool call; a command quoting the header is not a verdict.
+- Both runtimes recognise the same table shape, so a verdict is portable between them.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
+
+**Verification:** Automated test ([Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-087: Pi Reviewer Execution Profile
 
 **Intent:** Pi review lanes need a bounded provider-neutral reasoning profile so complete enforcement remains responsive without coupling the workflow to one model provider.

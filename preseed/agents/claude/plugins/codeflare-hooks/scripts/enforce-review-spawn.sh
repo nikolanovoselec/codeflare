@@ -1028,6 +1028,56 @@ lane_has_coverage_after_line() {
   [ "$((total - spawn_line))" -le "$IN_FLIGHT_STALE_LINES" ] 2>/dev/null
 }
 
+# The triage table, byte-for-byte the shape Pi pins as REVIEW_TRIAGE_HEADER /
+# REVIEW_TRIAGE_DIVIDER. It is a contract value, not prose: the gate reads it to
+# decide whether the root actually consumed the lanes' findings.
+REVIEW_TRIAGE_HEADER='| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |'
+REVIEW_TRIAGE_DIVIDER='|---|---|---|---|---|'
+
+# Transcript line of a spawn's successful completion notification, or empty.
+# Needed because the triage table only counts if it came AFTER the last lane
+# returned -- a table published earlier belongs to the previous round.
+spawn_completion_line() {
+  local spawn_line="$1"
+  local line_content tool_use_id
+  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
+  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+  [ -n "$tool_use_id" ] || return 1
+  awk -v s="$spawn_line" -v id="$tool_use_id" '
+    NR > s && index($0, "tool-use-id>" id "<") && index($0, "completed</status>") { print NR; exit }
+  ' "$TRANSCRIPT"
+}
+
+# Latest completion across every required lane, i.e. the moment the round's
+# evidence was complete. Empty if any required lane has not completed.
+latest_required_completion_line() {
+  local lane spawn_line line max=0
+  for lane in $REQUIRED_LANES; do
+    spawn_line=$(latest_lane_spawn_after_line "$lane" "$PUSH_LINE")
+    [ -n "$spawn_line" ] || return 1
+    line=$(spawn_completion_line "$spawn_line") || return 1
+    [ -n "$line" ] || return 1
+    [ "$line" -gt "$max" ] 2>/dev/null && max="$line"
+  done
+  [ "$max" -gt 0 ] 2>/dev/null || return 1
+  printf '%s\n' "$max"
+}
+
+# An assistant message carrying the triage table and NO tool call. The
+# no-tool-call requirement is what makes this evidence of a published verdict
+# rather than of a command that happens to quote the header.
+triage_published_after_line() {
+  local min_line="$1"
+  awk -v s="$min_line" -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
+    NR > s \
+      && index($0, "\"type\":\"assistant\"") \
+      && !index($0, "\"type\":\"tool_use\"") \
+      && index($0, h) \
+      && index($0, d) { found = 1; exit }
+    END { exit(found ? 0 : 1) }
+  ' "$TRANSCRIPT"
+}
+
 lane_completed_after_line() {
   local lane="$1"
   local min_line="$2"
@@ -1113,9 +1163,24 @@ fi
 # coverage check (it requires an actual completion, not just an in-flight spawn), so the
 # ack never fires while any lane is still running.
 # ---------------------------------------------------------------------------
+# Acknowledgement means "this head's review was CONSUMED", not merely "the lanes
+# exited". Those are different claims, and only the first is what a later range
+# may safely be measured from. A round whose lanes returned into a session that
+# never read them leaves findings unacted while the checkpoint advances past
+# them -- so the gate requires the triage verdict, published after the last lane
+# returned, exactly as the Pi enforcement path does.
+#
+# The FIX phase is then its own directive rather than something the session is
+# trusted to remember: the head is already acknowledged when it fires, so fixing
+# never relaunches review or CI for that head.
 if all_required_lanes_completed_for_current_head; then
-  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
-  clear_counter
+  ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
+  if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
+    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    clear_counter
+    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane returned and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION from that table and nothing else — a rejected row stays rejected, and a row you accepted is not deferred. State what you fixed and anything you deliberately left."
+  fi
+  emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER'. Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
 fi
 
 exit 0
