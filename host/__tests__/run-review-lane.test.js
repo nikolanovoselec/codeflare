@@ -174,9 +174,14 @@ function stubTriage(hookScripts, doc) {
   );
 }
 
-function stubEvidence(hookScripts, doc) {
+// The resolver is a review-scope asset, not a hook lib: the runner reads it
+// from $CLAUDE_HOME. Stubbing the old path left `[ -f ]` false in every test,
+// which is the shape where an assertion keeps passing while testing nothing.
+function stubEvidence(home, doc) {
+  const dir = join(home, 'skills/review-scope/scripts');
+  mkdirSync(dir, { recursive: true });
   writeFileSync(
-    join(hookScripts, 'lib/lane-evidence.mjs'),
+    join(dir, 'lane-evidence.mjs'),
     `process.stdout.write(${JSON.stringify(JSON.stringify(doc, null, 2))});\n`,
   );
 }
@@ -191,7 +196,7 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     const { home, hookScripts } = makeClaudeHome(cwd);
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
-    stubEvidence(hookScripts, { lane: 'code-reviewer', adrs: [{ id: 'AD117', status: 'Accepted' }], marker: 'EVIDENCE_MARKER' });
+    stubEvidence(home, { lane: 'code-reviewer', adrs: [{ id: 'AD117', status: 'Accepted' }], marker: 'EVIDENCE_MARKER' });
 
     runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
@@ -208,7 +213,7 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     const { home, hookScripts } = makeClaudeHome(cwd);
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
-    stubEvidence(hookScripts, {
+    stubEvidence(home, {
       lane: 'doc-updater',
       docIndex: 'z'.repeat(80000),
       references: { checked: 12, unresolved: [{ ref: 'src/gone.ts', resolved: false }] },
@@ -233,15 +238,18 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
     stubTriage(hookScripts, { decision: 'proceed', marker: 'BIG_PROMPT_MARKER' });
-    stubEvidence(hookScripts, { lane: 'code-reviewer', filler: 'q'.repeat(200000) });
+    stubEvidence(home, { lane: 'code-reviewer', filler: 'q'.repeat(200000) });
 
     const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
     assert.equal(existsSync(witness), true,
       'the lane must reach the model however large its evidence is');
     assert.doesNotMatch(r.stderr, /Argument list too long/);
-    assert.match(readFileSync(`${witness}.prompt`, 'utf-8'), /BIG_PROMPT_MARKER/,
-      'and the prompt must arrive intact, not truncated to fit');
+    const delivered = readFileSync(`${witness}.prompt`, 'utf-8');
+    assert.ok(delivered.length > 200000,
+      `the prompt must actually cross the 128 KB single-argument ceiling, got ${delivered.length}`);
+    assert.match(delivered, /BIG_PROMPT_MARKER/,
+      'and arrive intact, not truncated to fit');
   });
 
   it('reviews normally when evidence cannot be resolved', () => {
@@ -249,7 +257,8 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     const { home, hookScripts } = makeClaudeHome(cwd);
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
-    writeFileSync(join(hookScripts, 'lib/lane-evidence.mjs'), 'process.exit(1);\n');
+    mkdirSync(join(home, 'skills/review-scope/scripts'), { recursive: true });
+    writeFileSync(join(home, 'skills/review-scope/scripts/lane-evidence.mjs'), 'process.exit(1);\n');
 
     runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 

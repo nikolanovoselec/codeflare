@@ -182,6 +182,67 @@ describe('lane-evidence.mjs — the code lane branch', () => {
   });
 });
 
+describe('lane-evidence.mjs — caller impact must not fail open', () => {
+  // Dropping a row reads to the lane as "no callers", and the lane is told the
+  // block is authoritative and not to re-check it. So the widely-used symbols,
+  // where caller impact matters most, were exactly the ones silently skipped.
+  it('marks a symbol with too many sites instead of omitting it', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/lib.ts', 'export function widelyUsedThing() { return 1; }\n');
+    for (let i = 0; i < 20; i += 1) {
+      write(cwd, `src/c${i}.ts`, 'import { widelyUsedThing } from "./lib";\nwidelyUsedThing();\n');
+    }
+    const head = commit(cwd, 'feat: many callers');
+
+    const out = run(cwd, 'code-reviewer', `${base}..${head}`);
+    const row = out.callSites.find((entry) => entry.symbol === 'widelyUsedThing');
+
+    assert.ok(row, 'an omitted row is indistinguishable from a symbol with no callers');
+    assert.equal(row.tooCommon, true, 'the lane must be told to search this one itself');
+  });
+
+  // `run`, `sync`, `read` and `path` are real exports. Filtering them by name
+  // loses caller impact for the API surface, which is the same fail-open shape.
+  it('keeps a short exported name and still drops unexported noise', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/api.ts', 'export function run() {}\nexport const sync = 1;\nfunction and() {}\nconst x = 2;\n');
+    const head = commit(cwd, 'feat: api');
+
+    const symbols = run(cwd, 'code-reviewer', `${base}..${head}`).callSites.map((row) => row.symbol).sort();
+
+    assert.deepEqual(symbols, ['run', 'sync'],
+      'exported names survive whatever they are called; unexported locals are the noise');
+  });
+});
+
+describe('lane-evidence.mjs — a reference match must be literal', () => {
+  // `.` and `-` reach the search pattern, so an unescaped `foo.bar` matched
+  // `fooXbar` -- a false clean in the check whose job is finding what no longer
+  // resolves -- and an invalid pattern made the search fail, inventing one.
+  it('does not let a regex metacharacter match an arbitrary character', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/a.ts', 'const fooXbar = 1;\nconst realXname = 2;\n');
+    write(cwd, 'documentation/x.md', 'See `foo.bar` and `real-name`.\n');
+    const head = commit(cwd, 'docs: dotted refs');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((row) => row.ref).sort();
+
+    assert.deepEqual(unresolved, ['foo.bar', 'real-name'],
+      'neither is declared; matching them against fooXbar/realXname is a false clean');
+  });
+
+  it('refuses a reference that would probe outside the repository', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/y.md', 'See `../../../../etc/passwd`.\n');
+    const head = commit(cwd, 'docs: escape');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((row) => row.ref);
+
+    assert.ok(unresolved.includes('../../../../etc/passwd'),
+      'a path outside the tree must never resolve; the guard belongs on both branches, not one');
+  });
+});
+
 describe('lane-evidence.mjs — the decision record', () => {
   it('carries each ADR id, title and status so the record check costs no read', () => {
     const { cwd, base } = makeRepo();

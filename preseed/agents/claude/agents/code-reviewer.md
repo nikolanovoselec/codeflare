@@ -86,7 +86,7 @@ jq -c 'select(.name == "Bash" and (.input.command | test("(^|&&\\s*)git\\s+push\
 
 ## Impact analysis
 
-- **Caller impact.** Every caller of a modified symbol must still work with the new signature. `evidence.callSites` already lists them per symbol, bounded, with generated trees excluded; `changedInputs` covers callers changed in the same range. Search yourself only for a symbol neither one names — a dynamic import, a string-keyed route table, a `globalThis['handler']` lookup — and do it in one batched call for all such symbols at once. AI-authored changes routinely alter signatures without updating call sites; this is what catches it.
+- **Caller impact.** Every caller of a modified symbol must still work with the new signature. `evidence.callSites` already lists them per symbol, bounded, with generated trees excluded — a row carrying `tooCommon: true` means the name has more sites than the list holds, so search that one symbol yourself; `changedInputs` covers callers changed in the same range. Search yourself only for a symbol neither one names — a dynamic import, a string-keyed route table, a `globalThis['handler']` lookup — and do it in one batched call for all such symbols at once. AI-authored changes routinely alter signatures without updating call sites; this is what catches it.
 - **Schema alignment.** When a response shape changes, backend and frontend schemas must both move (Zod, TS types, validation).
 - **JSON serialization.** `undefined` in an object bound for `JSON.stringify` silently strips the field. Use an explicit reset value or omit it.
 - **Stored-record safety.** Never delete a required field from a stored record — write an explicit value (`'pending'`, not `undefined`).

@@ -2670,16 +2670,16 @@ None.
 
 **Constraints:**
 
-- No hard turn, call, or token cap: a truncated review is a worse failure than an expensive one.
-- A wave never licenses skipping a required check; an outstanding check is batched into one.
-- Broad discovery is forbidden: no repository survey, no indexed search, no re-reading returned evidence.
-- Inlined evidence over its byte cap degrades by field, never by block.
-- A shed field is announced as a named marker with a stated recovery.
-- Resolved evidence reports passes as a count and failures in full.
-- A resolver failure yields an absent field, never an empty result.
-- Report length is bounded: a finding is short, a clean pass is a count.
-- The lane prompt is delivered on standard input, which no single argument can hold.
-- The resolver is one canonical program both runtimes execute, reaching Pi byte-identically through the standard seed transform.
+- No hard turn, call, or token cap; truncating a review is worse than paying for it.
+- A wave never licenses skipping a required check; it is batched into one.
+- Broad discovery is forbidden: no repository survey, no indexed search, no re-reading returned evidence, no re-deriving what an inlined block resolved.
+- Over-cap inlined evidence degrades by field, never by block.
+- A shed field is a named marker stating its recovery.
+- Resolved evidence counts passes and lists failures in full.
+- A resolver failure yields an absent field, never an empty one.
+- Report length is bounded: a finding is short, a clean pass is a count, and the search is never narrated back.
+- The lane prompt arrives on standard input; no single argument holds it.
+- One canonical resolver serves both runtimes, reaching Pi byte-identically.
 
 **Priority:** P1
 

@@ -167,7 +167,13 @@ function resolveDocReferences(repo, files) {
       seen.add(candidate);
       if (rows.length >= MAX_LIST * 4) break;
       if (candidate.includes('/') || candidate.includes('.')) {
-        if (existsSync(join(repo, candidate))) { rows.push({ ref: candidate, resolved: true, as: 'path' }); continue; }
+        // Same repo-escape guard as read(): a `../` candidate must not probe
+        // outside the tree just because this branch checks a path directly.
+        const abs = resolve(repo, candidate);
+        if (abs.startsWith(resolve(repo) + sep) && existsSync(abs)) {
+          rows.push({ ref: candidate, resolved: true, as: 'path' });
+          continue;
+        }
       }
       // A reference must resolve to CODE. Grep finds the documentation file that
       // names it, so counting that as resolution makes every reference
@@ -186,9 +192,11 @@ const CODE_PATH = /\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|py|go|rs|java|rb|php|sql)$/;
 // A symbol has to be DECLARED somewhere to count. Matching any occurrence made
 // every short or common token resolve, which is a false clean in a check whose
 // whole job is spotting the reference that no longer resolves.
+const ereEscape = (value) => value.replace(/[.[\]{}()*+?^$|\\/-]/g, '\\$&');
+
 const declaredIn = (repo, symbol) => {
   const hits = git(repo, ['grep', '-lE', '-a', '--',
-    `(function|const|let|var|class|export|def|func|type|interface)[[:space:]]+${symbol}\\b`])
+    `(function|const|let|var|class|export|def|func|type|interface)[[:space:]]+${ereEscape(symbol)}\\b`])
     .split('\n').filter(Boolean).filter(live).filter((path) => CODE_PATH.test(path));
   return hits.length > 0;
 };
@@ -212,9 +220,16 @@ function callSites(repo, files, range) {
   if (source.length === 0) return [];
   const patch = git(repo, ['diff', '-U0', range, '--', ...source.slice(0, MAX_LIST)]);
   const symbols = new Set();
+  // An EXPORTED symbol is kept whatever it is called: `run`, `read` and `sync`
+  // are real exports, and dropping them by name silently loses caller impact for
+  // the API surface. The noise filter applies only to unexported declarations,
+  // which is where `x`, `and` and `git` came from.
+  for (const [, name] of patch.matchAll(/^[+-]export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let)\s+([A-Za-z_$][\w$]*)/gm)) {
+    symbols.add(name);
+  }
   // Top-level declarations only: an indented binding is a local, and a local has
   // no callers outside its own scope.
-  for (const [, name] of patch.matchAll(/^[+-](?:export\s+)?(?:async\s+)?(?:function|class|const|let)\s+([A-Za-z_$][\w$]*)/gm)) {
+  for (const [, name] of patch.matchAll(/^[+-](?:async\s+)?(?:function|class|const|let)\s+([A-Za-z_$][\w$]*)/gm)) {
     if (isSignal(name)) symbols.add(name);
   }
   for (const [, name] of patch.matchAll(/^[+-]([a-z_][\w]*)\(\)\s*\{/gm)) {
@@ -225,10 +240,15 @@ function callSites(repo, files, range) {
     const hits = git(repo, ['grep', '-n', '--fixed-strings', '-a', '--', symbol])
       .split('\n').filter(Boolean).filter(live)
       .filter((line) => CODE_PATH.test(line.split(':')[0] ?? ''))
-      .slice(0, 13).map(clip);
-    // More hits than the cap means the name is too common to be a caller
-    // signal; a truncated list of 13 unrelated matches is worse than none.
-    if (hits.length > 12) continue;
+      .map(clip);
+    // A name with more hits than the cap is too common for the list to be
+    // useful -- but DROPPING the row reads to the lane as "no callers", and the
+    // lane is told not to re-check what it was handed. Say so instead, so it
+    // knows to search this one symbol itself.
+    if (hits.length > 12) {
+      rows.push({ symbol, sites: [], tooCommon: true, hitCount: hits.length });
+      continue;
+    }
     rows.push({ symbol, sites: hits });
   }
   return rows;
