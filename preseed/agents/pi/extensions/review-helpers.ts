@@ -379,7 +379,35 @@ function behaviouralPaths(files: string[]): string[] {
   return files.filter((file) => !isGeneratedPath(file) && !isSpecPath(file) && !isDocPath(file));
 }
 
-function reviewLanesForFiles(files: string[], inertSource = false): ReviewLane[] {
+// Does any `@impl` anchor under `tree` cite one of these changed files? That is
+// the only route by which a source-only change can invalidate something in the
+// spec or documentation tree, and it is the first check those lanes run. Answer
+// it with grep and the lane costs nothing when the answer is no; answer it by
+// spawning the agent and it costs a full startup to be told the same thing.
+// Mirrors anchor_cites_changed in the Claude lane classifier; REQ-AGENT-040 AC7
+// requires both runtimes to decide a range identically.
+export function anchorCitesChanged(repo: string, tree: string, files: string[]): boolean {
+  if (files.length === 0 || !existsSync(join(repo, tree))) return false;
+  for (const file of files) {
+    if (!file) continue;
+    try {
+      execFileSync("grep", ["-rqlF", "--", `@impl: ${file}`, tree], {
+        cwd: repo,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      return true;
+    } catch {
+      // grep exits non-zero for "no match"; keep scanning the remaining files.
+    }
+  }
+  return false;
+}
+
+function reviewLanesForFiles(
+  files: string[],
+  inertSource = false,
+  anchors: { spec: boolean; docs: boolean } = { spec: false, docs: false },
+): ReviewLane[] {
   let source = false;
   let spec = false;
   let docs = false;
@@ -394,7 +422,21 @@ function reviewLanesForFiles(files: string[], inertSource = false): ReviewLane[]
   // comment still changes behaviour -- while the spec and documentation
   // surfaces provably cannot have drifted. Any lane the same diff independently
   // earns is still added, in canonical order.
-  if (source && !inertSource) return [...ALL_REVIEW_LANES];
+  if (source && !inertSource) {
+    // A behavioural change always owes the code lane, and owes the other two
+    // only where they have something to check: their own surface changed, or
+    // one of their anchors cites a file in this diff. Demanding all three
+    // unconditionally bought two agent startups that found no lane-owned file
+    // and exited.
+    const lanes: ReviewLane[] = ["code-reviewer"];
+    let wantsDocs = docs;
+    if (spec || anchors.spec) {
+      lanes.push("spec-reviewer");
+      if (spec) wantsDocs = true;
+    }
+    if (wantsDocs || anchors.docs) lanes.push("doc-updater");
+    return lanes;
+  }
   const lanes: ReviewLane[] = source ? ["code-reviewer"] : [];
   if (spec) lanes.push("spec-reviewer", "doc-updater");
   else if (docs) lanes.push("doc-updater");
@@ -430,8 +472,12 @@ export function requiredReviewLanes(
     const files = output.toString("utf8").split("\0").filter(Boolean);
     if (files.length === 0) return [...ALL_REVIEW_LANES];
     const [base, head] = range.split("..");
-    const inertSource = inertSourceDelta({ repo: input.repo, base, head, files: behaviouralPaths(files), prover: input.prover });
-    return reviewLanesForFiles(files, inertSource);
+    const behavioural = behaviouralPaths(files);
+    const inertSource = inertSourceDelta({ repo: input.repo, base, head, files: behavioural, prover: input.prover });
+    return reviewLanesForFiles(files, inertSource, {
+      spec: anchorCitesChanged(input.repo, "sdd", behavioural),
+      docs: anchorCitesChanged(input.repo, "documentation", behavioural),
+    });
   } catch {
     return [...ALL_REVIEW_LANES];
   }

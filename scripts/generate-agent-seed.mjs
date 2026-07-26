@@ -611,12 +611,27 @@ function expandSkillIncludes(content, withinPath, skillContents, label) {
 function stripEmbeddedPolicySection(content, config) {
   const section = /^## Embedded canonical policy\n[\s\S]*?(?=^## )/m;
   if (!section.test(content)) return content;
-  // No skillsPrefix means this runtime receives no skill files at all, so there
-  // is no pointer to give: drop the section rather than name an absent path.
-  if (!config.skillsPrefix) return content.replace(section, '');
-  return content.replace(
-    section,
-    `## Canonical policy\n\nYour lane's enforcement policy is installed as files. Read the ones your\nmanifest says apply, in your existing shell call:\n\n\`\`\`bash\ncat ~/${config.skillsPrefix}/<name>/SKILL.md\n\`\`\`\n\nRead one only when its condition actually fires.\n\n`,
+  // Every other "embedded" reference has to move too. Replacing the section
+  // alone left the rest of the prompt asserting policy that is no longer there
+  // and forbidding the retrieval that would supply it.
+  const derefer = (text, how) => text
+    .replace(/embedded `([a-z-]+)` policy/g, (m, name) => `${how(m, name)} policy`)
+    .replace(/the embedded ([a-z-]+) policy/g, (m, name) => `the ${how(m, name)} policy`)
+    .replace(/\bis embedded below\b[^.]*\./g, `is installed as files; ${how('', 'the named policy')}.`)
+    .replace(/\bexactly as embedded above\b/g, 'exactly as written in the installed policy files')
+    .replace(/\byour policy is embedded above\b/g, 'your policy is installed as files');
+  // No skillsPrefix means this runtime receives no skill files at all, so name
+  // no path: there is nothing to point at.
+  if (!config.skillsPrefix) {
+    return derefer(content.replace(section, ''), () => 'canonical');
+  }
+  const path = (name) => `\`~/${config.skillsPrefix}/${name}/SKILL.md\``;
+  return derefer(
+    content.replace(
+      section,
+      `## Canonical policy\n\nYour lane's enforcement policy is installed as files. Read the ones your\nmanifest says apply, in your existing shell call:\n\n\`\`\`bash\ncat ~/${config.skillsPrefix}/<name>/SKILL.md\n\`\`\`\n\nRead one only when its condition actually fires.\n\n`,
+    ),
+    (_match, name) => path(name || '<name>'),
   );
 }
 
@@ -895,6 +910,16 @@ async function generate() {
 
   // Validate output
   validateDocuments(documents);
+
+  // An unexpanded directive means a consumer receives the literal comment
+  // instead of its policy. The Claude expansion and the transform strip are
+  // both anchored on headings and section shape, so a renamed heading or a
+  // section moved to end-of-file would no-op silently and ship the raw text.
+  for (const doc of documents) {
+    if (doc.content.includes('@include-skill')) {
+      throw new Error(`Unexpanded @include-skill directive in ${doc.key}`);
+    }
+  }
 
   // Write TypeScript module
   const source = toGeneratedModuleSource(documents);

@@ -299,12 +299,16 @@ describe('Claude-equivalent review boundary helpers', () => {
     mkdirSync(join(first.repo, 'documentation'), { recursive: true });
     git(first.repo, 'mv', 'src/original.ts', 'documentation/original.md');
     git(first.repo, 'commit', '-m', 'rename source to docs');
-    expect(requiredReviewLanes({ repo: first.repo, ackHead: sourceHead, head: git(first.repo, 'rev-parse', 'HEAD') })).toEqual(ALL_LANES);
+    // --no-renames keeps the SOURCE path in the diff, so the code lane still
+    // fires -- that is the bypass this guards. The new doc path earns the doc
+    // lane on its own; no anchor in these fixtures cites the source, so the
+    // spec lane is not owed.
+    expect(requiredReviewLanes({ repo: first.repo, ackHead: sourceHead, head: git(first.repo, 'rev-parse', 'HEAD') })).toEqual(['code-reviewer', 'doc-updater']);
 
     const second = makeRepo();
     const newlinePath = 'src/line\nbreak.ts';
     const newlineHead = commit(second.repo, newlinePath, 'export {};\n', 'newline path');
-    expect(requiredReviewLanes({ repo: second.repo, ackHead: second.base, head: newlineHead })).toEqual(ALL_LANES);
+    expect(requiredReviewLanes({ repo: second.repo, ackHead: second.base, head: newlineHead })).toEqual(['code-reviewer']);
   });
 
   it('REQ-AGENT-040: reduces a proven comment-only source delta to the code lane alone', async () => {
@@ -314,11 +318,13 @@ describe('Claude-equivalent review boundary helpers', () => {
     const reworded = commit(repo, 'src/a.ts', 'const x = 1; // uno\nconst y = 2;\n', 'reword the comment');
     expect(requiredReviewLanes({ repo, ackHead: seeded, head: reworded, prover: PROVER })).toEqual(['code-reviewer']);
 
-    // The reduction is one-directional: no prover, no reduction.
-    expect(requiredReviewLanes({ repo, ackHead: seeded, head: reworded, prover: join(repo, 'absent.mjs') })).toEqual(ALL_LANES);
+    // The reduction is one-directional: no prover, no reduction. These repos
+    // hold no @impl anchor citing the source, so an unproven delta lands on the
+    // code lane rather than all three.
+    expect(requiredReviewLanes({ repo, ackHead: seeded, head: reworded, prover: join(repo, 'absent.mjs') })).toEqual(['code-reviewer']);
 
     const rewritten = commit(repo, 'src/a.ts', 'const x = 9; // uno\nconst y = 2;\n', 'change the code');
-    expect(requiredReviewLanes({ repo, ackHead: reworded, head: rewritten, prover: PROVER })).toEqual(ALL_LANES);
+    expect(requiredReviewLanes({ repo, ackHead: reworded, head: rewritten, prover: PROVER })).toEqual(['code-reviewer']);
   });
 
   it('REQ-AGENT-040: an inert source delta still earns the lanes its other paths touch, and any undecidable file keeps all three', async () => {
@@ -328,7 +334,7 @@ describe('Claude-equivalent review boundary helpers', () => {
       { name: 'comment plus spec', also: ['sdd/spec/agents.md', 'spec\n'], expected: ALL_LANES },
       { name: 'comment plus docs', also: ['documentation/security.md', 'docs\n'], expected: ['code-reviewer', 'doc-updater'] },
       // An added file changes the module set even when its body is all comments.
-      { name: 'comment plus added source', also: ['src/added.ts', '// only a comment\n'], expected: ALL_LANES },
+      { name: 'comment plus added source', also: ['src/added.ts', '// only a comment\n'], expected: ['code-reviewer'] },
     ];
 
     for (const [index, testCase] of cases.entries()) {
@@ -346,7 +352,29 @@ describe('Claude-equivalent review boundary helpers', () => {
     const { repo } = makeRepo();
     const seeded = commit(repo, 'src/a.tsx', 'export const a = 1; // one\n', 'seed');
     const reworded = commit(repo, 'src/a.tsx', 'export const a = 1; // uno\n', 'reword');
-    expect(requiredReviewLanes({ repo, ackHead: seeded, head: reworded, prover: PROVER })).toEqual(ALL_LANES);
+    expect(requiredReviewLanes({ repo, ackHead: seeded, head: reworded, prover: PROVER })).toEqual(['code-reviewer']);
+  });
+
+  it('REQ-AGENT-040: a behavioural change earns a lane only where that surface changed or an anchor cites it', async () => {
+    const { requiredReviewLanes } = await plannedHelpers();
+    // Same source edit, three anchor states. The lane set must follow the
+    // anchors, not the mere presence of a behavioural file: spawning a lane
+    // that owns nothing costs a full agent startup to be told so.
+    const bare = makeRepo();
+    const bareHead = commit(bare.repo, 'src/foo.ts', 'export const a = 1;\n', 'source only');
+    expect(requiredReviewLanes({ repo: bare.repo, ackHead: bare.base, head: bareHead })).toEqual(['code-reviewer']);
+
+    const docs = makeRepo();
+    commit(docs.repo, 'documentation/api.md', 'x <!-- @impl: src/foo.ts -->\n', 'anchor');
+    const docsBase = git(docs.repo, 'rev-parse', 'HEAD');
+    const docsHead = commit(docs.repo, 'src/foo.ts', 'export const a = 1;\n', 'source only');
+    expect(requiredReviewLanes({ repo: docs.repo, ackHead: docsBase, head: docsHead })).toEqual(['code-reviewer', 'doc-updater']);
+
+    const spec = makeRepo();
+    commit(spec.repo, 'sdd/spec/x.md', 'x <!-- @impl: src/foo.ts -->\n', 'anchor');
+    const specBase = git(spec.repo, 'rev-parse', 'HEAD');
+    const specHead = commit(spec.repo, 'src/foo.ts', 'export const a = 1;\n', 'source only');
+    expect(requiredReviewLanes({ repo: spec.repo, ackHead: specBase, head: specHead })).toEqual(['code-reviewer', 'spec-reviewer']);
   });
 
   it('REQ-AGENT-040: Pi and Claude resolve the same range to the same lanes', async () => {

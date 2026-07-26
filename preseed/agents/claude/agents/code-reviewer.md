@@ -18,7 +18,7 @@ PR-boundary events: PR opens, or a push lands on a branch that already has an op
 
 ## Embedded canonical policy
 
-Apply these generated, canonical skill documents directly. They are the whole enforcement layer; you have no Skill tool and there is nothing further to retrieve.
+Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the lane spine, not the whole layer: conditional sub-policy is read on demand as described below. You have no Skill tool; `cat` is how you reach anything not printed here.
 
 <!-- @include-skill review-scope -->
 
@@ -268,9 +268,9 @@ jq -c 'select(.name == "Bash" and
 - **Unoptimized images** — Large images without compression or lazy loading
 - **Synchronous I/O** — Blocking operations in async contexts
 
-### Test Quality (HIGH) — apply the embedded `tdd-enforce` policy
+### Test Quality (HIGH) — read `~/.claude/skills/tdd-enforce/SKILL.md`
 
-The core rule lives in `tdd-discipline.md`. When any test file appears in the diff (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.go`, etc.), apply the embedded `tdd-enforce` policy as a first action against those files. It carries the 8-antipattern catalogue (text-matching theater, tautology, mock-only, bare call-counts, empty body, silent skip, trivial assertion, name-lies), the positive patterns, and the severity application table. Findings flow back into this review's HIGH/MEDIUM rollup.
+The core rule lives in `tdd-discipline.md`. When any test file appears in the diff (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.go`, etc.), read `~/.claude/skills/tdd-enforce/SKILL.md` as a first action against those files. It carries the 8-antipattern catalogue (text-matching theater, tautology, mock-only, bare call-counts, empty body, silent skip, trivial assertion, name-lies), the positive patterns, and the severity application table. Findings flow back into this review's HIGH/MEDIUM rollup.
 
 Skipping `tdd-enforce` invocation when test files are in the diff is itself a HIGH finding `tdd-enforce-skill-not-invoked`.
 

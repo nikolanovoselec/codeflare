@@ -479,10 +479,12 @@ describe('Reviewer agents can access their enforce policy', () => {
   // and spends a turn fetching what it already needed, which is what made a lane
   // cost as much on a diff it owned nothing in as on one it did. tdd-guide is a
   // working agent, not a PR lane, and still discovers skills at runtime.
+  // Spine only. Conditional sub-policy is read with `cat` when its condition
+  // fires, so carrying it inline would charge every run for the rare case.
   const LANE_SKILLS: Record<string, string[]> = {
-    'code-reviewer': ['review-scope', 'tdd-enforce'],
-    'spec-reviewer': ['review-scope', 'spec-enforce', 'spec-enforce-ac', 'spec-enforce-truth'],
-    'doc-updater': ['review-scope', 'doc-enforce', 'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth'],
+    'code-reviewer': ['review-scope'],
+    'spec-reviewer': ['review-scope', 'spec-enforce'],
+    'doc-updater': ['review-scope', 'doc-enforce'],
   };
 
   it('every Claude PR reviewer embeds its lane policy instead of discovering it', () => {

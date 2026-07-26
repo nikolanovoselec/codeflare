@@ -194,7 +194,15 @@ if [ "$TRIGGER" = "git-push" ]; then
       max_age=10
       [ "$cached_state" = "OPEN" ] && max_age=60
       cache_lines=$(wc -l < "$PR_CACHE" 2>/dev/null | tr -d ' ')
-      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null && [ "$cache_lines" -ge 4 ] 2>/dev/null; then
+      # An OPEN cache must carry a head. gh can return state without
+      # headRefOid (the same transient the empty-base note above anticipates),
+      # which writes four lines whose fourth is empty -- passing a line-count
+      # gate, yielding an empty CACHED_PR_HEAD, and taking resolve_review_head's
+      # unconditional local-HEAD branch for the rest of the TTL. That is the
+      # headless acceptance this schema bump exists to stop, so check the field
+      # and not just the count. A negative cache legitimately has no head.
+      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null && [ "$cache_lines" -ge 4 ] 2>/dev/null \
+         && { [ "$cached_state" != "OPEN" ] || [ -n "$cached_head" ]; }; then
         PR_STATE="$cached_state"
         PR_BASE="$cached_base"
         CACHED_PR_HEAD="$cached_head"

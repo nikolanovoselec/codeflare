@@ -22,8 +22,9 @@ const SCRIPT = join(
 const BUDGET = 200000;
 const TURN_CHAR_CAP = 10000;
 const RESCUE_REF_CAP = 50;
-// 50 refs of at most 40 chars plus separators cannot exceed this.
-const RESCUE_SLACK = 2000;
+// Worst case is 50 refs of the pattern's 40-char maximum, 49 separators and
+// the ~30-char prefix: 50*40 + 98 + 30 = 2128.
+const RESCUE_SLACK = 2200;
 
 // A turn is either a string (a user prompt) or {role, text}.
 function record(turn, i) {

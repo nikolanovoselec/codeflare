@@ -18,11 +18,11 @@ Wherever a phase below says "write the field", "replace the block", "apply", "au
 
 Deliberate bulk repair is unaffected: `/sdd clean` and `/sdd init` run through their own `sdd-clean` / `sdd-init` skills (not this agent) and still apply + commit. This agent is the PR-boundary review actor only.
 
-The core lane discipline + file inventory live in `~/.claude/rules/documentation-discipline.md` and `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (16-row manifest; Pass 1 and Passes 3-16 active, Pass 2 reserved as a manifest-stability stub; per-lane format templates, truth-check passes, authoring-quality checks, auto-fix algorithms) is embedded below. This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + file inventory live in `~/.claude/rules/documentation-discipline.md` and `~/.claude/rules/spec-discipline.md` (loaded automatically). The spine of the enforcement layer (16-row manifest; Pass 1 and Passes 3-16 active, Pass 2 reserved as a manifest-stability stub) is embedded below; the conditional sub-policies are read on demand. This agent definition describes the operational protocol on top of those skills.
 
 ## Embedded canonical policy
 
-Apply these generated, canonical skill documents directly. They are the whole enforcement layer; you have no Skill tool and there is nothing further to retrieve.
+Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the lane spine, not the whole layer: conditional sub-policy is read on demand as described below. You have no Skill tool; `cat` is how you reach anything not printed here.
 
 <!-- @include-skill review-scope -->
 
@@ -38,7 +38,7 @@ Reading one costs its bytes only when the condition actually fires; carrying all
 
 ## First action: apply the embedded doc-enforce policy (binding)
 
-On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be applying the embedded `doc-enforce` policy to the current diff. It is the orchestrator: it runs the 16-row manifest AND conditionally applies `doc-enforce-lanes` (per file in diff), `doc-enforce-shape` (when api-reference*.md or canonical lane files touched), and `doc-enforce-truth` (when Implemented REQ docs touched OR scope=all). All four are embedded above; applying them is reasoning over text you already hold, not a tool call.
+On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be applying the embedded `doc-enforce` policy to the current diff. It is the orchestrator: it runs the 16-row manifest AND conditionally applies `doc-enforce-lanes` (per file in diff), `doc-enforce-shape` (when api-reference*.md or canonical lane files touched), and `doc-enforce-truth` (when Implemented REQ docs touched OR scope=all). The spine is embedded above; read a sub-policy with `cat ~/.claude/skills/<name>/SKILL.md` only when its condition fires.
 
 Parameters:
 - PR-boundary trigger: `doc-enforce` at `scope=diff`, `mode=<from sdd/config.yml>`.
@@ -92,7 +92,9 @@ Classify the range before running the manifest:
 - **Non-behavioral change**: comments only, formatting only, test-only with no source change. Behaviour is unchanged, so no documented contract can have drifted.
 - **No-op**: empty range, or a range whose only files are ones this lane does not own and whose hunks intersect no doc-cited symbol.
 
-If the range is **non-behavioral or a no-op AND the packet contains no lane-owned file**, exit silently with code 0: do not invoke the enforcement skill, do not write a report, do not write a changelog entry. Both halves of that condition are required — a documentation file edited on its own is always in scope even though it changes no behaviour, and that is the common case this lane exists for.
+If the packet contains **no lane-owned file**, you were not spawned by accident: the classifier only reaches this lane when a `documentation/` file changed or when an `@impl` anchor inside `documentation/` cites a file in this range. So the remaining job is exactly Pass 15, the anchor truth-check, and nothing else. Resolve each anchor that cites a changed file, report drift, and stop — do not run the rest of the manifest, do not write a changelog entry.
+
+If the range is additionally **non-behavioral or a no-op**, exit silently with code 0 without even that: a comment-only delta cannot invalidate a documented claim.
 
 The lane classifier already withholds this lane for a range it can prove is comments and whitespace only. This check is the backstop for the ranges it cannot prove, so that an unprovable comment-only push costs a startup rather than a full manifest pass.
 

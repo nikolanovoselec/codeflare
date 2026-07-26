@@ -18,11 +18,11 @@ Wherever a phase below says "apply", "auto-fix", "edit the file", "commit", or "
 
 Deliberate bulk repair is unaffected: `/sdd clean` and `/sdd init` run through their own `sdd-clean` / `sdd-init` skills (not this agent) and still apply + commit. This agent is the PR-boundary review actor only.
 
-The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (23-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) is embedded below. This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (23-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) is embedded below (spine only; conditional sub-policy is read on demand). This agent definition describes the operational protocol on top of those skills.
 
 ## Embedded canonical policy
 
-Apply these generated, canonical skill documents directly. They are the whole enforcement layer; you have no Skill tool and there is nothing further to retrieve.
+Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the lane spine, not the whole layer: conditional sub-policy is read on demand as described below. You have no Skill tool; `cat` is how you reach anything not printed here.
 
 <!-- @include-skill review-scope -->
 

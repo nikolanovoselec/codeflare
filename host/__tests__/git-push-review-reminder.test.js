@@ -322,7 +322,7 @@ exit 99
   });
 });
 
-describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () => {
+describe('git-push-review-reminder.sh — cache behavior (4-line schema)', () => {
   it('uses cached OPEN+main result without calling gh', () => {
     const cwd = makeFixture();
     withSdd(cwd);
@@ -332,7 +332,7 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
     const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
-    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\nmain\n`);
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\nmain\ndeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n`);
     const binDir = fakeGhFails(cwd);  // gh exits 99 — proves cache was used
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
@@ -350,7 +350,7 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
     const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
-    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\ndevelop\n`);
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\ndevelop\ndeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n`);
     const binDir = fakeGhFails(cwd);
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
@@ -388,17 +388,17 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
     const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
-    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\n\n`);
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\n\ndeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n`);
     const binDir = fakeGhFails(cwd);  // gh exits 99 — proves cache was used
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/,
       'OPEN+empty-base cache must fail open and fire review');
     assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/,
-      '3-line cache (even with empty base) must short-circuit gh');
+      '4-line cache (even with empty base) must short-circuit gh');
   });
 
-  it('legacy 2-line OPEN cache (no base) re-queries gh and rewrites in 3-line schema', () => {
+  it('legacy 3-line OPEN cache (no head) re-queries gh and rewrites in 4-line schema', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
@@ -408,15 +408,15 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
       cwd, encoding: 'utf-8',
     }).stdout.trim();
     const cachePath = join(cwd, gitCommonDir, 'sdd-pr-cache');
-    writeFileSync(cachePath, `${branch}\nOPEN\n`);  // legacy 2-line
+    writeFileSync(cachePath, `${branch}\nOPEN\nmain\n`);  // legacy 3-line: no head
     const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/,
-      'legacy 2-line OPEN cache must fall through to gh and re-evaluate');
+      'legacy 3-line OPEN cache must fall through to gh and re-evaluate');
     const rewritten = readFileSync(cachePath, 'utf-8');
-    assert.match(rewritten, /^[^\n]+\nOPEN\nmain\n$/,
-      'cache must be rewritten in 3-line schema');
+    assert.match(rewritten, /^[^\n]+\nOPEN\nmain\nfakehead\n$/,
+      'cache must be rewritten in 4-line schema carrying the head');
   });
 });
 

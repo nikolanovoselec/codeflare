@@ -1238,7 +1238,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Generated-only changes require no lane, documentation-only changes require `doc-updater`, SDD-only or SDD-plus-documentation changes require `spec-reviewer` and `doc-updater`, and source, test, configuration, workflow, preseed, mixed, or unknown changes require all three lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
+1. Generated-only changes require no lane, documentation-only changes require `doc-updater`, SDD-only or SDD-plus-documentation changes require `spec-reviewer` and `doc-updater`, and source, test, configuration, workflow, preseed, mixed, or unknown changes require the code lane. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
 2. Unusual filenames and source-to-documentation renames cannot reduce the required reviewer set or bypass code review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies tricky filenames and source-to-doc renames without bypassing code review) -->
 3. An invalid or empty review range falls back to all three lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 4. An acknowledged current head requires no reviewer lane. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current head emits a CI-only plan) -->
@@ -1257,6 +1257,30 @@ None.
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
 **Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Claude lane classifier tests](../../host/__tests__/lane-classifier.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-101: Reviewer Lane Spawn Requires Surface Ownership
+
+**Intent:** A reviewer lane that provably owns nothing in a range must not be spawned, because an agent costs its full startup to reach the same conclusion the classifier can reach for free.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A behavioural change requires the spec or documentation lane only when that surface changed or one of its source anchors cites a changed file. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::anchor_cites_changed --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::anchorCitesChanged --> <!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes - file classification) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: a behavioural change earns a lane only where that surface changed or an anchor cites it) -->
+
+2. A repository root that cannot be resolved keeps the all-lane posture. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes - initial state) -->
+
+**Constraints:** The code lane is never gated by this rule; only the spec and documentation lanes are.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
+
+**Verification:** Automated test ([Claude lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
