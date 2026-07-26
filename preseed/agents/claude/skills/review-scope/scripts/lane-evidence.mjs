@@ -60,7 +60,7 @@ const MAX_TOTAL = 65536;
 // "no such path in the working tree", the grep returns nothing, and every
 // reference then reads as unresolved -- inventing stale-doc findings out of a
 // missing lockfile. Filtering after the fact cannot fail that way.
-const GENERATED = /(^|\/)(graphify-out\/|.*\.generated\.|.*\.min\.|package-lock\.json)/;
+const GENERATED = /(^|\/)(graphify-out\/|node_modules\/|vendor\/|third_party\/|.*\.generated\.|.*\.min\.|.*-lock\.(json|yaml)$|.*\.lock$)/;
 const live = (line) => !GENERATED.test(line.split(':')[0] ?? line);
 
 const clip = (line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}...` : line);
@@ -256,9 +256,8 @@ function resolveAnchors(repo, files, targets = null) {
 // `.../run-review-lane.sh` -- reached the symbol branch and failed there,
 // because the path branch only fires on a candidate carrying a `/` or a `.`.
 // Seventeen of forty unresolved rows on the measured range were files that
-// exist. UNIQUE is the whole guard: 217 stems are ambiguous in this tree
-// (`SKILL` x63, `index` x18), and resolving one of those to an arbitrary
-// namesake would confirm a reference that never pointed there.
+// exist.
+//
 // Every way a tracked file can honestly be named in prose: its full path, any
 // tail of it starting at a path boundary (`common/coding-style.md` for a rule
 // nested three directories down), its basename, its basename without the
@@ -271,10 +270,19 @@ function resolveAnchors(repo, files, targets = null) {
 // exists to avoid, in the direction that wastes a reviewer's turn.
 function trackedNames(repo) {
   const names = new Set();
+  // Both spellings are added as each form is produced. De-slashing by walking
+  // the accumulated set instead made this quadratic in tree size -- a full copy
+  // of tens of thousands of entries per directory segment of every file, in the
+  // function whose entire purpose is to stop being slow.
+  const add = (form) => {
+    if (!form) return;
+    names.add(form);
+    if (form.endsWith('/')) names.add(form.slice(0, -1));
+  };
   const suffixes = (path) => {
-    names.add(path);
+    add(path);
     for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) {
-      names.add(path.slice(i + 1));
+      add(path.slice(i + 1));
     }
   };
   for (const path of git(repo, ['ls-files']).split('\n').filter(Boolean)) {
@@ -283,12 +291,9 @@ function trackedNames(repo) {
     names.add(base.replace(/\.[^.]+$/, ''));
     const parts = path.split('/');
     for (let depth = 1; depth < parts.length; depth += 1) {
-      const dir = `${parts.slice(0, depth).join('/')}/`;
-      suffixes(dir);
-      // Both spellings: a skill or plugin directory is named `ci-monitoring` in
-      // prose far more often than `ci-monitoring/`.
-      for (const form of [...names]) { if (form.endsWith('/')) names.add(form.slice(0, -1)); }
-      names.add(dir.slice(0, -1));
+      // A skill or plugin directory is named `ci-monitoring` in prose far more
+      // often than `ci-monitoring/`, so both reach the set through `add`.
+      suffixes(`${parts.slice(0, depth).join('/')}/`);
     }
   }
   return names;
@@ -317,10 +322,21 @@ function quotedLiterals(repo, paths) {
 
 // A dependency is declared by the manifest, not by a declaration in this tree.
 // Every `@scope/pkg` in the docs resolved nowhere without this.
+//
+// npm is parsed exactly because it is JSON and the field names are fixed. Every
+// other ecosystem is read generically: a per-format parser for Cargo, pip,
+// poetry, Go, Bundler, Composer, Gradle, Mix and SwiftPM is a package manager,
+// and this only has to answer "is this name declared here". In all of them a
+// dependency is either quoted or the first token on its line, which is what the
+// generic pass takes -- so a Rust repo's `serde` and a Python repo's `httpx`
+// resolve without this module learning nine file formats.
+const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|Pipfile|go\.mod|Gemfile|composer\.json|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
+
 function declaredDependencies(repo) {
   const names = new Set();
-  for (const path of git(repo, ['ls-files', '*package.json']).split('\n').filter(Boolean)) {
-    if (path.includes('node_modules/')) continue;
+  const tracked = git(repo, ['ls-files']).split('\n').filter(Boolean).filter(live);
+
+  for (const path of tracked.filter((entry) => /(^|\/)package\.json$/.test(entry))) {
     let manifest;
     try {
       manifest = JSON.parse(read(repo, path) ?? '{}');
@@ -331,6 +347,21 @@ function declaredDependencies(repo) {
       for (const name of Object.keys(manifest?.[field] ?? {})) names.add(name);
     }
     if (typeof manifest?.name === 'string') names.add(manifest.name);
+  }
+
+  for (const path of tracked.filter((entry) => DEP_MANIFEST.test(entry))) {
+    for (const raw of (read(repo, path) ?? '').split('\n')) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+      // No closing quote required: `"httpx>=0.27"` must yield `httpx`, and a
+      // version specifier is exactly what stops the name.
+      for (const hit of line.match(/["'][A-Za-z0-9_@][\w./@-]{0,120}/g) ?? []) {
+        const value = hit.slice(1);
+        if (LITERAL_SHAPE.test(value)) names.add(value);
+      }
+      const bare = line.match(/^[A-Za-z0-9_@][\w./@-]{1,120}/);
+      if (bare && LITERAL_SHAPE.test(bare[0])) names.add(bare[0]);
+    }
   }
   return names;
 }
@@ -350,18 +381,31 @@ function resolveDocReferences(repo, files) {
     for (const [, span] of body.matchAll(/`([^`\n]{2,120})`/g)) {
       const candidate = span.trim();
       // Only things that claim to be a path or an identifier are checkable; a
-      // backticked English phrase is not a broken reference.
-      // A flag documents an interface; it is not a name that resolves to code,
-      // and asking it to made every documented option a stale-doc finding.
-      // A flag documents an interface, a bare extension is a file-type, and
-      // `@impl`/`@test` are this project's anchor vocabulary. None of the three
-      // is a name that resolves to code, and asking them to made every
+      // backticked English phrase is not a broken reference. Beyond that, a
+      // flag documents an interface, a bare extension is a file type, and
+      // `@impl`/`@test`/`@manual` are this project's anchor vocabulary -- none
+      // of them is a name that resolves to code, and asking them to made every
       // documented option, suffix and anchor keyword a stale-doc finding.
       if (!/^[\w./@-]+$/.test(candidate) || seen.has(candidate)) continue;
       if (candidate.startsWith('--') || /^\.[A-Za-z0-9]+$/.test(candidate)
         || /^@(impl|test|manual)$/.test(candidate)) continue;
+      // A reference this check can answer has to be able to name something in
+      // THIS repository. An absolute system path, a registry host, a template
+      // placeholder and a SHOUTING configuration name are all documenting
+      // something outside the tree, so asking whether the tree declares them
+      // reports a stale document for prose that was never a reference. A single
+      // leading slash is left alone: that is a command name, not a path.
+      if (/^\/.*\//.test(candidate) || /^[a-z0-9-]+\.[a-z]{2,}\//.test(candidate)) continue;
+      if (/^[A-Z][A-Z0-9_]*$/.test(candidate) || /(^|[^A-Za-z])(NNN|XXX)([^A-Za-z]|$)/.test(candidate)) continue;
       seen.add(candidate);
-      if (rows.length >= MAX_LIST * 4) break;
+      // Ceiling raised to match the failure budget and, more importantly, made
+      // VISIBLE. At 160 it stopped collecting without recording anything, so
+      // `summarise` could never see a list long enough to mark truncated -- a
+      // capped scan reached the lane as a complete one, which is the false
+      // clean the summary contract promises never to produce. The measured
+      // range already produced 149 candidates, one doc file short of the old
+      // ceiling.
+      if (rows.length >= MAX_UNRESOLVED) { rows.capped = true; return rows; }
       if (candidate.includes('/') || candidate.includes('.')) {
         // Same repo-escape guard as read(): a `../` candidate must not probe
         // outside the tree just because this branch checks a path directly.
@@ -392,7 +436,15 @@ function resolveDocReferences(repo, files) {
       // names it, so counting that as resolution makes every reference
       // self-confirming and the whole pass vacuous -- a deleted symbol still
       // written about would read as live.
-      rows.push({ ref: candidate, resolved: declared.has(candidate) || literals.has(candidate), as: 'symbol' });
+      if (declared.has(candidate)) {
+        rows.push({ ref: candidate, resolved: true, as: 'symbol' });
+        continue;
+      }
+      // A name registered as a string is real but weaker evidence than a
+      // declaration: it can also be an unrelated key that happens to match. It
+      // is labelled so the lane can weigh it rather than being told the two are
+      // the same kind of answer.
+      rows.push({ ref: candidate, resolved: literals.has(candidate), as: literals.has(candidate) ? 'literal' : 'symbol' });
     }
   }
   return rows;
@@ -400,7 +452,11 @@ function resolveDocReferences(repo, files) {
 
 // Only a path that can hold code answers "does this resolve to code?". A token
 // appearing in a YAML comment or a lockfile is not an implementation.
-const CODE_PATH = /\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|py|go|rs|java|rb|php|sql)$/;
+// Every language a bootstrapped repo might be written in. Narrow this and a
+// repo in the missing language indexes no declarations at all, so every
+// symbol its documentation names reads as stale -- the whole check inverts
+// into noise on a tree that is perfectly consistent.
+const CODE_PATH = /\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|py|go|rs|java|kt|kts|scala|swift|cs|c|h|cc|cpp|hpp|rb|php|pl|pm|lua|ex|exs|dart|zig|vue|svelte|sql)$/;
 
 // A symbol has to be DECLARED somewhere to count. Matching any occurrence made
 // every short or common token resolve, which is a false clean in a check whose
@@ -422,11 +478,15 @@ const ereEscape = (value) => value.replace(/[.[\]{}()*+?^$|\\/-]/g, '\\$&');
 // which is the false-clean direction this module promises never to fail in.
 const DECL_SHAPES = [
   // Keyword form (`function foo`, `const foo`, `export foo`).
-  { shape: '(function|const|let|var|class|export|def|func|type|interface)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*', pick: 'last' },
+  { shape: '(function|const|let|var|class|export|def|defp|defmodule|func|fn|sub|type|typedef|interface|struct|enum|trait|impl|mod|module|namespace|package|record|protocol|extension|object|val|local|proc)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*', pick: 'last' },
   // Definition shape (`foo() {` for a shell function or a class method).
   { shape: '(^|[[:space:]])[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\\([^)]*\\)[[:space:]]*[{:]', pick: 'first' },
   // Binding shape (`foo:` / `foo =` for an object member or a re-export).
   { shape: '(^|[[:space:]])[A-Za-z_][A-Za-z0-9_]*[[:space:]]*[:=][^=>]', pick: 'first' },
+  // Property shape (`packet.evidenceOmitted =`). A field assigned through its
+  // object is declared by that assignment and nothing else; without this, a
+  // field this very module writes read as a stale reference.
+  { shape: '\\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[^=>]', pick: 'first' },
 ];
 
 // `-h` drops the filename, so the generated-tree filter cannot run on the
@@ -434,6 +494,22 @@ const DECL_SHAPES = [
 // intersected instead: same exclusion, applied to the file list rather than to
 // grep output, so a missing lockfile still cannot make every reference read as
 // unresolved.
+// The definition shape matches any `name(...) {`, which includes `if (x) {`,
+// `for (...) {`, `catch (e) {` and the `function` keyword itself. Indexing
+// those declares a reference resolvable by a control keyword, which is the
+// false-clean direction.
+// Extended past the JS keywords for the same reason CODE_PATH is: `match x {`
+// is Rust, `unless cond {` is Ruby, `foreach (...) {` is PHP. Each one indexes a
+// control keyword as a declared name, which resolves a reference that does not
+// exist.
+const NOT_A_DECLARATION = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'else', 'do',
+  'until', 'case', 'elif', 'with', 'try', 'async', 'await', 'new', 'typeof',
+  'match', 'loop', 'unless', 'elsif', 'foreach', 'when', 'select', 'defer', 'go',
+  'using', 'synchronized', 'lock', 'fixed', 'rescue', 'ensure', 'begin', 'end',
+  'then', 'fi', 'esac',
+]);
+
 function declarationIndex(repo, paths) {
   const index = new Set();
   if (!paths.length) return index;
@@ -447,7 +523,7 @@ function declarationIndex(repo, paths) {
         if (!hit) continue;
         const words = hit.trim().split(/[^A-Za-z0-9_]+/).filter(Boolean);
         const name = pick === 'last' ? words[words.length - 1] : words[0];
-        if (name) index.add(name);
+        if (name && !NOT_A_DECLARATION.has(name)) index.add(name);
       }
     }
   }
@@ -692,7 +768,8 @@ function main() {
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*|]\s*.*\[/.test(line)).join('\n') || null;
     const docFiles = files.filter((f) => f.startsWith('documentation/') || /^[A-Z]+\.md$/.test(f));
     out.anchors = fromDiff(summarise(resolveAnchors(repo, docFiles), docFiles.length > MAX_LIST));
-    out.references = fromDiff(summarise(resolveDocReferences(repo, docFiles), docFiles.length > MAX_LIST));
+    const references = resolveDocReferences(repo, docFiles);
+    out.references = fromDiff(summarise(references, references.capped === true || docFiles.length > MAX_LIST));
   } else if (lane === 'code-reviewer') {
     const source = files.filter((f) => !f.startsWith('sdd/') && !f.startsWith('documentation/'));
     out.callSites = fromDiff(callSites(repo, source, range));

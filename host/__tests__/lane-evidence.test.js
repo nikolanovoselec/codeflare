@@ -923,3 +923,77 @@ describe('lane-evidence.mjs — the failure list is the finding', () => {
     assert.ok(!out.truncated, 'a list that fits is not truncated');
   });
 });
+
+describe('lane-evidence.mjs — cost is bounded by the tree, not the document', () => {
+  it('answers two hundred names for the cost of reading the tree', () => {
+    const { cwd, base } = makeRepo();
+    // The contract AC1 states. Under the per-candidate design this was one
+    // full-tree search per name -- 149 names measured at 283 seconds, and a
+    // miss costs more than a hit because the search cannot stop early. Two
+    // hundred names would have taken minutes; the bound here is generous
+    // enough to be stable on a loaded machine and still two orders of
+    // magnitude below that.
+    for (let i = 0; i < 50; i += 1) write(cwd, `src/mod${i}.ts`, `export const sym${i} = ${i};\n`);
+    const names = Array.from({ length: 200 }, (_, i) => (i < 50 ? `sym${i}` : `absent${i}`));
+    write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
+    const head = commit(cwd, 'docs: many names');
+
+    const started = Date.now();
+    const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const elapsed = Date.now() - started;
+
+    assert.equal(out.checked, names.length, 'every name must be answered, not a capped sample');
+    assert.equal(out.unresolved.length, 150, 'the fifty declared names resolve and the rest do not');
+    assert.ok(elapsed < 30_000, `resolution must not scale with the name count (took ${elapsed}ms)`);
+  });
+});
+
+describe('lane-evidence.mjs — the resolver ships to every bootstrapped repo', () => {
+  it('resolves declarations and dependencies in a repo that is not JavaScript', () => {
+    const { cwd, base } = makeRepo();
+    // The resolver is seeded by `/sdd init` into whatever repo runs it, and an
+    // unresolved reference is reported to the doc lane as a stale document. So
+    // a declaration index that only understands one language does not degrade
+    // gracefully -- it turns a consistent Rust or Python tree into a page of
+    // false findings on every boundary event.
+    write(cwd, 'src/lib.rs', 'pub struct Widget {}\npub fn render_widget() {}\nenum Mode { On }\n');
+    write(cwd, 'app/service.py', 'class OrderService:\n    def compute_total(self):\n        return 0\n');
+    write(cwd, 'cmd/main.go', 'type Config struct {}\nfunc StartServer() {\n}\n');
+    write(cwd, 'lib/report.rb', 'class ReportBuilder\n  def generate_report\n  end\nend\n');
+    write(cwd, 'Cargo.toml', '[dependencies]\nserde = { version = "1" }\n');
+    write(cwd, 'pyproject.toml', '[project]\ndependencies = ["httpx>=0.27"]\n');
+    write(cwd, 'Gemfile', "source 'https://rubygems.org'\ngem 'rails'\n");
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: polyglot tree');
+
+    write(cwd, 'documentation/architecture.md',
+      'Types `Widget`, `Mode`, `Config`, `OrderService`, `ReportBuilder`.\n'
+      + 'Functions `render_widget`, `compute_total`, `StartServer`, `generate_report`.\n'
+      + 'Dependencies `serde`, `httpx`, `rails`. Removed: `vanishedHelper`.\n');
+    const head = commit(cwd, 'docs: architecture');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const unresolved = out.unresolved.map((row) => row.ref);
+
+    assert.deepEqual(unresolved, ['vanishedHelper'],
+      'only the name with no declaration anywhere in the tree may be reported stale');
+    assert.equal(out.checked, 13, 'every documented name must be answered');
+  });
+
+  it('does not let a control keyword in another language declare a name', () => {
+    const { cwd, base } = makeRepo();
+    // `match x {` is a Rust block opener, not a declaration of `match`. The
+    // definition shape cannot tell them apart, so the exclusion list has to.
+    write(cwd, 'src/lib.rs', 'pub fn run(x: u8) {\n    match x {\n        _ => (),\n    }\n}\n');
+    write(cwd, 'lib/a.rb', 'def go\n  unless true\n  end\nend\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: keywords');
+
+    write(cwd, 'documentation/architecture.md', 'Calls `match` and `unless` and `run`.\n');
+    const head = commit(cwd, 'docs: keywords');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((r) => r.ref);
+    assert.deepEqual(unresolved.sort(), ['match', 'unless'],
+      'a block opener must not resolve; the real function beside it must');
+  });
+});

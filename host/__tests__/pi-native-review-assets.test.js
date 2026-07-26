@@ -564,10 +564,17 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
       const seeded = documents.find((document) => document.key === `.pi/agent/agents/${lane}.md`);
       assert.ok(seeded, `.pi/agent/agents/${lane}.md not found`);
-      assert.match(seeded.content, /no `evidence` block, you gather it yourself/,
+      // Ordered, not two independent probes: the fallback is only usable if the
+      // field naming WHY evidence is missing sits inside it, so the sentence
+      // must come first and the field must follow within the same paragraph.
+      const opening = seeded.content.indexOf('no `evidence` block, you gather it yourself');
+      assert.ok(opening !== -1,
         `${lane} must carry an absent-evidence fallback, not only the present-evidence contract`);
-      assert.match(seeded.content, /evidenceOmitted/,
-        `${lane} must be pointed at the field naming why evidence is missing`);
+      const paragraph = seeded.content.slice(opening).split('\n\n')[0];
+      assert.match(paragraph, /evidenceOmitted/,
+        `${lane}'s fallback must name the field carrying why evidence is missing`);
+      assert.match(paragraph, /perform that lookup/,
+        `${lane}'s fallback must say the references become lookups, not merely that the block is absent`);
     }
   });
 });
