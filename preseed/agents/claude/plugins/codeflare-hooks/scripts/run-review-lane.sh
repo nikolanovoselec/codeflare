@@ -259,7 +259,7 @@ if [ -n "$TRIAGE_JSON" ]; then
   # can appear inside a reason string or a nested finding without the lane
   # having been resolved to a no-op at all.
   TRIAGE_FIELDS="$(printf '%s' "$TRIAGE_JSON" \
-    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s);const r=t.roundLimit||{};const b=t.bulkOpAudit||{};const x=t.transition||{};const n=(b.findings||[]).length;const clean=t.decision==="proceed"&&!x.corrupt&&!x.active&&n===0&&r.action==="continue";process.stdout.write(String(t.decision??"")+"\n"+String(t.reason??"").replace(/\s+/g," ")+"\n"+["triage="+(clean?"clean":"attention"),"decision="+(t.decision??"?"),"round="+(r.action??"?")+"("+(r.counted??"?")+"/"+(r.inspected??"?")+")","audit="+n,"transition="+(x.corrupt?"corrupt":(x.active?"active":"clean"))].join(" "))}catch{}})' 2>/dev/null)"
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s);const r=t.roundLimit||{};const b=t.bulkOpAudit||{};const x=t.transition||{};const n=(b.findings||[]).length;const clean=t.decision==="proceed"&&!x.corrupt&&!x.active&&n===0&&(r.action??"continue")==="continue";const round=r.action?r.action+"("+(r.counted??"?")+"/"+(r.inspected??"?")+")":"n/a";process.stdout.write(String(t.decision??"")+"\n"+String(t.reason??"").replace(/\s+/g," ")+"\n"+["triage="+(clean?"clean":"attention"),"decision="+(t.decision??"?"),"round="+round,"audit="+n,"transition="+(x.corrupt?"corrupt":(x.active?"active":"clean"))].join(" "))}catch{}})' 2>/dev/null)"
   TRIAGE_DECISION="$(printf '%s\n' "$TRIAGE_FIELDS" | head -n 1)"
   # Triage is a prompt INPUT, so a clean one is invisible to the session that
   # launched the lane: nothing is echoed unless it resolves to a no-op or carries
@@ -380,7 +380,7 @@ fi
 if [ -n "$EVIDENCE_JSON" ]; then
   TASK="$TASK
 
-The lookups your checklist would otherwise order are already resolved below. Treat this block as authoritative: do NOT confirm an index exists, probe a layout, resolve an anchor, resolve a documented reference, enumerate call sites, pair a tree against its index, or read the decision ledger — those answers are here. \`checked\` is how many were verified and \`unresolved\` lists every one that failed; an empty \`unresolved\` with a non-zero \`checked\` is a clean pass you may report without re-running it. Where a row carries a \`patch\`, that is the change under review for that file: read it there and do NOT run \`git diff\` for it. A field that is null or absent, or a row marked \`patchOmitted\`, is the ONLY case you gather yourself.
+The lookups your checklist would otherwise order are already resolved below. Treat this block as authoritative: do NOT confirm an index exists, probe a layout, resolve an anchor, resolve a documented reference, enumerate call sites, pair a tree against its index, or read the decision ledger — those answers are here. \`checked\` is how many were verified and \`unresolved\` lists every one that failed; an empty \`unresolved\` with a non-zero \`checked\` is a clean pass you may report without re-running it. Where a row carries a \`patch\`, that is the change under review for that file: read it there and do NOT run \`git diff\` for it. A field that is null or absent, or a row marked \`patchOmitted\` or \`patchTruncated\`, is the ONLY case you gather yourself.
 
 <evidence>
 $EVIDENCE_JSON

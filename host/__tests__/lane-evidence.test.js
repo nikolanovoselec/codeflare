@@ -372,6 +372,51 @@ describe('lane-evidence.mjs — a lane gets evidence for why it was spawned', ()
   });
 });
 
+  // The lane is told to read the row and gather only where a marker says the
+  // evidence is incomplete. A clipped patch carrying no marker means judging a
+  // change from its first 6 KB while forbidden to fetch the rest.
+  it('marks a clipped patch as clipped', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/architecture.md', 'Describes src/huge.ts\n');
+    commit(cwd, 'docs: page');
+    write(cwd, 'src/huge.ts', `export const body = '${'y'.repeat(20000)}';\n`);
+    const head = commit(cwd, 'feat: a change larger than one row may carry');
+
+    const row = run(cwd, 'doc-updater', `${base}..${head}`)
+      .docsCitingChanged.find((entry) => entry.file === 'src/huge.ts');
+
+    assert.equal(row.patchTruncated, true,
+      'incomplete evidence must announce itself or it reads as the whole change');
+    assert.ok(row.patch.length < 20000, 'the clip still has to happen');
+  });
+
+  // A bare substring made every longer path containing this one a citation, and
+  // each spurious row also spends patch budget a genuine citation needs.
+  it('does not treat a longer path containing this one as a citation', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/architecture.md', 'Only mentions src/thing.ts.bak here.\n');
+    commit(cwd, 'docs: page naming a different file');
+    write(cwd, 'src/thing.ts', 'export const real = 1;\n');
+    const head = commit(cwd, 'feat: the file nobody cited');
+
+    assert.deepEqual(run(cwd, 'doc-updater', `${base}..${head}`).docsCitingChanged, [],
+      'src/thing.ts.bak is not src/thing.ts');
+  });
+
+  it('still cites a page that names the path with surrounding punctuation', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/architecture.md', 'Run `scripts/ship.sh` (the deployer).\n');
+    commit(cwd, 'docs: page');
+    write(cwd, 'scripts/ship.sh', '#!/bin/sh\necho go\n');
+    const head = commit(cwd, 'feat: the deployer');
+
+    const row = run(cwd, 'doc-updater', `${base}..${head}`)
+      .docsCitingChanged.find((entry) => entry.file === 'scripts/ship.sh');
+
+    assert.ok(row, 'the boundary rule must not lose a real citation to a backtick or a paren');
+  });
+});
+
 describe('lane-evidence.mjs — the doc index is joined, not just quoted', () => {
   // The spec lane is handed this join and dropped from 10 turns to 5. The doc
   // lane was handed the index verbatim instead and walked documentation/ itself
@@ -396,6 +441,21 @@ describe('lane-evidence.mjs — the doc index is joined, not just quoted', () =>
 
     assert.deepEqual(run(cwd, 'doc-updater', `${base}..${head}`).indexIntegrity.dangling,
       ['lanes/removed.md']);
+  });
+
+  // Basenames made a link to one file mark its same-named sibling indexed too.
+  // An unindexed file reported as indexed is a false clean, which is the one
+  // direction this module promises never to fail in.
+  it('does not let a link to one file cover a same-named file elsewhere', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/README.md', '# Docs\n\n- [Architecture](lanes/architecture.md)\n');
+    write(cwd, 'documentation/lanes/architecture.md', '# Nested\n');
+    write(cwd, 'documentation/architecture.md', '# Top level, nobody links me\n');
+    const head = commit(cwd, 'docs: same name at two depths');
+
+    assert.deepEqual(run(cwd, 'doc-updater', `${base}..${head}`).indexIntegrity.unindexed,
+      ['documentation/architecture.md'],
+      'the linked path is lanes/architecture.md, which says nothing about the sibling');
   });
 });
 

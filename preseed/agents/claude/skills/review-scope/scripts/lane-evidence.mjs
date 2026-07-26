@@ -132,14 +132,17 @@ function indexIntegrity(repo, indexPath, tracked) {
   const linked = [...index.matchAll(/\]\(([^)#]+\.md)[^)]*\)/g)]
     .map(([, target]) => target)
     .filter((target) => !target.startsWith('http'));
-  const linkedNames = new Set(linked.map((target) => target.split('/').pop()));
+  // Compared as resolved repo-relative paths, not basenames. A link to
+  // `lanes/architecture.md` marked a sibling `architecture.md` indexed too, and
+  // an unindexed file reported as indexed is a false clean.
+  const linkedPaths = new Set(linked.map((target) => join(indexDir, target)));
   return {
     // Against the LINK TARGETS, not the raw text: a filename mentioned in prose,
     // or a different file whose name merely contains this one, both satisfied a
     // substring test and passed the row silently.
     unindexed: tracked.filter((file) => {
       const base = file.split('/').pop() ?? '';
-      return base !== 'README.md' && !base.startsWith('.') && !linkedNames.has(base);
+      return base !== 'README.md' && !base.startsWith('.') && !linkedPaths.has(file);
     }),
     dangling: linked.filter((target) => !existsSync(join(repo, indexDir, target))),
   };
@@ -150,18 +153,27 @@ function indexIntegrity(repo, indexPath, tracked) {
 // touched no documentation/ file was handed files:[] and an empty patch, then
 // spent three of its eleven turns re-running `git diff` one cited path at a
 // time. The change itself is the evidence for the only question asked about it.
+// A clipped patch is reported as clipped. The lane is told to read the row and
+// gather only where a marker says the evidence is incomplete, so a silently
+// truncated patch means judging a change from its first 6 KB while forbidden to
+// fetch the rest -- a false clean in the one check this lane exists for.
 function filePatch(repo, range, file) {
   if (!range) return null;
   const patch = git(repo, ['diff', '--no-renames', range, '--', file]);
   if (!patch) return null;
-  return patch.length > MAX_CITED_PATCH ? `${patch.slice(0, MAX_CITED_PATCH)}\n...truncated` : patch;
+  if (patch.length <= MAX_CITED_PATCH) return { patch, truncated: false };
+  return { patch: `${patch.slice(0, MAX_CITED_PATCH)}\n...truncated`, truncated: true };
 }
 
 // A formal `@impl:` anchor and a plain mention of the path are both ways a doc
 // depends on a file, and the lane greps for both by hand. The anchor form
-// contains the path, so one fixed-string search over the path covers both.
+// contains the path, so one boundary-delimited search over the path covers
+// both. Delimited, because a bare substring made `src/a.ts` match `src/a.ts.bak`
+// and `vendor/src/a.ts` -- spurious work set rows, each spending patch budget a
+// genuine citation needs.
 function citedBy(repo, file) {
-  return git(repo, ['grep', '-l', '--fixed-strings', '-a', '--', file, 'documentation'])
+  const pattern = `(^|[^A-Za-z0-9_/.-])${ereEscape(file)}([^A-Za-z0-9_.-]|$)`;
+  return git(repo, ['grep', '-lE', '-a', '--', pattern, 'documentation'])
     .split('\n').filter(Boolean).filter(live).slice(0, 12);
 }
 
@@ -409,10 +421,12 @@ function main() {
       .map((file) => ({ file, citedBy: citedBy(repo, file) }))
       .filter((row) => row.citedBy.length > 0)
       .map((row) => {
-        const patch = budget > 0 ? filePatch(repo, range, row.file) : null;
-        if (patch === null) return { ...row, patchOmitted: true };
-        budget -= patch.length;
-        return { ...row, patch };
+        const got = budget > 0 ? filePatch(repo, range, row.file) : null;
+        if (got === null) return { ...row, patchOmitted: true };
+        budget -= got.patch.length;
+        return got.truncated
+          ? { ...row, patch: got.patch, patchTruncated: true }
+          : { ...row, patch: got.patch };
       });
     const nested = existsSync(join(repo, 'documentation/lanes'));
     const index = read(repo, 'documentation/README.md');

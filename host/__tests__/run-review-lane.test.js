@@ -370,6 +370,29 @@ describe('run-review-lane.sh — triage state reaches the launching session', ()
     assert.match(r.stderr, /audit=0/);
   });
 
+  // The shape real triage emits on the common path: lane-triage.mjs sets
+  // roundLimit only when a round counter exists, so the code lane has none.
+  // Requiring action === "continue" made every one of those runs report
+  // attention -- the clean/absent conflation this telemetry exists to remove,
+  // inverted. Both other tests stub the key, so neither covered it.
+  it('calls triage clean when no round counter exists at all', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, {
+      decision: 'proceed',
+      bulkOpAudit: { checked: 0, findings: [] },
+      transition: { active: false, corrupt: false },
+    });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.match(r.stderr, /triage=clean/,
+      'an absent round counter is nothing to report, not a reason to withhold the verdict');
+    assert.match(r.stderr, /round=n\/a/, 'absent must read as absent, never as an unknown value');
+  });
+
   it('withholds the clean verdict when triage carries state a round should notice', () => {
     const { cwd, base, head } = makeRepo('src/thing.ts');
     const { home, hookScripts } = makeClaudeHome(cwd);
