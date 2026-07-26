@@ -225,31 +225,49 @@ fi
 # Both are best-effort: a failure here degrades to the lane gathering its own
 # evidence, exactly as before, never to a skipped review.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+
+# A cap of zero, empty or non-numeric would remove the very bound it configures,
+# so anything that is not a positive integer falls back to the default.
+bounded_cap() {
+  case "$1" in ''|*[!0-9]*|0) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
+}
+
+# Every inlined block obeys ONE rule: under its cap, carry it; over the cap, shed
+# the bulky fields and keep the resolved answers; if even that does not fit, hand
+# back nothing and let the lane gather it itself. The three blocks differ only in
+# their cap, their shed program and what they call the loss, so the rule is
+# written once. Degrading by field rather than by block is the whole point --
+# dropping a block sends the lane back to deriving it in six calls.
+#
+# $1 block  $2 cap  $3 jq shed program  $4 name  $5 what survived
+# Prints what to carry, or nothing when the shed form is still too large.
+shed_to_cap() {
+  if [ "$(( $(printf '%s' "$1" | wc -c) ))" -le "$2" ]; then
+    printf '%s' "$1"
+    return
+  fi
+  _SHED="$(printf '%s' "$1" | jq -c "$3" 2>/dev/null || true)"
+  if [ -n "$_SHED" ] && [ "$(( $(printf '%s' "$_SHED" | wc -c) ))" -le "$2" ]; then
+    echo "run-review-lane: $4 over ${2}B; $5" >&2
+    printf '%s' "$_SHED"
+    return
+  fi
+  echo "run-review-lane: $4 over ${2}B even after shedding; lane gathers it itself" >&2
+}
+
 TRIAGE_JSON=""
 TRIAGE_SCRIPT="$(dirname "$0")/lib/lane-triage.mjs"
 if [ -n "$REPO_ROOT" ] && [ -f "$TRIAGE_SCRIPT" ] && command -v node >/dev/null 2>&1; then
   TRIAGE_JSON="$(node "$TRIAGE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
     ${RANGE:+--range "$RANGE"} ${REQUIRED:+--required-lanes "$REQUIRED"} 2>/dev/null || true)"
-  # Same cap as the packet beside it. `config.raw` is carried verbatim and one
-  # audit finding is emitted per missing line across five commits, so an
-  # unbounded triage block lands in the prompt prefix of every turn -- the exact
-  # cost the packet cap exists to bound.
-  TRIAGE_MAX_BYTES="${REVIEW_LANE_TRIAGE_MAX_BYTES:-32768}"
-  case "$TRIAGE_MAX_BYTES" in ''|*[!0-9]*|0) TRIAGE_MAX_BYTES=32768 ;; esac
-  # Over-cap degrades by FIELD, not by block. Dropping the whole document sends
-  # the lane back to deriving Phase 0 in six calls -- the exact cost AD116 exists
-  # to remove -- and it is nearly always one field that blew the cap: config.raw
-  # carries the config file verbatim. Shed that first and keep the decisions.
-  if [ "$(( $(printf '%s' "$TRIAGE_JSON" | wc -c) ))" -gt "$TRIAGE_MAX_BYTES" ]; then
-    SHRUNK=$(printf '%s' "$TRIAGE_JSON" | jq -c 'if .config then .config |= (del(.raw) + {rawOmitted:true}) else . end' 2>/dev/null || true)
-    if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$TRIAGE_MAX_BYTES" ]; then
-      echo "run-review-lane: triage block over ${TRIAGE_MAX_BYTES}B; config.raw omitted, decisions retained" >&2
-      TRIAGE_JSON="$SHRUNK"
-    else
-      echo "run-review-lane: triage block over ${TRIAGE_MAX_BYTES}B even without config.raw; lane derives Phase 0 itself" >&2
-      TRIAGE_JSON=""
-    fi
-  fi
+  # `config.raw` carries the config file verbatim and one audit finding is
+  # emitted per missing line across five commits, so an unbounded triage block
+  # lands in the prompt prefix of every turn. It is nearly always `config.raw`
+  # that blew the cap, so shed it first and keep the decisions.
+  TRIAGE_JSON="$(shed_to_cap "$TRIAGE_JSON" \
+    "$(bounded_cap "${REVIEW_LANE_TRIAGE_MAX_BYTES:-}" 32768)" \
+    'if .config then .config |= (del(.raw) + {rawOmitted:true}) else . end' \
+    'triage block' 'config.raw omitted, decisions retained')"
 fi
 if [ -n "$TRIAGE_JSON" ]; then
   # A decisive no-op costs zero tokens, same contract as the ownership
@@ -288,28 +306,16 @@ PACKET_SCRIPT="$CLAUDE_HOME/skills/review-scope/scripts/build-review-packet.mjs"
 # Inline only a packet small enough that carrying it beats fetching it. Above
 # the cap the lane builds its own, so a very large diff cannot force a huge
 # prompt onto a lane that might have exited early anyway.
-PACKET_MAX_BYTES="${REVIEW_LANE_PACKET_MAX_BYTES:-131072}"
-case "$PACKET_MAX_BYTES" in ''|*[!0-9]*|0) PACKET_MAX_BYTES=131072 ;; esac
 if [ -n "$REPO_ROOT" ] && [ -n "$RANGE" ] && [ -f "$PACKET_SCRIPT" ] && command -v node >/dev/null 2>&1; then
   CANDIDATE="$(node "$PACKET_SCRIPT" --repo "$REPO_ROOT" --scope diff --range "${RANGE_FULL:-$RANGE}" --lane "$LANE" 2>/dev/null || true)"
-  # Bytes, not characters: a packet is UTF-8 and the cap exists to bound what
-  # is sent, so a multi-byte path or identifier must count for what it costs.
-  CANDIDATE_BYTES=$(( $(printf '%s' "$CANDIDATE" | wc -c) ))
-  if [ -n "$CANDIDATE" ] && [ "$CANDIDATE_BYTES" -le "$PACKET_MAX_BYTES" ]; then
-    PACKET_JSON="$CANDIDATE"
-  elif [ -n "$CANDIDATE" ]; then
-    # Same reasoning as the triage cap: no packet at all means the lane rebuilds
-    # evidence hunk by hunk. `patch` is the field that scales with diff size, so
-    # shed it and keep the file list and the resolved cross-lane ranges, which
-    # are what bound the lane's own searches.
-    SHRUNK=$(printf '%s' "$CANDIDATE" | jq -c 'del(.patch) + {patchOmitted:true}' 2>/dev/null || true)
-    if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$PACKET_MAX_BYTES" ]; then
-      echo "run-review-lane: packet over ${PACKET_MAX_BYTES}B; patch omitted, file list and changedInputs retained" >&2
-      PACKET_JSON="$SHRUNK"
-    else
-      echo "run-review-lane: packet over ${PACKET_MAX_BYTES}B even without patch; lane derives evidence itself" >&2
-    fi
-  fi
+  # `patch` is the field that scales with diff size, so shed it and keep the file
+  # list and the resolved cross-lane ranges, which are what bound the lane's own
+  # searches. Bytes, not characters: the cap bounds what is sent, so a multi-byte
+  # path or identifier must count for what it costs.
+  PACKET_JSON="$(shed_to_cap "$CANDIDATE" \
+    "$(bounded_cap "${REVIEW_LANE_PACKET_MAX_BYTES:-}" 131072)" \
+    'del(.patch) + {patchOmitted:true}' \
+    'packet' 'patch omitted, file list and changedInputs retained')"
 fi
 
 # The lookups the lane documents mandate, resolved. Same fail-safe direction as
@@ -321,8 +327,15 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
   # Bounded: the resolver runs many greps before the model is reached, so an
   # unbounded hang here holds the whole review gate open with nothing to show.
   # Losing the bound loses the evidence, never the review.
-  EVIDENCE_TIMEOUT="${REVIEW_LANE_EVIDENCE_TIMEOUT:-60}"
-  case "$EVIDENCE_TIMEOUT" in ''|*[!0-9]*|0) EVIDENCE_TIMEOUT=60 ;; esac
+  #
+  # Five minutes, not one. The bound has to cover the LARGEST range a lane is
+  # ever handed, not the incremental one: a resumed session reviews the whole
+  # branch diff, and the resolver then walks every changed file for patches,
+  # citations and anchors. Reaping it there is the expensive failure -- the lane
+  # re-derives every lookup by hand, which is the cost this block exists to
+  # remove -- while an over-generous bound costs only wall clock, and only when
+  # something is genuinely wrong. It stays well inside the lane's own 30 minutes.
+  EVIDENCE_TIMEOUT="$(bounded_cap "${REVIEW_LANE_EVIDENCE_TIMEOUT:-}" 300)"
   if command -v timeout >/dev/null 2>&1; then
     EVIDENCE_JSON="$(timeout -k 5 "$EVIDENCE_TIMEOUT" node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
       ${RANGE_FULL:+--range "$RANGE_FULL"} 2>/dev/null || true)"
@@ -337,25 +350,17 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
     echo "run-review-lane: evidence was not valid JSON; lane gathers it itself" >&2
     EVIDENCE_JSON=""
   fi
-  EVIDENCE_MAX_BYTES="${REVIEW_LANE_EVIDENCE_MAX_BYTES:-65536}"
-  case "$EVIDENCE_MAX_BYTES" in ''|*[!0-9]*|0) EVIDENCE_MAX_BYTES=65536 ;; esac
-  if [ "$(( $(printf '%s' "$EVIDENCE_JSON" | wc -c) ))" -gt "$EVIDENCE_MAX_BYTES" ]; then
-    # Degrade by field, like the two blocks beside it. The verbatim indexes are
-    # the bulk; the resolved answers are what remove turns. Every field this
-    # drops is named, the way the module's own shed names them -- `pending` and
-    # `config` are resolutions rather than indexes, and a loss that is never
-    # announced reads as a field the block never carried, so the lane re-derives
-    # it and spends the turn the shed exists to save. The list is the only claim
-    # made: a companion boolean nothing reads can only ever contradict it.
-    SHRUNK=$(printf '%s' "$EVIDENCE_JSON" | jq -c '. as $in | (if has("docsCitingChanged") then .docsCitingChanged |= map(del(.patch) + {patchOmitted:true}) else . end) | del(.docIndex, .specIndex, .pending, .config) + {omitted:(($in.omitted//[]) + (["docIndex","specIndex","pending","config"] | map(. as $f | select($in | has($f)))))}' 2>/dev/null || true)
-    if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$EVIDENCE_MAX_BYTES" ]; then
-      echo "run-review-lane: evidence over ${EVIDENCE_MAX_BYTES}B; shed fields named in .omitted" >&2
-      EVIDENCE_JSON="$SHRUNK"
-    else
-      echo "run-review-lane: evidence over ${EVIDENCE_MAX_BYTES}B even without the indexes; lane gathers it itself" >&2
-      EVIDENCE_JSON=""
-    fi
-  fi
+  # The verbatim indexes are the bulk; the resolved answers are what remove
+  # turns. Every field dropped is named, the way the module's own shed names
+  # them -- `pending` and `config` are resolutions rather than indexes, and a
+  # loss that is never announced reads as a field the block never carried, so
+  # the lane re-derives it and spends the turn the shed exists to save. The list
+  # is the only claim made: a companion boolean nothing reads can only ever
+  # contradict it.
+  EVIDENCE_JSON="$(shed_to_cap "$EVIDENCE_JSON" \
+    "$(bounded_cap "${REVIEW_LANE_EVIDENCE_MAX_BYTES:-}" 65536)" \
+    '. as $in | (if has("docsCitingChanged") then .docsCitingChanged |= map(del(.patch) + {patchOmitted:true}) else . end) | del(.docIndex, .specIndex, .pending, .config) + {omitted:(($in.omitted//[]) + (["docIndex","specIndex","pending","config"] | map(. as $f | select($in | has($f)))))}' \
+    'evidence' 'shed fields named in .omitted')"
 fi
 
 TASK="PR-boundary review, $LANE lane. $SCOPE"
@@ -434,14 +439,10 @@ trap 'rm -f "$GUARD_SETTINGS" "$LANE_STDERR"' EXIT
 # rate-limit backoff hangs just as hard. The Stop hook's staleness bound only
 # re-classifies an orphaned spawn; it never reaps the process.
 #
-# The bound is validated, not just defaulted. `timeout 0` means "no timeout at
-# all", so an empty, non-numeric, or explicitly-zero REVIEW_LANE_TIMEOUT would
-# silently remove the very bound this block exists to impose. Anything that is
-# not a positive integer falls back to the default instead of disabling it.
-LANE_TIMEOUT="${REVIEW_LANE_TIMEOUT:-1800}"
-case "$LANE_TIMEOUT" in
-  ''|*[!0-9]*|0) LANE_TIMEOUT=1800 ;;
-esac
+# Validated, not just defaulted: `timeout 0` means "no timeout at all", so an
+# empty, non-numeric or explicitly-zero override would silently remove the very
+# bound this block exists to impose. Same rule as every other bound here.
+LANE_TIMEOUT="$(bounded_cap "${REVIEW_LANE_TIMEOUT:-}" 1800)"
 # -k escalates to SIGKILL 30s after SIGTERM. Plain `timeout` sends only TERM,
 # which a process wedged in an uninterruptible auth prompt or a tight retry loop
 # can ignore -- leaving exactly the hung lane the bound was meant to reap.
