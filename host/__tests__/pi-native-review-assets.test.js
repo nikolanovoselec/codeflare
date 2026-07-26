@@ -173,11 +173,24 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       .split('\n')
       .find((line) => line.startsWith('| Commit-prefix + 5-round limit |'));
 
-    const canonical = rowOf(readFileSync(
+    const skill = readFileSync(
       join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/SKILL.md'),
       'utf8',
-    ));
+    );
+    const canonical = rowOf(skill);
     assert.ok(canonical, 'the enforcement manifest must carry the round-limit row');
+
+    // The miscount this row exists to prevent came from reading "in lane" as
+    // *this lane's own tag*, so the row must defer to the closed counted set
+    // rather than restate it -- and that set must still be the whole one. Pinned
+    // structurally: drop the deferral and the reference goes with it.
+    assert.match(canonical, /Commit-prefix contract/,
+      'the row must scope counting to the closed set, not leave the tag scope to be inferred');
+    const countedSet = skill.match(/\*\*Counted as agent-authored\*\*[^\n]*/)?.[0];
+    assert.ok(countedSet, 'the contract the row defers to must declare the counted set');
+    for (const tag of ['[autonomous]', '[unleashed]', '[spec-reviewer]', '[doc-updater]', '[code-reviewer]']) {
+      assert.ok(countedSet.includes(tag), `${tag} must remain in the set the row defers to`);
+    }
     // Both halves of the evidence contract live in the row's trailing status
     // template, so parse that cell rather than the whole row: a substring match
     // would also accept the field appearing loose in the prose beside it.
@@ -193,7 +206,14 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     // can execute a `~/.claude` path but Claude.
     const suffix = '/skills/spec-enforce/SKILL.md';
     const shipped = documents.filter((document) => document.key.endsWith(suffix));
-    assert.equal(shipped.length, 5, 'every runtime seeded with the manifest must be covered here');
+    // Every runtime with a non-null `skillsPrefix` in the generator's runtime
+    // table, plus Claude. Named rather than counted so a renamed root fails as
+    // a rename instead of passing on an unchanged total.
+    assert.deepEqual(
+      shipped.map((document) => document.key.slice(0, -suffix.length)).sort(),
+      ['.claude', '.codex', '.config/opencode', '.gemini', '.pi/agent'],
+      'every runtime seeded with the manifest must be covered here',
+    );
 
     for (const document of shipped) {
       const root = document.key.slice(0, -suffix.length);
