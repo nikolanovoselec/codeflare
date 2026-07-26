@@ -25,7 +25,10 @@ function countRounds(repo, lane) {
   // NUL-delimited: a commit subject may itself contain any printable delimiter,
   // and a phantom block is the same miscount this script exists to remove.
   // `-m --first-parent`: without it a merge carries no file list at all, so a
-  // user-directed merge landing lane work neither counts nor closes the window.
+  // merge landing lane work is invisible to both the count and the reset. The
+  // consequence is that a merge is judged by its OWN subject and side-branch
+  // commits are not walked -- so an agent landing a round through a merge must
+  // tag the merge, which the commit-prefix contract already requires of it.
   const log = execFileSync('git', [
     'log', `-${WINDOW}`, '--name-only', '-m', '--first-parent', '--format=%x00%H %s',
   ], {
