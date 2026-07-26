@@ -235,7 +235,11 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 # octal inside `[ -le ]`, so `0600` would mean 600 seconds to `timeout` and 384
 # bytes to a cap, one env value meaning two numbers to two consumers.
 bounded_cap() {
+  # Length first: shell arithmetic wraps past 64 bits, so a twenty-digit value
+  # becomes a positive number that passes every check below. Nine digits covers
+  # any cap (~1 GB) and any bound (~31 years) this script will ever want.
   case "$1" in ''|*[!0-9]*) printf '%s' "$2"; return ;; esac
+  if [ "${#1}" -gt 9 ]; then printf '%s' "$2"; return; fi
   if [ "$(( 10#$1 ))" -gt 0 ]; then printf '%s' "$(( 10#$1 ))"; else printf '%s' "$2"; fi
 }
 
@@ -400,7 +404,7 @@ fi
 if [ -n "$EVIDENCE_JSON" ]; then
   TASK="$TASK
 
-The lookups your checklist would otherwise order are already resolved below. Treat this block as authoritative: do NOT confirm an index exists, probe a layout, resolve an anchor, resolve a documented reference, enumerate call sites, pair a tree against its index, or read the decision ledger — those answers are here. \`checked\` is how many were verified and \`unresolved\` lists every one that failed; an empty \`unresolved\` with a non-zero \`checked\` is a clean pass you may report without re-running it. Where a row carries a \`patch\`, that is the change under review for that file: read it there and do NOT run \`git diff\` for it. \`evidence.config\` is the recorded configuration: a rule that defers to a disposition there is settled by it, so check it before raising a finding the project has already dispositioned. A field that is null or absent, or a row marked \`patchOmitted\` or \`patchTruncated\`, is the ONLY case you gather yourself. A \`checked\` of 0, or a null resolution field, means the check was NOT performed and you run it yourself -- only a non-zero \`checked\` with an empty \`unresolved\` is a pass. One question may be answered by more than one field, so before you gather anything by hand, check every resolution field your lane document names for that question: a zero in one is routinely a scope answer with the real resolution sitting in its sibling.
+The lookups your checklist would otherwise order are already resolved below. Treat this block as authoritative: do NOT confirm an index exists, probe a layout, resolve an anchor, resolve a documented reference, enumerate call sites, pair a tree against its index, or read the decision ledger — those answers are here. \`checked\` is how many were verified and \`unresolved\` lists every one that failed; an empty \`unresolved\` with a non-zero \`checked\` is a clean pass you may report without re-running it. Where a row carries a \`patch\`, that is the change under review for that file: read it there and do NOT run \`git diff\` for it. \`evidence.config\` is the recorded configuration: a rule that defers to a disposition there is settled by it, so check it before raising a finding the project has already dispositioned. A field that is null or absent, or a row marked \`patchOmitted\` or \`patchTruncated\`, is the ONLY case you gather yourself. A \`checked\` of 0, or a null resolution field, means the check was NOT performed and you run it yourself -- only a non-zero \`checked\` with an empty \`unresolved\` is a pass. A resolution carrying \`truncated: true\` was CAPPED: what it did check is authoritative, but the remainder is yours, so an empty \`unresolved\` there is not a clean pass over the whole set. One question may be answered by more than one field, so before you gather anything by hand, check every resolution field your lane document names for that question: a zero in one is routinely a scope answer with the real resolution sitting in its sibling.
 
 <evidence>
 $EVIDENCE_JSON

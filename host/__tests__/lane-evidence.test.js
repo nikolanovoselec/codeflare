@@ -118,9 +118,9 @@ describe('lane-evidence.mjs — anchor resolution', () => {
 
     assert.equal(out.anchors.checked, 0,
       'no spec file is in this range, so the in-file pass has nothing to check');
-    assert.equal(out.anchorsCitingChanged.checked, 2,
+    assert.equal(out.anchorsCitingChangedResolved.checked, 2,
       'both anchors citing the changed file are resolved; the one citing an untouched file is not work this diff owes');
-    assert.deepEqual(out.anchorsCitingChanged.unresolved.map((row) => row.symbol), ['renamedAway'],
+    assert.deepEqual(out.anchorsCitingChangedResolved.unresolved.map((row) => row.symbol), ['renamedAway'],
       'a path that still exists with the symbol gone is the drift this pass exists for');
   });
 });

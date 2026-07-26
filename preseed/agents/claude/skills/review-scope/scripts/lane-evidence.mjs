@@ -60,9 +60,19 @@ const clip = (line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}...`
 
 // Resolved items are a count; unresolved ones are the finding. Emitting both in
 // full is how a 683-anchor spec tree became 156 KB carried on every turn.
-function summarise(rows) {
+// `truncated` is not cosmetic. Every resolver here caps its input, so a capped
+// scan otherwise reaches the lane as a non-zero `checked` with an empty
+// `unresolved` -- which the lane is told to read as a clean pass. That is a
+// false clean in the one direction this module promises never to fail in, so a
+// scan that did not see everything says so and the lane finishes it.
+function summarise(rows, inputTruncated = false) {
   const failed = rows.filter((row) => !row.resolved);
-  return { checked: rows.length, unresolved: failed.slice(0, MAX_LIST) };
+  const truncated = inputTruncated || failed.length > MAX_LIST;
+  return {
+    checked: rows.length,
+    unresolved: failed.slice(0, MAX_LIST),
+    ...(truncated ? { truncated: true } : {}),
+  };
 }
 
 function git(repo, args) {
@@ -442,7 +452,11 @@ function main() {
     out.specIndex = (read(repo, 'sdd/README.md') ?? '')
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*]\s*\[/.test(line)).join('\n') || null;
     out.pending = read(repo, 'sdd/spec/pending.md') ?? read(repo, 'sdd/pending.md');
-    out.anchors = fromDiff(summarise(resolveAnchors(repo, files.filter((f) => f.startsWith('sdd/')))));
+    const changedSpecFiles = files.filter((f) => f.startsWith('sdd/'));
+    out.anchors = fromDiff(summarise(
+      resolveAnchors(repo, changedSpecFiles),
+      changedSpecFiles.length > MAX_LIST,
+    ));
     // Anchors ELSEWHERE in the spec tree that cite a file this diff changed --
     // the same gap the doc lane had, and the same fix. Anchors found INSIDE a
     // changed spec file are empty on any range carrying no REQ file, and the
@@ -451,14 +465,20 @@ function main() {
     // range whose only spec-owned file was the changelog. Resolution is bounded
     // to anchors pointing AT the changed files, not to every anchor in whatever
     // large REQ document happens to contain one.
-    const changedSource = files.filter((f) => !f.startsWith('sdd/'));
+    // Bounded like every sibling scan: one `git grep` per changed file, so an
+    // uncapped fan-out spends hundreds of subprocesses inside the resolver's own
+    // time bound on a large PR. The same bounded list is the resolution target,
+    // so the grep and the filter can never disagree about what was covered.
+    const allChangedSource = files.filter((f) => !f.startsWith('sdd/'));
+    const changedSource = allChangedSource.slice(0, MAX_LIST);
     if (changedSource.length) {
       const citing = [...new Set(changedSource.flatMap((file) => git(repo, [
         'grep', '-lE', '-a', '--', `<!--\\s*@(impl|test):\\s*${ereEscape(file)}`, 'sdd',
       ]).split('\n').filter(Boolean)))];
-      out.anchorsCitingChanged = fromDiff(
-        summarise(resolveAnchors(repo, citing, new Set(changedSource))),
-      );
+      out.anchorsCitingChangedResolved = fromDiff(summarise(
+        resolveAnchors(repo, citing, new Set(changedSource)),
+        allChangedSource.length > MAX_LIST || citing.length > MAX_LIST,
+      ));
     }
   } else if (lane === 'doc-updater') {
     // The classifier spawns this lane when a documentation @impl cites a file in
@@ -503,8 +523,8 @@ function main() {
     out.docIndex = (index ?? '')
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*|]\s*.*\[/.test(line)).join('\n') || null;
     const docFiles = files.filter((f) => f.startsWith('documentation/') || /^[A-Z]+\.md$/.test(f));
-    out.anchors = fromDiff(summarise(resolveAnchors(repo, docFiles)));
-    out.references = fromDiff(summarise(resolveDocReferences(repo, docFiles)));
+    out.anchors = fromDiff(summarise(resolveAnchors(repo, docFiles), docFiles.length > MAX_LIST));
+    out.references = fromDiff(summarise(resolveDocReferences(repo, docFiles), docFiles.length > MAX_LIST));
   } else if (lane === 'code-reviewer') {
     const source = files.filter((f) => !f.startsWith('sdd/') && !f.startsWith('documentation/'));
     out.callSites = fromDiff(callSites(repo, source, range));
