@@ -205,6 +205,87 @@ describe('run-review-lane.sh — guard re-injection', () => {
   });
 });
 
+// REQ-AGENT-102 constraint: the guard settings must survive a config path that
+// contains a space. An unquoted expansion produces valid JSON pointing at
+// non-existent paths, so the lane runs unguarded and every check reads as
+// "not blocked" -- a silent failure, not a loud one.
+describe('run-review-lane.sh — guard settings under a hostile config path', () => {
+  it('injects both guards intact when CLAUDE_CONFIG_DIR contains a space', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const spaced = join(cwd, 'my claude home');
+    mkdirSync(spaced, { recursive: true });
+    const home = join(spaced, 'claude-home');
+    mkdirSync(join(home, 'agents'), { recursive: true });
+    const hookScripts = join(home, 'plugins/codeflare-hooks/scripts');
+    mkdirSync(join(hookScripts, 'lib'), { recursive: true });
+    writeFileSync(
+      join(home, 'agents/code-reviewer.md'),
+      '---\nname: code-reviewer\nmodel: sonnet\n---\n\nYou are the code-reviewer lane.\n',
+    );
+    for (const guard of ['block-local-builds.sh', 'block-attributed-commits.sh']) {
+      writeFileSync(join(hookScripts, guard), '#!/usr/bin/env bash\nexit 0\n');
+    }
+    writeFileSync(join(hookScripts, 'lib/lane-classifier.sh'), readFileSync(CLASSIFIER_SRC, 'utf-8'));
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+
+    runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    const settings = JSON.parse(readFileSync(`${witness}.settings`, 'utf-8'));
+    const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks.map((h) => h.command));
+    assert.equal(commands.length, 2, 'a split path would yield a different number of hooks');
+    for (const command of commands) {
+      const path = command.replace(/^bash /, '');
+      assert.equal(existsSync(path), true,
+        `guard path must resolve to a real file, got ${path}`);
+    }
+  });
+});
+
+// REQ-AGENT-102 constraint: the lane subprocess is time-bounded. `timeout 0`
+// disables the bound entirely, so a zero or malformed value must fall back to
+// the default rather than silently removing it.
+describe('run-review-lane.sh — timeout bound', () => {
+  // Shim `timeout` so the bound it was actually handed is observable; the real
+  // one would just run the fake CLI and tell us nothing about its arguments.
+  function fakeTimeout(binDir, witness) {
+    const p = join(binDir, 'timeout');
+    writeFileSync(p, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > ${witness}.timeout\nshift 3\nexec "$@"\n`);
+    chmodSync(p, 0o755);
+  }
+
+  for (const [label, value, expected] of [
+    ['zero', '0', '1800'],
+    ['non-numeric', 'abc', '1800'],
+    ['empty', '', '1800'],
+    ['a real override', '600', '600'],
+  ]) {
+    it(`resolves ${label} REVIEW_LANE_TIMEOUT to ${expected}s`, () => {
+      const { cwd, base, head } = makeRepo('src/thing.ts');
+      const { home, hookScripts } = makeClaudeHome(cwd);
+      const witness = join(cwd, 'claude-was-called');
+      const binDir = fakeClaude(cwd, witness);
+      fakeTimeout(binDir, witness);
+
+      const seededRunner = join(hookScripts, 'run-review-lane.sh');
+      writeFileSync(seededRunner, readFileSync(RUNNER, 'utf-8'));
+      spawnSync('bash', [seededRunner, '--lane', 'code-reviewer', '--range', `${base}..${head}`], {
+        cwd, encoding: 'utf-8',
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          CLAUDE_CONFIG_DIR: home,
+          REVIEW_LANE_TIMEOUT: value,
+        },
+      });
+
+      const argv = readFileSync(`${witness}.timeout`, 'utf-8').split('\n');
+      assert.equal(argv[0], '-k', 'plain SIGTERM leaves a wedged lane running');
+      assert.equal(argv[2], expected);
+    });
+  }
+});
+
 // REQ-AGENT-102: the transport must not silently re-tier a lane.
 describe('run-review-lane.sh — model and effort passthrough', () => {
   it('forwards the model the lane document declares', () => {

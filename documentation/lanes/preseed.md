@@ -1099,6 +1099,10 @@ An in-session subagent cannot be made cheap. Claude Code injects CLAUDE.md, ever
 
 A lane that owns no changed file in the range short-circuits before the model is invoked, costing zero tokens; the same ownership question the classifier already answers is simply asked again for free. Any uncertainty — unreadable range, missing classifier — falls through to a full review rather than silently skipping one.
 
+The subprocess is bounded at `REVIEW_LANE_TIMEOUT` seconds (default 1800), because a lane that never returns holds the review gate open. The bound is validated rather than merely defaulted: `timeout 0` means "no timeout at all", so a zero, empty, or non-numeric override resolves back to the default instead of removing the bound. Expiry escalates to `SIGKILL` 30 seconds after `SIGTERM`, since a process wedged on an auth prompt or a retry loop can ignore `SIGTERM` and survive the bound it was supposed to enforce.
+
+Guard re-injection fails closed on every input class that would otherwise produce a lane running unguarded under `bypassPermissions`: a missing guard script, an absent `jq`, or an empty settings file all abort before the model starts. The guard paths are passed to `jq` as a quoted array — unquoted, a config directory containing a space word-splits into fragments and `jq` emits perfectly valid JSON whose hook commands point at paths that do not exist, which reads as "nothing blocked" instead of failing loudly.
+
 The Stop hook credits *either* transport, a legacy `Agent` subagent envelope or this `Bash` runner invocation, so migrating a lane never narrows what the gate accepts. `--lane <name>` is the gate's match token: renaming it silently disables review enforcement. The runner must appear in command position, so a quoted mention inside another command credits nothing, and a backgrounded subagent's start receipt is not accepted as completion.
 
 Pi uses the supported command grammar in

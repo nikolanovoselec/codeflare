@@ -113,18 +113,38 @@ trap 'rm -f "$GUARD_SETTINGS"' EXIT
 # Fail CLOSED. A missing guard would otherwise yield an empty hook list and run
 # the lane with bypassPermissions and no protection at all -- the same
 # silently-inert failure this block exists to prevent.
-GUARD_CMDS=""
+# jq is load-bearing here, not a convenience: it is what builds the guard
+# settings. Absent, the redirection below still creates an empty file, the lane
+# starts with an empty hook list, and it runs with bypassPermissions and no
+# protection -- the same silently-inert outcome the missing-guard check exists
+# to prevent. Check it explicitly rather than discovering it as "no guard fired".
+if ! command -v jq >/dev/null 2>&1; then
+  echo "run-review-lane: jq is required to build the guard settings; refusing to run unguarded" >&2
+  exit 3
+fi
+GUARD_CMDS=()
 for guard in block-local-builds.sh block-attributed-commits.sh; do
   if [ ! -f "$HOOK_DIR/$guard" ]; then
     echo "run-review-lane: required guard $HOOK_DIR/$guard is missing; refusing to run unguarded" >&2
     exit 3
   fi
-  GUARD_CMDS="$GUARD_CMDS $HOOK_DIR/$guard"
+  GUARD_CMDS+=("$HOOK_DIR/$guard")
 done
 # jq builds the JSON so a quote or backslash in CLAUDE_CONFIG_DIR/$HOME cannot
 # produce a malformed settings file.
+#
+# The expansion MUST stay quoted as an array. Unquoted, a CLAUDE_CONFIG_DIR
+# containing a space word-splits into fragments, and jq happily emits perfectly
+# valid JSON whose hook commands point at paths that do not exist. That fails
+# silently -- the lane runs unguarded and every check reports "not blocked" --
+# whereas the malformed-JSON case this comment used to describe at least fails
+# loudly. Quoting converts the dangerous failure back into the safe one.
 jq -n --args '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[$ARGS.positional[]|{type:"command",command:("bash "+.)}]}]}}' \
-  $GUARD_CMDS > "$GUARD_SETTINGS"
+  "${GUARD_CMDS[@]}" > "$GUARD_SETTINGS"
+if [ ! -s "$GUARD_SETTINGS" ]; then
+  echo "run-review-lane: guard settings file is empty; refusing to run unguarded" >&2
+  exit 3
+fi
 
 # NO-OP SHORT-CIRCUIT.
 #
@@ -193,7 +213,19 @@ trap 'rm -f "$GUARD_SETTINGS" "$LANE_STDERR"' EXIT
 # inside the review gate wedges the turn, and an auth prompt, a network stall or
 # rate-limit backoff hangs just as hard. The Stop hook's staleness bound only
 # re-classifies an orphaned spawn; it never reaps the process.
-RAW="$(timeout "${REVIEW_LANE_TIMEOUT:-1800}" claude "$@" 2>"$LANE_STDERR")"
+#
+# The bound is validated, not just defaulted. `timeout 0` means "no timeout at
+# all", so an empty, non-numeric, or explicitly-zero REVIEW_LANE_TIMEOUT would
+# silently remove the very bound this block exists to impose. Anything that is
+# not a positive integer falls back to the default instead of disabling it.
+LANE_TIMEOUT="${REVIEW_LANE_TIMEOUT:-1800}"
+case "$LANE_TIMEOUT" in
+  ''|*[!0-9]*|0) LANE_TIMEOUT=1800 ;;
+esac
+# -k escalates to SIGKILL 30s after SIGTERM. Plain `timeout` sends only TERM,
+# which a process wedged in an uninterruptible auth prompt or a tight retry loop
+# can ignore -- leaving exactly the hung lane the bound was meant to reap.
+RAW="$(timeout -k 30 "$LANE_TIMEOUT" claude "$@" 2>"$LANE_STDERR")"
 STATUS=$?
 if [ $STATUS -ne 0 ] || [ -z "$RAW" ]; then
   echo "run-review-lane: $LANE lane failed to produce a report (exit $STATUS)" >&2
@@ -215,9 +247,18 @@ printf '%s' "$RAW" | LANE="$LANE" node -e '
     try { parsed = JSON.parse(s); } catch { process.stderr.write("run-review-lane: unparseable CLI output\n"); process.exit(4); }
     if (parsed.is_error) { process.stderr.write("run-review-lane: lane reported an error\n"); process.exit(4); }
     const u = parsed.usage || {};
-    const prompt = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+    // Broken out, not summed: these four are billed at wildly different rates
+    // (cache writes above base input, cache reads far below it, output highest
+    // of all), so a single prompt_tokens figure cannot tell you which lever to
+    // pull. A lane that is expensive because of turn count looks identical to
+    // one that is expensive because of evidence volume until they are split.
+    const fresh = u.input_tokens || 0;
+    const cacheWrite = u.cache_creation_input_tokens || 0;
+    const cacheRead = u.cache_read_input_tokens || 0;
+    const prompt = fresh + cacheWrite + cacheRead;
     process.stderr.write(
       `run-review-lane: lane=${process.env.LANE} prompt_tokens=${prompt} ` +
+      `fresh_input=${fresh} cache_write=${cacheWrite} cache_read=${cacheRead} ` +
       `output_tokens=${u.output_tokens || 0} turns=${parsed.num_turns || 0} ` +
       `cost_usd=${(parsed.total_cost_usd || 0).toFixed(4)}\n`,
     );

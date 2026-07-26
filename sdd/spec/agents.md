@@ -2571,7 +2571,8 @@ None.
 - Dropping inherited settings drops hooks; build/test guards are re-injected explicitly and invoked as `bash <script>` (seeded hooks ship non-executable).
 - Transport detection is additive: the legacy Agent shape stays credited, so a migrated lane is still counted as reviewed.
 - A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
-- A lane subprocess is time-bounded; a lane that never returns must not hold the review gate open.
+- A lane subprocess is time-bounded; a lane that never returns must not hold the review gate open. The bound is validated and escalating: a zero, empty, or non-numeric override resolves to the default rather than disabling the bound, and expiry escalates past SIGTERM so a wedged lane is actually reaped.
+- The guard settings are built by `jq` from a quoted argument array and the result is verified non-empty; a missing `jq`, a missing guard, or a config path containing a space must fail closed rather than yield hooks that silently never fire.
 
 **Priority:** P1
 
