@@ -161,7 +161,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     }
   });
 
-  it('REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker', () => {
+  it('REQ-AGENT-107: enforcement round limit honors only the exact fully autonomous marker', () => {
     const script = join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs');
     const decide = (count, marker) => {
       const result = spawnSync(process.execPath, [script, String(count), ...(marker ? [marker] : [])], {
@@ -378,7 +378,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
   // row is executed inline, so it has to be self-sufficient: a lane that reads
   // it as an invitation to judge can return `continue` on a window the gate
   // would stop, and the anti-spiral limit silently stops existing.
-  it('REQ-AGENT-084: the round-limit row routes the verdict to the gate in every runtime', () => {
+  it('REQ-AGENT-107: the round-limit row routes the verdict to the gate in every runtime', () => {
     const rowOf = (text) => text
       .split('\n')
       .find((line) => line.startsWith('| Commit-prefix + 5-round limit |'));
@@ -466,42 +466,67 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     }
   });
 
-  it('REQ-AGENT-084: the user-invoked exemption is wired on both sides in every runtime', () => {
+  it('REQ-AGENT-107: the user-invoked exemption is wired on both sides in every runtime', () => {
     // The gate is an agent self-limit. Once its count became deterministic it
     // could actually reach `stop`, and the manifest row runs under `/sdd clean`
     // too -- so an unscoped row would block the remediation at exactly the
     // moment a spiral had happened. The exemption is only real if the rule
-    // declares it AND the caller passes the input it keys on; either half alone
-    // fails open, which is why both are pinned here rather than the prose.
+    // declares it AND the caller passes the key it is decided on, so both
+    // halves are checked; either alone fails open.
     const specEnforce = '/skills/spec-enforce/SKILL.md';
     const sddClean = '/skills/sdd-clean/SKILL.md';
+    const seeded = (key) => documents.find((document) => document.key === key)?.content;
 
+    // Existence is asserted once, against the canonical Claude source, and as
+    // the manifest's own disposition vocabulary rather than the sentence
+    // carrying it: `inert (<reason>)` is what a row reports when it had no
+    // trigger, so this fails if the row goes back to returning a verdict on a
+    // user-invoked run, and survives a rewording that keeps the disposition.
+    const canonicalRule = readFileSync(join(repoRoot, `preseed/agents/claude${specEnforce}`), 'utf8');
+    const rowOf = (text) => text.split('\n').find((line) => line.startsWith('| Commit-prefix + 5-round limit |'));
+    const canonicalRow = rowOf(canonicalRule);
+    assert.ok(canonicalRow, 'the enforcement manifest must carry the round-limit row');
+    assert.match(canonicalRow, /inert \(purpose=clean/,
+      'the row must dispose a user-invoked run as inert rather than gate it');
+    // Same key, same spelling, on both sides of the contract -- the rule is
+    // decided on what the caller passes, so a drift in spelling is a drift in
+    // the contract.
+    const canonicalCaller = readFileSync(join(repoRoot, `preseed/agents/claude${sddClean}`), 'utf8');
+    const callerLine = canonicalCaller.split('\n').find((line) => line.includes('invoke the `spec-enforce` skill'));
+    assert.ok(callerLine?.includes('`purpose=clean`'), '/sdd clean must pass the key its exemption is decided on');
+    assert.ok(canonicalRow.includes('`purpose=clean`'), 'the rule must name the key in the caller\'s spelling');
+
+    // Everything else is parity: each runtime must carry the canonical text,
+    // not a paraphrase of it. Derived rather than re-matched, so a reworded
+    // rule cannot fail five runtimes at once while a genuine per-runtime
+    // divergence slips through.
     const rootsOf = (suffix) => documents
       .filter((document) => document.key.endsWith(suffix))
       .map((document) => document.key.slice(0, -suffix.length))
       .sort();
-    // Same closed runtime set the canonical-row parity check covers: an
-    // exemption that reaches four of five roots re-arms the gate on the fifth.
+    // A closed set: an exemption reaching four of five roots re-arms the gate
+    // on the fifth, and an empty derived list would assert nothing.
     const roots = ['.claude', '.codex', '.config/opencode', '.gemini', '.pi/agent'];
     assert.deepEqual(rootsOf(specEnforce), roots, 'every runtime seeded with the rule must be covered here');
     assert.deepEqual(rootsOf(sddClean), roots, 'every runtime seeded with the caller must be covered here');
 
-    const seeded = (key) => documents.find((document) => document.key === key)?.content;
+    // The normative section states the same scoping the row does; it is
+    // compared whole, against canonical, so no runtime can carry a narrower
+    // version of the limit than the one the row advertises.
+    const sectionOf = (text) => text.split('\n## ').find((section) => section.startsWith('The 5-round commit cycle limit'));
+    assert.ok(sectionOf(canonicalRule), 'the rule must carry its normative round-limit section');
+
     for (const root of roots) {
       const rule = seeded(`${root}${specEnforce}`);
-      const row = rule.split('\n').find((line) => line.startsWith('| Commit-prefix + 5-round limit |'));
-      // The disposition, not the sentence: an `inert` status is the manifest's
-      // own vocabulary for a row that had no trigger, so this fails if the row
-      // reverts to reporting a verdict on a user-invoked run.
-      assert.match(row, /purpose: clean[^|]*inert \(purpose=clean/,
-        `${root}'s row must dispose a user-invoked run as inert rather than gate it`);
-      assert.match(rule, /^It binds the autonomous PR-boundary loop only\./m,
-        `${root}'s normative section must scope the limit to the autonomous loop`);
-
-      // The caller half. `purpose=clean` is what the row keys on, so a clean
-      // that omits it is gated again no matter what the rule says.
-      assert.match(seeded(`${root}${sddClean}`), /binding\):\*\* invoke the `spec-enforce` skill \(spine\) with `purpose=clean`/,
-        `${root}'s /sdd clean must pass the input its exemption is keyed on`);
+      const adapt = (text) => text.replaceAll('~/.claude/skills/', `~/${root}/skills/`);
+      assert.equal(rowOf(rule), adapt(canonicalRow), `${root} must enforce the canonical row, not a paraphrase`);
+      assert.equal(sectionOf(rule), adapt(sectionOf(canonicalRule)),
+        `${root} must carry the canonical scoping of the limit`);
+      assert.equal(
+        seeded(`${root}${sddClean}`).split('\n').find((line) => line.includes('invoke the `spec-enforce` skill')),
+        adapt(callerLine),
+        `${root}'s /sdd clean must pass the same key the canonical caller does`,
+      );
     }
   });
 

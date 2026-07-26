@@ -2337,7 +2337,7 @@ None.
 
 ### REQ-AGENT-084: Pi Reviewer Policy Contract
 
-**Intent:** Pi reviewers must begin every run with complete canonical scope and enforcement policy, including deterministic round control, without spending review turns on policy discovery.
+**Intent:** Pi reviewers must begin every run with complete canonical scope and enforcement policy available, without spending review turns on policy discovery.
 
 **Applies To:** Agent
 
@@ -2346,10 +2346,6 @@ None.
 1. Code, specification, and documentation reviewers begin with every declared canonical policy available before their first tool call. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
-4. User invocation releases the agent self-limit: at five or more counted commits the direct-user fully-autonomous marker changes only the enforced decision from stop to continue, and a run whose purpose is a user-invoked clean is reported inert without consulting the gate. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::The 5-round commit cycle limit --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: the user-invoked exemption is wired on both sides in every runtime) -->
-5. Every reviewer takes both its round count and its round-limit decision from the deterministic gate it is directed to, which counts any agent-authored tag that touched the lane rather than only the reviewer's own. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: the round-limit row routes the verdict to the gate in every runtime) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (counts any agent tag that touched the lane, and only those) -->
-6. Every reviewer reports both the counted total and the gate's decision as enforcement evidence. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: the round-limit row routes the verdict to the gate in every runtime) -->
-7. A gate that cannot read the commit history fails with a non-zero status and a concise diagnostic rather than a verdict, so an unreadable window is never mistaken for a permissive one. <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (refuses to return a verdict when the history cannot be read) -->
 
 **Constraints:**
 
@@ -2360,6 +2356,35 @@ None.
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+
+**Verification:** Automated test ([Pi-native review asset tests](../../host/__tests__/pi-native-review-assets.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-107: Deterministic Round-Limit Gate
+
+**Intent:** The anti-spiral round limit must be decided by one executable gate every runtime is directed to, so the same window yields the same verdict regardless of which agent reads it, and so releasing the limit is a stated contract rather than a reader's judgment.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. At five or more counted commits, the direct-user fully-autonomous marker changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: enforcement round limit honors only the exact fully autonomous marker) -->
+2. The agent executing a user-invoked clean reports the round-limit row inert without consulting the gate. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::The 5-round commit cycle limit --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the user-invoked exemption is wired on both sides in every runtime) -->
+3. Every reviewer takes both its round count and its round-limit decision from the deterministic gate it is directed to, which counts any agent-authored tag that touched the lane rather than only the reviewer's own. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the round-limit row routes the verdict to the gate in every runtime) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (counts any agent tag that touched the lane, and only those) -->
+4. Every reviewer reports both the counted total and the gate's decision as enforcement evidence. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the round-limit row routes the verdict to the gate in every runtime) -->
+5. A gate that cannot read the commit history fails with a non-zero status and a concise diagnostic rather than a verdict, so an unreadable window is never mistaken for a permissive one. <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (refuses to return a verdict when the history cannot be read) -->
+
+**Constraints:**
+
+- The limit binds agent-authored review rounds only; user-invoked runs are released, never counted down.
+- One gate serves every runtime; a reviewer that derives count or verdict itself is in breach.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
 
 **Verification:** Automated test ([Pi-native review asset tests](../../host/__tests__/pi-native-review-assets.test.js))
 
