@@ -2564,7 +2564,9 @@ None.
 2. The review gate credits a lane under either that headless transport or a legacy Agent subagent spawn. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_spawn_lines --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_completed --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 3. A lane whose range contains no file it owns returns a no-op report without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — no-op short-circuit) -->
 4. The lane subprocess carries a validated, escalating time bound that a zero, empty, or non-numeric override cannot disable. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — timeout bound) -->
-5. Guard re-injection fails closed on a missing guard, an absent `jq`, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) -->
+5. Guard re-injection fails closed on a missing guard, an absent JSON-processing dependency, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) -->
+6. A lane whose background run ended without success counts as ended rather than in flight, so the gate re-demands it instead of awaiting it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_terminal --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+7. That demand states the lane already ran without being credited. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::spawn_ended_unsuccessfully --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 
 **Constraints:**
 
@@ -2573,9 +2575,8 @@ None.
 - Dropping inherited settings drops hooks; build/test guards are re-injected explicitly and invoked as `bash <script>` (seeded hooks ship non-executable).
 - Transport detection is additive: the legacy Agent shape stays credited, so a migrated lane is still counted as reviewed.
 - A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
-- A lane subprocess is time-bounded; a lane that never returns must not hold the review gate open.
-- The bound is validated and escalating: a zero, empty, or non-numeric override resolves to the default, and expiry escalates past SIGTERM so a wedged lane is reaped.
-- Guard settings are constructed programmatically and verified non-empty; a missing dependency, a missing guard, or a config path containing a space fails closed rather than yielding hooks that silently never fire.
+- A lane subprocess is time-bounded; an unbounded lane holds the review gate open.
+- Guard settings are constructed programmatically and verified non-empty before use.
 
 **Priority:** P1
 
@@ -2595,10 +2596,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Each lane's Phase 0 triage is resolved deterministically before the subprocess starts and handed to it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — transition gate) --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — round counter) -->
+1. Each lane's Phase 0 triage is resolved deterministically before the subprocess starts and handed to it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — transition gate) --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — round counter) -->
 2. The pre-computed triage reproduces the bulk-op audit and round-limit gates the reviewer prose defines. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::bulkOpAudit --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — bulk-op audit) -->
 3. A lane whose triage resolves to a no-op returns without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
-4. Every triage condition that cannot be resolved resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — fail-safe direction) -->
+4. Every triage condition that cannot be resolved resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — fail-safe direction) -->
 
 **Constraints:**
 

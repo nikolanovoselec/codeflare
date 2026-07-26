@@ -142,11 +142,15 @@ describe('lane-triage.mjs — round counter', () => {
 
   it('excludes the bulk-op prefixes from the counter regardless of paths', () => {
     const cwd = repo();
+    // The subject must carry a round tag AND a bulk prefix. Without the tag the
+    // rule's own guard already returns 0, so the exclusion would decide nothing
+    // and deleting it would leave this test green.
     for (let i = 0; i < 5; i += 1) {
-      commit(cwd, `sdd/spec/f${i}.md`, `${i}\n`, `[sdd-clean] bulk pass ${i}`);
+      commit(cwd, `sdd/spec/f${i}.md`, `${i}\n`, `[sdd-clean] [autonomous] bulk pass ${i}`);
     }
     const t = triage(cwd, 'spec-reviewer');
-    assert.equal(t.roundLimit.counted, 0);
+    assert.equal(t.roundLimit.counted, 0,
+      'only BULK_PREFIXES can produce 0 here; these five would otherwise count and stop the lane');
     assert.equal(t.decision, 'proceed');
   });
 
@@ -163,12 +167,21 @@ describe('lane-triage.mjs — round counter', () => {
 
   it('honours the doc lane starts-with rule rather than the spec contains rule', () => {
     const cwd = repo();
-    // A subject that CONTAINS but does not START WITH the tag: counts for spec,
-    // not for doc. Collapsing the two rules would change when a limit fires.
+    // One subject shape, both lanes: it CONTAINS but does not START WITH the
+    // tag. Asserting only the doc half would stay green if both rules were
+    // collapsed to startsWith, so the spec half is asserted on its own tree.
     for (let i = 0; i < 5; i += 1) {
       commit(cwd, `documentation/d${i}.md`, `${i}\n`, `chore: rollup [autonomous] ${i}`);
     }
-    assert.equal(triage(cwd, 'doc-updater').roundLimit.counted, 0);
+    assert.equal(triage(cwd, 'doc-updater').roundLimit.counted, 0,
+      'doc counts only a subject that STARTS WITH a tag');
+
+    const spec = repo();
+    for (let i = 0; i < 5; i += 1) {
+      commit(spec, `sdd/spec/f${i}.md`, `${i}\n`, `chore: rollup [autonomous] ${i}`);
+    }
+    assert.equal(triage(spec, 'spec-reviewer').roundLimit.counted, 5,
+      'spec counts a subject that merely CONTAINS a tag; collapsing the rules would make this 0');
   });
 });
 

@@ -21,6 +21,8 @@ Resolve one scope before any reviewer or enforcement pass starts. Return the sco
 
 ## Build the lane packet once
 
+**When your prompt already carries a `<packet>` block, it is built — reason from it and do not run the CLI.** Rebuilding spends a turn to obtain what you were handed. Everything below applies when no such block is present (a very large diff, or a direct invocation).
+
 For `diff`, validate the range and obtain the lane-owned file list and hunks in one call:
 
 ```bash
@@ -43,7 +45,7 @@ A changed input path alone does not invalidate every anchor in that file. Resolv
 
 Use gather-then-reason evidence processing instead of alternating one read or search with one reasoning turn:
 
-1. Build and parse the lane packet exactly once inside the first Bash call. Every canonical policy arrives through the enforcement skill, so no policy retrieval call is needed.
+1. Build and parse the lane packet exactly once inside the first Bash call, or skip straight to step 2 when the packet was inlined into your prompt. Every canonical policy arrives through the enforcement skill, so no policy retrieval call is needed.
 2. Derive the pending manifest and direct-impact candidates in that same evidence wave. Emit compact counts, failures, and snippets for every lane hunk and only anchor targets intersecting `changedInputs[].hunks`; do not emit raw packet JSON.
 3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate in one focused wave, batching independent lookups together. Never re-query policy text, packet sections, or evidence already retrieved. This cadence is not a turn limit: continue only when a named candidate still lacks concrete evidence, and state what evidence is missing before the next call.
 4. Bound every shell command that searches. `grep`/`rg` must carry `-c`, `| wc -l`, or `| head -N` so the transcript receives counts and named candidates rather than whatever the pattern happened to match. An unbounded scan defeats the packet.

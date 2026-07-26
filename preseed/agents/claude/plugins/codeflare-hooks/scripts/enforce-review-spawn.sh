@@ -578,6 +578,24 @@ tool_use_id_completed() {
     | grep -qF 'completed</status>'
 }
 
+# Terminal status for a spawned lane: the background task ENDED, successfully or
+# not. `completed` credits the review; `failed` must not. But `failed` is just as
+# terminal as `completed` -- a lane that died is not still running.
+#
+# Conflating the two is what wedged the checkpoint in practice: a lane whose
+# subprocess exited non-zero read as "in flight" for the next 1200 transcript
+# lines, so the gate waited on a process that was already dead, the head stayed
+# un-acked, and the next push measured its range from the last ACKED head rather
+# than the last reviewed one. One lost lane therefore widened every subsequent
+# review permanently -- a measured 10-commit re-review where one commit was due.
+tool_use_id_terminal() {
+  local spawn_line="$1"
+  local tool_use_id="$2"
+  awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
+    | grep -F "tool-use-id>${tool_use_id}<" \
+    | grep -qE '(completed|failed)</status>'
+}
+
 retroactive_ack_scan() {
   [ -f "$TRANSCRIPT" ] || return
   local total
@@ -963,16 +981,26 @@ lane_in_flight() {
   line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
   tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
   [ -n "$tool_use_id" ] || return 1  # can't correlate -> treat as not in flight
-  if tool_use_id_completed "$spawn_line" "$tool_use_id"; then
-    return 1  # completed -> not in flight
+  if tool_use_id_terminal "$spawn_line" "$tool_use_id"; then
+    return 1  # ended (completed OR failed) -> not in flight, re-demand at once
   fi
-  return 0  # spawned recently, no completion yet -> in flight
+  return 0  # spawned recently, no terminal status yet -> in flight
 }
 
 latest_lane_spawn_after_line() {
   local lane="$1"
   local min_line="$2"
   lane_spawn_lines "$lane" "$min_line" | tail -1
+}
+
+spawn_ended_unsuccessfully() {
+  local spawn_line="$1"
+  local line_content tool_use_id
+  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
+  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+  [ -n "$tool_use_id" ] || return 1
+  tool_use_id_terminal "$spawn_line" "$tool_use_id" \
+    && ! tool_use_id_completed "$spawn_line" "$tool_use_id"
 }
 
 spawn_completed() {
@@ -1053,8 +1081,25 @@ if requires_lane "doc-updater" && ! lane_has_current_coverage "doc-updater" && !
   MISSING="$MISSING doc-updater"
 fi
 
+# A lane that already ran for THIS head and ended without success is the case
+# that used to disappear: its report may even have been readable, but the gate
+# never credited it, so the head stayed un-acked and every later range widened.
+# Name it in the demand so a lost lane is re-run rather than silently absorbed.
+FAILED=""
+for lane in code-reviewer spec-reviewer doc-updater; do
+  requires_lane "$lane" || continue
+  failed_spawn=$(latest_lane_spawn_after_line "$lane" "$PUSH_LINE")
+  [ -n "$failed_spawn" ] || continue
+  if spawn_ended_unsuccessfully "$failed_spawn"; then
+    FAILED="$FAILED $lane"
+  fi
+done
+
 if [ -n "$MISSING" ]; then
   REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  if [ -n "$FAILED" ]; then
+    REASON="$REASON ATTENTION:$FAILED already ran for this head and ended WITHOUT success, so nothing was credited - re-run those lanes rather than treating their output as a completed round."
+  fi
   emit_block "$REASON"
 fi
 

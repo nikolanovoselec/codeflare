@@ -104,8 +104,13 @@ function readConfig(repo, configPath) {
   return {
     present: true,
     raw,
-    mode: scalar('mode'),
-    enforce_tdd: scalar('enforce_tdd') === 'true',
+    mode: scalar('mode') ?? 'interactive',
+    // Absence is not an opt-out. `=== 'true'` turned a missing key into an
+    // affirmative false, which reads to the lane as a deliberate decision to
+    // disable TDD demotion -- fail-open in an enforcement gate. Only an
+    // explicit `false` opts out; the documented default is on.
+    enforce_tdd: scalar('enforce_tdd') !== 'false',
+    // `transition` inverts safely: absent -> not suspended -> the review runs.
     transition: scalar('transition') === 'true',
     changelog_entry_style: scalar('changelog_entry_style'),
   };
@@ -246,6 +251,9 @@ function main() {
       out.reason = 'no SDD bootstrap (sdd/ or sdd/README.md absent)';
       return out;
     }
+    // The lane documents read `bulkOpAudit.findings` unconditionally, so emit
+    // the empty audit rather than omitting the key on this path.
+    out.bulkOpAudit = { checked: 0, findings: [] };
     return out;
   }
 

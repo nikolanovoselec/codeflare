@@ -186,6 +186,11 @@ const LANE_BASH_LINE = (lane, ts, toolUseId = 'toolu_b') =>
 // backgrounded Agent uses, so one completion contract covers both transports.
 const LANE_BASH_DONE_LINE = (toolUseId) => DONE_LINE(toolUseId);
 
+// A background call that exits non-zero. Same envelope, terminal status
+// `failed`: the lane ENDED, but produced nothing the gate may credit.
+const FAILED_LINE = (toolUseId) =>
+  `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>failed</status></task-notification>`;
+
 // The start receipt the harness returns the instant a background call is
 // launched. It carries the tool_use_id but means "launched", not "finished".
 const START_RECEIPT_LINE = (toolUseId) =>
@@ -691,6 +696,35 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.notEqual(ackOf(cwd), 'incompletesha',
       'an unreturned lane must not advance the checkpoint');
+  });
+
+  // A background lane that exits non-zero terminates as `failed`, not
+  // `completed`. It is just as ENDED as a successful one, and the difference
+  // between "ended badly" and "still running" is what the checkpoint depends
+  // on: treated as in-flight, the gate waits on a dead process, the head stays
+  // un-acked, and every later range is measured from a stale checkpoint.
+  it('re-demands a lane whose background run terminated as failed', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'failedlanesha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      FAILED_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'failedlanesha',
+      'a failed lane produced no findings, so it must never advance the checkpoint');
+    assert.match(r.stdout, /code-reviewer/,
+      'the failed lane must be re-demanded immediately, not waited on as if it were still running');
+    assert.match(r.stdout, /WITHOUT success/,
+      'the demand must say the lane already ran and was not credited, or the round is silently lost');
+    assert.doesNotMatch(r.stdout, /run spec-reviewer|run doc-updater/,
+      'lanes that did complete must not be re-demanded');
   });
 
   // Both imposter shapes quote the runner path. The second also puts a shell
