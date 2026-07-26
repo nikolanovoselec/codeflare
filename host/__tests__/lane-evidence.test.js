@@ -402,6 +402,21 @@ describe('lane-evidence.mjs — a lane gets evidence for why it was spawned', ()
       'src/thing.ts.bak is not src/thing.ts');
   });
 
+  // Excluding every trailing dot blocked `src/a.ts.bak`, and blocked a path
+  // ending a sentence with it. A lost citation is a false clean in the one check
+  // this lane exists for.
+  it('cites a page whose sentence ends on the path', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/architecture.md', 'Prose ends with the path src/engine.ts.\n');
+    commit(cwd, 'docs: page');
+    write(cwd, 'src/engine.ts', 'export const drive = 1;\n');
+    const head = commit(cwd, 'feat: the engine');
+
+    assert.ok(run(cwd, 'doc-updater', `${base}..${head}`)
+      .docsCitingChanged.some((row) => row.file === 'src/engine.ts'),
+    'a full stop after the path is punctuation, not a longer filename');
+  });
+
   it('still cites a page that names the path with surrounding punctuation', () => {
     const { cwd, base } = makeRepo();
     write(cwd, 'documentation/architecture.md', 'Run `scripts/ship.sh` (the deployer).\n');
@@ -522,8 +537,8 @@ describe('lane-evidence.mjs — the decision record', () => {
     const out = run(cwd, 'code-reviewer', `${base}..${head}`);
 
     assert.deepEqual(out.adrs, [
-      { id: 'AD001', title: 'First decision', status: 'Accepted' },
-      { id: 'AD002', title: 'Rejected idea', status: 'Superseded' },
+      'AD001|First decision|Accepted',
+      'AD002|Rejected idea|Superseded',
     ], 'status decides whether a finding is already settled, so it must survive the reduction');
   });
 });
@@ -615,7 +630,8 @@ describe('lane-evidence.mjs — the block bounds itself', () => {
     const out = run(cwd, 'doc-updater', `${base}..${head}`);
 
     assert.ok(out.omitted?.includes('docIndex'), 'a dropped field must name itself');
-    assert.ok(JSON.stringify(out).length <= 65536, 'the point of the shed is to land under the cap');
+    assert.ok(JSON.stringify(out, null, 1).length <= 65536,
+      'the cap has to be measured on the form that is actually emitted, not a denser one');
     assert.equal(typeof out.references?.checked, 'number',
       'resolutions are the part that removes turns and must survive the shed');
   });

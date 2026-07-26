@@ -182,7 +182,9 @@ function filePatch(repo, range, file) {
 // and `vendor/src/a.ts` -- spurious work set rows, each spending patch budget a
 // genuine citation needs.
 function citedBy(repo, file) {
-  const pattern = `(^|[^A-Za-z0-9_/.-])${ereEscape(file)}([^A-Za-z0-9_.-]|$)`;
+  // A trailing dot is only a continuation when an extension char follows it:
+  // `src/a.ts.bak` must not match `src/a.ts`, but prose ending `src/a.ts.` must.
+  const pattern = `(^|[^A-Za-z0-9_/.-])${ereEscape(file)}([^A-Za-z0-9_.-]|\\.[^A-Za-z0-9]|\\.$|$)`;
   return git(repo, ['grep', '-lE', '-a', '--', pattern, 'documentation'])
     .split('\n').filter(Boolean).filter(live).slice(0, 12);
 }
@@ -388,6 +390,14 @@ function main() {
 
   // Every lane is told to check the record before escalating a judgment call.
   const out = { lane, adrs: adrLedger(repo) };
+  // Anything derived from the DIFF is unknown without a range, not clean. With
+  // no range `changedFiles` is empty, so every such check summarised to
+  // `{checked: 0, unresolved: []}` -- which reads as a pass that was performed.
+  // A full-PR review and an `all` scope both arrive without a range, so this was
+  // the module's own forbidden direction: unresolved reported as resolved.
+  const fromDiff = (value) => (range ? value : null);
+  const specRoot = existsSync(join(repo, 'sdd/spec')) ? 'sdd/spec' : 'sdd';
+  if (lane !== 'code-reviewer') out.config = read(repo, `${specRoot}/config.yml`);
 
   if (lane === 'spec-reviewer') {
     // The five manifest rows this lane was still computing itself. Each is a
@@ -402,6 +412,10 @@ function main() {
     // and referencing it would have thrown into the catch-all, handing the lane
     // an error object and quietly restoring every lookup this removes.
     out.queue = read(repo, specGlob === 'sdd/spec' ? 'sdd/spec/.review-queue.md' : 'sdd/.review-needed.md');
+    // The config carries the recorded dispositions a rule defers to. One runtime
+    // is handed it in a triage block the other runtime does not have, and that
+    // runtime raised four findings the config had already settled. A disposition
+    // only one runtime can see is a rule only one runtime enforces.
     // Drift detection asks whether THIS diff's REQs got an entry, so the recent
     // head of the file answers it; carrying the whole history would blow the
     // evidence cap and shed the resolutions that remove turns.
@@ -422,7 +436,7 @@ function main() {
     out.specIndex = (read(repo, 'sdd/README.md') ?? '')
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*]\s*\[/.test(line)).join('\n') || null;
     out.pending = read(repo, 'sdd/spec/pending.md') ?? read(repo, 'sdd/pending.md');
-    out.anchors = summarise(resolveAnchors(repo, files.filter((f) => f.startsWith('sdd/'))));
+    out.anchors = fromDiff(summarise(resolveAnchors(repo, files.filter((f) => f.startsWith('sdd/')))));
   } else if (lane === 'doc-updater') {
     // The classifier spawns this lane when a documentation @impl cites a file in
     // the diff, so that citation IS its work set when no doc file was touched.
@@ -447,6 +461,9 @@ function main() {
           ? { ...row, patch: got.patch, patchTruncated: true }
           : { ...row, patch: got.patch };
       });
+    // An empty citation list means "nothing changed cites a page" -- a claim
+    // this cannot make without a diff to read.
+    out.docsCitingChanged = fromDiff(out.docsCitingChanged);
     const nested = existsSync(join(repo, 'documentation/lanes'));
     const index = read(repo, 'documentation/README.md');
     out.docLayout = nested ? 'nested' : 'flat';
@@ -463,11 +480,11 @@ function main() {
     out.docIndex = (index ?? '')
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*|]\s*.*\[/.test(line)).join('\n') || null;
     const docFiles = files.filter((f) => f.startsWith('documentation/') || /^[A-Z]+\.md$/.test(f));
-    out.anchors = summarise(resolveAnchors(repo, docFiles));
-    out.references = summarise(resolveDocReferences(repo, docFiles));
+    out.anchors = fromDiff(summarise(resolveAnchors(repo, docFiles)));
+    out.references = fromDiff(summarise(resolveDocReferences(repo, docFiles)));
   } else if (lane === 'code-reviewer') {
     const source = files.filter((f) => !f.startsWith('sdd/') && !f.startsWith('documentation/'));
-    out.callSites = callSites(repo, source, range);
+    out.callSites = fromDiff(callSites(repo, source, range));
     // An anchor anywhere in the spec or doc trees that cites a file this diff
     // touched is the orphan check the code lane runs on a rename.
     out.anchorsCitingChanged = source.slice(0, MAX_LIST).map((file) => ({
@@ -475,6 +492,7 @@ function main() {
       citedBy: git(repo, ['grep', '-l', '--fixed-strings', '-a', '--', `@impl: ${file}`])
         .split('\n').filter(Boolean).filter(live).slice(0, 12),
     })).filter((row) => row.citedBy.length > 0);
+    out.anchorsCitingChanged = fromDiff(out.anchorsCitingChanged);
   }
   return out;
 }
@@ -484,7 +502,10 @@ function main() {
 // Bulk first, resolutions last, and every drop leaves a named marker so an
 // absent field is never mistaken for a clean answer.
 function bound(out) {
-  const size = () => JSON.stringify(out).length;
+  // Measured on the form that is EMITTED. Measuring the compact form let a
+  // block pass the check and then go out over the cap, which is the one thing
+  // the shed exists to prevent.
+  const size = () => JSON.stringify(out, null, 1).length;
   if (size() <= MAX_TOTAL) return out;
   for (const field of ['changelog', 'docIndex', 'specIndex', 'pending', 'queue']) {
     if (out[field] === undefined || out[field] === null) continue;

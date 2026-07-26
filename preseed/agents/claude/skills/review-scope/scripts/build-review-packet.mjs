@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 const LANES = new Set(['code-reviewer', 'spec-reviewer', 'doc-updater']);
 const ROOT_DOC = /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$|^LICENSE$/;
 const FULL_SHA = /^[0-9a-f]{40}$/;
+const BOOLEAN_FLAGS = new Set(['with-evidence']);
 
 function git(repo, args, encoding = 'utf8') {
   return execFileSync('git', args, {
@@ -117,9 +118,13 @@ function parseArgs(argv) {
     if (!key?.startsWith('--')) continue;
     // A valueless flag must not swallow the flag after it. Consuming blindly
     // turned `--with-evidence --lane doc-updater` into a packet with no lane.
+    // Only a KNOWN valueless flag becomes true; anything else keeps its missing
+    // value undefined so the validation below names the flag rather than
+    // reporting a boolean as a lane.
+    const name = key.slice(2);
     const next = argv[index + 1];
     if (next === undefined || next.startsWith('--')) {
-      values[key.slice(2)] = true;
+      values[name] = BOOLEAN_FLAGS.has(name) ? true : undefined;
       continue;
     }
     values[key.slice(2)] = next;
