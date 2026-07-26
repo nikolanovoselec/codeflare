@@ -90,7 +90,7 @@ describe('prefilter-transcript.sh payload ceilings', () => {
     const tail = 'closed REQ-AGENT-040 AC5 per AD58 in 4899fb6 and PR #709';
     const { rows } = runPrefilter(['pre '.repeat(4000) + tail]);
     for (const citation of ['REQ-AGENT-040', 'AD58', '4899fb6', '#709']) {
-      assert.match(rows[0].text, new RegExp(citation.replace('#', '#')),
+      assert.ok(rows[0].text.includes(citation),
         `${citation} sat past the cap and must survive it`);
     }
     assert.ok(rows[0].text.length > 10000, 'the rescue line is appended after the cap');
