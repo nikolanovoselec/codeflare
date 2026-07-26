@@ -57,7 +57,7 @@
     "test:report": "vitest run --config ./vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --reporter=json --outputFile=agent-sidebar/browser-ide-report.json"
   },
   "devDependencies": {
-    "@types/node": "22.18.12",
+    "@types/node": "26.0.1",
     "@types/vscode": "1.109.0",
     "@vitest/coverage-v8": "4.1.10",
     "esbuild": "0.28.1",
