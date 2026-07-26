@@ -29,7 +29,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 const MAX_LIST = 40;
 const MAX_LINE = 200;
@@ -62,8 +62,10 @@ function git(repo, args) {
 }
 
 function read(repo, relative) {
-  const abs = join(repo, relative);
-  if (!existsSync(abs)) return null;
+  const abs = resolve(repo, relative);
+  // An anchor target is text from the branch under review. `..` in one must not
+  // turn a resolution check into a filesystem probe outside the repository.
+  if (!abs.startsWith(resolve(repo) + sep) || !existsSync(abs)) return null;
   try {
     return readFileSync(abs, 'utf-8');
   } catch {
@@ -171,32 +173,62 @@ function resolveDocReferences(repo, files) {
       // names it, so counting that as resolution makes every reference
       // self-confirming and the whole pass vacuous -- a deleted symbol still
       // written about would read as live.
-      const hit = git(repo, ['grep', '-l', '--fixed-strings', '-a', '--', candidate])
-        .split('\n').filter(Boolean).filter(live)
-        .filter((path) => !path.startsWith('documentation/') && !/^[A-Z]+\.md$/.test(path));
-      rows.push({ ref: candidate, resolved: hit.length > 0, as: hit.length > 0 ? 'symbol' : 'unresolved' });
+      rows.push({ ref: candidate, resolved: declaredIn(repo, candidate), as: 'symbol' });
     }
   }
   return rows;
 }
 
-// Bounded call sites for symbols the diff exported or changed. The code lane is
-// told to close caller impact "with one bounded search per symbol", which is a
-// turn per symbol; this is the same searches, batched.
+// Only a path that can hold code answers "does this resolve to code?". A token
+// appearing in a YAML comment or a lockfile is not an implementation.
+const CODE_PATH = /\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|py|go|rs|java|rb|php|sql)$/;
+
+// A symbol has to be DECLARED somewhere to count. Matching any occurrence made
+// every short or common token resolve, which is a false clean in a check whose
+// whole job is spotting the reference that no longer resolves.
+const declaredIn = (repo, symbol) => {
+  const hits = git(repo, ['grep', '-lE', '-a', '--',
+    `(function|const|let|var|class|export|def|func|type|interface)[[:space:]]+${symbol}\\b`])
+    .split('\n').filter(Boolean).filter(live).filter((path) => CODE_PATH.test(path));
+  return hits.length > 0;
+};
+
+// Identifiers too short or too generic to be a caller signal. Left unfiltered,
+// the declaration scan harvested `r`, `x`, `and`, `git`, `read` and greped the
+// whole repository for each -- thousands of tokens of unrelated matches pushed
+// into every prompt by the module whose purpose is to shrink it.
+const NOISE = new Set([
+  'and', 'or', 'not', 'if', 'for', 'the', 'out', 'run', 'get', 'set', 'new',
+  'git', 'read', 'write', 'head', 'body', 'key', 'name', 'path', 'file', 'data',
+]);
+const isSignal = (symbol) => symbol.length >= 4 && !NOISE.has(symbol.toLowerCase());
+
+// Bounded call sites for symbols the diff declared at top level. The code lane
+// is told to close caller impact "with one bounded search per symbol", which is
+// a turn per symbol; this is the same searches, batched and filtered.
 function callSites(repo, files, range) {
   if (!range) return null;
-  const patch = git(repo, ['diff', '-U0', range, '--', ...files.slice(0, MAX_LIST)]);
+  const source = files.filter((file) => CODE_PATH.test(file));
+  if (source.length === 0) return [];
+  const patch = git(repo, ['diff', '-U0', range, '--', ...source.slice(0, MAX_LIST)]);
   const symbols = new Set();
-  for (const [, name] of patch.matchAll(/^[+-].*?\b(?:function|const|class|export\s+function|export\s+const)\s+([A-Za-z_$][\w$]*)/gm)) {
-    symbols.add(name);
+  // Top-level declarations only: an indented binding is a local, and a local has
+  // no callers outside its own scope.
+  for (const [, name] of patch.matchAll(/^[+-](?:export\s+)?(?:async\s+)?(?:function|class|const|let)\s+([A-Za-z_$][\w$]*)/gm)) {
+    if (isSignal(name)) symbols.add(name);
   }
-  for (const [, name] of patch.matchAll(/^[+-]\s*([a-z_][\w]*)\(\)\s*\{/gm)) {
-    symbols.add(name);
+  for (const [, name] of patch.matchAll(/^[+-]([a-z_][\w]*)\(\)\s*\{/gm)) {
+    if (isSignal(name)) symbols.add(name);
   }
   const rows = [];
   for (const symbol of [...symbols].slice(0, MAX_LIST)) {
     const hits = git(repo, ['grep', '-n', '--fixed-strings', '-a', '--', symbol])
-      .split('\n').filter(Boolean).filter(live).slice(0, 12).map(clip);
+      .split('\n').filter(Boolean).filter(live)
+      .filter((line) => CODE_PATH.test(line.split(':')[0] ?? ''))
+      .slice(0, 13).map(clip);
+    // More hits than the cap means the name is too common to be a caller
+    // signal; a truncated list of 13 unrelated matches is worse than none.
+    if (hits.length > 12) continue;
     rows.push({ symbol, sites: hits });
   }
   return rows;

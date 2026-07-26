@@ -112,6 +112,25 @@ describe('lane-evidence.mjs — documentation references', () => {
       'a reference resolving nowhere is the stale doc; the other two exist and must not be reported');
   });
 
+  // The lane is told an empty `unresolved` over a non-zero `checked` is a clean
+  // pass it may report without re-running. That makes a false clean the one
+  // failure worse than an extra turn, so a mere mention must not count.
+  it('does not count a mention in prose or config as a resolved reference', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, '.github/workflows/ci.yml', '# note: ghostSymbol was removed here\n');
+    write(cwd, 'src/real.ts', 'export function liveSymbol() {}\n');
+    write(cwd, 'documentation/architecture.md', 'Uses `liveSymbol`, formerly `ghostSymbol`.\n');
+    const head = commit(cwd, 'docs: page');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`);
+    const unresolved = out.references.unresolved.map((row) => row.ref);
+
+    assert.ok(unresolved.includes('ghostSymbol'),
+      'a symbol that survives only as a YAML comment does not resolve to code');
+    assert.ok(!unresolved.includes('liveSymbol'),
+      'and a symbol that is genuinely declared must not be reported as stale');
+  });
+
   it('answers the scaffolding gate and the layout without a probe', () => {
     const { cwd, base } = makeRepo();
     write(cwd, 'documentation/README.md', '# Index\n\n- [Architecture](architecture.md)\n');
@@ -123,6 +142,43 @@ describe('lane-evidence.mjs — documentation references', () => {
     assert.equal(out.docIndexPresent, true);
     assert.equal(out.docLayout, 'flat', 'no documentation/lanes/ directory means the flat layout');
     assert.match(out.docIndex, /\[Architecture\]/, 'the routing links are what the index is for');
+  });
+});
+
+describe('lane-evidence.mjs — the code lane branch', () => {
+  // This branch shipped untested and immediately produced the defect it was
+  // meant to prevent: it harvested `r`, `x`, `and`, `git` as symbols and greped
+  // the repository for each, padding every prompt with unrelated matches.
+  it('reports call sites for a changed top-level symbol and ignores noise', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/caller.ts', 'import { renamedHelper } from "./lib";\nrenamedHelper();\n');
+    write(cwd, 'src/lib.ts', 'export function renamedHelper() {\n  const x = 1;\n  const and = 2;\n  return x + and;\n}\n');
+    const head = commit(cwd, 'feat: helper');
+
+    const out = run(cwd, 'code-reviewer', `${base}..${head}`);
+    const symbols = out.callSites.map((row) => row.symbol);
+
+    assert.ok(symbols.includes('renamedHelper'),
+      'a changed top-level symbol is exactly the caller-impact signal the lane is handed');
+    assert.deepEqual(symbols.filter((sym) => ['x', 'and'].includes(sym)), [],
+      'locals and common words are not caller signal; greping the repo for them is what padded the prompt');
+    const sites = out.callSites.find((row) => row.symbol === 'renamedHelper').sites.join('\n');
+    assert.match(sites, /src\/caller\.ts/, 'the actual call site must be present, or the lane searches anyway');
+  });
+
+  it('lists the spec files whose anchors cite a changed source file', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/target.ts', 'export const a = 1;\n');
+    write(cwd, 'sdd/spec/agents.md', '1. Thing. <!-- @impl: src/target.ts::a -->\n');
+    commit(cwd, 'feat: anchored');
+    write(cwd, 'src/target.ts', 'export const a = 2;\n');
+    const head = commit(cwd, 'feat: change the anchored file');
+
+    const out = run(cwd, 'code-reviewer', `${base}..${head}`);
+
+    const cited = out.anchorsCitingChanged.find((row) => row.file === 'src/target.ts');
+    assert.ok(cited, 'a changed file that an anchor cites must be surfaced, or the orphan scan is a manual grep again');
+    assert.ok(cited.citedBy.includes('sdd/spec/agents.md'));
   });
 });
 

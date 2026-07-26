@@ -305,8 +305,18 @@ fi
 EVIDENCE_JSON=""
 EVIDENCE_SCRIPT="$(dirname "$0")/lib/lane-evidence.mjs"
 if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/null 2>&1; then
-  EVIDENCE_JSON="$(node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
-    ${RANGE_FULL:+--range "$RANGE_FULL"} 2>/dev/null || true)"
+  # Bounded: the resolver runs many greps before the model is reached, so an
+  # unbounded hang here holds the whole review gate open with nothing to show.
+  # Losing the bound loses the evidence, never the review.
+  EVIDENCE_TIMEOUT="${REVIEW_LANE_EVIDENCE_TIMEOUT:-60}"
+  case "$EVIDENCE_TIMEOUT" in ''|*[!0-9]*|0) EVIDENCE_TIMEOUT=60 ;; esac
+  if command -v timeout >/dev/null 2>&1; then
+    EVIDENCE_JSON="$(timeout -k 5 "$EVIDENCE_TIMEOUT" node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
+      ${RANGE_FULL:+--range "$RANGE_FULL"} 2>/dev/null || true)"
+  else
+    EVIDENCE_JSON="$(node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
+      ${RANGE_FULL:+--range "$RANGE_FULL"} 2>/dev/null || true)"
+  fi
   EVIDENCE_MAX_BYTES="${REVIEW_LANE_EVIDENCE_MAX_BYTES:-65536}"
   case "$EVIDENCE_MAX_BYTES" in ''|*[!0-9]*|0) EVIDENCE_MAX_BYTES=65536 ;; esac
   if [ "$(( $(printf '%s' "$EVIDENCE_JSON" | wc -c) ))" -gt "$EVIDENCE_MAX_BYTES" ]; then
