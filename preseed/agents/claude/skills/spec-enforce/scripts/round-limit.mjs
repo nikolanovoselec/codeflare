@@ -19,13 +19,15 @@ function action(countedCommits, autonomyOverride) {
 // is an intentional bulk op and is neither; a plain commit in the lane is
 // user-directed work, which closes the window -- anything older is a prior cycle.
 function countRounds(repo, lane) {
-  const log = execFileSync('git', ['log', `-${WINDOW}`, '--name-only', '--format=--- %H %s'], {
+  // NUL-delimited: a commit subject may itself contain any printable delimiter,
+  // and a phantom block is the same miscount this script exists to remove.
+  const log = execFileSync('git', ['log', `-${WINDOW}`, '--name-only', '--format=%x00%H %s'], {
     cwd: repo,
     encoding: 'utf8',
   });
 
   let counted = 0;
-  for (const block of log.split('--- ').slice(1)) {
+  for (const block of log.split('\0').slice(1)) {
     const lines = block.split('\n');
     const subject = lines[0].slice(lines[0].indexOf(' ') + 1);
     const touchedLane = lines.slice(1).some((file) => file && file.startsWith(lane));
@@ -60,6 +62,13 @@ if (repoIndex === -1) {
     process.stderr.write('--repo <dir> and --lane <path-prefix> are both required\n');
     process.exit(2);
   }
-  const counted = countRounds(repo, lane);
+  let counted;
+  try {
+    counted = countRounds(repo, lane);
+  } catch (error) {
+    // Never leave the caller a stack trace where it expects a verdict.
+    process.stderr.write(`cannot read git history in ${repo}: ${error.message.split('\n')[0]}\n`);
+    process.exit(2);
+  }
   process.stdout.write(`counted=${counted} gate=${action(counted, autonomyOverride)}\n`);
 }

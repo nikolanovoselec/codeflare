@@ -210,6 +210,17 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       assert.equal(count(cwd), 'counted=2 gate=continue');
     });
 
+    it('is not fooled by a commit subject that looks like a record separator', () => {
+      const cwd = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: drop --- legacy flag', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: ordinary', files: ['sdd/spec/x.md'] },
+      ]);
+      // A printable delimiter inside a subject used to open a phantom block and
+      // orphan the real commit's files, silently dropping it from the count.
+      assert.equal(count(cwd), 'counted=2 gate=continue');
+    });
+
     it('closes the window at user-directed work in the lane', () => {
       const cwd = repoWith([
         { subject: '[code-reviewer] fix: prior cycle', files: ['sdd/spec/x.md'] },
@@ -267,8 +278,18 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       'the row must scope counting to the closed set, not leave the tag scope to be inferred');
     const countedSet = skill.match(/\*\*Counted as agent-authored\*\*[^\n]*/)?.[0];
     assert.ok(countedSet, 'the contract the row defers to must declare the counted set');
-    for (const tag of ['[autonomous]', '[unleashed]', '[spec-reviewer]', '[doc-updater]', '[code-reviewer]']) {
-      assert.ok(countedSet.includes(tag), `${tag} must remain in the set the row defers to`);
+    // Compared against the gate's own set rather than a third hardcoded list:
+    // the policy the reviewer reads and the tags the gate counts must be one set,
+    // and two copies can otherwise drift in opposite directions unnoticed.
+    const gateSource = readFileSync(
+      join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs'),
+      'utf8',
+    );
+    const gateTags = [...(gateSource.match(/^const COUNTED = \[(.*)\];$/m)?.[1] ?? '')
+      .matchAll(/'(\[[a-z-]+\])'/g)].map((match) => match[1]);
+    assert.ok(gateTags.length >= 5, 'the gate must declare the counted tag set it counts');
+    for (const tag of gateTags) {
+      assert.ok(countedSet.includes(tag), `${tag} is counted by the gate but absent from the policy set`);
     }
     // Both halves of the evidence contract live in the row's trailing status
     // template, so parse that cell rather than the whole row: a substring match
