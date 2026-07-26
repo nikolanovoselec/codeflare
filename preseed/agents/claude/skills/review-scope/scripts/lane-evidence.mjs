@@ -32,6 +32,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 const MAX_LIST = 40;
+// Failures are the finding, so they are not the place to save bytes. At 40 the
+// reference list truncated on a clean tree -- 113 failures shown as 40 with a
+// flag -- so the lane could not see what it was being asked to act on, and two
+// separate comparisons of this resolver's own output silently compared slices
+// rather than verdicts. `MAX_TOTAL` below is the real bound; this only stops a
+// pathological list from being the whole block.
+const MAX_UNRESOLVED = 400;
 const MAX_LINE = 200;
 // A cited file's own diff, and the ceiling on all of them together. Bounded
 // twice because this is the one field that scales with the diff rather than
@@ -67,10 +74,10 @@ const clip = (line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}...`
 // scan that did not see everything says so and the lane finishes it.
 function summarise(rows, inputTruncated = false) {
   const failed = rows.filter((row) => !row.resolved);
-  const truncated = inputTruncated || failed.length > MAX_LIST;
+  const truncated = inputTruncated || failed.length > MAX_UNRESOLVED;
   return {
     checked: rows.length,
-    unresolved: failed.slice(0, MAX_LIST),
+    unresolved: failed.slice(0, MAX_UNRESOLVED),
     ...(truncated ? { truncated: true } : {}),
   };
 }
@@ -245,9 +252,98 @@ function resolveAnchors(repo, files, targets = null) {
 // Every backticked identifier or path in a touched doc, answered against the
 // tree. This is Pass 8 and Pass 12 -- "does this reference resolve to real
 // code?" -- which the doc lane otherwise runs one `git grep` at a time.
+// A doc naming a script or rule by basename -- `run-review-lane`, not
+// `.../run-review-lane.sh` -- reached the symbol branch and failed there,
+// because the path branch only fires on a candidate carrying a `/` or a `.`.
+// Seventeen of forty unresolved rows on the measured range were files that
+// exist. UNIQUE is the whole guard: 217 stems are ambiguous in this tree
+// (`SKILL` x63, `index` x18), and resolving one of those to an arbitrary
+// namesake would confirm a reference that never pointed there.
+// Every way a tracked file can honestly be named in prose: its full path, any
+// tail of it starting at a path boundary (`common/coding-style.md` for a rule
+// nested three directories down), its basename, its basename without the
+// extension, and the directories along the way.
+//
+// EXISTENCE, not uniqueness. The row records whether the name still names
+// something, never which file it named -- and staleness is the question being
+// asked. Demanding a unique match reported `security.md` as a stale reference
+// because the tree has three of them, which is the false finding this resolver
+// exists to avoid, in the direction that wastes a reviewer's turn.
+function trackedNames(repo) {
+  const names = new Set();
+  const suffixes = (path) => {
+    names.add(path);
+    for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) {
+      names.add(path.slice(i + 1));
+    }
+  };
+  for (const path of git(repo, ['ls-files']).split('\n').filter(Boolean)) {
+    suffixes(path);
+    const base = path.slice(path.lastIndexOf('/') + 1);
+    names.add(base.replace(/\.[^.]+$/, ''));
+    const parts = path.split('/');
+    for (let depth = 1; depth < parts.length; depth += 1) {
+      const dir = `${parts.slice(0, depth).join('/')}/`;
+      suffixes(dir);
+      // Both spellings: a skill or plugin directory is named `ci-monitoring` in
+      // prose far more often than `ci-monitoring/`.
+      for (const form of [...names]) { if (form.endsWith('/')) names.add(form.slice(0, -1)); }
+      names.add(dir.slice(0, -1));
+    }
+  }
+  return names;
+}
+
+// A command, an event, a tool and a wire-format field are all declared by being
+// written as a string, not by a keyword: `registerCommand("ctx")`, `pi.on(
+// "session_shutdown")`, `"customer.subscription.deleted"`. The keyword shapes
+// cannot see any of them, so every such reference was reported as a stale doc.
+// Bounded to strings shaped like a reference, so this indexes identifiers and
+// not English sentences that happen to be quoted.
+const LITERAL_SHAPE = /^[A-Za-z0-9_@][\w./@-]{1,120}$/;
+
+function quotedLiterals(repo, paths) {
+  const names = new Set();
+  for (let i = 0; i < paths.length; i += 400) {
+    const out = git(repo, ['grep', '-hoE', '-a', '--',
+      '["\x27][A-Za-z0-9_@][A-Za-z0-9_@./-]{1,120}["\x27]', ...paths.slice(i, i + 400)]);
+    for (const hit of out.split('\n')) {
+      const value = hit.slice(1, -1);
+      if (value && LITERAL_SHAPE.test(value)) names.add(value);
+    }
+  }
+  return names;
+}
+
+// A dependency is declared by the manifest, not by a declaration in this tree.
+// Every `@scope/pkg` in the docs resolved nowhere without this.
+function declaredDependencies(repo) {
+  const names = new Set();
+  for (const path of git(repo, ['ls-files', '*package.json']).split('\n').filter(Boolean)) {
+    if (path.includes('node_modules/')) continue;
+    let manifest;
+    try {
+      manifest = JSON.parse(read(repo, path) ?? '{}');
+    } catch {
+      continue;
+    }
+    for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      for (const name of Object.keys(manifest?.[field] ?? {})) names.add(name);
+    }
+    if (typeof manifest?.name === 'string') names.add(manifest.name);
+  }
+  return names;
+}
+
 function resolveDocReferences(repo, files) {
   const rows = [];
   const seen = new Set();
+  const codePaths = git(repo, ['ls-files'])
+    .split('\n').filter(Boolean).filter(live).filter((path) => CODE_PATH.test(path));
+  const declared = declarationIndex(repo, codePaths);
+  const literals = quotedLiterals(repo, codePaths);
+  const names = trackedNames(repo);
+  const dependencies = declaredDependencies(repo);
   for (const file of files.slice(0, MAX_LIST)) {
     const body = read(repo, file);
     if (body === null) continue;
@@ -255,7 +351,15 @@ function resolveDocReferences(repo, files) {
       const candidate = span.trim();
       // Only things that claim to be a path or an identifier are checkable; a
       // backticked English phrase is not a broken reference.
+      // A flag documents an interface; it is not a name that resolves to code,
+      // and asking it to made every documented option a stale-doc finding.
+      // A flag documents an interface, a bare extension is a file-type, and
+      // `@impl`/`@test` are this project's anchor vocabulary. None of the three
+      // is a name that resolves to code, and asking them to made every
+      // documented option, suffix and anchor keyword a stale-doc finding.
       if (!/^[\w./@-]+$/.test(candidate) || seen.has(candidate)) continue;
+      if (candidate.startsWith('--') || /^\.[A-Za-z0-9]+$/.test(candidate)
+        || /^@(impl|test|manual)$/.test(candidate)) continue;
       seen.add(candidate);
       if (rows.length >= MAX_LIST * 4) break;
       if (candidate.includes('/') || candidate.includes('.')) {
@@ -267,11 +371,28 @@ function resolveDocReferences(repo, files) {
           continue;
         }
       }
+      // Named by a path tail, a basename or a directory rather than by a full
+      // path. Checked before the symbol branch, because a file referenced this
+      // way is a real referent and failing it there is what invented the
+      // stale-doc findings.
+      // A slash command is documentation of a name registered as a string --
+      // `registerCommand("ctx")` -- so it resolves under that name, not under
+      // the slash the user types.
+      const bare = candidate.startsWith('/') ? candidate.slice(1) : candidate;
+      if (names.has(candidate) || names.has(candidate.replace(/\/$/, ''))
+        || (bare !== candidate && (names.has(bare) || declared.has(bare) || literals.has(bare)))) {
+        rows.push({ ref: candidate, resolved: true, as: 'path' });
+        continue;
+      }
+      if (dependencies.has(candidate)) {
+        rows.push({ ref: candidate, resolved: true, as: 'package' });
+        continue;
+      }
       // A reference must resolve to CODE. Grep finds the documentation file that
       // names it, so counting that as resolution makes every reference
       // self-confirming and the whole pass vacuous -- a deleted symbol still
       // written about would read as live.
-      rows.push({ ref: candidate, resolved: declaredIn(repo, candidate), as: 'symbol' });
+      rows.push({ ref: candidate, resolved: declared.has(candidate) || literals.has(candidate), as: 'symbol' });
     }
   }
   return rows;
@@ -286,18 +407,52 @@ const CODE_PATH = /\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|py|go|rs|java|rb|php|sql)$/;
 // whole job is spotting the reference that no longer resolves.
 const ereEscape = (value) => value.replace(/[.[\]{}()*+?^$|\\/-]/g, '\\$&');
 
-const declaredIn = (repo, symbol) => {
-  const name = ereEscape(symbol);
-  const hits = git(repo, ['grep', '-lE', '-a', '--',
-    // Keyword form (`function foo`, `const foo`, `export foo`), definition
-    // shape (`foo() {` for a shell function or a class method), and binding
-    // shape (`foo:` / `foo =` for an object member or a re-export).
-    `((function|const|let|var|class|export|def|func|type|interface)[[:space:]]+${name}\\b`
-    + `|(^|[[:space:]])${name}[[:space:]]*\\([^)]*\\)[[:space:]]*[{:]`
-    + `|(^|[[:space:]])${name}[[:space:]]*[:=][^=>])`])
-    .split('\n').filter(Boolean).filter(live).filter((path) => CODE_PATH.test(path));
-  return hits.length > 0;
-};
+// One pass over the tree, not one per candidate. The per-candidate form ran a
+// full-tree `git grep` for every backticked token in the changed docs -- 149 of
+// them on a routine three-file range, measured at 283s, which is 99.94% of this
+// lane's whole runtime and past the 60s bound the packet CLI wraps this in. A
+// miss costs MORE than a hit there, because `grep -l` cannot stop early when
+// nothing matches, and prose references miss by design. Same three declaration
+// shapes, same `live` and CODE_PATH filters, same verdicts -- the only change is
+// that the tree is read once and the answers are looked up.
+// `last` vs `first` is load-bearing, not style: `-o` prints the whole matched
+// span, so the keyword shape yields `function foo` and the definition shape
+// yields `foo(a, b) {`. Taking the last identifier from both would index the
+// final PARAMETER as a declaration -- resolving references that do not exist,
+// which is the false-clean direction this module promises never to fail in.
+const DECL_SHAPES = [
+  // Keyword form (`function foo`, `const foo`, `export foo`).
+  { shape: '(function|const|let|var|class|export|def|func|type|interface)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*', pick: 'last' },
+  // Definition shape (`foo() {` for a shell function or a class method).
+  { shape: '(^|[[:space:]])[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\\([^)]*\\)[[:space:]]*[{:]', pick: 'first' },
+  // Binding shape (`foo:` / `foo =` for an object member or a re-export).
+  { shape: '(^|[[:space:]])[A-Za-z_][A-Za-z0-9_]*[[:space:]]*[:=][^=>]', pick: 'first' },
+];
+
+// `-h` drops the filename, so the generated-tree filter cannot run on the
+// RESULTS the way the per-candidate form did. Names are read off `ls-files` and
+// intersected instead: same exclusion, applied to the file list rather than to
+// grep output, so a missing lockfile still cannot make every reference read as
+// unresolved.
+function declarationIndex(repo, paths) {
+  const index = new Set();
+  if (!paths.length) return index;
+  for (const { shape, pick } of DECL_SHAPES) {
+    // Chunked: a pathspec list of every code file in a large repo can exceed the
+    // argument limit, and a throw here would empty the index -- which reads as
+    // "nothing is declared" and turns every reference into a stale-doc finding.
+    for (let i = 0; i < paths.length; i += 400) {
+      const out = git(repo, ['grep', '-hoE', '-a', '--', shape, ...paths.slice(i, i + 400)]);
+      for (const hit of out.split('\n')) {
+        if (!hit) continue;
+        const words = hit.trim().split(/[^A-Za-z0-9_]+/).filter(Boolean);
+        const name = pick === 'last' ? words[words.length - 1] : words[0];
+        if (name) index.add(name);
+      }
+    }
+  }
+  return index;
+}
 
 // Identifiers too short or too generic to be a caller signal. Left unfiltered,
 // the declaration scan harvested `r`, `x`, `and`, `git`, `read` and greped the

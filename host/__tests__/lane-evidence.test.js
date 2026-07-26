@@ -812,3 +812,114 @@ describe('lane-evidence.mjs — the block bounds itself', () => {
     assert.ok(!changelog.includes('Older day'), 'the date scoping still holds');
   });
 });
+
+describe('lane-evidence.mjs — the index that replaced the per-candidate scan', () => {
+  // The scan ran one full-tree grep per backticked token -- 149 of them on a
+  // three-file range, measured at 283s, which is 99.94% of this lane's runtime
+  // and four times the bound the packet CLI wraps it in, so one runtime lost
+  // this block entirely. Reading the tree once is only a valid swap if the
+  // verdicts survive, and the two that can move are the two asserted here: a
+  // generated tree must still not declare anything, and a name must still be
+  // matched exactly rather than by the shape of its parts.
+  it('does not let a generated tree declare a symbol', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/lib/seed.generated.ts', 'export const ghostFromSeed = 1;\n');
+    write(cwd, 'src/real.ts', 'export const livingSymbol = 1;\n');
+    write(cwd, 'documentation/x.md', 'Uses `ghostFromSeed` and `livingSymbol`.\n');
+    const head = commit(cwd, 'docs: generated');
+
+    const rows = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const unresolved = rows.unresolved.map((row) => row.ref);
+
+    assert.ok(unresolved.includes('ghostFromSeed'),
+      'a name that exists only in generated output is not a declaration; resolving it is a false clean');
+    assert.ok(!unresolved.includes('livingSymbol'), 'and a real declaration still resolves');
+  });
+
+  it('does not resolve a name by the identifier next to it', () => {
+    const { cwd, base } = makeRepo();
+    // `handler(payload) {` declares handler, not payload; `const a = b` declares
+    // a, not b. Reading one identifier per match is what keeps those apart, and
+    // taking the wrong end of either span would resolve a reference to a name
+    // nothing declares.
+    write(cwd, 'src/a.ts', 'class T {\n  handlerName(payloadName) { return 1; }\n}\nconst leftName = rightName;\n');
+    write(cwd, 'documentation/x.md', 'Uses `handlerName`, `payloadName`, `leftName`, `rightName`.\n');
+    const head = commit(cwd, 'docs: spans');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((row) => row.ref).sort();
+
+    assert.deepEqual(unresolved, ['payloadName', 'rightName'],
+      'a parameter and a right-hand side are referenced, not declared');
+  });
+});
+
+describe('lane-evidence.mjs — a documented file named without its path', () => {
+  // Seventeen of the unresolved rows on the measured range were scripts and
+  // rules named by basename. They reached the symbol branch, which asks whether
+  // a name is DECLARED, and failed there -- inventing a stale-doc finding for a
+  // file that exists. The path branch never saw them because it only fires on a
+  // candidate carrying a slash or a dot.
+  it('resolves a tracked file referenced by its basename', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'scripts/run-the-lane.sh', 'echo hi\n');
+    write(cwd, 'documentation/x.md', 'See `run-the-lane` and `never-a-file`.\n');
+    const head = commit(cwd, 'docs: basenames');
+
+    const rows = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const resolved = rows.unresolved.map((row) => row.ref);
+
+    assert.ok(!resolved.includes('run-the-lane'), 'the file exists, so the reference is not stale');
+    assert.ok(resolved.includes('never-a-file'), 'and a basename matching nothing is still reported');
+  });
+
+  it('resolves a name that appears under more than one directory', () => {
+    const { cwd, base } = makeRepo();
+    // Existence, not uniqueness. The row records whether the name still names
+    // something, never which file -- and staleness is the question. Demanding
+    // one match reported `security.md` stale because the tree holds three.
+    write(cwd, 'a/twinName.ts', 'export const one = 1;\n');
+    write(cwd, 'b/twinName.ts', 'export const two = 2;\n');
+    write(cwd, 'documentation/x.md', 'See `twinName` and `nothingNamedThis`.\n');
+    const head = commit(cwd, 'docs: ambiguous');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((row) => row.ref);
+
+    assert.ok(!unresolved.includes('twinName'), 'the name still names tracked files, so the reference is not stale');
+    assert.ok(unresolved.includes('nothingNamedThis'), 'and a name matching nothing is still reported');
+  });
+
+  it('resolves a file named by a path tail, a command by its registered name, and a declared package', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'rules/common/style.md', '# style\n');
+    write(cwd, 'src/cmd.ts', 'registerCommand("reload", {});\n');
+    write(cwd, 'package.json', '{"dependencies":{"@scope/dep":"1.0.0"}}\n');
+    write(cwd, 'documentation/x.md',
+      'See `common/style.md`, `/reload`, `@scope/dep`, `--verify-high`, and `goneEntirely`.\n');
+    const head = commit(cwd, 'docs: shapes');
+
+    const rows = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const unresolved = rows.unresolved.map((row) => row.ref);
+
+    assert.deepEqual(unresolved, ['goneEntirely'],
+      'a nested path tail, a string-registered command and a declared dependency all name real things');
+    assert.ok(!rows.unresolved.some((row) => row.ref === '--verify-high'),
+      'a flag documents an interface and is never a candidate');
+  });
+});
+
+describe('lane-evidence.mjs — the failure list is the finding', () => {
+  it('reports every unresolved reference rather than a capped sample', () => {
+    const { cwd, base } = makeRepo();
+    // The cap was 40 while a clean tree produced 113 failures, so the lane saw a
+    // slice with a flag and could not act on what it was handed -- and two
+    // comparisons of this resolver's own output silently compared slices.
+    const refs = Array.from({ length: 60 }, (_, i) => `goneSymbol${i}`);
+    write(cwd, 'documentation/x.md', `Uses ${refs.map((r) => `\`${r}\``).join(', ')}.\n`);
+    const head = commit(cwd, 'docs: many');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
+
+    assert.equal(out.unresolved.length, refs.length, 'every failure must be listed, not a sample of them');
+    assert.ok(!out.truncated, 'a list that fits is not truncated');
+  });
+});

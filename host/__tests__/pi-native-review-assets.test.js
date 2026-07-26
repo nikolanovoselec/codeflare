@@ -554,4 +554,20 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       }
     }
   });
+
+  it('REQ-AGENT-108: a self-building reviewer is told how to proceed without evidence', () => {
+    // The runtime with a lane runner carries a per-lane fallback naming the
+    // lookups to perform when the block is absent. The runtime that builds its
+    // own packet had none -- only anti-re-derivation prose that presupposes the
+    // block arrived -- so a resolver breach left it holding instructions for
+    // evidence it did not have, and no instruction to reconstruct it.
+    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      const seeded = documents.find((document) => document.key === `.pi/agent/agents/${lane}.md`);
+      assert.ok(seeded, `.pi/agent/agents/${lane}.md not found`);
+      assert.match(seeded.content, /no `evidence` block, you gather it yourself/,
+        `${lane} must carry an absent-evidence fallback, not only the present-evidence contract`);
+      assert.match(seeded.content, /evidenceOmitted/,
+        `${lane} must be pointed at the field naming why evidence is missing`);
+    }
+  });
 });

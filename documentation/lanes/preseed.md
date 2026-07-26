@@ -240,8 +240,8 @@ references Claude-specific `mcp__graphify__*` tools and the vault hook system.
 
 The graphify discipline
 ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
-and the LLM coding-mistakes principles were standalone `graph-first.md` and
-`karpathy.md` rules until 2026-07-25; both are now sections of the advanced-only
+and the LLM coding-mistakes principles were standalone graph-first and
+karpathy rules until 2026-07-25; both are now sections of the advanced-only
 `engineering-constitution`. `frontend-components`
 is advanced-only and covers composable-UI standards: extract repeated structures,
 separate content from components, and write behavioral tests only.
@@ -257,9 +257,9 @@ The stricter PR-boundary review push gate is present in default+advanced
 agent instructions receive it through [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) AC6 and advanced sessions also receive the constitution copy through [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents). Source: `preseed/agents/claude/rules/git-workflow.md::Review push gate` and `preseed/agents/claude/rules/engineering-constitution.md::Review push gate`.
 ECC-derived language rules in `{typescript,python,golang,swift}/` subdirs
 are advanced-only. Each `coding-style.md` extends the constitution's "Coding
-concretes" section directly, `common/coding-style.md` having been absorbed there
+concretes" section directly, the common coding-style rule having been absorbed there
 on 2026-07-25; per-language `security.md` files stand alone after
-`common/security.md` removal.
+the common security rule's removal.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds
 the official Anthropic plugin marketplace URL for user discovery.
@@ -1136,6 +1136,13 @@ The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain rev
 A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged. The limit binds the autonomous loop only, so a user-invoked `/sdd clean` passes `purpose=clean` and reports row 23 inert without consulting the script at all ([REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate)).
 
 The same script produces the count, not only the verdict. It walks the last six commits first-parent, counts every subject carrying an agent-authored tag that touched the reviewer's lane, treats bulk-operation tags as neither counted nor closing, and closes the window at the most recent user-directed commit in that lane. A reviewer runs it once and reports the printed count beside the printed verdict; deriving either itself is a manifest violation.
+
+Reference resolution reads the tree once instead of once per documented name. One full-tree search per backticked token cost 149 searches on a three-file range and 283 seconds, which is almost the whole resolver: past the bound the packet route applied, inside the bound the lane runner applied, so the documentation lane silently lost its evidence in one runtime and kept it in the other. Both bounds are now the same 300 seconds, and a resolver that breaches one names the reason in `evidenceOmitted` rather than dropping the block.
+
+A documented name resolves when the tree holds it in any form prose can write it: a path tail, a basename, a directory, a name registered as a string such as a command or an event, or a declared dependency. Flags, bare extensions and anchor keywords document an interface rather than naming code and are not candidates. Resolution answers whether the name still names something, never which file, because staleness is the question. On the measured range this took unresolved references from 113 to 6, and the failure list is no longer capped below the block budget.
+<!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex -->
+<!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames -->
+<!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::laneEvidence -->
 
 Merge commits are followed with their diffs, because a merge carrying lane work would otherwise be invisible to both the count and the reset; a merge is therefore judged by its own subject, so an agent landing a round through one tags the merge. History the script cannot read is never reported as a permissive window: it exits non-zero with a one-line diagnostic and prints no verdict at all.
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->

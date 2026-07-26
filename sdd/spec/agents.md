@@ -2363,6 +2363,37 @@ None.
 
 ---
 
+### REQ-AGENT-108: Reviewer Evidence Resolution Fidelity
+
+**Intent:** The evidence a review lane is handed must be produced fast enough that every transport delivers it, must resolve a documented name by any honest form it can be written in, and must name its own failure, so a lane never re-derives what it holds nor acts on a list of names that were never stale.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Reference resolution reads the tree once rather than once per candidate. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @test: host/__tests__/lane-evidence.test.js (does not resolve a name by the identifier next to it) -->
+2. A name declared only inside generated output is not a declaration. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a generated tree declare a symbol) -->
+3. A documented name resolves when the tree holds it under any form it can be written in: a path tail, a basename, a directory, a name registered as a string, or a declared dependency. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::quotedLiterals --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declaredDependencies --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a name that appears under more than one directory) -->
+4. Notation that documents an interface rather than naming code is never a resolvable candidate. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::resolveDocReferences --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) -->
+5. Every unresolved reference is listed rather than a capped sample of them. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports every unresolved reference rather than a capped sample) -->
+6. A resolver that fails names the reason in the packet instead of omitting the block. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::laneEvidence --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-108: an evidence failure is named in the packet, not dropped) -->
+7. Every reviewer that builds its own packet is told what to do when the evidence block is absent. <!-- @impl: preseed/agents/pi/agents/doc-updater.md --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-108: a self-building reviewer is told how to proceed without evidence) -->
+
+**Constraints:**
+
+- One resolver serves every runtime, under one bound; a transport may not change what it can deliver.
+- Resolution answers whether a name still names something, never which file it named.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-105](#req-agent-105-review-lane-turn-economy)
+
+**Verification:** Automated test ([lane evidence tests](../../host/__tests__/lane-evidence.test.js))
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-107: Deterministic Round-Limit Gate
 
 **Intent:** The anti-spiral round limit must be decided by one executable gate every runtime is directed to, so the same window yields the same verdict regardless of which agent reads it, and so releasing the limit is a stated contract rather than a reader's judgment.
