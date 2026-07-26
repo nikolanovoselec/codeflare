@@ -185,6 +185,44 @@ describe('lane-triage.mjs — round counter', () => {
   });
 });
 
+// The defaults a lane acts on when the config is silent. Absence must not read
+// as a decision: `=== 'true'` turned a missing key into an affirmative false,
+// which the lane cannot distinguish from a deliberate opt-out.
+describe('lane-triage.mjs — config defaults', () => {
+  it('treats a missing enforce_tdd key as on, not as an opt-out', () => {
+    const cwd = repo({ config: 'mode: interactive\n' });
+    assert.equal(triage(cwd, 'spec-reviewer').config.enforce_tdd, true,
+      'a config that never mentions enforce_tdd has not opted out of it');
+  });
+
+  it('honours an explicit enforce_tdd: false', () => {
+    const cwd = repo({ config: 'mode: interactive\nenforce_tdd: false\n' });
+    assert.equal(triage(cwd, 'spec-reviewer').config.enforce_tdd, false,
+      'only an explicit false opts out, or the key would be unusable');
+  });
+
+  it('defaults mode to interactive when the key is absent', () => {
+    const cwd = repo({ config: 'enforce_tdd: true\n' });
+    assert.equal(triage(cwd, 'spec-reviewer').config.mode, 'interactive');
+  });
+
+  it('strips a trailing YAML comment from a scalar the lane reads', () => {
+    const cwd = repo({ config: 'mode: auto # keep this out of the prompt\n' });
+    assert.equal(triage(cwd, 'spec-reviewer').config.mode, 'auto');
+  });
+});
+
+// Every agent document reads `bulkOpAudit.findings` unconditionally, so the key
+// must exist on the path that returns before the audit runs.
+describe('lane-triage.mjs — non-bootstrapped repo', () => {
+  it('still emits an empty bulk-op audit for the code lane', () => {
+    const cwd = repo({ sdd: false });
+    const t = triage(cwd, 'code-reviewer');
+    assert.equal(t.decision, 'proceed', 'the code lane reviews source with no sdd/ at all');
+    assert.deepEqual(t.bulkOpAudit, { checked: 0, findings: [] });
+  });
+});
+
 describe('lane-triage.mjs — bulk-op audit', () => {
   const FULL_BODY = [
     'Phase 7a verifier: parsed=10 resolved=10 orphaned=0 drifted=0',

@@ -241,13 +241,13 @@ if [ -n "$REPO_ROOT" ] && [ -f "$TRIAGE_SCRIPT" ] && command -v node >/dev/null 
     TRIAGE_JSON=""
   fi
 fi
+if [ -n "$TRIAGE_JSON" ]; then
   # A decisive no-op costs zero tokens, same contract as the ownership
   # short-circuit above. Only the three conditions the reviewer prose already
   # defines as no-ops can produce this, and each is proven positively. Read the
   # decision field rather than matching the serialised document: the same bytes
   # can appear inside a reason string or a nested finding without the lane
   # having been resolved to a no-op at all.
-if [ -n "$TRIAGE_JSON" ]; then
   TRIAGE_FIELDS="$(printf '%s' "$TRIAGE_JSON" \
     | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s);process.stdout.write(String(t.decision??"")+"\n"+String(t.reason??"").replace(/\s+/g," "))}catch{}})' 2>/dev/null)"
   TRIAGE_DECISION="$(printf '%s\n' "$TRIAGE_FIELDS" | head -n 1)"

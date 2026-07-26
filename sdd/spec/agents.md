@@ -2575,7 +2575,7 @@ None.
 - Dropping inherited settings drops hooks; build/test guards are re-injected explicitly and invoked as `bash <script>` (seeded hooks ship non-executable).
 - Transport detection is additive: the legacy Agent shape stays credited, so a migrated lane is still counted as reviewed.
 - A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
-- A lane subprocess is time-bounded; an unbounded lane holds the review gate open.
+- A lane subprocess is time-bounded; an unbounded lane would hold the review gate open.
 - Guard settings are constructed programmatically and verified non-empty before use.
 
 **Priority:** P1
@@ -2629,6 +2629,8 @@ None.
 2. A verdict published before the last required lane returned does not advance the checkpoint. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::latest_required_completion_line --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 3. Lanes that returned without a published verdict produce a demand for the verdict in the shape the gate matches. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 4. Acknowledgement is followed by a fix directive that states the head is already acknowledged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+5. Every path that advances the checkpoint applies the verdict requirement, including the retroactive scan. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::retroactive_ack_scan --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+6. Repeated unanswered verdict demands acknowledge the head rather than leave the checkpoint wedged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 
 **Constraints:**
 

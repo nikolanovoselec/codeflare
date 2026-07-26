@@ -588,12 +588,69 @@ tool_use_id_completed() {
 # un-acked, and the next push measured its range from the last ACKED head rather
 # than the last reviewed one. One lost lane therefore widened every subsequent
 # review permanently -- a measured 10-commit re-review where one commit was due.
+# The tool_use id of a spawn line. Four call sites re-derived this verbatim.
+tool_use_id_of_spawn() {
+  awk -v L="$1" 'NR==L { print; exit }' "$TRANSCRIPT" \
+    | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+'
+}
+
 tool_use_id_terminal() {
   local spawn_line="$1"
   local tool_use_id="$2"
+  # Open set, not a closed one: `cancelled`, `killed`, `timed_out` and anything
+  # else the harness adds are terminal too, and enumerating successes would make
+  # each new status silently re-create the wedge this exists to close.
   awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
     | grep -F "tool-use-id>${tool_use_id}<" \
-    | grep -qE '(completed|failed)</status>'
+    | grep -E '</status>' \
+    | grep -qvE '<status>(in_progress|running|pending|queued)</status>'
+}
+
+# The triage table, byte-for-byte the shape Pi pins as REVIEW_TRIAGE_HEADER /
+# REVIEW_TRIAGE_DIVIDER. It is a contract value, not prose: the gate reads it to
+# decide whether the root actually consumed the lanes' findings.
+REVIEW_TRIAGE_HEADER='| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |'
+REVIEW_TRIAGE_DIVIDER='|---|---|---|---|---|'
+
+# Transcript line of a spawn's successful completion notification, or empty.
+# Needed because the triage table only counts if it came AFTER the last lane
+# returned -- a table published earlier belongs to the previous round.
+spawn_completion_line() {
+  local spawn_line="$1"
+  local tool_use_id
+  tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
+  [ -n "$tool_use_id" ] || return 1
+  awk -v s="$spawn_line" -v id="$tool_use_id" '
+    NR > s && index($0, "tool-use-id>" id "<") && index($0, "completed</status>") { print NR; exit }
+  ' "$TRANSCRIPT"
+}
+
+# An assistant message carrying the triage table and NO tool call.
+#
+# Structural, not substring. The gate's own demand text quotes both constants,
+# and a model restating a required format ("I'll publish <header> over
+# <divider>") writes them too -- so a substring test acknowledges a head on a
+# message that contains no verdict at all, inverting the gate. The header must
+# be its own line, the divider the line immediately after it, and at least one
+# data row must follow: that shape is a published table and nothing else is.
+triage_published_after_line() {
+  local min_line="$1"
+  awk -v s="$min_line" '
+    NR > s && index($0, "\"type\":\"assistant\"") && !index($0, "\"type\":\"tool_use\"")
+  ' "$TRANSCRIPT" \
+    | while IFS= read -r entry; do
+        printf '%s' "$entry" | jq -r '
+          [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]
+        ' 2>/dev/null
+      done \
+    | awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
+        { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
+        END {
+          for (i = 1; i <= n; i++) {
+            if (rows[i] == h && rows[i + 1] == d && rows[i + 2] ~ /^\|.*\|$/) exit 0
+          }
+          exit 1
+        }'
 }
 
 retroactive_ack_scan() {
@@ -705,15 +762,15 @@ retroactive_ack_scan() {
     # into its cumulative review).
     local window_complete=1
     local lane
+    local window_verdict_after=0
     for lane in $required_lanes; do
       local spawn_line
       spawn_line=$(lane_spawn_lines "$lane" "$start" "$end" | tail -1)
       if [ -z "$spawn_line" ]; then
         window_complete=0; break
       fi
-      local line_content tool_use_id
-      line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
-      tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+      local tool_use_id
+      tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
       if [ -z "$tool_use_id" ]; then
         window_complete=0; break
       fi
@@ -722,7 +779,20 @@ retroactive_ack_scan() {
       if ! tool_use_id_completed "$spawn_line" "$tool_use_id"; then
         window_complete=0; break
       fi
+      local completion_line
+      completion_line=$(spawn_completion_line "$spawn_line")
+      if [ -n "$completion_line" ] && [ "$completion_line" -gt "$window_verdict_after" ] 2>/dev/null; then
+        window_verdict_after="$completion_line"
+      fi
     done
+
+    # Same contract as the main gate. Without it this path acknowledges a head
+    # on lane exit alone, which silently bypasses the verdict requirement and
+    # swallows the FIX directive that acknowledgement is supposed to drive.
+    if [ "$window_complete" = "1" ] && [ "$window_verdict_after" -gt 0 ] 2>/dev/null \
+       && ! triage_published_after_line "$window_verdict_after"; then
+      window_complete=0
+    fi
 
     if [ "$window_complete" = "1" ]; then
       best_sha="$push_sha"
@@ -977,9 +1047,8 @@ lane_in_flight() {
   if [ "$((total - spawn_line))" -gt "$IN_FLIGHT_STALE_LINES" ] 2>/dev/null; then
     return 1
   fi
-  local line_content tool_use_id
-  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
-  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+  local tool_use_id
+  tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
   [ -n "$tool_use_id" ] || return 1  # can't correlate -> treat as not in flight
   if tool_use_id_terminal "$spawn_line" "$tool_use_id"; then
     return 1  # ended (completed OR failed) -> not in flight, re-demand at once
@@ -995,9 +1064,8 @@ latest_lane_spawn_after_line() {
 
 spawn_ended_unsuccessfully() {
   local spawn_line="$1"
-  local line_content tool_use_id
-  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
-  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+  local tool_use_id
+  tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
   [ -n "$tool_use_id" ] || return 1
   tool_use_id_terminal "$spawn_line" "$tool_use_id" \
     && ! tool_use_id_completed "$spawn_line" "$tool_use_id"
@@ -1005,9 +1073,8 @@ spawn_ended_unsuccessfully() {
 
 spawn_completed() {
   local spawn_line="$1"
-  local line_content tool_use_id
-  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
-  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+  local tool_use_id
+  tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
   [ -n "$tool_use_id" ] || return 1
   tool_use_id_completed "$spawn_line" "$tool_use_id"
 }
@@ -1023,29 +1090,16 @@ lane_has_coverage_after_line() {
     return 0
   fi
 
+  # Ended badly is not covered. Without this the staleness window below credits
+  # a dead lane as covered, so it is never re-demanded -- which made the whole
+  # failed-lane path dead code in exactly the case it was written for.
+  if spawn_ended_unsuccessfully "$spawn_line"; then
+    return 1
+  fi
+
   local total
   total=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
   [ "$((total - spawn_line))" -le "$IN_FLIGHT_STALE_LINES" ] 2>/dev/null
-}
-
-# The triage table, byte-for-byte the shape Pi pins as REVIEW_TRIAGE_HEADER /
-# REVIEW_TRIAGE_DIVIDER. It is a contract value, not prose: the gate reads it to
-# decide whether the root actually consumed the lanes' findings.
-REVIEW_TRIAGE_HEADER='| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |'
-REVIEW_TRIAGE_DIVIDER='|---|---|---|---|---|'
-
-# Transcript line of a spawn's successful completion notification, or empty.
-# Needed because the triage table only counts if it came AFTER the last lane
-# returned -- a table published earlier belongs to the previous round.
-spawn_completion_line() {
-  local spawn_line="$1"
-  local line_content tool_use_id
-  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
-  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
-  [ -n "$tool_use_id" ] || return 1
-  awk -v s="$spawn_line" -v id="$tool_use_id" '
-    NR > s && index($0, "tool-use-id>" id "<") && index($0, "completed</status>") { print NR; exit }
-  ' "$TRANSCRIPT"
 }
 
 # Latest completion across every required lane, i.e. the moment the round's
@@ -1061,21 +1115,6 @@ latest_required_completion_line() {
   done
   [ "$max" -gt 0 ] 2>/dev/null || return 1
   printf '%s\n' "$max"
-}
-
-# An assistant message carrying the triage table and NO tool call. The
-# no-tool-call requirement is what makes this evidence of a published verdict
-# rather than of a command that happens to quote the header.
-triage_published_after_line() {
-  local min_line="$1"
-  awk -v s="$min_line" -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
-    NR > s \
-      && index($0, "\"type\":\"assistant\"") \
-      && !index($0, "\"type\":\"tool_use\"") \
-      && index($0, h) \
-      && index($0, d) { found = 1; exit }
-    END { exit(found ? 0 : 1) }
-  ' "$TRANSCRIPT"
 }
 
 lane_completed_after_line() {
@@ -1136,8 +1175,7 @@ fi
 # never credited it, so the head stayed un-acked and every later range widened.
 # Name it in the demand so a lost lane is re-run rather than silently absorbed.
 FAILED=""
-for lane in code-reviewer spec-reviewer doc-updater; do
-  requires_lane "$lane" || continue
+for lane in $REQUIRED_LANES; do
   failed_spawn=$(latest_lane_spawn_after_line "$lane" "$PUSH_LINE")
   [ -n "$failed_spawn" ] || continue
   if spawn_ended_unsuccessfully "$failed_spawn"; then
@@ -1179,6 +1217,18 @@ if all_required_lanes_completed_for_current_head; then
     echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
     clear_counter
     emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane returned and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION from that table and nothing else — a rejected row stays rejected, and a row you accepted is not deferred. State what you fixed and anything you deliberately left."
+  fi
+  # The demand must never cost more than it protects. Five unanswered demands
+  # would otherwise leave this head unacked forever, and a wedged checkpoint is
+  # the exact failure this whole path exists to remove -- it re-measures every
+  # later range from a stale head. Take the escape hatch the 5-strike breaker
+  # already defines: acknowledge, and say plainly that no verdict backed it.
+  VERDICT_STRIKES=$(read_count)
+  if [ "$VERDICT_STRIKES" = "GIVEUP" ] || [ "$VERDICT_STRIKES" -ge 5 ] 2>/dev/null; then
+    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    clear_counter
+    echo "enforce-review-spawn: ${CURRENT_PR_HEAD:0:7} acknowledged after $VERDICT_STRIKES unanswered verdict demands; its findings were never triaged" >&2
+    exit 0
   fi
   emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER'. Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
 fi

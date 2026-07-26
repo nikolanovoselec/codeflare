@@ -633,10 +633,12 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
       SPEC_DONE_LINE('toolu_sr1'),
       AGENT_LINE('doc-updater', '2026-05-03T12:00:10.000Z', 'toolu_du1'),
       DONE_LINE('toolu_du1'),
+      // The verdict contract is transport-independent: an Agent round is read
+      // or unread on the same terms a headless one is.
+      TRIAGE_LINE(),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
     const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
@@ -672,7 +674,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_DONE_LINE('toolu_b3'),
       TRIAGE_LINE(),
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
+    runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(ackOf(cwd), headSha,
       'a fully headless round must advance the checkpoint exactly like a subagent round');
   });
@@ -709,7 +711,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       // doc-updater spawned, no tool_result -> lane never completed.
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
+    runHook(cwd, { transcriptPath: t, binDir });
     assert.notEqual(ackOf(cwd), 'incompletesha',
       'an unreturned lane must not advance the checkpoint');
   });
@@ -1770,11 +1772,13 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
       PUSH_LINE('2026-05-18T12:00:00.000Z'),
       AGENT_LINE('doc-updater', '2026-05-18T12:00:05.000Z', 'toolu_du1'),
       DONE_LINE('toolu_du1'),
+      // A one-lane round is still a round: its findings are read or they are not.
+      TRIAGE_LINE(),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'docs-only push with doc-updater completed must NOT block (no code/spec demanded)');
+    assert.doesNotMatch(r.stdout, /run code-reviewer|run spec-reviewer/,
+      'docs-only push must not demand the lanes it does not own');
     const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();

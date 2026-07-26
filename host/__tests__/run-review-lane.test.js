@@ -210,6 +210,60 @@ describe('run-review-lane.sh — triage no-op short-circuit', () => {
   });
 });
 
+// Both blocks are inlined into every turn's prompt prefix, so both are bounded.
+// The cap is the only thing standing between a large config and a cost paid on
+// every turn of the run.
+describe('run-review-lane.sh — inlined evidence is bounded', () => {
+  it('drops an oversized triage block rather than carrying it every turn', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, { decision: 'proceed', filler: 'x'.repeat(40000) });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), true, 'an oversized block degrades to a normal review, never to a skipped one');
+    assert.match(r.stderr, /triage block over/);
+    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    assert.doesNotMatch(argv, /xxxxxxxxxx/, 'the oversized block must not reach the prompt');
+  });
+
+  it('keeps a triage block within the cap', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, { decision: 'proceed', marker: 'TRIAGE_MARKER' });
+
+    runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.match(readFileSync(`${witness}.argv`, 'utf-8'), /TRIAGE_MARKER/,
+      'a block under the cap is inlined, or the lane pays a turn to rebuild it');
+  });
+
+  // The packet CLI rejects an abbreviated range, so the full-SHA resolution is
+  // what makes inlining possible at all. Nested inside the classifier branch it
+  // vanished whenever lane-classifier.sh was absent.
+  it('inlines the packet even when the lane classifier is missing', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    rmSync(join(hookScripts, 'lib/lane-classifier.sh'));
+    const skillDir = join(home, 'skills/review-scope/scripts');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'build-review-packet.mjs'),
+      'const i=process.argv.indexOf("--range");process.stdout.write(JSON.stringify({range:process.argv[i+1]}));\n');
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+
+    runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base.slice(0, 8)}..${head.slice(0, 8)}` });
+
+    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    assert.match(argv, new RegExp(`${base}\\.\\.${head}`),
+      'the packet must carry full SHAs; abbreviated ones make the CLI throw and the lane falls back to raw scans');
+  });
+});
+
 // REQ-AGENT-102 constraint: the container guards are re-injected explicitly,
 // and they must be invoked through a shell because the seeded hook scripts ship
 // non-executable and a bare command path silently no-ops.
