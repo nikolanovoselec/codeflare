@@ -1,7 +1,7 @@
 import { isAbsolute, relative } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 15;
-export const MEMORY_CAPTURE_MAX_TURNS = 40;
+export const MEMORY_CAPTURE_MAX_TOTAL_CHARS = 200000;
 export const MEMORY_CAPTURE_MAX_TURN_CHARS = 10000;
 export const EXTRACTION_RUNNING_TTL_MS = 30 * 60 * 1000;
 
@@ -402,8 +402,39 @@ export function capTurn(text: string, max = MEMORY_CAPTURE_MAX_TURN_CHARS): stri
   return lost.length > 0 ? `${kept}\n[refs dropped in truncation: ${lost.join(", ")}]` : kept;
 }
 
+// The capture trigger counts real user prompts (15); the payload ceiling used to
+// count messages (40). The two units convert at a rate that swings with how
+// agentic the window was -- measured, ~2.5 messages per prompt on a light
+// session and ~25 on a heavy one -- so a message count either sat idle or cut a
+// 15-prompt window down to the last 9 of its prompts, permanently: the prompt
+// counter advances whether or not the slice kept everything.
+//
+// Budget characters instead, which is what the payload actually costs, and spend
+// them on user prompts before assistant turns. The prompts are what the window
+// is defined by; the assistant turns elaborate on them. Both passes run
+// newest-first and stop at the first turn that does not fit, so the result is a
+// suffix per role and the budget is a hard ceiling even when the prompts alone
+// would exceed it.
+export function selectTurns<T extends { role: string; text: string }>(
+  turns: T[],
+  budget = MEMORY_CAPTURE_MAX_TOTAL_CHARS,
+): T[] {
+  const keep = new Set<number>();
+  let spent = 0;
+  for (const role of ["user", "assistant"]) {
+    for (let index = turns.length - 1; index >= 0; index--) {
+      if (turns[index].role !== role) continue;
+      const cost = turns[index].text.length;
+      if (spent + cost > budget) break;
+      spent += cost;
+      keep.add(index);
+    }
+  }
+  return turns.filter((_, index) => keep.has(index));
+}
+
 export function compactMessages(messages: any[], afterRealUserCount = 0): string {
-  const turns: string[] = [];
+  const turns: { role: string; text: string }[] = [];
   let realUserCount = 0;
   let includeFollowingTurns = afterRealUserCount === 0;
   for (const message of messages) {
@@ -417,9 +448,9 @@ export function compactMessages(messages: any[], afterRealUserCount = 0): string
     if (!includeCurrent || (role !== "user" && role !== "assistant")) continue;
     const text = messageText(message);
     if (!text || (role === "user" && isSyntheticPrompt(text))) continue;
-    turns.push(`## ${role}\n${capTurn(text)}`);
+    turns.push({ role, text: capTurn(text) });
   }
-  return turns.slice(-MEMORY_CAPTURE_MAX_TURNS).join("\n\n");
+  return selectTurns(turns).map((turn) => `## ${turn.role}\n${turn.text}`).join("\n\n");
 }
 
 export function parseSessionMessages(content: string): any[] {

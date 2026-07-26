@@ -18,6 +18,7 @@
 #
 # Outputs in OUT_DIR:
 #   slice.jsonl          - raw transcript slice (for debugging only)
+#   turns.ndjson         - every filtered turn, before the budget is applied
 #   clean.ndjson         - filtered NDJSON: {role, text, ts} per line
 #   chunk-aa, chunk-ab.. - clean.ndjson split CHUNK_SIZE entries per chunk
 #   chunk-aa.md, ...     - human-readable Markdown rendering of each chunk
@@ -45,16 +46,20 @@ END="${3:?end line required}"
 OUT="${4:?out dir required}"
 CHUNK_SIZE="${5:-20}"
 
-# Payload ceilings, mirroring Pi's MEMORY_CAPTURE_MAX_TURNS and
+# Payload ceilings, mirroring Pi's MEMORY_CAPTURE_MAX_TOTAL_CHARS and
 # MEMORY_CAPTURE_MAX_TURN_CHARS. Measured over 1,546 real turns: the median
 # turn is 196 characters and p90 is 2,557, so the per-turn cap only ever
 # touches the tail -- at 10,000 it cuts 2.1% of turns and keeps 88% of all
-# content. Without them the slice grows with session
-# length: a resumed session produced 50 chunks and cost 220k tokens to
-# summarise. They are inactive on a normal 15-prompt window (~30-40 turns) and
-# bite exactly on the pathological one. Capping here also collapses the chunk
-# count, which is what keeps the per-chunk pass short.
-MAX_TURNS=40
+# content. Without a ceiling the slice grows with session length: a resumed
+# session produced 50 chunks and cost 220k tokens to summarise. Capping here
+# also collapses the chunk count, which is what keeps the per-chunk pass short.
+#
+# The total is budgeted in characters rather than turns because the capture
+# trigger counts prompts, not messages, and the conversion between them swings
+# by an order of magnitude with how agentic the window was. See selectTurns in
+# Pi's memory-vault-helpers.ts for the full reasoning; the selection below is
+# the same algorithm.
+MAX_TOTAL_CHARS=200000
 MAX_TURN_CHARS=10000
 
 # Fail-loud integer validation of START/END/CHUNK_SIZE. Empty captures
@@ -122,8 +127,31 @@ elif .type == "assistant" and (.message.content | type) == "array" then
     {role:"assistant", text:capped($t), ts:(.timestamp // null)}
   else empty end
 else empty end
-' --argjson maxchars "$MAX_TURN_CHARS" < "$OUT/slice.jsonl" \
-  | tail -n "$MAX_TURNS" > "$OUT/clean.ndjson"
+' --argjson maxchars "$MAX_TURN_CHARS" < "$OUT/slice.jsonl" > "$OUT/turns.ndjson"
+
+# 2b. Spend the character budget newest-first, user prompts before assistant
+#     turns, then re-emit chronologically. paste supplies awk with each turn's
+#     role and length beside its own line; a prefiltered turn is one line of
+#     compact JSON, so it carries no literal tab or newline to confuse -F'\t'.
+#     jq counts codepoints where Pi's selectTurns counts UTF-16 units, which
+#     can differ by one turn at the budget boundary on astral characters.
+paste <(jq -r '[.role, (.text | length)] | @tsv' < "$OUT/turns.ndjson") "$OUT/turns.ndjson" \
+  | awk -F '\t' -v budget="$MAX_TOTAL_CHARS" '
+      { role[NR] = $1; len[NR] = $2; line[NR] = $3; n = NR }
+      END {
+        spent = 0
+        for (pass = 1; pass <= 2; pass++) {
+          want = (pass == 1) ? "user" : "assistant"
+          for (i = n; i >= 1; i--) {
+            if (role[i] != want) continue
+            if (spent + len[i] > budget) break
+            spent += len[i]
+            keep[i] = 1
+          }
+        }
+        for (i = 1; i <= n; i++) if (i in keep) print line[i]
+      }
+  ' > "$OUT/clean.ndjson"
 
 # 3. Chunk and render. split -a 2 gives chunk-aa, chunk-ab, ... chunk-zz
 #    (676 chunks max - more than any sane 15-prompt window will produce).
