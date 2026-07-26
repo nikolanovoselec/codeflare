@@ -178,10 +178,15 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       'utf8',
     ));
     assert.ok(canonical, 'the enforcement manifest must carry the round-limit row');
-    // `gate=` is a field of the structured evidence template, not prose: it is
-    // what makes a self-decided verdict unreportable, and nothing below implies it.
-    assert.match(canonical, /gate=/,
-      'the evidence template must carry the verdict, so a self-judged one is not reportable');
+    // Both halves of the evidence contract live in the row's trailing status
+    // template, so parse that cell rather than the whole row: a substring match
+    // would also accept the field appearing loose in the prose beside it.
+    const template = canonical.match(/`(ran \([^`]+\))`/)?.[1].replace(/\\/g, '');
+    assert.ok(template, 'the row must declare a status template');
+    assert.match(template, /\bcounted\b/,
+      'the template must carry the counted total, so a miscount is visible in the report');
+    assert.match(template, /gate\s*=\s*<stop\|continue>/,
+      'the template must carry the gate verdict, so a self-judged one is not reportable');
 
     // Every runtime that ships the manifest enforces it, so every runtime is
     // checked. Only the runtime root is adapted, and it must be -- none of them
