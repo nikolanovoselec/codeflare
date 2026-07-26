@@ -173,6 +173,71 @@ function stubTriage(hookScripts, doc) {
   );
 }
 
+function stubEvidence(hookScripts, doc) {
+  writeFileSync(
+    join(hookScripts, 'lib/lane-evidence.mjs'),
+    `process.stdout.write(${JSON.stringify(JSON.stringify(doc, null, 2))});\n`,
+  );
+}
+
+// REQ-AGENT-105. The lookups the lane checklists order are what the turn count
+// is made of -- a doc lane owning one table cell still spent 13 turns resolving
+// an index, a layout, every reference and every anchor. Handing the answers over
+// is only worth anything if they actually reach the prompt.
+describe('run-review-lane.sh — resolved lookups reach the lane', () => {
+  it('inlines the evidence block', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubEvidence(hookScripts, { lane: 'code-reviewer', adrs: [{ id: 'AD117', status: 'Accepted' }], marker: 'EVIDENCE_MARKER' });
+
+    runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    assert.match(argv, /EVIDENCE_MARKER/,
+      'a resolved lookup that never reaches the prompt is a lookup the lane still pays a turn for');
+    assert.match(argv, /<evidence>/, 'the block must be delimited so the lane can tell it from the diff');
+  });
+
+  // Same degrade-by-field rule as its two siblings: the verbatim indexes are the
+  // bulk, the resolutions are what remove turns, so the resolutions survive.
+  it('sheds the verbatim indexes rather than the whole evidence block', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubEvidence(hookScripts, {
+      lane: 'doc-updater',
+      docIndex: 'z'.repeat(80000),
+      references: { checked: 12, unresolved: [{ ref: 'src/gone.ts', resolved: false }] },
+    });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'doc-updater', range: `${base}..${head}` });
+
+    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    assert.doesNotMatch(argv, /zzzzzzzzzz/, 'the field that blew the cap must not reach the prompt');
+    assert.match(argv, /src\/gone\.ts/,
+      'the resolutions are the part that removes turns and must survive the shed');
+    assert.match(r.stderr, /verbatim indexes omitted/);
+  });
+
+  it('reviews normally when evidence cannot be resolved', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    writeFileSync(join(hookScripts, 'lib/lane-evidence.mjs'), 'process.exit(1);\n');
+
+    runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), true,
+      'an evidence failure degrades to the lane gathering it itself, never to a skipped review');
+    assert.doesNotMatch(readFileSync(`${witness}.argv`, 'utf-8'), /<evidence>/,
+      'an empty block must not be inlined as though it were resolved');
+  });
+});
+
 // REQ-AGENT-103 AC3
 describe('run-review-lane.sh — triage no-op short-circuit', () => {
   it('returns without invoking a model when triage decides the lane is a no-op', () => {

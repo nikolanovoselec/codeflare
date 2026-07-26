@@ -82,7 +82,7 @@ Severity governs how you surface a finding, never whether you report it:
 - **CRITICAL** — under a `BLOCKING` header; do not exit early, finish the rest.
 - **HIGH / MEDIUM** — itemised at true severity.
 - **LOW** — under a "defer to `/sdd clean`" heading.
-- **JUDGMENT** (doc-vs-spec conflict, oversized-REQ split, deprecated-without-successor) — options plus a recommendation and cross-session graph evidence, never a silent pick. Before escalating one, check the record: an Accepted ADR in `documentation/decisions/README.md`, a disposition in the config, or an entry in `sdd/spec/pending.md` justifies deferring it. A REQ whose AC contradicts an Accepted ADR is the REQ's bug.
+- **JUDGMENT** (doc-vs-spec conflict, oversized-REQ split, deprecated-without-successor) — options plus a recommendation and cross-session graph evidence, never a silent pick. Before escalating one, check the record — `evidence.adrs` (id, title, status), the config in `config.raw`, and `evidence.pending` are all in hand, so this costs no lookup. Read one ADR body only when its title says it may settle the finding. A REQ whose AC contradicts an Accepted ADR is the REQ's bug.
 
 ## Rules that catch reviewers out
 
@@ -91,7 +91,7 @@ Severity governs how you surface a finding, never whether you report it:
 - **Never edit source or docs to match the spec.** Report HIGH `spec-vs-shipped` and let the user decide.
 - **Never paper over a CQ finding.** A vendor reference orphaned in spec means updating the AC (integration removed) or restoring the source (integration lost), never stripping the name. Context-loss on a shrink means reverting the shrink, not shipping a trim with a load-bearing clause gone.
 - **No strikethrough or "Superseded:" in the spec body.** Churn lives in git history; edit the AC in place.
-- **Domains are project-specific.** Read `sdd/README.md` for the real index rather than assuming names. A change fitting no domain is escalated with a proposal; never create a domain file without confirmation.
+- **Domains are project-specific.** `evidence.specIndex` carries the real domain index; use it rather than assuming names or re-reading the file. A change fitting no domain is escalated with a proposal; never create a domain file without confirmation.
 - **A new REQ follows the `spec-enforce` rendering template exactly** — all required fields, no prose Status, no forbidden content.
 
 ## Report

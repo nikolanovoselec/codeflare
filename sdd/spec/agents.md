@@ -2665,7 +2665,8 @@ None.
 3. Policy that is small and applies to every run is embedded in the reviewer document. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Embedded canonical policy --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
 4. Every path that demands a lane passes the range under review, so the demanded lane receives its packet and its ownership short-circuit rather than reviewing the whole PR. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (scopes the lanes it demands to the range under review) -->
 5. Inlined evidence over its byte cap degrades by field, keeping the resolved answers. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (sheds config.raw rather than the whole triage block) -->
-6. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+6. A lane exceeding its wave budget is reported without being stopped.
+7. The lookups a lane checklist would order — index presence, tree layout, anchor resolution, documented-reference resolution, call sites, the decision ledger — are resolved before the lane starts and handed to it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-evidence.mjs::main --> <!-- @test: host/__tests__/lane-evidence.test.js (reports an anchor whose symbol no longer exists as unresolved) --> <!-- @test: host/__tests__/run-review-lane.test.js (inlines the evidence block) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
 
 **Constraints:**
 
@@ -2674,6 +2675,9 @@ None.
 - Dropping a whole block of inlined evidence is a cost regression, not a safety measure: it returns the lane to the derivation the block replaced.
 - A shed field is announced to the lane as a named marker with a stated recovery, or the lane spends the turn the shedding was meant to save.
 - Report length is part of the contract: a finding is bounded, a clean pass is a count, and the search is never narrated back.
+- Broad discovery is forbidden at every wave: no repository survey, no indexed search, no re-reading returned evidence, no re-deriving what an inlined block resolved.
+- Resolved evidence reports passes as a count and failures in full; enumerating what passed is what makes a handed answer cost more than the lookup it replaced.
+- A resolver failure yields an absent field, never an empty result: an unanswerable question must read as unknown, or a check is silently skipped.
 
 **Priority:** P1
 

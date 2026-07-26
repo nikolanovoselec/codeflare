@@ -47,7 +47,7 @@ node ~/.claude/skills/review-scope/scripts/build-review-packet.mjs \
 
 Never persist the packet or echo raw packet JSON. `changedInputs` is how source reaches a documentation review, and a path is a lead, not a finding: a documented contract is invalidated only when the resolved symbol behind it overlaps a changed hunk, which is what `changedInputIntersects(input, range)` tests. A page is not stale because a file it mentions was touched somewhere.
 
-For Pass 8 (verification truth-check) and Pass 12 (stranger cold-read), every concrete reference in `documentation/` — function name, file path, route handler, env-var consumer — must resolve to real code. `git grep -n '<symbol>' -- <path>` answers that; a reference resolving nowhere is a stale doc (HIGH). Bound every search with `-c`, `| wc -l`, or `| head -N`; an unbounded scan puts raw output in your context and defeats the packet. `grep` calls a file containing a NUL byte binary and silently matches nothing — pass `-a` where that is possible.
+For Pass 8 (verification truth-check) and Pass 12 (stranger cold-read), every concrete reference in `documentation/` must resolve to real code. **That resolution is already done** — `evidence.references` carries `checked` and every failure in `unresolved`. Each unresolved entry is a stale doc (HIGH); an empty list over a non-zero `checked` is that pass, complete. Re-running it is a turn spent reproducing an answer you hold.
 
 For coverage gaps, cross-reference `changedInputs` against the `documentation/README.md` jump-TOC: a changed entry point with no doc page is HIGH `feature-without-doc`. Under `scope=diff` restrict that to surfaces the range touched; the repo-wide sweep is a `scope=all` obligation.
 
@@ -65,7 +65,7 @@ A `<triage>` block carries every Phase 0 answer already: bootstrap and layout, t
 
 `transition.corrupt: true` → emit HIGH `sdd-transition-corrupt` and continue. `bulkOpAudit.findings` → report each as your own at the severity it carries. `roundLimit` is informational. `decision: "exit-no-op"` never reaches you. If the block is absent, derive Phase 0 in **one** compound Bash call.
 
-**Scaffolding gate (triage does not answer this).** Triage resolves `sdd/`, not `documentation/`. Confirm the index exists (`test -f documentation/README.md`), batched into the first Bash call you were making anyway. Absent → HIGH gap: **do not auto-create it**, report the missing index and exit, because the user must scaffold `documentation/` deliberately. Present → it is the routing table for everything below; read it rather than hardcoding names.
+**Scaffolding gate.** `evidence.docIndexPresent` answers it. False → HIGH gap: **do not auto-create it**, report the missing index and exit, because the user must scaffold `documentation/` deliberately. True → `evidence.docIndex` is the routing table for everything below; use it rather than hardcoding names or re-reading the file.
 
 ## Procedure
 
@@ -76,7 +76,7 @@ You own `documentation/` (both layouts: `documentation/lanes/**/*.md` nested, `d
 3. **Enforce the spec/docs boundary.** Hex codes, CSS classes, function names, file paths, env var names, HTTP status codes, JSON shapes, library names, build internals and debugging steps belong in docs and are forbidden in REQs — do not flag them here. Documentation of a feature cross-links its REQ, e.g. `Implementation of [REQ-BK-2](../sdd/booking.md#req-bk-2)`. A doc that would contradict an acceptance criterion is a conflict you stop and flag; never resolve it by overwriting either side. A code change needing a spec update is reported, never applied — `sdd/` is not yours.
 4. **Validate** the documentation against the manifest. Do not restate the skills' detection logic — trust their output.
 5. **Report every finding** with file/line, the rule that fired, its severity, and a concrete proposed fix. `mode` is a label in your header, never a decision about whether you fix; you always report.
-6. **Propose spec backlinks.** Every `Status: Implemented` REQ with no doc file naming its REQ ID gets one in the most relevant lane file (MEDIUM). Resolve `SPEC_LAYOUT` (`test -d sdd/spec`) and `DOC_LAYOUT` (`test -d documentation/lanes`) **independently** — the two lanes migrate at different rates — then assemble `../` per directory level up to the repo root plus `sdd/spec/` or `sdd/`:
+6. **Propose spec backlinks.** Every `Status: Implemented` REQ with no doc file naming its REQ ID gets one in the most relevant lane file (MEDIUM). `sdd.layout` and `evidence.docLayout` are resolved **independently** — the two trees migrate at different rates — so read both rather than probing either, then assemble `../` per directory level up to the repo root plus `sdd/spec/` or `sdd/`:
 
    ```markdown
    Implements [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001).   <!-- nested doc + nested spec -->

@@ -43,7 +43,7 @@ Never persist the packet or echo raw packet JSON. A `changedInputs` path is a le
 
 **Filter for signal.** Report only what you are >80% confident is real. Skip stylistic preferences unless they violate project convention, and issues in unchanged code unless CRITICAL security. Consolidate similar findings ("5 functions missing error handling", not 5 findings). Prioritise what causes bugs, vulnerabilities, or data loss.
 
-**Check the record before flagging.** An Accepted ADR in `documentation/decisions/README.md` or a disposition in `sdd/spec/config.yml` is sufficient to drop a finding, noted in your audit log. A settled decision is not a defect.
+**Check the record before flagging.** `evidence.adrs` lists every ADR by id, title and status, and the config is in the triage block — an Accepted ADR or a config disposition is sufficient to drop a finding, noted in your audit log. Read one ADR body only when its title says it may settle the finding. A settled decision is not a defect.
 
 ## Review checklist
 
@@ -86,24 +86,18 @@ jq -c 'select(.name == "Bash" and (.input.command | test("(^|&&\\s*)git\\s+push\
 
 ## Impact analysis
 
-- **Caller impact.** Enumerate every caller of a modified function and check each still works with the new signature. Start from `changedInputs` — a caller changed in the same range is already resolved — then close the gap with one bounded search per symbol (`git grep -n '<symbol>' -- <paths> | head -40`). AI-authored changes routinely alter signatures without updating call sites; this is what catches it.
+- **Caller impact.** Every caller of a modified symbol must still work with the new signature. `evidence.callSites` already lists them per symbol, bounded, with generated trees excluded; `changedInputs` covers callers changed in the same range. Search yourself only for a symbol neither one names — a dynamic import, a string-keyed route table, a `globalThis['handler']` lookup — and do it in one batched call for all such symbols at once. AI-authored changes routinely alter signatures without updating call sites; this is what catches it.
 - **Schema alignment.** When a response shape changes, backend and frontend schemas must both move (Zod, TS types, validation).
 - **JSON serialization.** `undefined` in an object bound for `JSON.stringify` silently strips the field. Use an explicit reset value or omit it.
 - **Stored-record safety.** Never delete a required field from a stored record — write an explicit value (`'pending'`, not `undefined`).
 
 ## Orphaned `@impl` source-anchor check (binding when SDD is bootstrapped)
 
-When the diff renames, moves, or deletes a source symbol, scan for inline anchors now pointing at it — spec (`sdd/spec/**/*.md` nested or `sdd/*.md` flat, excluding `README.md`), ADRs (`documentation/decisions/README.md`), and lane files (`documentation/lanes/**/*.md` nested or `documentation/*.md` flat):
-
-```
-<!--\s*@impl:\s*([^:]+)::([^\s=]+)(?:\s*=\s*(.+?))?\s*-->
-```
-
-Each match on a renamed-or-deleted symbol is HIGH `spec-anchor-orphaned-by-source-change` (or `doc-anchor-orphaned-by-source-change` in `documentation/`), citing file, line, anchor, and the source change that broke it. **Not auto-fixable** — the new symbol may carry different semantics, so symbol-to-AC mapping is JUDGMENT for the user. CQ-SOURCE and Pass 15 would catch it on a later review; you surface it early so the rename reconciles in the same PR.
+When the diff renames, moves, or deletes a source symbol, anchors may now point at nothing. `evidence.anchorsCitingChanged` already lists every spec, ADR and lane file whose `@impl` cites a file in this diff, so the scan is done — judge each listed anchor against what the diff did to that symbol. Each anchor left pointing at a renamed-or-deleted symbol is HIGH `spec-anchor-orphaned-by-source-change` (or `doc-anchor-orphaned-by-source-change` in `documentation/`), citing file, line, anchor, and the source change that broke it. **Not auto-fixable** — the new symbol may carry different semantics, so symbol-to-AC mapping is JUDGMENT for the user. CQ-SOURCE and Pass 15 would catch it on a later review; you surface it early so the rename reconciles in the same PR.
 
 ## Project context
 
-If `sdd/` exists, check changes align with it — a new feature should have a REQ. If `documentation/decisions/README.md` exists, check it before flagging an architectural pattern. If neither exists, review on code quality alone; projects without SDD are fully supported. Also honour project conventions from `CLAUDE.md` or project rules — file-size limits, emoji policy, immutability, database and error-handling patterns, state management. When in doubt, match the surrounding codebase.
+If `sdd/` exists, check changes align with it — a new feature should have a REQ. Judge that from the spec hunks in `changedInputs` and `evidence.anchorsCitingChanged`; do not survey the spec tree. If `documentation/decisions/README.md` exists, check it before flagging an architectural pattern. If neither exists, review on code quality alone; projects without SDD are fully supported. Also honour project conventions from `CLAUDE.md` or project rules — file-size limits, emoji policy, immutability, database and error-handling patterns, state management. When in doubt, match the surrounding codebase.
 
 ## Rules that catch reviewers out
 

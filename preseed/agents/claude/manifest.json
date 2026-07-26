@@ -129,6 +129,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/lib/lane-evidence.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-hooks/scripts/lib/lane-triage.mjs": {
     "modes": [
       "advanced"
