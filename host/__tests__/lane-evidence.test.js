@@ -132,7 +132,7 @@ describe('lane-evidence.mjs — anchor resolution', () => {
   // that fixture passes with or without the terminator branch. Both forms are
   // asserted so each branch of the boundary has an oracle.
   it('finds an anchor written without a space before its comment terminator', () => {
-    const { cwd, base } = makeRepo();
+    const { cwd } = makeRepo();
     write(cwd, 'src/thing.js', 'function stillHere() {}\n');
     // Separate files on purpose. Candidate selection is per FILE, so a document
     // holding both forms is selected by the `::symbol` anchor alone and then
@@ -154,7 +154,7 @@ describe('lane-evidence.mjs — anchor resolution', () => {
   // the cap and reporting itself truncated, which sends the lane back to finish
   // a scan that had in fact covered everything.
   it('does not let sibling-prefix paths inflate the scan into a false truncation', () => {
-    const { cwd, base } = makeRepo();
+    const { cwd } = makeRepo();
     write(cwd, 'src/a.js', 'function real() {}\n');
     write(cwd, 'src/a.jsx', 'function sibling() {}\n');
     for (let i = 0; i < 41; i += 1) {
