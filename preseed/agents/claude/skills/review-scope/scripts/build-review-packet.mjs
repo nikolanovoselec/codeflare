@@ -115,10 +115,35 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     if (!key?.startsWith('--')) continue;
-    values[key.slice(2)] = argv[index + 1];
+    // A valueless flag must not swallow the flag after it. Consuming blindly
+    // turned `--with-evidence --lane doc-updater` into a packet with no lane.
+    const next = argv[index + 1];
+    if (next === undefined || next.startsWith('--')) {
+      values[key.slice(2)] = true;
+      continue;
+    }
+    values[key.slice(2)] = next;
     index += 1;
   }
   return values;
+}
+
+// A runtime with a lane runner has its evidence inlined for it. A runtime
+// without one has to ask, and asking was a second command named in the middle of
+// a paragraph: a measured run built the packet, skipped that sentence, and spent
+// three turns re-deriving by hand exactly what the resolver returns. This rides
+// the call that is actually made. Best-effort by construction -- no evidence
+// degrades to the lane gathering its own, never to a skipped check.
+function laneEvidence(repo, lane, range) {
+  try {
+    const script = new URL('./lane-evidence.mjs', import.meta.url);
+    const out = execFileSync(process.execPath, [
+      script.pathname, '--repo', repo, '--lane', lane, ...(range ? ['--range', range] : []),
+    ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 32 * 1024 * 1024 });
+    return JSON.parse(out);
+  } catch {
+    return null;
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
@@ -130,6 +155,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       range: args.range,
       lane: args.lane,
     });
+    if ('with-evidence' in args) {
+      const evidence = laneEvidence(args.repo, args.lane, packet.range);
+      if (evidence) packet.evidence = evidence;
+    }
     process.stdout.write(`${JSON.stringify(packet)}\n`);
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

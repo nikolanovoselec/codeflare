@@ -26,7 +26,7 @@ The extension-level contract is `{ mode, workSet }`, where `workSet` is `changed
 For `diff`, validate the range and obtain the lane-owned file list and hunks in one call:
 
 ```bash
-node ~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs \
+node ~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs --with-evidence \
   --repo <absolute-root> --scope diff --range <base>..<head> --lane <code-reviewer|spec-reviewer|doc-updater>
 ```
 
@@ -35,7 +35,10 @@ For `all`, omit `--range` and pass `--scope all`. The packet contains:
 - `files`: lane-owned changed files (`diff`) or tracked lane files (`all`);
 - `patch`: lane-owned changed hunks for `diff`, empty for `all`;
 - `changedInputs`: cross-lane inputs as `{ path, hunks }`, where each hunk carries exact old/new line ranges;
+- `evidence`: the resolved lookups your checklist would otherwise order one turn at a time — index presence and layout, the index-versus-tree join in `indexIntegrity`, anchor and documented-reference resolution, call sites, the decision ledger, and for a documentation lane the pages citing each changed file together with that file's own `patch`. Treat it as authoritative: `checked` with an empty `unresolved` is that check performed, not skipped, and a row carrying a `patch` is the change itself, so do not run `git diff` for it. Gather yourself only where a field is null or absent, or a row says `patchOmitted` or `patchTruncated`;
 - the normalized scope, work set, lane, and ancestry-validated range.
+
+`--with-evidence` is part of the invocation, not an option to weigh. Without it the resolved answers are absent and every one of them costs a turn that re-sends the whole prompt.
 
 Build and consume the packet in the same tool call. With `ctx_execute`, execute the seeded script inside the processing program and parse its stdout in memory. Without context-mode, the reviewer guard roots Bash in the caller-supplied repository before the command pipes the same CLI stdout into the equivalent Bash/Node processing program. Never persist the packet, return a packet path, or rebuild it in a later call. Both transports consume the same JSON contract and must emit identical scoped evidence.
 

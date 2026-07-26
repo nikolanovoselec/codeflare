@@ -370,7 +370,6 @@ describe('lane-evidence.mjs — a lane gets evidence for why it was spawned', ()
       assert.equal(row.patch, undefined, 'a marked row carries no partial patch to reason from');
     }
   });
-});
 
   // The lane is told to read the row and gather only where a marker says the
   // evidence is incomplete. A clipped patch carrying no marker means judging a
@@ -548,5 +547,54 @@ describe('lane-evidence.mjs — fail-safe direction', () => {
     const { cwd } = makeRepo();
     const out = run(cwd, 'spec-reviewer', 'notasha..alsonotasha');
     assert.equal(typeof out, 'object', 'an unresolvable range degrades, it does not crash the lane');
+  });
+});
+
+describe('build-review-packet.mjs — evidence rides the call that is actually made', () => {
+  // A runtime with a lane runner has evidence inlined for it; a runtime without
+  // one has to ask. Asking was a second command named mid-paragraph, and a
+  // measured run built the packet, skipped that sentence, and re-derived by hand
+  // exactly what the resolver returns. One flag on the call that IS made removes
+  // the reliance on that sentence being obeyed.
+  const PACKET = resolve(
+    __dirname,
+    '../../preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs',
+  );
+
+  function packet(cwd, lane, range, ...extra) {
+    const r = spawnSync('node', [PACKET, ...extra, '--repo', cwd, '--scope', 'diff',
+      '--range', range, '--lane', lane], { cwd, encoding: 'utf-8' });
+    return JSON.parse(r.stdout);
+  }
+
+  function fixture() {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/architecture.md', 'The engine drives. <!-- @impl: src/engine.ts::drive -->\n');
+    write(cwd, 'src/engine.ts', 'export function drive() { return 1; }\n');
+    commit(cwd, 'feat: engine and page');
+    write(cwd, 'src/engine.ts', 'export function drive() { return 2; }\n');
+    const head = commit(cwd, 'feat: change it');
+    return { cwd, range: `${git(cwd, 'rev-parse', base)}..${git(cwd, 'rev-parse', head)}` };
+  }
+
+  it('attaches the resolved evidence when asked for it', () => {
+    const { cwd, range } = fixture();
+    const out = packet(cwd, 'doc-updater', range, '--with-evidence');
+    assert.ok(out.evidence, 'the runtime without a runner gets its evidence from the call it makes');
+    assert.equal(out.evidence.lane, 'doc-updater');
+    assert.ok(out.evidence.docsCitingChanged.some((row) => row.file === 'src/engine.ts' && row.patch));
+  });
+
+  it('leaves the packet contract untouched when not asked', () => {
+    const { cwd, range } = fixture();
+    assert.equal(packet(cwd, 'doc-updater', range).evidence, undefined,
+      'the runner inlines its own evidence; the packet must not grow a second copy for it');
+  });
+
+  // parseArgs consumed the token after every flag, so a valueless flag placed
+  // before another swallowed it and the packet came back for the wrong lane.
+  it('does not let the valueless flag swallow the flag after it', () => {
+    const { cwd, range } = fixture();
+    assert.equal(packet(cwd, 'doc-updater', range, '--with-evidence').lane, 'doc-updater');
   });
 });
