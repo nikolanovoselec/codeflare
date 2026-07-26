@@ -127,18 +127,26 @@ describe('lane-evidence.mjs — anchor resolution', () => {
   // The anchor regex accepts `<!-- @impl: path--> ` with no separating space,
   // so a citation scan that cannot match it drops a real anchor -- a MISSED
   // orphan, which is the direction this whole field exists to avoid.
+  // The path must be the WHOLE anchor target for this to bite: with a `::symbol`
+  // the path is followed by `:`, which the boundary class already admits, so
+  // that fixture passes with or without the terminator branch. Both forms are
+  // asserted so each branch of the boundary has an oracle.
   it('finds an anchor written without a space before its comment terminator', () => {
     const { cwd, base } = makeRepo();
     write(cwd, 'src/thing.js', 'function stillHere() {}\n');
-    write(cwd, 'sdd/spec/agents.md', '1. Spaceless. <!-- @impl: src/thing.js::stillHere-->\n');
+    // Separate files on purpose. Candidate selection is per FILE, so a document
+    // holding both forms is selected by the `::symbol` anchor alone and then
+    // resolves the symbol-less one for free -- green with the fix reverted.
+    write(cwd, 'sdd/spec/agents.md', '1. Spaceless, no symbol. <!-- @impl: src/thing.js-->\n');
+    write(cwd, 'sdd/spec/other.md', '2. Spaceless, with symbol. <!-- @impl: src/thing.js::stillHere-->\n');
     const anchored = commit(cwd, 'feat: anchored without a space');
     write(cwd, 'src/thing.js', 'function stillHere() {}\n// touched\n');
     const head = commit(cwd, 'fix: source only');
 
     const out = run(cwd, 'spec-reviewer', `${anchored}..${head}`);
 
-    assert.equal(out.anchorsCitingChangedResolved.checked, 1,
-      'the space-less anchor form must still be found and resolved');
+    assert.equal(out.anchorsCitingChangedResolved.checked, 2,
+      'both anchor forms must be found; the symbol-less one is the terminator branch');
   });
 
   // A prefix match resolves to the same counts, because the target filter
