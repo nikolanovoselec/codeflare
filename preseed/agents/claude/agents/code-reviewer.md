@@ -43,7 +43,7 @@ Never persist the packet or echo raw packet JSON. A `changedInputs` path is a le
 
 **Filter for signal.** Report only what you are >80% confident is real. Skip stylistic preferences unless they violate project convention, and issues in unchanged code unless CRITICAL security. Consolidate similar findings ("5 functions missing error handling", not 5 findings). Prioritise what causes bugs, vulnerabilities, or data loss.
 
-**Check the record before flagging.** `evidence.adrs` lists every ADR by id, title and status, and the config is in the triage block — an Accepted ADR or a config disposition is sufficient to drop a finding, noted in your audit log. Read one ADR body only when its title says it may settle the finding. A settled decision is not a defect.
+**Check the record before flagging.** `evidence.adrs` lists every ADR as an `AD<n>|title|status` row (status omitted when the record carries none), and the config is in the triage block — an Accepted ADR or a config disposition is sufficient to drop a finding, noted in your audit log. Read one ADR body only when its title says it may settle the finding. A settled decision is not a defect.
 
 ## Review checklist
 

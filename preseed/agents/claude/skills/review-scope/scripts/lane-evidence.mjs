@@ -120,7 +120,10 @@ function adrLedger(repo) {
       if (found) { status = found[1]; break; }
       if (/^###\s/.test(lines[j])) break;
     }
-    entries.push({ id: heading[1], title: heading[2], status });
+    // Delimited rows, not objects. The ledger is the largest fixed cost in the
+    // block -- 117 entries carried by every lane on every round -- and a third of
+    // it was the same three key names repeated 117 times.
+    entries.push(status ? `${heading[1]}|${heading[2]}|${status}` : `${heading[1]}|${heading[2]}`);
   }
   return entries;
 }
@@ -496,7 +499,7 @@ function bound(out) {
     if (size() <= MAX_TOTAL) return out;
   }
   if (Array.isArray(out.adrs)) {
-    out.adrs = out.adrs.filter((entry) => entry.status !== 'Superseded');
+    out.adrs = out.adrs.filter((entry) => !String(entry).endsWith('|Superseded'));
     out.omitted = [...(out.omitted ?? []), 'adrs:superseded'];
   }
   return out;

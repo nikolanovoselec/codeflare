@@ -30,6 +30,8 @@ Two sub-policies are **not** embedded, because they are large and conditional: `
 cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
 ```
 
+**One policy per call, never two concatenated, and never bundled with other output.** Each is about 20 KB; a call returning both exceeds the inline result limit, gets spilled to a file, and is then read back in slices — a measured run lost three of its six turns to exactly that (`wc -l`, then two `sed` ranges), all of it plumbing and none of it review. Two calls returning 20 KB each cost two waves and spill nothing.
+
 A policy read that rides along in a call you were making anyway costs nothing. A policy read on its own turn costs the whole prompt again — and carrying 41 KB you did not need costs it on every turn of the run. Never read one whose condition did not fire, and never read one twice.
 
 ## Your lane packet
