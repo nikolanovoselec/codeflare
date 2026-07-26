@@ -913,7 +913,7 @@ read_count_from() {
   local file="$1"
   if [ -f "$file" ]; then
     local stored hash count
-    stored=$(cat "$COUNT_FILE" 2>/dev/null)
+    stored=$(cat "$file" 2>/dev/null)
     hash="${stored%%:*}"
     count="${stored#*:}"
     if [ "$hash" = "$CURRENT_PR_HEAD" ]; then
@@ -957,6 +957,17 @@ reack_on_repeated_demand() {
 
 clear_counter() {
   rm -f "$COUNT_FILE" 2>/dev/null || true
+}
+
+# The verdict demand has its own head-keyed breaker (reack_on_repeated_demand),
+# so routing it through emit_block would gate it twice: a head that spent its
+# lane-demand budget getting the lanes launched would find the shared counter
+# already at GIVEUP and the verdict demand would exit SILENTLY -- the session
+# is never told what to publish, while the verdict counter keeps recording
+# demands that were never shown. One breaker per demand, on its own counter.
+emit_block_uncounted() {
+  jq -n --arg r "$1" '{decision:"block", reason:$r}' 2>/dev/null
+  exit 0
 }
 
 emit_block() {
@@ -1204,8 +1215,29 @@ for lane in $REQUIRED_LANES; do
   fi
 done
 
+# SCOPE THE DEMAND. Without --range the runner falls through to "Review the
+# full PR diff" (run-review-lane.sh), and because both the inlined packet and
+# the ownership short-circuit are gated on RANGE, a scopeless lane gets no
+# packet, no short-circuit, and an instruction to run its own diff -- which is
+# precisely the raw-scan blowup the packet CLI was built to end. The nudge has
+# always passed a scope; this path never did, so every re-demand, failed-lane
+# retry and post-compaction spawn ran the expensive way.
+#
+# Same resolution and same ancestry guard as the nudge, so the two agree: an
+# incremental range only when the acked head is an ancestor of the head under
+# review (equal counts), else the PR base, else nothing rather than a dangling
+# flag.
+if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$REVIEW_RANGE_HEAD" ] \
+   && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD" 2>/dev/null; then
+  LANE_SCOPE=" --range $LAST_ACK_PR_HEAD..$REVIEW_RANGE_HEAD"
+elif [ -n "$BASE_REF" ]; then
+  LANE_SCOPE=" --base $BASE_REF"
+else
+  LANE_SCOPE=""
+fi
+
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>$LANE_SCOPE' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
   if [ -n "$FAILED" ]; then
     REASON="$REASON ATTENTION:$FAILED already ran for this head and ended WITHOUT success, so nothing was credited - re-run those lanes rather than treating their output as a completed round."
   fi
@@ -1248,7 +1280,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER'. Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
+  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER'. Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
 fi
 
 exit 0

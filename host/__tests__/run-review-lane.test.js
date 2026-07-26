@@ -229,6 +229,33 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
     assert.doesNotMatch(argv, /xxxxxxxxxx/, 'the oversized block must not reach the prompt');
   });
 
+  // Dropping the whole block sends the lane back to deriving Phase 0 in six
+  // separate calls -- the cost AD116 exists to remove -- and the field that
+  // blows the cap is almost always config.raw, which carries the config file
+  // verbatim. Shedding one field keeps every decision the block was built for.
+  it('sheds config.raw rather than the whole triage block', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, {
+      decision: 'proceed',
+      sdd: { layout: 'nested', triageFile: 'sdd/spec/.review-queue.md' },
+      config: { mode: 'auto', enforce_tdd: true, raw: 'y'.repeat(40000) },
+    });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), true);
+    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    assert.doesNotMatch(argv, /yyyyyyyyyy/, 'the field that blew the cap must not reach the prompt');
+    assert.match(argv, /"mode": *"auto"|"mode":"auto"/,
+      'the resolved decisions must survive, or the lane re-derives Phase 0 it was handed');
+    assert.match(argv, /rawOmitted/,
+      'the lane must be able to tell a shed field from an absent one');
+    assert.match(r.stderr, /config\.raw omitted/);
+  });
+
   it('keeps a triage block within the cap', () => {
     const { cwd, base, head } = makeRepo('src/thing.ts');
     const { home, hookScripts } = makeClaudeHome(cwd);

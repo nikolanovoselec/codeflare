@@ -822,6 +822,60 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'a verdict predating the evidence cannot be a verdict about it');
   });
 
+  // REQ-AGENT-102 AC3 / REQ-AGENT-105. Without a scope the runner falls through
+  // to "Review the full PR diff", and both the inlined packet and the ownership
+  // short-circuit are gated on having a range -- so a scopeless demand spends a
+  // full unscoped lane and skips every cost control at once. The nudge has
+  // always carried a scope; this path is what every re-demand goes through.
+  it('scopes the lanes it demands to the range under review', () => {
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'src/thing.ts'), 'changed\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE('2026-05-18T12:00:00.000Z')]);
+
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.match(r.stdout, new RegExp(`--range ${baseSha}\\.\\.${tip}`),
+      'the demand must carry the incremental range, or the lane reviews the whole PR with no packet');
+  });
+
+  // REQ-AGENT-104 AC6, the regression that made the first fix inert. The two
+  // counters must be genuinely separate: a head that spent its LANE-demand
+  // budget merely getting the lanes launched arrives at the verdict check with
+  // that counter already exhausted, and if the escape hatch reads it, the head
+  // is acknowledged before a single verdict demand was ever shown -- with a
+  // stderr line claiming five went unanswered. Seeding one counter and
+  // asserting on the other is the only shape that catches it; driving both from
+  // zero moves them in lockstep and passes either way.
+  it('does not spend the lane-demand budget on the verdict escape hatch', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'exhaustedsha'));
+    const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf-8' })
+      .stdout.trim();
+    // This head already cost four Stop events to get its lanes running.
+    writeFileSync(join(cwd, gcd, 'sdd-review-block-count'), 'exhaustedsha:4\n');
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+
+    for (let i = 0; i < 3; i += 1) {
+      const r = runHook(cwd, { transcriptPath: t, binDir });
+      assert.match(r.stdout, /MINIMAL DECISION/,
+        'the verdict demand must keep being shown; a demand silenced by the lane breaker can never be answered');
+      assert.notEqual(ackOf(cwd), 'exhaustedsha',
+        'the lane-demand budget is not payment for the verdict hatch: these findings have still never been triaged');
+    }
+  });
+
   // REQ-AGENT-104 AC6. The escape hatch exists so a head is never wedged, but it
   // must be bought with VERDICT demands. Sharing the lane-demand counter meant a
   // head that took five Stops to launch its lanes was acknowledged on the first

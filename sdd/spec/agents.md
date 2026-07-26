@@ -2638,6 +2638,7 @@ None.
 **Constraints:**
 
 - The verdict is recognised structurally, by its table header and divider in a message carrying no tool call; a command quoting the header is not a verdict.
+- The verdict demand is counted and rate-limited on its own, never on the counter that limits lane demands; sharing one lets a head be acknowledged before any verdict was asked for, and silences the demand that would have been answered.
 - Both runtimes recognise the same table shape, so a verdict is portable between them.
 
 **Priority:** P1
@@ -2661,12 +2662,15 @@ None.
 1. Lane evidence gathering is structured as waves, each collecting every outstanding question in one call. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::scope=diff execution --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
 2. A conditional sub-policy is read inside a wave that was already being made, never on a turn of its own. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::scope=diff execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
 3. Policy that is small and applies to every run is embedded in the reviewer document. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Embedded canonical policy --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
-4. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+4. Every path that demands a lane passes the range under review, so the demanded lane receives its packet and its ownership short-circuit rather than reviewing the whole PR. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (scopes the lanes it demands to the range under review) -->
+5. Inlined evidence over its byte cap degrades by field, keeping the resolved answers. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (sheds config.raw rather than the whole triage block) -->
+6. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
 
 **Constraints:**
 
 - No hard turn, call, or token cap: a truncated review is a worse failure than an expensive one, and a cap produced exactly that.
 - The wave structure never licenses skipping a required check; an outstanding check is batched into a wave.
+- Dropping a whole block of inlined evidence is a cost regression, not a safety measure: it returns the lane to the derivation the block replaced.
 
 **Priority:** P1
 

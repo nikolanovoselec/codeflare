@@ -236,9 +236,19 @@ if [ -n "$REPO_ROOT" ] && [ -f "$TRIAGE_SCRIPT" ] && command -v node >/dev/null 
   # cost the packet cap exists to bound.
   TRIAGE_MAX_BYTES="${REVIEW_LANE_TRIAGE_MAX_BYTES:-32768}"
   case "$TRIAGE_MAX_BYTES" in ''|*[!0-9]*|0) TRIAGE_MAX_BYTES=32768 ;; esac
+  # Over-cap degrades by FIELD, not by block. Dropping the whole document sends
+  # the lane back to deriving Phase 0 in six calls -- the exact cost AD116 exists
+  # to remove -- and it is nearly always one field that blew the cap: config.raw
+  # carries the config file verbatim. Shed that first and keep the decisions.
   if [ "$(( $(printf '%s' "$TRIAGE_JSON" | wc -c) ))" -gt "$TRIAGE_MAX_BYTES" ]; then
-    echo "run-review-lane: triage block over ${TRIAGE_MAX_BYTES}B; lane derives Phase 0 itself" >&2
-    TRIAGE_JSON=""
+    SHRUNK=$(printf '%s' "$TRIAGE_JSON" | jq -c 'if .config then .config |= (del(.raw) + {rawOmitted:true}) else . end' 2>/dev/null || true)
+    if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$TRIAGE_MAX_BYTES" ]; then
+      echo "run-review-lane: triage block over ${TRIAGE_MAX_BYTES}B; config.raw omitted, decisions retained" >&2
+      TRIAGE_JSON="$SHRUNK"
+    else
+      echo "run-review-lane: triage block over ${TRIAGE_MAX_BYTES}B even without config.raw; lane derives Phase 0 itself" >&2
+      TRIAGE_JSON=""
+    fi
   fi
 fi
 if [ -n "$TRIAGE_JSON" ]; then
@@ -274,6 +284,16 @@ if [ -n "$REPO_ROOT" ] && [ -n "$RANGE" ] && [ -f "$PACKET_SCRIPT" ] && command 
   CANDIDATE_BYTES=$(( $(printf '%s' "$CANDIDATE" | wc -c) ))
   if [ -n "$CANDIDATE" ] && [ "$CANDIDATE_BYTES" -le "$PACKET_MAX_BYTES" ]; then
     PACKET_JSON="$CANDIDATE"
+  elif [ -n "$CANDIDATE" ]; then
+    # Same reasoning as the triage cap: no packet at all means the lane rebuilds
+    # evidence hunk by hunk. `patch` is the field that scales with diff size, so
+    # shed it and keep the file list and the resolved cross-lane ranges, which
+    # are what bound the lane's own searches.
+    SHRUNK=$(printf '%s' "$CANDIDATE" | jq -c 'del(.patch) + {patchOmitted:true}' 2>/dev/null || true)
+    if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$PACKET_MAX_BYTES" ]; then
+      echo "run-review-lane: packet over ${PACKET_MAX_BYTES}B; patch omitted, file list and changedInputs retained" >&2
+      PACKET_JSON="$SHRUNK"
+    fi
   fi
 fi
 
