@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
@@ -164,6 +165,84 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     assert.equal(decide(5, 'FULLY AUTONOMOUS'), 'stop');
   });
 
+  // The threshold was always deterministic; the count feeding it was a reading
+  // of the rule, and two runtimes read the same window as 0 and as 3 when it
+  // was 1. These drive real history through the gate and assert what it counts.
+  describe('REQ-AGENT-084: the gate counts its own rounds', () => {
+    const script = join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs');
+
+    // Commits oldest-first.
+    function repoWith(commits) {
+      const cwd = mkdtempSync(join(tmpdir(), 'round-limit-'));
+      const git = (...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+      git('init', '-q', '.');
+      git('config', 'user.email', 'test@users.noreply.github.com');
+      git('config', 'user.name', 'test');
+      commits.forEach(({ subject, files }, index) => {
+        for (const file of files) {
+          mkdirSync(join(cwd, dirname(file)), { recursive: true });
+          writeFileSync(join(cwd, file), `change ${index}\n`);
+        }
+        git('add', '-A');
+        git('commit', '-q', '-m', subject);
+      });
+      return cwd;
+    }
+
+    const count = (cwd, ...extra) => {
+      const result = spawnSync(process.execPath, [script, '--repo', cwd, '--lane', 'sdd/', ...extra], {
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+
+    it('counts any agent tag that touched the lane, and only those', () => {
+      const cwd = repoWith([
+        { subject: 'feat: base', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: in lane', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: outside the lane', files: ['src/x.ts'] },
+        { subject: '[sdd-clean] chore: bulk operation', files: ['sdd/spec/x.md'] },
+        { subject: '[doc-updater] fix: another lane', files: ['sdd/spec/x.md'] },
+      ]);
+      // A foreign agent tag counts (the miscount was reading this as own-tag-only);
+      // a counted tag outside the lane does not; an excluded tag is neither.
+      assert.equal(count(cwd), 'counted=2 gate=continue');
+    });
+
+    it('closes the window at user-directed work in the lane', () => {
+      const cwd = repoWith([
+        { subject: '[code-reviewer] fix: prior cycle', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: also prior', files: ['sdd/spec/x.md'] },
+        { subject: 'fix: user directed', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: this cycle', files: ['sdd/spec/x.md'] },
+      ]);
+      assert.equal(count(cwd), 'counted=1 gate=continue');
+    });
+
+    it('does not close the window on a plain commit outside the lane', () => {
+      const cwd = repoWith([
+        { subject: '[code-reviewer] fix: one', files: ['sdd/spec/x.md'] },
+        { subject: 'chore: unrelated', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: two', files: ['sdd/spec/x.md'] },
+      ]);
+      assert.equal(count(cwd), 'counted=2 gate=continue');
+    });
+
+    it('stops at the limit, and only the exact override lifts it', () => {
+      const cwd = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        ...Array.from({ length: 5 }, (unused, index) => ({
+          subject: `[code-reviewer] fix: round ${index}`,
+          files: ['sdd/spec/x.md'],
+        })),
+      ]);
+      assert.equal(count(cwd), 'counted=5 gate=stop');
+      assert.equal(count(cwd, 'fully-autonomous'), 'counted=5 gate=continue');
+      assert.equal(count(cwd, 'FULLY AUTONOMOUS'), 'counted=5 gate=stop');
+    });
+  });
+
   // The gate above is only reached if the manifest row sends a lane to it. That
   // row is executed inline, so it has to be self-sufficient: a lane that reads
   // it as an invitation to judge can return `continue` on a window the gate
@@ -184,7 +263,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     // *this lane's own tag*, so the row must defer to the closed counted set
     // rather than restate it -- and that set must still be the whole one. Pinned
     // structurally: drop the deferral and the reference goes with it.
-    assert.match(canonical, /Commit-prefix contract/,
+    assert.match(canonical, /§ "Commit-prefix contract"[^|]*closed set/,
       'the row must scope counting to the closed set, not leave the tag scope to be inferred');
     const countedSet = skill.match(/\*\*Counted as agent-authored\*\*[^\n]*/)?.[0];
     assert.ok(countedSet, 'the contract the row defers to must declare the counted set');

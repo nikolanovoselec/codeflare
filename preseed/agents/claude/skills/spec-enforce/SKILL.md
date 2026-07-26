@@ -73,7 +73,7 @@ Audit location by trigger: `/sdd clean` writes to per-category commit bodies. A 
 | REQ dependency acyclicity | Run the mandated cycle detector in § REQ dependency acyclicity over every `**Dependencies:**` field; any cycle = HIGH finding. | `ran (N REQs, E edges, C cycles)` |
 | Queue hygiene (live queue, not history log) | Run the mandated command in § Queue hygiene; resolved/dated-historical content in `sdd/spec/.review-queue.md` (flat: `sdd/.review-needed.md`) = finding — resolved findings are removed, not archived. | `ran (Q lines, M findings)` |
 | Backlog re-triage | Walk every open finding in the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy); re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
-| Commit-prefix + 5-round limit | Mandated command, not a judgment. `git log -6 --name-only --format="--- %H %s"`, then count commits whose subject starts with **any** counted tag (§ "Commit-prefix contract" — the whole closed set, NOT only this lane's own tag) **and** touched a lane path (`sdd/**`). Feed that count to `node ~/.claude/skills/spec-enforce/scripts/round-limit.mjs <count> [fully-autonomous]` and obey the verdict it prints; never decide `stop`/`continue` yourself. Report the count even when it is zero — a zero on a window holding counted commits is the signature of the misread this row exists to prevent. | `ran (6 commits inspected, C counted, gate=<stop\|continue>, M findings)` |
+| Commit-prefix + 5-round limit | Mandated command, not a judgment. Run `node ~/.claude/skills/spec-enforce/scripts/round-limit.mjs --repo <repo> --lane <lane-prefix> [fully-autonomous]` — for this lane, `--lane sdd/`. It walks the last 6 commits itself, counts every subject starting with a counted tag (§ "Commit-prefix contract" — the whole closed set, NOT only this lane's own tag) that touched a lane path, closes the window at the most recent user-directed commit in the lane, and prints `counted=<n> gate=<stop\|continue>`. Report both figures verbatim and obey the verdict; never count the window or decide `stop`/`continue` yourself. | `ran (6 commits inspected, C counted, gate=<stop\|continue>, M findings)` |
 
 ## Orchestration logic
 
@@ -353,10 +353,9 @@ Plain commits are for user-directed ordinary work and reset the round counter. T
 
 Self-limit to prevent micro-fix spirals. Counter is scoped to spec-reviewer's lane (`sdd/**`).
 
-1. `git log -6 --name-only --format="--- %H %s"`.
-2. Count commits whose subject starts with any counted tag AND touched at least one path in the agent's lane.
-3. Run the deterministic gate — `node ~/.claude/skills/spec-enforce/scripts/round-limit.mjs <count> [fully-autonomous]` — and obey its `stop`/`continue` result. Pass the optional `fully-autonomous` marker ONLY when the exact override marker (§ below) is present in the current root prompt. On `stop`: hard stop — write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
-4. Counter resets when a non-agent commit lands in the lane.
+1. Run the deterministic gate — `node ~/.claude/skills/spec-enforce/scripts/round-limit.mjs --repo <repo> --lane <lane-prefix> [fully-autonomous]`. It inspects the last 6 commits, counts every subject starting with a counted tag that touched the lane, and prints `counted=<n> gate=<stop|continue>`. Pass the optional `fully-autonomous` marker ONLY when the exact override marker (§ below) is present in the current root prompt.
+2. Obey the printed verdict and report the printed count; both are the gate's output, not yours to derive. On `stop`: hard stop — write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
+3. The window closes at the most recent non-agent commit that landed in the lane; commits older than it belong to a prior cycle. The gate applies this, so a reset needs no separate step.
 
 Cross-cutting commits count for whichever agents own touched lanes. Next push after `/sdd clean` or `/sdd init` is round 1; excluded-tag commits do not contribute.
 
