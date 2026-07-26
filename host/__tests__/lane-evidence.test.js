@@ -679,6 +679,9 @@ describe('lane-evidence.mjs — the recorded dispositions reach every lane', () 
   it('sheds the config with a marker rather than losing the whole block', () => {
     const { cwd, base } = makeRepo();
     write(cwd, 'sdd/spec/config.yml', `mode: interactive\n${'# filler disposition line\n'.repeat(40000)}`);
+    // The ledger is what the shed exists to protect, so it has to be present and
+    // non-empty for its survival to mean anything.
+    write(cwd, 'documentation/decisions/README.md', '### AD001: Keep the ledger\n\n**Status:** Accepted\n');
     write(cwd, 'src/thing.ts', 'export const x = 1;\n');
     const head = commit(cwd, 'feat: an oversized config');
 
@@ -687,7 +690,7 @@ describe('lane-evidence.mjs — the recorded dispositions reach every lane', () 
     assert.ok(out.omitted?.includes('config'), 'a config too large to carry must name itself');
     assert.ok(JSON.stringify(out, null, 1).length <= 65536,
       'an unsheddable field would push the block over the cap and blank every resolution');
-    assert.ok(Array.isArray(out.adrs) || out.adrs === null,
+    assert.deepEqual(out.adrs, ['AD001|Keep the ledger|Accepted'],
       'the resolutions survive the shed');
   });
 });
