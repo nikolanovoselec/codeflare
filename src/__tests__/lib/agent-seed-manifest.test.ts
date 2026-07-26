@@ -479,10 +479,13 @@ describe('Reviewer agents can access their enforce policy', () => {
   // and spends a turn fetching what it already needed, which is what made a lane
   // cost as much on a diff it owned nothing in as on one it did. tdd-guide is a
   // working agent, not a PR lane, and still discovers skills at runtime.
-  // Spine only. Conditional sub-policy is read with `cat` when its condition
-  // fires, so carrying it inline would charge every run for the rare case.
+  // Spine only for the lanes whose conditional policy is large: spec-reviewer and
+  // doc-updater `cat` theirs when the condition fires, so carrying 20 KB inline
+  // would charge every run for the rare case. code-reviewer is the exception --
+  // tdd-enforce is its ONLY conditional policy, and its document states the lane
+  // has none to fetch, so a `cat` there would be a bug rather than a capability.
   const LANE_SKILLS: Record<string, string[]> = {
-    'code-reviewer': ['review-scope'],
+    'code-reviewer': ['review-scope', 'tdd-enforce'],
     'spec-reviewer': ['review-scope', 'spec-enforce'],
     'doc-updater': ['review-scope', 'doc-enforce'],
   };

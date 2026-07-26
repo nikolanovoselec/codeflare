@@ -275,7 +275,12 @@ describe('Claude-equivalent review boundary helpers', () => {
       { path: 'graphify-out/graph.json', expected: [] },
       { path: 'documentation/security.md', expected: ['doc-updater'] },
       { path: 'sdd/spec/agents.md', expected: ['spec-reviewer', 'doc-updater'] },
-      { path: 'src/lib/review.ts', expected: ALL_LANES },
+      // REQ-AGENT-040 AC1: source changes require THE CODE LANE. The other two
+      // are added only where they have something to check -- their own surface
+      // changed, or one of their anchors cites a file in this diff. A bare
+      // fixture has neither, and demanding them bought two agent startups that
+      // found no lane-owned file and exited.
+      { path: 'src/lib/review.ts', expected: ['code-reviewer'] },
     ];
 
     for (const [index, testCase] of cases.entries()) {
@@ -289,7 +294,10 @@ describe('Claude-equivalent review boundary helpers', () => {
     write(repo, 'src/review.ts', 'source\n');
     git(repo, 'add', 'documentation/review.md', 'src/review.ts');
     git(repo, 'commit', '-m', 'mixed');
-    expect(requiredReviewLanes({ repo, ackHead: base, head: git(repo, 'rev-parse', 'HEAD') })).toEqual(ALL_LANES);
+    // Source plus documentation earns those two lanes; nothing in the range is a
+    // spec surface and no spec anchor cites it, so spec-reviewer has nothing to do.
+    expect(requiredReviewLanes({ repo, ackHead: base, head: git(repo, 'rev-parse', 'HEAD') }))
+      .toEqual(['code-reviewer', 'doc-updater']);
   });
 
   it('REQ-AGENT-040: classifies tricky filenames and source-to-doc renames without bypassing code review', async () => {
