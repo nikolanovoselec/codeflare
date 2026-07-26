@@ -1024,3 +1024,23 @@ describe('lane-evidence.mjs — a bounded list says so', () => {
       'the bound must actually bound the list it marks');
   });
 });
+
+describe('lane-evidence.mjs — the weakest resolution is reported as such', () => {
+  it('separates a name kept alive only by a quoted string from a declared one', () => {
+    const { cwd, base } = makeRepo();
+    // A quoted string is real evidence and the weakest this resolver accepts:
+    // it is equally satisfied by a registration, an error message, a fixture
+    // and a dead compatibility branch. Reporting it as an ordinary clean hands
+    // the lane a verdict it cannot weigh, so it arrives in its own list.
+    write(cwd, 'src/app.ts', 'export const declaredThing = 1;\nconst t = ["registeredThing"];\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: two kinds of evidence');
+
+    write(cwd, 'documentation/x.md', 'Uses `declaredThing` and `registeredThing` and `goneThing`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref), ['goneThing']);
+    assert.deepEqual((out.resolvedOnlyByStringLiteral ?? []).map((r) => r.ref), ['registeredThing'],
+      'a name resolved only by a quoted string must be reported separately from a declaration');
+  });
+});

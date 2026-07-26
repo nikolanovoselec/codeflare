@@ -77,11 +77,18 @@ const clip = (line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}...`
 // scan that did not see everything says so and the lane finishes it.
 function summarise(rows, inputTruncated = false, passes) {
   const failed = rows.filter((row) => !row.resolved);
+  const weak = rows.filter((row) => row.resolved && row.as === 'literal');
   const truncated = inputTruncated || failed.length > MAX_UNRESOLVED;
   return {
     checked: rows.length,
     unresolved: failed.slice(0, MAX_UNRESOLVED),
     ...(truncated ? { truncated: true } : {}),
+    // Labelling the weaker resolution was pointless while only FAILURES were
+    // emitted: the label reached nothing, so a name kept alive by an unrelated
+    // fixture string, an error message or a dead compatibility branch arrived
+    // as an ordinary clean. Surfaced separately so the lane can weigh it --
+    // these resolved, but on the weakest evidence this module accepts.
+    ...(weak.length ? { resolvedOnlyByStringLiteral: weak.slice(0, MAX_UNRESOLVED) } : {}),
     // How many passes over the tree the answers cost. Constant against the
     // number of names asked about -- which is the contract, and is otherwise
     // only checkable with a stopwatch.
