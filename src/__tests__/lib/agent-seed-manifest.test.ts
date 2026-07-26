@@ -474,17 +474,35 @@ describe('Retired preseed keys', () => {
 });
 
 describe('Reviewer agents can access their enforce policy', () => {
-  // Claude invokes enforce skills through its Skill tool. Pi has no equivalent tool;
-  // its generated reviewer system prompts embed the canonical policy documents.
-  const CLAUDE_REVIEWERS = ['spec-reviewer', 'doc-updater', 'code-reviewer', 'tdd-guide'];
+  // The PR reviewers carry their policy instead of fetching it. An agent holding
+  // the Skill tool is handed a listing of every installed skill before it starts
+  // and spends a turn fetching what it already needed, which is what made a lane
+  // cost as much on a diff it owned nothing in as on one it did. tdd-guide is a
+  // working agent, not a PR lane, and still discovers skills at runtime.
+  const LANE_SKILLS: Record<string, string[]> = {
+    'code-reviewer': ['review-scope', 'tdd-enforce'],
+    'spec-reviewer': ['review-scope', 'spec-enforce', 'spec-enforce-ac', 'spec-enforce-truth'],
+    'doc-updater': ['review-scope', 'doc-enforce', 'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth'],
+  };
 
-  it('every Claude reviewer/guide agent grants the Skill tool so its enforce skill is invocable', () => {
-    for (const name of CLAUDE_REVIEWERS) {
+  it('every Claude PR reviewer embeds its lane policy instead of discovering it', () => {
+    for (const [name, skills] of Object.entries(LANE_SKILLS)) {
       const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
       expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
-      const toolsLine = doc!.content.match(/^tools:.*$/m)?.[0] ?? '';
-      expect(toolsLine, `${name} must list the Skill tool`).toContain('"Skill"');
+      const embedded = [...doc!.content.matchAll(/<embedded-skill name="([^"]+)">/g)].map((m) => m[1]);
+      expect(embedded, `${name} must embed exactly its lane policy`).toEqual(skills);
+      for (const skill of skills) {
+        expect(doc!.content, `${name} embedded ${skill} must carry content`).toContain(
+          `<embedded-skill name="${skill}">\n---`,
+        );
+      }
     }
+  });
+
+  it('tdd-guide still reaches its enforce skill through the Skill tool', () => {
+    const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/agents/tdd-guide.md');
+    expect(doc).toBeTruthy();
+    expect(JSON.parse(frontmatter(doc!.content).tools) as string[]).toContain('Skill');
   });
 
   it('REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools', () => {
@@ -500,22 +518,10 @@ describe('Reviewer agents can access their enforce policy', () => {
       expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
       const tools = JSON.parse(frontmatter(doc!.content).tools) as string[];
 
-      for (const tool of ['Skill', 'Bash', 'Read']) {
-        expect(tools, `${name} must expose ${tool}`).toContain(tool);
-      }
-      for (const tool of ['Grep', 'Glob', 'Write', 'Edit']) {
-        expect(tools, `${name} must not expose ${tool}`).not.toContain(tool);
-      }
-      expect(
-        tools.filter((t) => t.startsWith('mcp__context-mode__')),
-        `${name} must not expose indexed retrieval`,
-      ).toHaveLength(0);
-      // Cross-session preference lookup queries the unified graph of prior
-      // sessions, which has no shell analogue; the traversal tools do.
-      expect(
-        tools.filter((t) => t.startsWith('mcp__graphify__')),
-        `${name} keeps only the cross-session signal lookup`,
-      ).toEqual(['mcp__graphify__query_graph']);
+      // Bash and nothing else. Every other grant is a way to go looking for
+      // evidence the packet already carries or policy the agent already holds,
+      // and each one costs a tool schema in the prompt before the first turn.
+      expect(tools, `${name} must be bash-only`).toEqual(['Bash']);
 
       expect(
         doc!.content,

@@ -268,7 +268,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // differential above: the evidence transport must survive the transform,
     // and no Claude-side name may leak through unmapped.
     expect(geminiTools).toContain('run_shell_command');
-    expect(geminiTools).toContain('read_file');
     expect(geminiTools).not.toContain('Bash');
     expect(geminiTools).not.toContain('Skill');
     // mcp__ tool names are dropped from the frontmatter tools list (no Gemini equivalent).

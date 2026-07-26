@@ -17,7 +17,13 @@ const SCRIPT = join(
   '../../preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh',
 );
 
+// Mirrors of the script's own ceilings; duplicated because the constants live in
+// shell and cannot be imported across the boundary.
 const BUDGET = 200000;
+const TURN_CHAR_CAP = 10000;
+const RESCUE_REF_CAP = 50;
+// 50 refs of at most 40 chars plus separators cannot exceed this.
+const RESCUE_SLACK = 2000;
 
 // A turn is either a string (a user prompt) or {role, text}.
 function record(turn, i) {
@@ -103,12 +109,17 @@ describe('prefilter-transcript.sh payload ceilings', () => {
 
   it('bounds the rescue list so it cannot outgrow the per-turn cap', () => {
     // Appended after the cap, so an unbounded list would defeat it: this turn
-    // carries 400 distinct hashes past the cut.
+    // carries 400 distinct hashes past the cut. The endpoints are pinned to the
+    // same values Pi's capTurn test asserts, so the two runtimes cannot drift on
+    // the cap, the sort order, or the regex dialect that decides what a ref is.
     const shas = Array.from({ length: 400 }, (_, i) => i.toString(16).padStart(8, 'b'));
     const { rows } = runPrefilter(['pre '.repeat(3000) + shas.join(' ')]);
-    const rescue = rows[0].text.split('\n').pop();
-    assert.equal(rescue.split(', ').length, 50, 'the rescue list is capped at 50 refs');
-    assert.ok(rows[0].text.length < 10000 + 2000, `turn stayed bounded, got ${rows[0].text.length}`);
+    const refs = rows[0].text.split('\n').pop().replace('[refs dropped in truncation: ', '').replace(']', '').split(', ');
+    assert.equal(refs.length, RESCUE_REF_CAP);
+    assert.equal(refs[0], 'bbbbb100');
+    assert.equal(refs.at(-1), 'bbbbb131');
+    assert.ok(rows[0].text.length < TURN_CHAR_CAP + RESCUE_SLACK,
+      `turn stayed bounded, got ${rows[0].text.length}`);
   });
 
   it('leaves a normal window untouched', () => {

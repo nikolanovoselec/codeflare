@@ -162,12 +162,14 @@ if [ "$TRIGGER" = "git-push" ]; then
   PR_STATE=""
   PR_BASE=""
   CACHE_VALID=0
+  CACHED_PR_HEAD=""
   if [ -f "$PR_CACHE" ]; then
     cache_age=$(( $(date +%s) - $(stat -c %Y "$PR_CACHE" 2>/dev/null || stat -f %m "$PR_CACHE" 2>/dev/null || echo 0) ))
     cached_branch=$(head -1 "$PR_CACHE" 2>/dev/null)
     if [ "$cached_branch" = "$CURRENT" ]; then
       cached_state=$(sed -n '2p' "$PR_CACHE" 2>/dev/null)
       cached_base=$(sed -n '3p' "$PR_CACHE" 2>/dev/null)
+      cached_head=$(sed -n '4p' "$PR_CACHE" 2>/dev/null)
       # Asymmetric TTL: positive (OPEN) results cached for 60s; legitimate
       # empty results (gh exit 1 = "no PR found") cached for only 10s. The
       # short negative TTL bounds the staleness of the "no PR" case so a
@@ -176,8 +178,14 @@ if [ "$TRIGGER" = "git-push" ]; then
       # cached at all — see the GH_OK gate below — so they never poison
       # the cache; they re-query on the next push.
       #
-      # Cache schema is 3 lines: branch, state, baseRefName. Older
-      # 2-line caches (pre-base-gating) lack line 3. Legacy detection
+      # Cache schema is 4 lines: branch, state, baseRefName, headRefOid.
+      # The head is cached because the lane classifier feeds it to
+      # resolve_review_head, whose ancestry guard is what stops a narrower
+      # local HEAD from naming fewer lanes than the PR actually needs. An
+      # absent head reads as "gh said nothing" and takes local HEAD
+      # unconditionally, so a cache that omits it silently disarms the
+      # guard on the most common path. Older 3-line caches therefore miss
+      # and re-query rather than being accepted headless. Legacy detection
       # is by *line count*, NOT by empty-base heuristic, so an
       # OPEN PR with a transiently-empty base (gh returned state but
       # jq couldn't extract baseRefName) caches as `branch\nOPEN\n\n`
@@ -186,9 +194,10 @@ if [ "$TRIGGER" = "git-push" ]; then
       max_age=10
       [ "$cached_state" = "OPEN" ] && max_age=60
       cache_lines=$(wc -l < "$PR_CACHE" 2>/dev/null | tr -d ' ')
-      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null && [ "$cache_lines" -ge 3 ] 2>/dev/null; then
+      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null && [ "$cache_lines" -ge 4 ] 2>/dev/null; then
         PR_STATE="$cached_state"
         PR_BASE="$cached_base"
+        CACHED_PR_HEAD="$cached_head"
         CACHE_VALID=1
       fi
     fi
@@ -211,6 +220,7 @@ if [ "$TRIGGER" = "git-push" ]; then
       gh_exit=$?
       PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
       PR_BASE=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
+      PR_HEAD_OID=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
       if [ -n "$PR_STATE" ] || [ "$gh_exit" -eq 1 ]; then
         GH_OK=1
       fi
@@ -224,7 +234,7 @@ if [ "$TRIGGER" = "git-push" ]; then
       # contents, never a torn write.
       TMP_CACHE=$(mktemp "$PR_CACHE.XXXXXX" 2>/dev/null)
       if [ -n "$TMP_CACHE" ]; then
-        if printf '%s\n%s\n%s\n' "$CURRENT" "$PR_STATE" "$PR_BASE" > "$TMP_CACHE" 2>/dev/null; then
+        if printf '%s\n%s\n%s\n%s\n' "$CURRENT" "$PR_STATE" "$PR_BASE" "${PR_HEAD_OID:-}" > "$TMP_CACHE" 2>/dev/null; then
           mv "$TMP_CACHE" "$PR_CACHE" 2>/dev/null || rm -f "$TMP_CACHE" 2>/dev/null
         else
           rm -f "$TMP_CACHE" 2>/dev/null
@@ -356,12 +366,17 @@ if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
   GH_PR_HEAD=""
   if [ "$TRIGGER" = "git-push" ] && [ -n "${PR_INFO:-}" ]; then
     GH_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+  elif [ "$TRIGGER" = "git-push" ]; then
+    GH_PR_HEAD="${CACHED_PR_HEAD:-}"
   elif [ "$TRIGGER" = "pr-open" ] && [ -n "${PR_INFO_OPEN:-}" ]; then
     GH_PR_HEAD=$(echo "$PR_INFO_OPEN" | jq -r '.headRefOid // empty' 2>/dev/null)
   fi
-  # Shared with the Stop gate so both classify over the same range. Falling
-  # back to the gh head keeps classification running even if the helper is
-  # missing from a stale install; only the range widens.
+  # Shared with the Stop gate so both classify over the same range. If the
+  # helper is missing from a stale install then gh_pr_state is missing too,
+  # so GH_PR_HEAD is already empty, CURRENT_PR_HEAD stays empty, and the
+  # guard below skips classification and leaves the all-three default. That
+  # is the fail-closed direction; the branch exists so a missing helper is a
+  # skipped optimisation rather than an unbound-variable abort.
   if command -v resolve_review_head >/dev/null 2>&1; then
     CURRENT_PR_HEAD=$(resolve_review_head "$GH_PR_HEAD")
   else

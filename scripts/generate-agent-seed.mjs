@@ -569,25 +569,29 @@ function piNativeKey(withinPi) {
   throw new Error(`Cannot map Pi native preseed file: ${withinPi}`);
 }
 
-const PI_SKILL_INCLUDE_PATTERN = /^<!-- @include-skill ([a-z0-9-]+) -->$/gm;
+const SKILL_INCLUDE_PATTERN = /^<!-- @include-skill ([a-z0-9-]+) -->$/gm;
 
-function expandPiSkillIncludes(content, withinPi, piSkillContents) {
-  const directives = [...content.matchAll(PI_SKILL_INCLUDE_PATTERN)];
+// Runtime-agnostic: an agent that carries the exact skills its lane needs has
+// nothing left to discover. Pi has always worked this way because it has no
+// Skill tool; Claude reviewers reach for one instead, which costs a listing of
+// every installed skill up front plus a discovery call at runtime.
+function expandSkillIncludes(content, withinPath, skillContents, label) {
+  const directives = [...content.matchAll(SKILL_INCLUDE_PATTERN)];
   if (directives.length === 0) return content;
-  if (!withinPi.startsWith('agents/')) {
-    throw new Error(`Pi skill includes are only valid in agent definitions: ${withinPi}`);
+  if (!withinPath.startsWith('agents/')) {
+    throw new Error(`${label} skill includes are only valid in agent definitions: ${withinPath}`);
   }
 
   const included = new Set();
   let expanded = content;
   for (const directive of directives) {
     const skillName = directive[1];
-    const skillContent = piSkillContents.get(skillName);
+    const skillContent = skillContents.get(skillName);
     if (included.has(skillName)) {
-      throw new Error(`Duplicate Pi skill include "${skillName}" in ${withinPi}`);
+      throw new Error(`Duplicate ${label} skill include "${skillName}" in ${withinPath}`);
     }
     if (skillContent === undefined) {
-      throw new Error(`Pi agent ${withinPi} includes unseeded skill "${skillName}"`);
+      throw new Error(`${label} agent ${withinPath} includes unseeded skill "${skillName}"`);
     }
 
     // Replacer function: a string replacement would interpret $$, $&, $` and
@@ -679,6 +683,21 @@ async function generate() {
     sourceFiles.push({ withinClaude, content, modes: entry.modes, category });
   }
 
+  // An agent that ships its lane's skills needs no Skill tool, and without one
+  // it is never handed the listing of every installed skill nor spends a turn
+  // fetching one -- the reviewer receives its instructions instead of hunting
+  // for them. This is a Claude-output-only expansion: the transformed runtimes
+  // carry their own smaller agent set and must not inherit an inlined copy of
+  // every enforcement skill, so their directives are stripped instead.
+  const claudeSkillContents = new Map();
+  for (const file of sourceFiles) {
+    const skillName = file.withinClaude.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1];
+    if (file.category === 'skill' && skillName) claudeSkillContents.set(skillName, file.content);
+  }
+  const claudeAgentContent = (file) => (file.category === 'agent'
+    ? expandSkillIncludes(file.content, file.withinClaude, claudeSkillContents, 'Claude')
+    : file.content);
+
   const documents = [];
 
   // --- Claude documents (emit as-is) ---
@@ -686,7 +705,7 @@ async function generate() {
     documents.push({
       key: `.claude/${file.withinClaude}`,
       contentType: inferContentType(file.withinClaude),
-      content: file.content,
+      content: claudeAgentContent(file),
       modes: file.modes,
     });
   }
@@ -727,7 +746,7 @@ async function generate() {
       } catch {
         throw new Error(`Pi manifest references "${withinPi}" but file does not exist`);
       }
-      content = expandPiSkillIncludes(content, withinPi, piSkillContents);
+      content = expandSkillIncludes(content, withinPi, piSkillContents, 'Pi');
       if (withinPi.startsWith('rules/')) {
         piNativeRuleFiles.push({ withinClaude: withinPi, content, modes: entry.modes, category: 'rule' });
       }
@@ -838,10 +857,17 @@ async function generate() {
         const baseName = fileName.replace(/\.md$/, '');
         const key = `${config.agentsPrefix}/${baseName}${config.agentExtension}`;
 
+        // Directives are stripped, not expanded: the embedded policy is a
+        // Claude-lane decision, and inlining every enforcement skill into each
+        // transformed runtime would multiply the seed for agents that never run
+        // the PR lanes.
         documents.push({
           key,
           contentType: 'text/markdown; charset=utf-8',
-          content: adaptAgentFrontmatter(file.content, agentId),
+          content: adaptAgentFrontmatter(
+            file.content.replace(SKILL_INCLUDE_PATTERN, '').replace(/\n{3,}/g, '\n\n'),
+            agentId,
+          ),
           modes: file.modes,
         });
       }
