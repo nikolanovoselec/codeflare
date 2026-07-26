@@ -94,6 +94,21 @@ describe('prefilter-transcript.sh payload ceilings', () => {
         `${citation} sat past the cap and must survive it`);
     }
     assert.ok(rows[0].text.length > 10000, 'the rescue line is appended after the cap');
+    // Pinned byte-for-byte against the same literal in Pi's capTurn test. Only
+    // asserting the citations are present somewhere lets the two runtimes drift
+    // on separator, ordering or regex dialect while both stay green.
+    assert.equal(rows[0].text.split('\n').pop(),
+      '[refs dropped in truncation: #709, 4899fb6, AD58, REQ-AGENT-040]');
+  });
+
+  it('bounds the rescue list so it cannot outgrow the per-turn cap', () => {
+    // Appended after the cap, so an unbounded list would defeat it: this turn
+    // carries 400 distinct hashes past the cut.
+    const shas = Array.from({ length: 400 }, (_, i) => i.toString(16).padStart(8, 'b'));
+    const { rows } = runPrefilter(['pre '.repeat(3000) + shas.join(' ')]);
+    const rescue = rows[0].text.split('\n').pop();
+    assert.equal(rescue.split(', ').length, 50, 'the rescue list is capped at 50 refs');
+    assert.ok(rows[0].text.length < 10000 + 2000, `turn stayed bounded, got ${rows[0].text.length}`);
   });
 
   it('leaves a normal window untouched', () => {

@@ -320,6 +320,14 @@ fi
 # install never silently produces an under-specified directive).
 # ---------------------------------------------------------------------------
 LANE_CLASSIFIER_LOADED=0
+# gh-pr-state.sh is sourced again here because the two earlier sources are
+# both conditional (a cold gh query, or the pr-retarget trigger), while the
+# head resolution below is not. The cached git-push path -- the ordinary
+# repeat push inside the cache window -- reached that call with the function
+# undefined, left CURRENT_PR_HEAD empty, and so skipped classification and
+# demanded all three lanes on every push. The file only defines functions, so
+# sourcing it twice costs nothing.
+. "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || true
 . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null && LANE_CLASSIFIER_LOADED=1
 
 REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
@@ -351,8 +359,14 @@ if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
   elif [ "$TRIGGER" = "pr-open" ] && [ -n "${PR_INFO_OPEN:-}" ]; then
     GH_PR_HEAD=$(echo "$PR_INFO_OPEN" | jq -r '.headRefOid // empty' 2>/dev/null)
   fi
-  # Shared with the Stop gate so both classify over the same range.
-  CURRENT_PR_HEAD=$(resolve_review_head "$GH_PR_HEAD")
+  # Shared with the Stop gate so both classify over the same range. Falling
+  # back to the gh head keeps classification running even if the helper is
+  # missing from a stale install; only the range widens.
+  if command -v resolve_review_head >/dev/null 2>&1; then
+    CURRENT_PR_HEAD=$(resolve_review_head "$GH_PR_HEAD")
+  else
+    CURRENT_PR_HEAD="$GH_PR_HEAD"
+  fi
 
   if [ -n "$CURRENT_PR_HEAD" ]; then
     REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")

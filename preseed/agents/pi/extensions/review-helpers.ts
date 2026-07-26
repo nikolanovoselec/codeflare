@@ -360,6 +360,9 @@ export function inertSourceDelta(input: {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "ignore"],
     });
+    // PROOF_TOKEN in skills/review-scope/scripts/inert-source-delta.mjs is the
+    // source of truth for this literal; review-helpers.test.ts spawns the real
+    // prover, so a rename there fails here rather than silently reading false.
     return proof.trim() === "INERT";
   } catch {
     return false;

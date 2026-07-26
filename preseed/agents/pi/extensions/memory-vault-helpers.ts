@@ -394,11 +394,21 @@ function citations(text: string): string[] {
   return [...new Set(text.match(CITATION) ?? [])].sort();
 }
 
+// The rescue list is bounded because it is appended AFTER the per-turn cap, so
+// an unbounded one would make that cap meaningless: a turn carrying a pasted
+// `git log --format=%H` has thousands of distinct hashes, and the resulting
+// line can exceed the whole payload budget on its own. selectTurns costs a turn
+// at its post-rescue length and stops at the first turn that does not fit, so
+// one such turn arriving newest would skip the entire user pass and drop every
+// prompt in the window.
+export const MEMORY_CAPTURE_MAX_RESCUED_REFS = 50;
+
 export function capTurn(text: string, max = MEMORY_CAPTURE_MAX_TURN_CHARS): string {
   if (text.length <= max) return text;
   const kept = text.slice(0, max);
   const inKept = new Set(citations(kept));
-  const lost = citations(text).filter((citation) => !inKept.has(citation));
+  const lost = citations(text).filter((citation) => !inKept.has(citation))
+    .slice(0, MEMORY_CAPTURE_MAX_RESCUED_REFS);
   return lost.length > 0 ? `${kept}\n[refs dropped in truncation: ${lost.join(", ")}]` : kept;
 }
 
