@@ -14,29 +14,18 @@ const jsonEnd = generatedSource.lastIndexOf('];') + 1;
 assert.ok(jsonStart >= assignment.length && jsonEnd > jsonStart, 'generated seed document array not found');
 const documents = JSON.parse(generatedSource.slice(jsonStart, jsonEnd));
 const piManifest = JSON.parse(readFileSync(join(repoRoot, 'preseed/agents/pi/manifest.json'), 'utf8'));
-const GATE_SCRIPT = join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs');
-
-// The contract, stated here and nowhere else in this file. Deriving it from the
-// gate would be circular -- dropping a tag from the implementation would drop
-// its own test case with it -- so the gate and the policy prose are both checked
-// against this list, and this list drives the behavioural fixtures.
+// The contract, stated here and nowhere else in this file. It drives the
+// behavioural fixtures, which spawn the real gate: what the gate does with each
+// tag is proven by running it, never by reading its source.
 const CONTRACT_COUNTED = ['[autonomous]', '[code-reviewer]', '[doc-updater]', '[spec-reviewer]', '[unleashed]'];
 const CONTRACT_EXCLUDED = ['[sdd-clean]', '[sdd-init]', '[sdd-triage]'];
 
-// Sorted, de-duplicated tag literals, so prose and source arrays are compared as
-// sets rather than as text.
+// Sorted, de-duplicated tag literals, so policy prose is compared as a set
+// rather than as text. The policy is read by a reviewer rather than executed,
+// so it has no behavioural form -- it IS the artifact under contract.
 const declaredTags = (text) => [...new Set(
   [...text.matchAll(/(\[[a-z-]+\])/g)].map((match) => match[1]),
 )].sort();
-
-const gateArray = (name) => {
-  const source = readFileSync(GATE_SCRIPT, 'utf8');
-  const literal = source.match(new RegExp(`^const ${name} = \\[(.*)\\];$`, 'm'))?.[1];
-  // Without this the extraction degrades to [] and every comparison below
-  // passes while asserting nothing.
-  assert.ok(literal, `${name} array not found in round-limit.mjs`);
-  return declaredTags(literal);
-};
 
 function targetKey(relativePath) {
   if (relativePath === 'package.json' || relativePath === 'package-lock.json') {
@@ -266,6 +255,19 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       }
     });
 
+    it('treats a tag outside the contract as ordinary user-directed work', () => {
+      const { cwd } = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: an earlier round', files: ['sdd/spec/x.md'] },
+        { subject: '[not-a-real-tag] fix: lane work', files: ['sdd/spec/x.md'] },
+      ]);
+      // Distinguishes all three ways this can be wrong: counting it gives 2,
+      // treating it as a bulk op gives 1, and only closing the window gives 0.
+      // This is what proves the gate counts no tag beyond the contract, without
+      // reading its source for the list.
+      assert.equal(count(cwd), 'counted=0 gate=continue');
+    });
+
     it('is not fooled by a commit subject that looks like a record separator', () => {
       const { cwd } = repoWith([
         { subject: 'feat: base', files: ['README.md'] },
@@ -382,15 +384,16 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       'the row must scope counting to the closed set, not leave the tag scope to be inferred');
     const countedSet = skill.match(/\*\*Counted as agent-authored\*\*[^\n]*/)?.[0];
     assert.ok(countedSet, 'the contract the row defers to must declare the counted set');
-    // Three-way, against the contract above rather than against each other: a
-    // tag the policy declares but the gate omits is the direction that fails
-    // open, and comparing only the two copies cannot tell which one drifted.
+    // What the GATE does with these tags is proven by spawning it, below. What
+    // the POLICY declares can only be read, so it is checked here -- a reviewer
+    // acting on a policy that names a tag the gate ignores is the drift that
+    // fails open, and no fixture can catch it.
     assert.deepEqual(declaredTags(countedSet.split('Example:')[0]), CONTRACT_COUNTED,
       'the policy must declare exactly the contract counted set');
-    assert.deepEqual(gateArray('COUNTED'), CONTRACT_COUNTED,
-      'the gate must count exactly the contract counted set');
-    assert.deepEqual(gateArray('EXCLUDED'), CONTRACT_EXCLUDED,
-      'the gate must exclude exactly the contract bulk-operation set');
+    const excludedSet = skill.match(/\*\*Excluded\*\*[^\n]*/)?.[0];
+    assert.ok(excludedSet, 'the contract must declare the excluded set');
+    assert.deepEqual(declaredTags(excludedSet), CONTRACT_EXCLUDED,
+      'the policy must declare exactly the contract bulk-operation set');
     // Both halves of the evidence contract live in the row's trailing status
     // template, so parse that cell rather than the whole row: a substring match
     // would also accept the field appearing loose in the prose beside it.
