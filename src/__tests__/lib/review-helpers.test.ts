@@ -33,6 +33,7 @@ type PlannedReviewHelpers = {
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
   isReviewTransitionSuspended(repo: string): boolean;
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string; prover?: string }): ReviewLane[];
+  roundLimitReached(repo: string, lane: ReviewLane): boolean;
   reviewTranscriptFacts(input: {
     sessionFile: string;
     entries?: Record<string, unknown>[];
@@ -428,6 +429,60 @@ describe('Claude-equivalent review boundary helpers', () => {
     git(repo, 'rm', '-rf', '.');
     const unrelated = commit(repo, 'documentation/unrelated.md', 'docs\n', 'unrelated');
     expect(requiredReviewLanes({ repo, ackHead: base, head: unrelated })).toEqual(ALL_LANES);
+  });
+});
+
+describe('Pi round-limit no-op', () => {
+  // A lane whose document already defines it as a no-op must cost nothing. Pi
+  // had the ownership half of that and not the round-limit half, so a lane at
+  // limit still paid a full agent startup to be told what git already knew.
+  it('drops a lane at its round limit instead of demanding it', async () => {
+    const { repo, base } = makeRepo();
+    let head = base;
+    for (let i = 0; i < 5; i += 1) {
+      head = commit(repo, `sdd/spec/req-${i}.md`, `# req ${i}\n`, `[autonomous] fix: round ${i}`);
+    }
+    head = commit(repo, 'src/thing.ts', 'export const x = 1;\n', 'feat: source change');
+
+    const { requiredReviewLanes } = await plannedHelpers();
+    const lanes = requiredReviewLanes({ repo, ackHead: base, head });
+
+    expect(lanes).toContain('code-reviewer');
+    expect(lanes, 'spec-reviewer is past its round limit and must not be demanded')
+      .not.toContain('spec-reviewer');
+  });
+
+  // The counters are lane-specific on purpose: spec-reviewer counts a subject
+  // that CONTAINS its tags, doc-updater one that STARTS WITH them. A commit
+  // whose subject merely mentions the tag mid-sentence therefore counts for one
+  // lane and not the other, and collapsing that changes when a limit fires.
+  it('keeps the two lane counters asymmetric', async () => {
+    const { roundLimitReached } = await plannedHelpers();
+    const { repo } = makeRepo();
+    // Same five commits, touching BOTH trees, with the tag mid-subject. The
+    // only thing that can separate the two answers is the match function:
+    // spec-reviewer counts a CONTAINED tag, doc-updater only a LEADING one.
+    for (let i = 0; i < 5; i += 1) {
+      write(repo, `sdd/spec/req-${i}.md`, `# req ${i}\n`);
+      write(repo, `documentation/page-${i}.md`, `# page ${i}\n`);
+      git(repo, 'add', '--', `sdd/spec/req-${i}.md`, `documentation/page-${i}.md`);
+      git(repo, 'commit', '-m', `chore: [autonomous] sweep ${i}`);
+    }
+
+    expect(roundLimitReached(repo, 'spec-reviewer'), 'spec-reviewer counts a contained tag').toBe(true);
+    expect(roundLimitReached(repo, 'doc-updater'), 'doc-updater counts only a leading tag').toBe(false);
+  });
+
+  // Bulk operations are excluded by both rules, so a repo that just ran
+  // /sdd clean is not locked out of its next review.
+  it('does not count bulk-operation commits toward the limit', async () => {
+    const { roundLimitReached } = await plannedHelpers();
+    const { repo } = makeRepo();
+    for (let i = 0; i < 6; i += 1) {
+      commit(repo, `sdd/spec/bulk-${i}.md`, `# bulk ${i}\n`, `[sdd-clean] sweep ${i}`);
+    }
+
+    expect(roundLimitReached(repo, 'spec-reviewer')).toBe(false);
   });
 });
 
