@@ -123,7 +123,42 @@ for guard in block-local-builds.sh block-attributed-commits.sh; do
 done
 printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[%s]}]}}\n' "$GUARDS" > "$GUARD_SETTINGS"
 
+# NO-OP SHORT-CIRCUIT.
+#
+# Every turn re-sends the whole prompt, so a lane's floor is paid per turn, not
+# once. Measured: an empty range still took 7 turns and 67,609 prompt tokens for
+# the model to gather evidence and conclude there was nothing to review. That is
+# the most expensive possible way to answer a question Git answers for free.
+#
+# The classifier already decides lane ownership at round level; this is the same
+# question asked again at zero cost, and it also covers a lane invoked directly.
+# It only ever declines work the classifier would also have declined, and any
+# uncertainty (unreadable range, missing classifier, unresolved root) falls
+# through to the model rather than silently skipping a review.
 if [ -n "$RANGE" ]; then
+  LANE_CLASSIFIER="$(dirname "$0")/lib/lane-classifier.sh"
+  if [ -f "$LANE_CLASSIFIER" ] && command -v git >/dev/null 2>&1; then
+    RANGE_BASE="${RANGE%%..*}"
+    RANGE_HEAD="${RANGE##*..}"
+    if [ -n "$RANGE_BASE" ] && [ -n "$RANGE_HEAD" ] \
+        && git rev-parse --verify --quiet "$RANGE_BASE" >/dev/null 2>&1 \
+        && git rev-parse --verify --quiet "$RANGE_HEAD" >/dev/null 2>&1; then
+      # shellcheck source=/dev/null
+      . "$LANE_CLASSIFIER" 2>/dev/null || true
+      if command -v compute_required_lanes >/dev/null 2>&1; then
+        REQUIRED=$(compute_required_lanes "$RANGE_BASE" "$RANGE_HEAD" 2>/dev/null || echo "")
+        case " $REQUIRED " in
+          *" $LANE "*) ;;
+          *)
+            printf '## %s — NO-OP\n\n**Range:** `%s`\n\nThis lane owns no changed file in the range, so there is nothing to review. Determined from the diff without invoking a model.\n' \
+              "$LANE" "$RANGE"
+            echo "run-review-lane: lane=$LANE prompt_tokens=0 output_tokens=0 turns=0 cost_usd=0.0000 (short-circuited: lane owns nothing in range)" >&2
+            exit 0
+            ;;
+        esac
+      fi
+    fi
+  fi
   SCOPE="Review ONLY the incremental diff: 'git diff $RANGE'. Do not review the full PR diff."
 elif [ -n "$BASE" ]; then
   SCOPE="Review the full PR diff: 'git diff origin/$BASE...HEAD'."
@@ -152,14 +187,23 @@ if [ $STATUS -ne 0 ] || [ -z "$RAW" ]; then
   exit 4
 fi
 
-# Emit the report body only. The root session consumes this as the lane's
-# findings, so a raw JSON envelope here would cost it the whole usage block.
-printf '%s' "$RAW" | node -e '
+# Emit the report body on stdout and the cost line on stderr. The root session
+# consumes stdout as the lane's findings, so a raw JSON envelope there would
+# charge it the whole usage block; the cost line goes to stderr so a round stays
+# measurable after the fact without entering the root's context as report text.
+printf '%s' "$RAW" | LANE="$LANE" node -e '
   let s = "";
   process.stdin.on("data", (d) => (s += d)).on("end", () => {
     let parsed;
     try { parsed = JSON.parse(s); } catch { process.stderr.write("run-review-lane: unparseable CLI output\n"); process.exit(4); }
     if (parsed.is_error) { process.stderr.write("run-review-lane: lane reported an error\n"); process.exit(4); }
+    const u = parsed.usage || {};
+    const prompt = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+    process.stderr.write(
+      `run-review-lane: lane=${process.env.LANE} prompt_tokens=${prompt} ` +
+      `output_tokens=${u.output_tokens || 0} turns=${parsed.num_turns || 0} ` +
+      `cost_usd=${(parsed.total_cost_usd || 0).toFixed(4)}\n`,
+    );
     process.stdout.write(String(parsed.result ?? ""));
   });
 '
