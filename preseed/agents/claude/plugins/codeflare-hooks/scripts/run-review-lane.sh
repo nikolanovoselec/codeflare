@@ -42,6 +42,10 @@ set -uo pipefail
 LANE=""
 RANGE=""
 BASE=""
+# Set only when the classifier runs below, but referenced afterwards to seed
+# triage and the packet; initialised here because this script runs under `set -u`.
+REQUIRED=""
+RANGE_FULL=""
 # `shift 2` with only one argument left FAILS and does not shift, and this script
 # runs without `set -e`, so a trailing valueless flag would spin the loop
 # forever. A hung lane inside the review gate wedges the turn, so every flag
@@ -166,6 +170,16 @@ if [ -n "$RANGE" ]; then
     if [ -n "$RANGE_BASE" ] && [ -n "$RANGE_HEAD" ] \
         && git rev-parse --verify --quiet "$RANGE_BASE" >/dev/null 2>&1 \
         && git rev-parse --verify --quiet "$RANGE_HEAD" >/dev/null 2>&1; then
+      # The packet CLI validates that its range is two FULL 40-char SHAs and
+      # throws otherwise. A lane invoked with abbreviated SHAs would therefore
+      # get no inlined packet AND fail to build one, silently falling back to
+      # raw greps -- the exact evidence blowup the packet exists to prevent.
+      # Resolve once, here, where both endpoints are already verified.
+      FULL_BASE="$(git rev-parse "$RANGE_BASE" 2>/dev/null || true)"
+      FULL_HEAD="$(git rev-parse "$RANGE_HEAD" 2>/dev/null || true)"
+      if [ -n "$FULL_BASE" ] && [ -n "$FULL_HEAD" ]; then
+        RANGE_FULL="$FULL_BASE..$FULL_HEAD"
+      fi
       # shellcheck source=/dev/null
       . "$LANE_CLASSIFIER" 2>/dev/null || true
       if command -v compute_required_lanes >/dev/null 2>&1; then
@@ -182,14 +196,88 @@ if [ -n "$RANGE" ]; then
       fi
     fi
   fi
-  SCOPE="Review ONLY the incremental diff: 'git diff $RANGE'. Do not review the full PR diff."
+  SCOPE="Review ONLY the incremental diff \`$RANGE\`. Do not review the full PR diff."
 elif [ -n "$BASE" ]; then
   SCOPE="Review the full PR diff: 'git diff origin/$BASE...HEAD'."
 else
   SCOPE="Review the full PR diff: 'git diff origin/main...HEAD'."
 fi
 
-TASK="PR-boundary review, $LANE lane. $SCOPE Gather your own evidence with Bash. Return your structured report as your final message; write no files."
+# PHASE 0 AND EVIDENCE, PRE-COMPUTED.
+#
+# Both are inlined into the opening prompt rather than fetched by the lane.
+#
+# Phase 0 was six sequential Bash calls -- bootstrap, layout, config,
+# transition, round counter, bulk-op audit -- and therefore six turns, measured
+# at ~3,945 tokens per lane before any reviewing started. None of it needs a
+# model. Worse, triage output is the most expensive evidence a lane can hold:
+# arriving first, it is re-read on every turn that follows.
+#
+# The packet moves for the same reason plus one more. Fetched by the lane it
+# costs a turn AND lands mid-conversation as a fresh cache write; inlined it is
+# part of the initial prefix, written once and read at cache rates thereafter.
+#
+# Both are best-effort: a failure here degrades to the lane gathering its own
+# evidence, exactly as before, never to a skipped review.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+TRIAGE_JSON=""
+TRIAGE_SCRIPT="$(dirname "$0")/lib/lane-triage.mjs"
+if [ -n "$REPO_ROOT" ] && [ -f "$TRIAGE_SCRIPT" ] && command -v node >/dev/null 2>&1; then
+  TRIAGE_JSON="$(node "$TRIAGE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
+    ${RANGE:+--range "$RANGE"} ${REQUIRED:+--required-lanes "$REQUIRED"} 2>/dev/null || true)"
+  # A decisive no-op costs zero tokens, same contract as the ownership
+  # short-circuit above. Only the three conditions the reviewer prose already
+  # defines as no-ops can produce this, and each is proven positively.
+  case "$TRIAGE_JSON" in
+    *'"decision": "exit-no-op"'*)
+      TRIAGE_REASON="$(printf '%s' "$TRIAGE_JSON" \
+        | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).reason??""))}catch{}})' 2>/dev/null)"
+      printf '## %s — NO-OP\n\n**Range:** `%s`\n\nTriage resolved this lane to a no-op before any model ran: %s.\n' \
+        "$LANE" "${RANGE:-full PR diff}" "${TRIAGE_REASON:-lane suspended by triage}"
+      echo "run-review-lane: lane=$LANE prompt_tokens=0 fresh_input=0 cache_write=0 cache_read=0 output_tokens=0 turns=0 cost_usd=0.0000 (short-circuited: ${TRIAGE_REASON:-triage no-op})" >&2
+      exit 0
+      ;;
+  esac
+fi
+
+PACKET_JSON=""
+PACKET_SCRIPT="$CLAUDE_HOME/skills/review-scope/scripts/build-review-packet.mjs"
+# Inline only a packet small enough that carrying it beats fetching it. Above
+# the cap the lane builds its own, so a very large diff cannot force a huge
+# prompt onto a lane that might have exited early anyway.
+PACKET_MAX_BYTES="${REVIEW_LANE_PACKET_MAX_BYTES:-131072}"
+case "$PACKET_MAX_BYTES" in ''|*[!0-9]*|0) PACKET_MAX_BYTES=131072 ;; esac
+if [ -n "$REPO_ROOT" ] && [ -n "$RANGE" ] && [ -f "$PACKET_SCRIPT" ] && command -v node >/dev/null 2>&1; then
+  CANDIDATE="$(node "$PACKET_SCRIPT" --repo "$REPO_ROOT" --scope diff --range "${RANGE_FULL:-$RANGE}" --lane "$LANE" 2>/dev/null || true)"
+  if [ -n "$CANDIDATE" ] && [ "${#CANDIDATE}" -le "$PACKET_MAX_BYTES" ]; then
+    PACKET_JSON="$CANDIDATE"
+  fi
+fi
+
+TASK="PR-boundary review, $LANE lane. $SCOPE"
+if [ -n "$TRIAGE_JSON" ]; then
+  TASK="$TASK
+
+Your Phase 0 triage is already resolved. Treat this block as authoritative and do NOT re-derive any of it — no bootstrap probe, no layout detection, no config read, no round-counter walk, no bulk-op audit. Report every finding it lists as your own.
+
+<triage>
+$TRIAGE_JSON
+</triage>"
+fi
+if [ -n "$PACKET_JSON" ]; then
+  TASK="$TASK
+
+Your lane packet is already built. Do NOT rebuild it and do NOT re-read the diff.
+
+<packet>
+$PACKET_JSON
+</packet>"
+fi
+TASK="$TASK
+
+Evidence budget: you have at most 4 Bash calls. Triage and the packet are already above, so spend them only on leads the packet names — resolving an anchor, checking whether a cited symbol still exists, reading the bounded lines around a hunk. Batch aggressively: one compound command, not one command per question. Every extra call re-sends this entire prompt, so a call you did not need is the most expensive thing you can do. If you reach the budget, report what you have.
+
+Return your structured report as your final message. Write no files."
 
 set -- \
   -p "$TASK" \
@@ -229,9 +317,22 @@ RAW="$(timeout -k 30 "$LANE_TIMEOUT" claude "$@" 2>"$LANE_STDERR")"
 STATUS=$?
 if [ $STATUS -ne 0 ] || [ -z "$RAW" ]; then
   echo "run-review-lane: $LANE lane failed to produce a report (exit $STATUS)" >&2
+  if [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; then
+    echo "run-review-lane: the lane exceeded its ${LANE_TIMEOUT}s bound and was reaped" >&2
+  fi
   if [ -s "$LANE_STDERR" ]; then
     echo "run-review-lane: last stderr from the lane:" >&2
     tail -n 20 "$LANE_STDERR" >&2
+  fi
+  # A non-zero exit does not mean stdout was empty: the CLI reports quota,
+  # auth and model errors as a JSON envelope on stdout while still exiting
+  # non-zero. Discarding it left "exit 1" with no stderr and no explanation,
+  # which is indistinguishable from a crash. Surface it, bounded.
+  if [ -n "$RAW" ]; then
+    echo "run-review-lane: first 500 bytes of lane stdout:" >&2
+    printf '%.500s\n' "$RAW" >&2
+  else
+    echo "run-review-lane: the lane produced no stdout at all" >&2
   fi
   exit 4
 fi

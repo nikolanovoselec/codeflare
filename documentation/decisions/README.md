@@ -2869,3 +2869,15 @@ What must never count as completion is the tool_result the harness returns the i
 **Related:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
 ---
+### AD116: Review-lane Phase 0 is computed deterministically and handed to the lane
+
+**Status:** Accepted
+
+**Context:** Every PR-boundary lane opened with a six-step Phase 0 — SDD bootstrap, layout resolution, config read, transition check, round counter, bulk-op audit. Each step was its own Bash call and therefore its own turn. Measured at ~3,945 tokens and 5–6 turns per lane before any reviewing began. Because a lane re-sends its whole prompt every turn, triage output is the most expensive evidence a lane can hold: arriving first, it is re-read on every turn that follows. Not one of the six steps requires a model — they are `test -f`, a config read, and two `git log` walks — and the diff-classification step was already answered by the lane classifier before the lane was spawned.
+
+**Decision:** Resolve Phase 0 in `lib/lane-triage.mjs` before the subprocess starts and inline the result, with the already-built review packet, into the lane's opening prompt. The reviewer documents instruct the lane to treat that block as authoritative and never re-derive it. A triage-proven no-op (no SDD bootstrap, an active transition, a round limit) returns without invoking a model, extending the existing zero-token short-circuit. Lane ownership is still computed by the shell classifier and passed in rather than reimplemented, so there remains one source of truth for it.
+
+**Consequences:** Measured on one range, all three lanes: 67 turns → 19, and 1,874,525 prompt tokens → 375,000-ish. Finding quality did not drop — the doc lane returned more findings than before, because precise triage replaced evidence it previously had to derive. The cost is that triage now reproduces two enforcement gates (round limit, bulk-op audit) in a second place; both are pinned by behavioral tests, and every unresolvable condition resolves to running the review rather than skipping it, so a triage bug degrades to a redundant review rather than a silent enforcement hole.
+
+**Supersedes:** none. Extends [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses).
+

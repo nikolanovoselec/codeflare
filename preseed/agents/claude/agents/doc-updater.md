@@ -65,40 +65,20 @@ This applies whether you are auto-fixing (interactive/auto/unleashed) or running
 
 PR-boundary events targeting `main`/`master`, only when `sdd/` AND `documentation/` exist. Run sequentially AFTER `spec-reviewer`. Full trigger model in `git-workflow.md` + `git-review-pipeline` skill.
 
-## Build the lane packet once
+## Your lane packet
 
-Your evidence transport is the seeded packet CLI. Build it once, in your first Bash call, and reason from what it returns:
+Your packet is normally **already built and inlined in your prompt** inside a `<packet>` block: `files` (lane-owned changed files), `patch` (lane-owned hunks), and `changedInputs` (cross-lane inputs as `{ path, hunks }` with exact old/new line ranges). Reason directly from it. Do NOT rebuild it and do NOT re-read the diff — that spends a turn to obtain something you already have.
+
+Only when no `<packet>` block is present (a very large diff, or a direct invocation) build it yourself, once, in your first Bash call:
 
 ```bash
 node ~/.claude/skills/review-scope/scripts/build-review-packet.mjs \
   --repo <absolute-root> --scope diff --range <base>..<head> --lane doc-updater
 ```
 
-Pipe its stdout into the same processing program and parse it in memory. Never persist the packet, echo raw packet JSON, or rebuild it in a later call. The packet returns `files` (lane-owned changed files), `patch` (lane-owned hunks), and `changedInputs` (cross-lane inputs as `{ path, hunks }` carrying exact old/new line ranges). Full cadence in the `review-scope` skill.
+Never persist the packet or echo raw packet JSON back into your context.
 
-`changedInputs` is how source reaches a documentation review, and it is a lead rather than a finding. A documented contract is invalidated only when the resolved symbol behind it overlaps a changed hunk — the packet module exports `changedInputIntersects(input, range)` for exactly that test. A page does not go stale merely because a file it mentions was touched somewhere.
-
-For Pass 8 (verification truth-check) and Pass 12 (stranger cold-read), every concrete reference in `documentation/` — a function name, file path, route handler, env-var consumer — must resolve to real code. Resolve it literally and boundedly: `git grep -n '<symbol>' -- <path>` answers whether a doc-cited symbol still exists, and a reference that resolves nowhere is a stale doc (HIGH). Bound every search with `-c`, `| wc -l`, or `| head -N`; an unbounded scan puts raw output in your context and defeats the packet, which is the failure this transport exists to prevent. Note that `grep` treats a file containing a NUL byte as binary and silently matches nothing — pass `-a` when that is possible.
-
-For coverage gaps — a shipped feature with no doc section — cross-reference the packet's `changedInputs` against the `documentation/README.md` jump-TOC; a changed entry point with no doc page is HIGH `feature-without-doc`. Under `scope=diff` restrict that cross-check to surfaces the range actually touched; the repo-wide sweep is a `scope=all` obligation.
-
-`doc-enforce-truth` Pass 8 / Pass 9 literal text matching still runs independently of anything above.
-
-### Exit early when the range cannot have moved documentation
-
-Classify the range before running the manifest:
-
-- **Behavioral change**: source code, schema migrations, API contracts, env var changes, route additions/removals — any of these can invalidate a documented contract. Continue.
-- **Non-behavioral change**: comments only, formatting only, test-only with no source change. Behaviour is unchanged, so no documented contract can have drifted.
-- **No-op**: empty range, or a range whose only files are ones this lane does not own and whose hunks intersect no doc-cited symbol.
-
-If the packet contains **no lane-owned file**, you were not spawned by accident: the classifier only reaches this lane when a `documentation/` file changed or when an `@impl` anchor inside `documentation/` cites a file in this range. So the remaining job is exactly Pass 15, the anchor truth-check, and nothing else. Resolve each anchor that cites a changed file, report drift, and stop — do not run the rest of the manifest, do not write a changelog entry.
-
-If the range is additionally **non-behavioral or a no-op**, exit silently with code 0 without even that: a comment-only delta cannot invalidate a documented claim.
-
-The lane classifier already withholds this lane for a range it can prove is comments and whitespace only. This check is the backstop for the ranges it cannot prove, so that an unprovable comment-only push costs a startup rather than a full manifest pass.
-
-Bash is your only tool. Indexed retrieval (`ctx_*`), file mutation, `Read`, `Skill`, and every graph tool are deliberately absent: the packet already carries the evidence and your policy is embedded above, so a command reaching for one of them is a bug in your plan, not a missing capability.
+A `changedInputs` path is a lead, not a finding. Follow a caller, contract, or anchor only when its resolved symbol range overlaps a changed hunk — the packet module exports `changedInputIntersects(input, range)` for exactly that test. File-path equality alone is not impact.
 
 ## Deferring a JUDGMENT finding
 
@@ -122,102 +102,20 @@ You own `documentation/` (both layouts: `documentation/lanes/**/*.md` nested, `d
 
 You run **after** `spec-reviewer` (sequentially), so you always read the post-edit spec.
 
-## Phase 0: Triage (run first, decide whether to continue)
+## Phase 0: Triage — already resolved for you
 
-### Step 0a: Detect SDD bootstrap
+Your prompt carries a `<triage>` block holding every Phase 0 answer: SDD bootstrap and layout (with `configPath`, `triageFile`, `initTriage`, `changelog` already resolved for that layout), the config (parsed decision scalars plus the file verbatim in `config.raw`), transition state, the round counter, and the bulk-op audit.
 
-```bash
-test -d sdd && test -f sdd/README.md
-```
+**Do not re-derive any of it.** No `test -d sdd`, no layout probe, no config read, no `git log` round-counter walk, no bulk-op audit pass. Those were six sequential Bash calls and therefore six turns; they are now free, and repeating one costs a full turn to learn something you were handed.
 
-**If false, exit silently with code 0.** Non-SDD projects do not get automatic documentation maintenance; the user has not opted into the workflow.
+Act on it as follows:
 
-**Layout detection (binding for every subsequent path resolution):**
+- `decision: "exit-no-op"` never reaches you — the transport short-circuits it before you start.
+- `transition.corrupt: true` → emit HIGH `sdd-transition-corrupt` and continue with the normal phases.
+- `bulkOpAudit.findings` → report each one as your own finding at the severity it carries. These are binding enforcement findings; the triage script detected them, but you are what surfaces them.
+- `roundLimit` is informational once you are running; the transport already stopped you if it fired.
 
-```bash
-SPEC_LAYOUT="nested"
-[ -d sdd/spec ] || SPEC_LAYOUT="flat"
-
-DOC_LAYOUT="nested"
-[ -d documentation/lanes ] || DOC_LAYOUT="flat"
-```
-
-When `SPEC_LAYOUT=nested`: spec backlinks resolve via `sdd/spec/{file}.md`. When `DOC_LAYOUT=nested`: lane files live at `documentation/lanes/**/*.md`. Both layouts can mix during the migration window. All globs and backlink generation below resolve per the detected layouts.
-
-**Exception: when invoked from `/review` Phase 2.** The `/review` orchestrator passes an inline override (see `preseed/agents/claude/commands/review.md` doc-updater bullet) instructing this agent to emit a one-line "no-op (vibe-coding mode)" header to its output file instead of exiting empty. Honor that override: write the header line and return. This preserves REQ-AGENT-015 AC6's "ran and found nothing" vs "did not run" distinction so the cross-reference phase can detect-and-skip.
-
-(Manual invocation on a non-SDD project is still allowed; if the user calls this agent directly via the Task tool without `sdd/`, proceed with `documentation/` maintenance using `documentation/README.md` as the routing table. Never create `documentation/` or its README from scratch in that case; report the missing scaffolding and stop.)
-
-### Step 0a.5: Detect SDD transition state
-
-Layout-aware (nested `sdd/spec/` overrides flat `sdd/`):
-
-```bash
-CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
-TRIAGE=$(test -f sdd/spec/.init-triage.md && echo sdd/spec/.init-triage.md || echo sdd/.init-triage.md)
-IN_TRANSITION=0
-if [ -f "$CONFIG" ] \
-   && grep -q '^transition:[[:space:]]*true' "$CONFIG" 2>/dev/null \
-   && [ -f "$TRIAGE" ] \
-   && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "$TRIAGE" 2>/dev/null; then
-  IN_TRANSITION=1
-fi
-```
-
-When `IN_TRANSITION=1`, exit no-op. Print the notice `SDD transition in progress; doc-updater suspended until triage drains.` No skill invocation; no findings emitted. Do NOT write a stub coverage entry for this no-op exit — the transition gate is a silent skip, not an audited event. (`documentation/.doc-coverage.md` remains the audit fallback for substantive findings under the regular flow.)
-
-### Step 0b: Read documentation/ scaffolding
-
-```bash
-test -f documentation/README.md
-```
-
-- If false: HIGH gap. **Do NOT auto-create** the file. Report the missing index and exit; the user must scaffold `documentation/` deliberately.
-- If true: read `documentation/README.md` to learn the project's actual doc structure. This index is the routing table; do NOT hardcode any file names.
-
-### Step 0c: Round counter (anti-spiral)
-
-```bash
-git log -6 --format="%H %s" 2>/dev/null
-git log -6 --name-only --format="--- %H %s" 2>/dev/null
-```
-
-Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[unleashed]` **AND** that touched at least one path under `documentation/`. Commits that touched only `sdd/` or only source code do NOT count toward the doc-updater round counter. Excluded prefixes regardless of paths: `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If >=5 of the last 6 qualifying commits qualify: hard stop. Write findings to `documentation/.doc-coverage.md` under `## Round limit reached`. Exit code 0.
-
-### Step 0c.5: Bulk-op audit-line check (binding)
-
-While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]` or `[sdd-clean]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` step 9 iterate-to-clean commit gate, which gates the step 10 commit on Phase 7a + Phase 7b evidence). `[unleashed]` is excluded: it is the autonomy-mode prefix for single-lane commits where only one (or neither) skill ran.
-
-```bash
-git log -5 --format="%H%n%s%n%b%n--END--"
-```
-
-For each commit subject matching the bulk-op prefixes above, verify the commit body contains ALL FOUR audit lines (Phase 7a + Phase 7b for `[sdd-init]` only; spec-enforce + doc-enforce for both `[sdd-init]` and `[sdd-clean]`):
-- A line matching `^[[:space:]>*`-]*Phase 7a verifier: parsed=[0-9]+ resolved=[0-9]+ orphaned=[0-9]+ drifted=[0-9]+` (source-anchor verifier proof; `[sdd-init]` only — `[sdd-clean]` does not run Phase 7a). Missing on `[sdd-init]` = CRITICAL `phase-7a-evidence-missing`.
-- A line matching `^[[:space:]>*`-]*Phase 7b enum verifier: enumerated=[0-9]+ accounted=[0-9]+ unaccounted=[0-9]+` (enumeration-coverage verifier proof; `[sdd-init]` only). Missing on `[sdd-init]` = CRITICAL `phase-7b-evidence-missing`. The verifier output is also load-bearing: if the line shows `unaccounted > 0` without a justification block elsewhere in the commit body, the finding is CRITICAL `import-mode-narrowed-scope`.
-- A line matching `^[[:space:]>*`-]*spec-enforce: ran \([^)]*anchors verified[^)]*\)` (spec-side audit; the `anchors verified` token is the proof that CQ-SOURCE actually walked the `@impl` anchors). Line-anchored with optional leading bullet/blockquote/whitespace/backtick.
-- A line matching `^[[:space:]>*`-]*doc-enforce: ran \([^)]*anchors verified[^)]*\)` (doc-side audit; same proof for Pass 15). Line-anchored with optional leading bullet/blockquote/whitespace/backtick.
-
-Missing any required line, OR a line present but lacking the load-bearing token (`anchors verified` for the enforce lines; `unaccounted=` for the Phase 7b line; `resolved=` for the Phase 7a line) = HIGH `enforcement-skill-not-invoked` (or CRITICAL for the Phase 7a / Phase 7b cases, per `sdd-init/SKILL.md` step 7 and step 8) listing the commit SHA, subject, and which audit is missing/incomplete. Write to `documentation/.doc-coverage.md` under `## Enforcement gaps` and continue (do NOT hard-stop — the doc-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
-
-This catch fires on every PR-boundary review (and on `/sdd clean`), so a `/sdd init` run that skipped iterate-to-clean cannot land via develop→main without surfacing the gap.
-
-### Step 0d: Diff classification
-
-Determine the diff window first. If the task hands you an explicit window — a `<base>..<head>` range, an instruction such as "review ONLY the incremental diff from `<base>` to `<head>`", or `CODEFLARE_REVIEW_BASE` / `CODEFLARE_REVIEW_HEAD` in the environment — classify exactly that window (`git diff "<base>" "<head>"`) and nothing wider. Otherwise default to the full change set:
-
-```bash
-git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1..HEAD 2>/dev/null || git diff
-```
-
-Identify changes that affect documentation:
-- New API endpoint, route, or env var
-- Changed authentication flow
-- New dependency or configuration option
-- Architecture changes (new module, removed module, restructured directory)
-- New ADR-worthy decisions (visible in commit message or design discussions)
-
-If the diff contains only docs changes, code comments, or formatting, exit silently. Don't update docs about doc updates.
+If the `<triage>` block is absent (a direct invocation outside the transport), fall back to deriving Phase 0 yourself in **one** compound Bash call — never one call per step.
 
 ## Phase 1: Sync — bring docs in line with code
 

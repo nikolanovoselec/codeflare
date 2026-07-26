@@ -61,26 +61,20 @@ You enforce the SDD ruleset as it is written in the `spec-enforce*` skills; you 
 
 This applies whether you are auto-fixing (interactive/auto/unleashed) or running report-only for `/review`: in report-only mode you still itemise every fired finding at its true severity rather than concluding "approve". Producing or passing a spec that violates the ruleset is the failure this gate exists to prevent.
 
-## Build the lane packet once
+## Your lane packet
 
-Your evidence transport is the seeded packet CLI. Build it once, in your first Bash call, and reason from what it returns:
+Your packet is normally **already built and inlined in your prompt** inside a `<packet>` block: `files` (lane-owned changed files), `patch` (lane-owned hunks), and `changedInputs` (cross-lane inputs as `{ path, hunks }` with exact old/new line ranges). Reason directly from it. Do NOT rebuild it and do NOT re-read the diff — that spends a turn to obtain something you already have.
+
+Only when no `<packet>` block is present (a very large diff, or a direct invocation) build it yourself, once, in your first Bash call:
 
 ```bash
 node ~/.claude/skills/review-scope/scripts/build-review-packet.mjs \
   --repo <absolute-root> --scope diff --range <base>..<head> --lane spec-reviewer
 ```
 
-Pipe its stdout into the same processing program and parse it in memory. Never persist the packet, echo raw packet JSON, or rebuild it in a later call. The packet returns `files` (lane-owned changed files), `patch` (lane-owned hunks), and `changedInputs` (cross-lane inputs as `{ path, hunks }` carrying exact old/new line ranges). Full cadence in the `review-scope` skill.
+Never persist the packet or echo raw packet JSON back into your context.
 
-`changedInputs` is how source reaches a spec review, and it is a lead rather than a finding. An anchored implementation symbol is invalidated only when its resolved line range overlaps a changed hunk — the packet module exports `changedInputIntersects(input, range)` for exactly that test. A REQ does not drift merely because a file it cites was touched somewhere.
-
-Citation truth-checking is literal and bounded: `git grep -n '<cited symbol>' -- <cited path>` resolves whether a citation still points at real code, which is the same mechanism CQ-SOURCE already uses. A citation that resolves nowhere is HIGH spec-vs-shipped drift — the REQ describes code that no longer exists. Bound every search with `-c`, `| wc -l`, or `| head -N`; an unbounded scan puts raw output in your context and defeats the packet, which is the failure this transport exists to prevent. Note that `grep` treats a file containing a NUL byte as binary and silently matches nothing — pass `-a` when that is possible.
-
-The `spec-enforce-truth` CQ-1 and CQ-2 checks still run literal-text matching independently of anything above.
-
-For the Phase 1 sync question — is there a shipped surface with no REQ covering it? — cross-check the packet's `changedInputs` against `sdd/{domain}.md`; a shipped entry point with no REQ is HIGH `missing-req-for-shipped-feature`. Under `scope=diff` restrict that cross-check to surfaces the range actually touched — the repo-wide sweep is a `scope=all` obligation, not something to re-run on every incremental push.
-
-Bash is your only tool. Indexed retrieval (`ctx_*`), file mutation, and the graph-traversal tools are deliberately absent; a command that reaches for one is a bug in your plan, not a missing capability.
+A `changedInputs` path is a lead, not a finding. Follow a caller, contract, or anchor only when its resolved symbol range overlaps a changed hunk — the packet module exports `changedInputIntersects(input, range)` for exactly that test. File-path equality alone is not impact.
 
 ## Deferring a JUDGMENT finding
 
@@ -100,88 +94,20 @@ PR-boundary events targeting `main`/`master`, only when `sdd/` exists. Full trig
 
 Own `sdd/` only — both layouts (`sdd/spec/**/*.md` nested, `sdd/*.md` flat). Never touch `documentation/` (doc-updater's lane), source code (developer's/code-reviewer's lane), or root `README.md` (doc-updater's lane). Run **before** `doc-updater` sequentially (never parallel — they race on filesystem state).
 
-## Phase 0: Triage (run first, decide whether to continue)
+## Phase 0: Triage — already resolved for you
 
-### Step 0a: Detect the SDD bootstrap
+Your prompt carries a `<triage>` block holding every Phase 0 answer: SDD bootstrap and layout (with `configPath`, `triageFile`, `initTriage`, `changelog` already resolved for that layout), the config (parsed decision scalars plus the file verbatim in `config.raw`), transition state, the round counter, and the bulk-op audit.
 
-```bash
-test -d sdd && test -f sdd/README.md
-```
+**Do not re-derive any of it.** No `test -d sdd`, no layout probe, no config read, no `git log` round-counter walk, no bulk-op audit pass. Those were six sequential Bash calls and therefore six turns; they are now free, and repeating one costs a full turn to learn something you were handed.
 
-If false, exit silently with code 0. Nothing to do.
+Act on it as follows:
 
-**Layout detection (binding for every subsequent path resolution):**
+- `decision: "exit-no-op"` never reaches you — the transport short-circuits it before you start.
+- `transition.corrupt: true` → emit HIGH `sdd-transition-corrupt` and continue with the normal phases.
+- `bulkOpAudit.findings` → report each one as your own finding at the severity it carries. These are binding enforcement findings; the triage script detected them, but you are what surfaces them.
+- `roundLimit` is informational once you are running; the transport already stopped you if it fired.
 
-```bash
-LAYOUT="nested"
-[ -d sdd/spec ] || LAYOUT="flat"
-TRIAGE_FILE=$([ "$LAYOUT" = "nested" ] && echo sdd/spec/.review-queue.md || echo sdd/.review-needed.md)
-```
-
-When `LAYOUT=nested`: spec files live at `sdd/spec/**/*.md`; config at `sdd/spec/config.yml`; triage queue at `$TRIAGE_FILE` = `sdd/spec/.review-queue.md`; init-triage at `sdd/spec/.init-triage.md`; changelog at `sdd/spec/changes.md`. When `LAYOUT=flat`: legacy paths (`sdd/*.md`, `sdd/config.yml`, `$TRIAGE_FILE` = `sdd/.review-needed.md`, `sdd/.init-triage.md`, `sdd/changes.md`). All globs and file references below resolve via `$TRIAGE_FILE` (one variable, two layouts).
-
-### Step 0b: Read the configuration
-
-Read `sdd/spec/config.yml` (nested) or `sdd/config.yml` (flat). If missing, write defaults from the `sdd-config.yml` template in the `spec-driven-development` skill (interactive mode, `enforce_tdd: true`) and continue.
-
-Required fields: `mode`, `enforce_tdd`, `test_globs`, `forbidden_content_allowlist`. Optional: `transition` (set by `/sdd init` Import Mode while triage queue has open items), `src_globs`.
-
-### Step 0b.5: Detect SDD transition state
-
-If the layout-resolved config (`sdd/spec/config.yml` nested or `sdd/config.yml` flat) carries `transition: true` AND the layout-resolved init-triage file exists with at least one `**Status:** open` item, the project is in SDD transition.
-
-While in transition, exit no-op. Print `SDD transition in progress; spec-reviewer suspended until triage drains.` and exit with code 0. No skill invocation; no findings emitted.
-
-Sanity check: if `transition: true` is set but init-triage is missing or contains no open items, this is a corrupted transition state. Write HIGH finding to `$TRIAGE_FILE` and continue with normal phases.
-
-### Step 0c: Check the round counter (anti-spiral)
-
-```bash
-git log -6 --format="%H %s" 2>/dev/null
-git log -6 --name-only --format="--- %H %s" 2>/dev/null
-```
-
-Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-reviewer]` **AND** that touched at least one path under `sdd/`. Commits that touched only `documentation/` or only source code do NOT count toward the spec-reviewer round counter. Excluded prefixes regardless of paths: `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If >=5 of the last 6 commits qualify, hard stop:
-
-1. Write the would-be findings to `$TRIAGE_FILE` with header "Round limit reached"
-2. Exit with code 0
-
-The counter resets when a non-agent commit lands.
-
-### Step 0c.5: Bulk-op audit-line check (binding)
-
-While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]` or `[sdd-clean]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` step 9 iterate-to-clean commit gate, which gates the step 10 commit on Phase 7a + Phase 7b evidence). `[unleashed]` is excluded: it is the autonomy-mode prefix for single-lane commits where only one (or neither) skill ran.
-
-```bash
-git log -5 --format="%H%n%s%n%b%n--END--"
-```
-
-For each commit subject matching the bulk-op prefixes above, verify the commit body contains ALL FOUR audit lines (Phase 7a + Phase 7b for `[sdd-init]` only; spec-enforce + doc-enforce for both `[sdd-init]` and `[sdd-clean]`):
-- A line matching `^[[:space:]>*`-]*Phase 7a verifier: parsed=[0-9]+ resolved=[0-9]+ orphaned=[0-9]+ drifted=[0-9]+` (source-anchor verifier proof; `[sdd-init]` only — `[sdd-clean]` does not run Phase 7a). Missing on `[sdd-init]` = CRITICAL `phase-7a-evidence-missing`.
-- A line matching `^[[:space:]>*`-]*Phase 7b enum verifier: enumerated=[0-9]+ accounted=[0-9]+ unaccounted=[0-9]+` (enumeration-coverage verifier proof; `[sdd-init]` only). Missing on `[sdd-init]` = CRITICAL `phase-7b-evidence-missing`. The verifier output is also load-bearing: if the line shows `unaccounted > 0` without a justification block elsewhere in the commit body, the finding is CRITICAL `import-mode-narrowed-scope`.
-- A line matching `^[[:space:]>*`-]*spec-enforce: ran \([^)]*anchors verified[^)]*\)` (spec-side audit; the `anchors verified` token is the proof that CQ-SOURCE actually walked the `@impl` anchors). Line-anchored with optional leading bullet/blockquote/whitespace/backtick.
-- A line matching `^[[:space:]>*`-]*doc-enforce: ran \([^)]*anchors verified[^)]*\)` (doc-side audit; same proof for Pass 15). Line-anchored with optional leading bullet/blockquote/whitespace/backtick.
-
-Missing any required line, OR a line present but lacking the load-bearing token (`anchors verified` for the enforce lines; `unaccounted=` for the Phase 7b line; `resolved=` for the Phase 7a line) = HIGH `enforcement-skill-not-invoked` (or CRITICAL for the Phase 7a / Phase 7b cases, per `sdd-init/SKILL.md` step 7 and step 8) listing the commit SHA, subject, and which audit is missing/incomplete. Write to `$TRIAGE_FILE` and continue (do NOT hard-stop — the spec-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
-
-This catch fires on every PR-boundary review (and on `/sdd clean`), so a `/sdd init` run that skipped iterate-to-clean cannot land via develop→main without surfacing the gap.
-
-### Step 0d: Diff classification
-
-Determine the diff window first. If the task hands you an explicit window — a `<base>..<head>` range, an instruction such as "review ONLY the incremental diff from `<base>` to `<head>`", or `CODEFLARE_REVIEW_BASE` / `CODEFLARE_REVIEW_HEAD` in the environment — classify exactly that window (`git diff "<base>" "<head>"`) and nothing wider. Otherwise default to the full change set:
-
-```bash
-git diff origin/main...HEAD 2>/dev/null || git diff @{push}..HEAD 2>/dev/null || git diff HEAD~1..HEAD 2>/dev/null || git diff
-```
-
-Classify the diff:
-- **Behavioral change**: source code, schema migrations, API contracts, env var changes, route additions/removals
-- **Non-behavioral change**: docs only, comments only, formatting only, test-only with no source change
-- **No-op**: empty diff or changes only to `sdd/` itself
-
-If **non-behavioral or no-op**, exit silently with code 0. Do not run the enforcement manifest. Do not write reports. Do not write changelog entries. The user does not want a "verification pass" entry every time they fix a typo.
-
-Continue only if the diff contains behavioral changes.
+If the `<triage>` block is absent (a direct invocation outside the transport), fall back to deriving Phase 0 yourself in **one** compound Bash call — never one call per step.
 
 ## Phase 1: Sync-gap detection — report spec/code drift (do not apply)
 

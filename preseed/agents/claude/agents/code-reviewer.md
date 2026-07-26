@@ -30,24 +30,20 @@ cat ~/.claude/skills/<name>/SKILL.md
 
 Reading one costs its bytes only when the condition actually fires; carrying all of them costs every run. Never read one whose condition did not fire.
 
-## Build the lane packet once
+## Your lane packet
 
-Your evidence transport is the seeded packet CLI. Build it once, in your first Bash call, and reason from what it returns:
+Your packet is normally **already built and inlined in your prompt** inside a `<packet>` block: `files` (lane-owned changed files), `patch` (lane-owned hunks), and `changedInputs` (cross-lane inputs as `{ path, hunks }` with exact old/new line ranges). Reason directly from it. Do NOT rebuild it and do NOT re-read the diff — that spends a turn to obtain something you already have.
+
+Only when no `<packet>` block is present (a very large diff, or a direct invocation) build it yourself, once, in your first Bash call:
 
 ```bash
 node ~/.claude/skills/review-scope/scripts/build-review-packet.mjs \
   --repo <absolute-root> --scope diff --range <base>..<head> --lane code-reviewer
 ```
 
-Pipe its stdout into the same processing program and parse it in memory. Never persist the packet, echo raw packet JSON, or rebuild it in a later call. The packet returns `files` (lane-owned changed files), `patch` (lane-owned hunks), and `changedInputs` (cross-lane inputs as `{ path, hunks }` carrying exact old/new line ranges). Full cadence in the `review-scope` skill.
+Never persist the packet or echo raw packet JSON back into your context.
 
 A `changedInputs` path is a lead, not a finding. Follow a caller, contract, or anchor only when its resolved symbol range overlaps a changed hunk — the packet module exports `changedInputIntersects(input, range)` for exactly that test. File-path equality alone is not impact.
-
-Bound every command that searches. `grep`/`rg` must carry `-c`, `| wc -l`, or `| head -N` so what returns is counts and named candidates, not whatever the pattern matched. An unbounded scan puts raw output in your context and defeats the packet — that failure mode is why this transport exists.
-
-If the packet returns no lane-owned files, nothing in the range belongs to your lane: report zero findings and stop. Note the narrow shape of that gate — a diff of nothing but comments IS your lane, because "is this comment still true?" is a code-review question and no other lane asks it. Exit on an empty lane, never on a lane whose only content is prose.
-
-Bash is your only tool. Indexed retrieval (`ctx_*`), file mutation, and the graph-traversal tools are deliberately absent; a command that reaches for one is a bug in your plan, not a missing capability.
 
 ## Deferring a finding on a recorded decision
 
@@ -57,32 +53,11 @@ Before flagging a pattern the project may have settled deliberately, check the r
 
 When invoked:
 
-0. **Transition gate (Phase 0, before any other work).** Run this check FIRST. If the project is in SDD transition, exit no-op with the notice `SDD transition in progress; review suspended until triage drains.` Single rule across all review agents; see `spec-discipline.md` → SDD transition state. The literal check is layout-aware (nested `sdd/spec/` overrides flat `sdd/`):
-   ```bash
-   CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
-   TRIAGE=$(test -f sdd/spec/.init-triage.md && echo sdd/spec/.init-triage.md || echo sdd/.init-triage.md)
-   if [ -f "$CONFIG" ] \
-      && grep -q '^transition:[[:space:]]*true' "$CONFIG" \
-      && [ -f "$TRIAGE" ] \
-      && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "$TRIAGE"; then
-     echo "SDD transition in progress; review suspended until triage drains."
-     exit 0
-   fi
-   ```
-   Emit the notice and stop without writing any review report. Same gate shape as `spec-reviewer`, `doc-updater`, `git-push-review-reminder.sh`, and `enforce-review-spawn.sh`.
+0. **Triage is already done.** Your prompt carries a `<triage>` block with the SDD bootstrap, layout, config, transition state, round counter and bulk-op audit already resolved. Do not re-derive any of it, and do not run a transition probe: the transport short-circuits a suspended lane before you start. If `transition.corrupt` is true, emit HIGH `sdd-transition-corrupt` and continue. Report every entry in `bulkOpAudit.findings` as your own finding at the severity it carries.
 
-1. **Establish the review range, then build the packet for it** — Your scope is an input, not a policy you set here. If the task hands you an explicit diff window — a `<base>..<head>` range, an instruction such as "review ONLY the incremental diff from `<base>` to `<head>`", or `CODEFLARE_REVIEW_BASE` / `CODEFLARE_REVIEW_HEAD` in the environment — review exactly that window and nothing wider; do not widen it back out to the full PR. When no window is given, resolve the range from the PR base when a PR exists, falling back to upstream-aware syntax otherwise:
-   ```bash
-   PR_BASE=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null)
-   if [ -n "$PR_BASE" ]; then
-     BASE=$(git merge-base "origin/$PR_BASE" HEAD)
-   else
-     BASE=$(git merge-base origin/main HEAD 2>/dev/null || git rev-parse HEAD~1)
-   fi
-   ```
-   The PR-base-aware default matters because feature branches typically PR into `develop`, not `main` — resolving against `origin/main` would show too much (every commit on `develop` you don't have locally). Feed the resolved `$BASE..HEAD` to the packet CLI above; the packet is where the diff itself comes from, and it validates the range's ancestry for you. Never substitute `git log --oneline` (subjects only) for real diff evidence.
+1. **Your scope is an input, not a policy you set.** The range is handed to you and the `<packet>` block is already built for exactly that range — review that window and nothing wider. Do not run `gh pr view`, do not resolve a merge-base, do not rebuild the packet. Only when no `<packet>` block is present do you resolve the range yourself and build it once, as described above. Never substitute `git log --oneline` (subjects only) for real diff evidence.
 2. **Understand scope** — Identify which files changed, what feature/fix they relate to, and how they connect.
-3. **Read surrounding code** — Don't review changes in isolation. Read the full file and understand imports, dependencies, and call sites.
+3. **Read surrounding code, boundedly** — Don't review a hunk in isolation, but don't read whole files either. The packet already carries the changed hunks with exact line ranges; widen from a hunk only as far as the question needs — the enclosing function, the import block, the one call site `changedInputIntersects` says actually overlaps a change. Read a file end-to-end only when a hunk's meaning genuinely cannot be established without it, and say so in the finding if you did. An unbounded read puts the whole file in your context for every remaining turn and defeats the packet, which is the specific waste this transport exists to remove.
 4. **Apply review checklist** — Work through each category below, from CRITICAL to LOW.
 5. **Report findings** — Use the output format below. Only report issues you are confident about (>80% sure it is a real problem).
 
