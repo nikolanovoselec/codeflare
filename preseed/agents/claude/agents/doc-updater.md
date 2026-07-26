@@ -29,7 +29,7 @@ Apply these directly — the spine is embedded and you already hold it, so never
 Two sub-policies are **not** embedded, because they are large and conditional: `doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`. Read whichever the manifest triggers **inside your wave-1 call**, batched with the evidence you were already gathering:
 
 ```bash
-cat ~/.claude/skills/<name>/SKILL.md
+cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
 ```
 
 A policy read that rides along in a call you were making anyway costs nothing. A policy read on its own turn costs the whole prompt again — and carrying 39 KB you did not need costs it on every turn of the run. Never read one whose condition did not fire, and never read one twice.
@@ -42,6 +42,8 @@ Your packet is normally already built and inlined in your prompt inside a `<pack
 node ~/.claude/skills/review-scope/scripts/build-review-packet.mjs \
   --repo <absolute-root> --scope diff --range <base>..<head> --lane doc-updater
 ```
+
+`"patchOmitted": true` means the diff exceeded the inline cap and `patch` was shed to keep the rest — `files` and `changedInputs` remain authoritative; recover the hunks with one bounded `git diff` over the packet's `files` inside your wave-1 call, never on a turn of its own. `"rawOmitted": true` in the triage block means the same for the verbatim config: the parsed decisions beside it stand.
 
 Never persist the packet or echo raw packet JSON. `changedInputs` is how source reaches a documentation review, and a path is a lead, not a finding: a documented contract is invalidated only when the resolved symbol behind it overlaps a changed hunk, which is what `changedInputIntersects(input, range)` tests. A page is not stale because a file it mentions was touched somewhere.
 
@@ -118,3 +120,5 @@ doc-updater report — autonomy: {interactive|auto|unleashed}
 ```
 
 A zero-finding result is valid only for passes actually executed over the declared scope. Report failures and counts, not successful scan payloads.
+
+Output is the most expensive thing you emit, so report findings rather than the search for them. A finding is at most six lines: rule, `file:line`, one sentence of what is wrong, the proposed fix ready to paste. A clean pass is a count in the manifest row, never a paragraph explaining what you checked and found nothing. No preamble, no recap of these instructions, no summary of the summary.

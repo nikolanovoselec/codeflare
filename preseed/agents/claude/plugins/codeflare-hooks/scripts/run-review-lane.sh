@@ -293,6 +293,8 @@ if [ -n "$REPO_ROOT" ] && [ -n "$RANGE" ] && [ -f "$PACKET_SCRIPT" ] && command 
     if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$PACKET_MAX_BYTES" ]; then
       echo "run-review-lane: packet over ${PACKET_MAX_BYTES}B; patch omitted, file list and changedInputs retained" >&2
       PACKET_JSON="$SHRUNK"
+    else
+      echo "run-review-lane: packet over ${PACKET_MAX_BYTES}B even without patch; lane derives evidence itself" >&2
     fi
   fi
 fi
@@ -412,8 +414,15 @@ printf '%s' "$RAW" | LANE="$LANE" node -e '
     const cacheWrite = u.cache_creation_input_tokens || 0;
     const cacheRead = u.cache_read_input_tokens || 0;
     const prompt = fresh + cacheWrite + cacheRead;
+    // fresh + cacheWrite is every token ever ADDED to the lane context.
+    // prompt_tokens sums the per-turn input instead, so it counts the same
+    // content once per turn and reads ~8x higher on a long lane -- not
+    // comparable to what an agent is normally described as costing.
+    // NOTE: this whole block is inside a single-quoted shell string. An
+    // apostrophe anywhere in it terminates that string and breaks the runner.
+    const context = fresh + cacheWrite;
     process.stderr.write(
-      `run-review-lane: lane=${process.env.LANE} prompt_tokens=${prompt} ` +
+      `run-review-lane: lane=${process.env.LANE} context_tokens=${context} prompt_tokens=${prompt} ` +
       `fresh_input=${fresh} cache_write=${cacheWrite} cache_read=${cacheRead} ` +
       `output_tokens=${u.output_tokens || 0} turns=${parsed.num_turns || 0} ` +
       `cost_usd=${(parsed.total_cost_usd || 0).toFixed(4)}\n`,
@@ -424,7 +433,8 @@ printf '%s' "$RAW" | LANE="$LANE" node -e '
     // Surfaced, never enforced -- a hard cap truncates reviews mid-investigation,
     // which is a worse failure than an expensive one.
     const turns = parsed.num_turns || 0;
-    const budget = Number(process.env.REVIEW_LANE_WAVE_BUDGET || 4);
+    const rawBudget = Number(process.env.REVIEW_LANE_WAVE_BUDGET);
+    const budget = Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : 4;
     if (turns > budget) {
       process.stderr.write(
         `run-review-lane: lane=${process.env.LANE} used ${turns} turns against a ${budget}-wave budget; ` +

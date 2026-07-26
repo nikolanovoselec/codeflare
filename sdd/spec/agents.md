@@ -2671,6 +2671,8 @@ None.
 - No hard turn, call, or token cap: a truncated review is a worse failure than an expensive one, and a cap produced exactly that.
 - The wave structure never licenses skipping a required check; an outstanding check is batched into a wave.
 - Dropping a whole block of inlined evidence is a cost regression, not a safety measure: it returns the lane to the derivation the block replaced.
+- A shed field is announced to the lane as a named marker with a stated recovery, or the lane spends the turn the shedding was meant to save.
+- Report length is part of the contract: a finding is bounded, a clean pass is a count, and the search is never narrated back.
 
 **Priority:** P1
 

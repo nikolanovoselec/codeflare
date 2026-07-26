@@ -869,7 +869,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
 
     for (let i = 0; i < 3; i += 1) {
       const r = runHook(cwd, { transcriptPath: t, binDir });
-      assert.match(r.stdout, /MINIMAL DECISION/,
+      assert.match(r.stdout, /no triage verdict was published/,
         'the verdict demand must keep being shown; a demand silenced by the lane breaker can never be answered');
       assert.notEqual(ackOf(cwd), 'exhaustedsha',
         'the lane-demand budget is not payment for the verdict hatch: these findings have still never been triaged');
@@ -922,7 +922,10 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
     ]);
-    runHook(cwd, { transcriptPath: t, binDir });
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /no triage verdict was published/,
+      'the requirement must be APPLIED here, not merely un-met: a crashed hook also leaves the ack alone');
     assert.notEqual(ackOf(cwd), 'retroactivesha',
       'the retroactive scan is a second acknowledgement path and must not bypass the verdict requirement');
   });

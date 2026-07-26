@@ -517,6 +517,43 @@ describe('Reviewer agents can access their enforce policy', () => {
     expect(JSON.parse(frontmatter(doc!.content).tools) as string[]).toContain('Skill');
   });
 
+  // Inlining beats fetching only when the fetch would cost an extra turn --
+  // inside a wave that was happening anyway it costs nothing, while carrying the
+  // bytes costs every turn. Measured: embedding tdd-enforce took the code lane
+  // 14 turns -> 8; embedding spec-enforce-ac + -truth took the spec lane 10 -> 16.
+  // Both halves are asserted, because the fetch is the half that fails silently:
+  // a policy that is neither embedded nor reachable is enforcement quietly lost.
+  it('REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded', () => {
+    const CONDITIONAL = [
+      'spec-enforce-ac', 'spec-enforce-truth',
+      'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth',
+    ];
+    for (const name of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
+      for (const conditional of CONDITIONAL) {
+        expect(
+          doc!.content.includes(`# ${conditional}`) || doc!.content.includes(`name: ${conditional}`),
+          `${name} must not embed the large conditional policy ${conditional}`,
+        ).toBe(false);
+      }
+    }
+    for (const conditional of CONDITIONAL) {
+      expect(
+        AGENTS_SEEDED_CONFIGS.some((d) => d.key === `.claude/skills/${conditional}/SKILL.md`),
+        `${conditional} is fetched at runtime, so it must be seeded at the path the prompt names`,
+      ).toBe(true);
+    }
+    // The prompts resolve the config dir rather than hardcoding ~/.claude: under
+    // CLAUDE_CONFIG_DIR a hardcoded cat fails and the lane runs with no
+    // enforcement layer at all, which is silent rather than loud.
+    for (const name of ['spec-reviewer', 'doc-updater']) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc!.content, `${name} must resolve the config dir when fetching policy`)
+        .toContain('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/');
+    }
+  });
+
   it('REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools', () => {
     // Something has to keep raw scan output out of reviewer context. It used to
     // be indexed retrieval; stripping that without a replacement regressed
@@ -542,22 +579,6 @@ describe('Reviewer agents can access their enforce policy', () => {
       expect(doc!.content, `${name} must carry the packet section`).toMatch(
         /^## Your lane packet$/m,
       );
-
-      // REQ-AGENT-105 AC2/AC3: large conditional policy is fetched, small
-      // always-applicable policy is embedded. Inlining beats fetching only when
-      // the fetch would cost an extra turn -- inside a wave that was happening
-      // anyway it costs nothing, while carrying the bytes costs every turn.
-      // Measured: embedding tdd-enforce took the code lane 14 turns -> 8;
-      // embedding spec-enforce-ac + -truth took the spec lane 10 -> 16.
-      for (const conditional of [
-        'spec-enforce-ac', 'spec-enforce-truth',
-        'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth',
-      ]) {
-        expect(
-          doc!.content.includes(`# ${conditional}`) || doc!.content.includes(`name: ${conditional}`),
-          `${name} must not embed the large conditional policy ${conditional}`,
-        ).toBe(false);
-      }
     }
 
     const skill = AGENTS_SEEDED_CONFIGS.find(

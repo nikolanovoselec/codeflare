@@ -638,7 +638,7 @@ triage_published_after_line() {
   awk -v s="$min_line" '
     NR > s && index($0, "\"type\":\"assistant\"") && !index($0, "\"type\":\"tool_use\"")
   ' "$TRANSCRIPT" \
-    | jq -r --slurp '.[] | [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]' 2>/dev/null \
+    | jq -R -r 'fromjson? | [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]' 2>/dev/null \
     | awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
         { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
         END {
@@ -1228,6 +1228,7 @@ done
 # review (equal counts), else the PR base, else nothing rather than a dangling
 # flag.
 if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$REVIEW_RANGE_HEAD" ] \
+   && [ "$LAST_ACK_PR_HEAD" != "$REVIEW_RANGE_HEAD" ] \
    && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD" 2>/dev/null; then
   LANE_SCOPE=" --range $LAST_ACK_PR_HEAD..$REVIEW_RANGE_HEAD"
 elif [ -n "$BASE_REF" ]; then
