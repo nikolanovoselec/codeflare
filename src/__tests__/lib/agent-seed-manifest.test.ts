@@ -616,7 +616,7 @@ describe('Reviewer agents can access their enforce policy', () => {
 
   it('REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms', () => {
     const expectedEffort: Record<string, string> = {
-      'code-reviewer': 'high',
+      'code-reviewer': 'medium',
       'spec-reviewer': 'medium',
       'doc-updater': 'medium',
     };
