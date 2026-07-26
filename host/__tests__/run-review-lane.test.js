@@ -237,9 +237,10 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     stubEvidence(home, {
       lane: 'code-reviewer',
       docIndex: 'z'.repeat(80000),
-      // A resolution the shed also drops. Absent and shed are the same shape to
-      // the lane, so an unnamed loss is re-derived at the cost of a turn.
+      // Two resolutions the shed also drops. Absent and shed are the same shape
+      // to the lane, so an unnamed loss is re-derived at the cost of a turn.
       pending: 'a pending manifest',
+      config: 'mode: interactive\nenforce_tdd: true\n',
       references: { checked: 12, unresolved: [{ ref: 'src/gone.ts', resolved: false }] },
     });
 
@@ -251,9 +252,11 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     assert.doesNotMatch(argv, /zzzzzzzzzz/, 'the field that blew the cap must not reach the prompt');
     assert.match(argv, /src\/gone\.ts/,
       'the resolutions are the part that removes turns and must survive the shed');
-    assert.match(argv, /"omitted":\[[^\]]*"pending"/,
-      'a dropped resolution must name itself; unnamed, it is indistinguishable from one that was never carried');
-    assert.doesNotMatch(argv, /"omitted":\[[^\]]*"config"/,
+    for (const field of ['pending', 'config']) {
+      assert.match(argv, new RegExp(`"omitted":\\[[^\\]]*"${field}"`),
+        `a dropped resolution must name itself; unnamed, ${field} is indistinguishable from one never carried`);
+    }
+    assert.doesNotMatch(argv, /"omitted":\[[^\]]*"specIndex"/,
       'a field the block never carried must not be reported as shed');
     assert.match(r.stderr, /shed fields named in \.omitted/);
   });
