@@ -178,27 +178,40 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       'utf8',
     ));
     assert.ok(canonical, 'the enforcement manifest must carry the round-limit row');
-    assert.match(canonical, /round-limit\.mjs/,
-      'the row must name the executable gate, not leave the verdict to judgment');
+    // `gate=` is a field of the structured evidence template, not prose: it is
+    // what makes a self-decided verdict unreportable, and nothing below implies it.
     assert.match(canonical, /gate=/,
       'the evidence template must carry the verdict, so a self-judged one is not reportable');
 
-    // Pi enforces the same rule from the same source. Only the runtime root is
-    // adapted, and it must be -- Pi cannot execute a `~/.claude` path.
+    // Every runtime that ships the manifest enforces it, so every runtime is
+    // checked. Only the runtime root is adapted, and it must be -- none of them
+    // can execute a `~/.claude` path but Claude.
+    const suffix = '/skills/spec-enforce/SKILL.md';
+    const shipped = documents.filter((document) => document.key.endsWith(suffix));
+    assert.equal(shipped.length, 5, 'every runtime seeded with the manifest must be covered here');
+
+    for (const document of shipped) {
+      const root = document.key.slice(0, -suffix.length);
+      const gate = `${root}/skills/spec-enforce/scripts/round-limit.mjs`;
+      assert.equal(
+        rowOf(document.content),
+        canonical.replace('~/.claude/skills/', `~/${root}/skills/`),
+        `apart from the runtime root ${root} enforces the canonical row; a paraphrase is a parity gap`,
+      );
+      // A row naming a gate that does not ship is the same failure as no row.
+      assert.ok(rowOf(document.content).includes(`~/${gate}`), `${root} must be sent to its own gate`);
+      assert.ok(documents.some((seeded) => seeded.key === gate), `${gate} must be seeded`);
+    }
+
+    // Pi inlines the manifest into its reviewer prompt rather than reading the
+    // skill file, so that copy is a separate drift surface.
     const piSpecReviewer = documents.find((document) => document.key === '.pi/agent/agents/spec-reviewer.md');
     assert.ok(piSpecReviewer, '.pi/agent/agents/spec-reviewer.md not found');
-    const piRow = rowOf(piSpecReviewer.content);
-    assert.equal(piRow, canonical.replace('~/.claude/skills/', '~/.pi/agent/skills/'),
-      'apart from the runtime root Pi enforces the canonical row; a paraphrase is a parity gap');
-
-    // A row naming a gate that does not ship is the same failure as no row.
-    for (const [row, key] of [
-      [canonical, '.claude/skills/spec-enforce/scripts/round-limit.mjs'],
-      [piRow, '.pi/agent/skills/spec-enforce/scripts/round-limit.mjs'],
-    ]) {
-      assert.ok(row.includes(`~/${key}`), `the row must name the gate it ships: ${key}`);
-      assert.ok(documents.some((document) => document.key === key), `${key} must be seeded`);
-    }
+    assert.equal(
+      rowOf(piSpecReviewer.content),
+      canonical.replace('~/.claude/skills/', '~/.pi/agent/skills/'),
+      'the row inlined into Pi must not drift from the canonical one',
+    );
   });
 
   it('REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt', () => {
