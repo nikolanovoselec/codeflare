@@ -445,15 +445,64 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       assert.ok(documents.some((seeded) => seeded.key === gate), `${gate} must be seeded`);
     }
 
-    // Pi inlines the manifest into its reviewer prompt rather than reading the
-    // skill file, so that copy is a separate drift surface.
-    const piSpecReviewer = documents.find((document) => document.key === '.pi/agent/agents/spec-reviewer.md');
-    assert.ok(piSpecReviewer, '.pi/agent/agents/spec-reviewer.md not found');
-    assert.equal(
-      rowOf(piSpecReviewer.content),
-      canonical.replace('~/.claude/skills/', '~/.pi/agent/skills/'),
-      'the row inlined into Pi must not drift from the canonical one',
+    // Both Claude and Pi inline the manifest into the reviewer prompt rather
+    // than leaving it to a skill load, so each inlined copy is its own drift
+    // surface. Derived from the seed, not listed, so a runtime that starts
+    // inlining is covered the moment it does.
+    const inlined = documents.filter((document) => document.key.endsWith('/agents/spec-reviewer.md')
+      && rowOf(document.content));
+    assert.deepEqual(
+      inlined.map((document) => document.key).sort(),
+      ['.claude/agents/spec-reviewer.md', '.pi/agent/agents/spec-reviewer.md'],
+      'every reviewer prompt carrying an inlined manifest must be covered here',
     );
+    for (const document of inlined) {
+      const root = document.key.slice(0, -'/agents/spec-reviewer.md'.length);
+      assert.equal(
+        rowOf(document.content),
+        canonical.replace('~/.claude/skills/', `~/${root}/skills/`),
+        `the row inlined into ${root} must not drift from the canonical one`,
+      );
+    }
+  });
+
+  it('REQ-AGENT-084: the user-invoked exemption is wired on both sides in every runtime', () => {
+    // The gate is an agent self-limit. Once its count became deterministic it
+    // could actually reach `stop`, and the manifest row runs under `/sdd clean`
+    // too -- so an unscoped row would block the remediation at exactly the
+    // moment a spiral had happened. The exemption is only real if the rule
+    // declares it AND the caller passes the input it keys on; either half alone
+    // fails open, which is why both are pinned here rather than the prose.
+    const specEnforce = '/skills/spec-enforce/SKILL.md';
+    const sddClean = '/skills/sdd-clean/SKILL.md';
+
+    const rootsOf = (suffix) => documents
+      .filter((document) => document.key.endsWith(suffix))
+      .map((document) => document.key.slice(0, -suffix.length))
+      .sort();
+    // Same closed runtime set the canonical-row parity check covers: an
+    // exemption that reaches four of five roots re-arms the gate on the fifth.
+    const roots = ['.claude', '.codex', '.config/opencode', '.gemini', '.pi/agent'];
+    assert.deepEqual(rootsOf(specEnforce), roots, 'every runtime seeded with the rule must be covered here');
+    assert.deepEqual(rootsOf(sddClean), roots, 'every runtime seeded with the caller must be covered here');
+
+    const seeded = (key) => documents.find((document) => document.key === key)?.content;
+    for (const root of roots) {
+      const rule = seeded(`${root}${specEnforce}`);
+      const row = rule.split('\n').find((line) => line.startsWith('| Commit-prefix + 5-round limit |'));
+      // The disposition, not the sentence: an `inert` status is the manifest's
+      // own vocabulary for a row that had no trigger, so this fails if the row
+      // reverts to reporting a verdict on a user-invoked run.
+      assert.match(row, /purpose: clean[^|]*inert \(purpose=clean/,
+        `${root}'s row must dispose a user-invoked run as inert rather than gate it`);
+      assert.match(rule, /^It binds the autonomous PR-boundary loop only\./m,
+        `${root}'s normative section must scope the limit to the autonomous loop`);
+
+      // The caller half. `purpose=clean` is what the row keys on, so a clean
+      // that omits it is gated again no matter what the rule says.
+      assert.match(seeded(`${root}${sddClean}`), /binding\):\*\* invoke the `spec-enforce` skill \(spine\) with `purpose=clean`/,
+        `${root}'s /sdd clean must pass the input its exemption is keyed on`);
+    }
   });
 
   it('REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt', () => {

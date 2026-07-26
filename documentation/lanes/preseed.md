@@ -1132,12 +1132,14 @@ The window lists missing reviewer lanes and, when an acknowledgement exists, the
 
 The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 
-A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract)).
+A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged. The limit binds the autonomous loop only, so a user-invoked `/sdd clean` passes `purpose=clean` and reports row 23 inert without consulting the script at all ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract)).
 
 The same script produces the count, not only the verdict. It walks the last six commits first-parent, counts every subject carrying an agent-authored tag that touched the reviewer's lane, treats bulk-operation tags as neither counted nor closing, and closes the window at the most recent user-directed commit in that lane. A reviewer runs it once and reports the printed count beside the printed verdict; deriving either itself is a manifest violation.
 
 Merge commits are followed with their diffs, because a merge carrying lane work would otherwise be invisible to both the count and the reset; a merge is therefore judged by its own subject, so an agent landing a round through one tags the merge. History the script cannot read is never reported as a permissive window: it exits non-zero with a one-line diagnostic and prints no verdict at all.
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
+<!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::The 5-round commit cycle limit -->
+<!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount -->
