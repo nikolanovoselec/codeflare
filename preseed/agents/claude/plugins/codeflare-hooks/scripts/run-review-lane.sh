@@ -345,8 +345,9 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
     # drops is named, the way the module's own shed names them -- `pending` and
     # `config` are resolutions rather than indexes, and a loss that is never
     # announced reads as a field the block never carried, so the lane re-derives
-    # it and spends the turn the shed exists to save.
-    SHRUNK=$(printf '%s' "$EVIDENCE_JSON" | jq -c '. as $in | (if has("docsCitingChanged") then .docsCitingChanged |= map(del(.patch) + {patchOmitted:true}) else . end) | del(.docIndex, .specIndex, .pending, .config) + {indexesOmitted:true, omitted:(($in.omitted//[]) + (["docIndex","specIndex","pending","config"] | map(. as $f | select($in | has($f)))))}' 2>/dev/null || true)
+    # it and spends the turn the shed exists to save. The list is the only claim
+    # made: a companion boolean nothing reads can only ever contradict it.
+    SHRUNK=$(printf '%s' "$EVIDENCE_JSON" | jq -c '. as $in | (if has("docsCitingChanged") then .docsCitingChanged |= map(del(.patch) + {patchOmitted:true}) else . end) | del(.docIndex, .specIndex, .pending, .config) + {omitted:(($in.omitted//[]) + (["docIndex","specIndex","pending","config"] | map(. as $f | select($in | has($f)))))}' 2>/dev/null || true)
     if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$EVIDENCE_MAX_BYTES" ]; then
       echo "run-review-lane: evidence over ${EVIDENCE_MAX_BYTES}B; shed fields named in .omitted" >&2
       EVIDENCE_JSON="$SHRUNK"
