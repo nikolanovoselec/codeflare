@@ -2571,6 +2571,7 @@ None.
 - Dropping inherited settings drops hooks; build/test guards are re-injected explicitly and invoked as `bash <script>` (seeded hooks ship non-executable).
 - Transport detection is additive: the legacy Agent shape stays credited, so a migrated lane is still counted as reviewed.
 - A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
+- A lane subprocess is time-bounded; a lane that never returns must not hold the review gate open.
 
 **Priority:** P1
 
