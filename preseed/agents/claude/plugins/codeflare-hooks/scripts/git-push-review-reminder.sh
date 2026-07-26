@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse hook — silently triggers review agents at the PR boundary.
+# PostToolUse hook — triggers the review lanes at the PR boundary.
 # ONLY on projects that have opted into SDD by running /sdd init.
 #
 # Trigger model (PR-boundary, gated on PR target = main/master):
@@ -36,8 +36,15 @@
 # rapid-fire pushes don't hammer the GitHub API.
 #
 # PostToolUse (not PreToolUse) so the directive arrives in the SAME
-# turn as the push/create result. The assistant acts on it immediately
-# without needing to announce it to the user.
+# turn as the push/create result, and the assistant acts on it immediately.
+#
+# The round is user-visible AND blocking: the directive requires an overview
+# before the lanes run, then an immediate end of turn, then a triage result
+# once every lane has returned. It previously required silence, which
+# contradicted the constitution's review-result handoff gate and made an
+# autofix look like an unexplained edit. The end-of-turn is what keeps the
+# round legible: a lane result landing in the middle of unrelated work gets
+# interleaved with it, and the user loses the thread of what was reviewed.
 #
 # Vibe-coding mode: if sdd/ does not exist, emits nothing. Zero friction.
 #
@@ -421,7 +428,7 @@ case " $REQUIRED_LANES " in *" code-reviewer "*) needs_code=1 ;; esac
 case " $REQUIRED_LANES " in *" spec-reviewer "*) needs_spec=1 ;; esac
 case " $REQUIRED_LANES " in *" doc-updater "*) needs_doc=1 ;; esac
 
-DIRECTIVE="[silent] SDD $CONTEXT detected. Execute NOW without user-facing output."
+DIRECTIVE="SDD $CONTEXT detected. Execute NOW, and keep the user informed as described at the end of this directive."
 
 # Lane-aware composition. All review lanes are report-only and return findings to the
 # root session, so they run in parallel without shared-file writes or ordering dependency.
@@ -471,7 +478,14 @@ else
   DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against its default base (base branch unresolved)."
 fi
 DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> $LANE_SCOPE' with run_in_background: true. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents and do NOT paste diffs into the command - the lane gathers its own evidence."
-DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes. Do NOT mention these lanes to the user. Do NOT print status updates about them."
+DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes."
+# VISIBILITY. This replaces an earlier instruction to run the round silently.
+# That instruction also contradicted the constitution's review-result handoff
+# gate, which has always required a user-facing summary; the round is the
+# user's to see, and a silent round makes an autofix look like an unexplained
+# edit. Lane names are deliberately not written here: several emission tests
+# assert the directive carries no lane literal outside its Lanes: line.
+DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message and then END YOUR TURN. While the lanes are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every lane has returned. Only then print the triage result: per-lane severity counts, then each surviving finding as severity, file and a one-line claim, and name every finding you rejected together with the reason it is not legitimate. THEN fix every legitimate finding that survived triage, in this same session, and state what you fixed and anything you deliberately left. Never ask permission to fix a legitimate finding - a finding is either rejected with a stated cause or it is fixed now."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
 exit 0
