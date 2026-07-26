@@ -73,6 +73,12 @@ function makeClaudeHome(cwd) {
 
 // Fake `claude` that records that it ran AND the argv it was handed, so tests
 // can assert what actually reached the CLI rather than only that it was called.
+//
+// It also snapshots the --settings file. That file is a mktemp the runner
+// removes in its EXIT trap, so it is already gone by the time spawnSync
+// returns; the only place its content is observable is from inside the process
+// the runner launched. Reading it from the test would assert on cleanup timing
+// rather than on what the lane was actually configured with.
 function fakeClaude(cwd, witness) {
   const binDir = join(cwd, 'fake-bin');
   mkdirSync(binDir, { recursive: true });
@@ -80,6 +86,9 @@ function fakeClaude(cwd, witness) {
   writeFileSync(
     p,
     `#!/usr/bin/env bash\necho invoked >> ${witness}\nprintf '%s\\n' "$@" >> ${witness}.argv\n` +
+      `prev=""\nfor a in "$@"; do\n` +
+      `  [ "$prev" = "--settings" ] && cat "$a" > ${witness}.settings\n` +
+      `  prev="$a"\ndone\n` +
       `echo '{"is_error":false,"num_turns":1,"total_cost_usd":0,` +
       `"usage":{"input_tokens":1},"result":"## report"}'\n`,
   );
@@ -186,9 +195,7 @@ describe('run-review-lane.sh — guard re-injection', () => {
       lane: 'code-reviewer', range: `${base}..${head}`,
     });
 
-    const argv = readFileSync(`${witness}.argv`, 'utf-8').split('\n');
-    const settingsPath = argv[argv.indexOf('--settings') + 1];
-    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    const settings = JSON.parse(readFileSync(`${witness}.settings`, 'utf-8'));
     const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks.map((h) => h.command));
     assert.equal(commands.length, 2);
     for (const command of commands) {

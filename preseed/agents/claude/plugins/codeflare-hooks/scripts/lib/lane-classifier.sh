@@ -22,8 +22,13 @@
 #                                 (force-push / rebase / hard-reset safety)
 #   - empty diff               -> "code-reviewer spec-reviewer doc-updater"
 #                                 (conservative fall-through)
-#   - any behavioral file      -> "code-reviewer spec-reviewer doc-updater"
-#     (anything outside sdd/ + the doc-surface allowlist)
+#   - any behavioral file      -> "code-reviewer", plus spec-reviewer and/or
+#     (anything outside sdd/ +    doc-updater ONLY where that surface actually
+#      the doc-surface allowlist) has work: its own tree changed in this diff,
+#                                 or one of its `@impl` anchors cites a changed
+#                                 file and may now be stale. A source-only push
+#                                 that no anchor cites therefore requires the
+#                                 code lane alone. REQ-AGENT-040
 #   - behavioral files whose delta is provably comments/whitespace only
 #                              -> "code-reviewer" (plus any sdd//docs lanes the
 #                                 same diff independently earns). Proven by

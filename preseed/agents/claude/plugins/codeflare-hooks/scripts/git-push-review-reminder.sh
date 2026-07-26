@@ -433,9 +433,11 @@ elif [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
 elif [ "$needs_doc" = "1" ] && [ "$needs_code" = "0" ] && [ "$needs_spec" = "0" ]; then
   DIRECTIVE="$DIRECTIVE Lanes: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
 elif [ "$needs_code" = "1" ] && [ "$needs_doc" = "1" ] && [ "$needs_spec" = "0" ]; then
-  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) and doc-updater (docs/ lane) - both. Spec lane silently excluded by Stop hook (the source delta is comments and whitespace only, so the spec surface is unchanged)."
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) and doc-updater (docs/ lane) - both. Spec lane silently excluded by Stop hook (no sdd/ file changed and no @impl anchor there cites a changed file, so that lane owns nothing in this diff)."
+elif [ "$needs_code" = "1" ] && [ "$needs_spec" = "1" ] && [ "$needs_doc" = "0" ]; then
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) and spec-reviewer (sdd/ lane) - both. Doc lane silently excluded by Stop hook (no documentation/ file changed and no @impl anchor there cites a changed file)."
 elif [ "$needs_code" = "1" ] && [ "$needs_spec" = "0" ] && [ "$needs_doc" = "0" ]; then
-  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) only. Spec and doc lanes silently excluded by Stop hook (the source delta is comments and whitespace only, so behaviour, the spec surface, and the documentation surface are all unchanged - but whether the new comment is TRUE is still a code-review question)."
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) only. Spec and doc lanes silently excluded by Stop hook (neither surface changed and no @impl anchor in either tree cites a changed file, so both lanes would open, find nothing they own, and exit)."
 else
   # Defensive: any unexpected combination falls back to the all-three parallel directive.
   # The Stop hook is still the source of truth and will correct any over-spawn by silently
