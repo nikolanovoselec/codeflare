@@ -2565,7 +2565,7 @@ None.
 3. A lane whose range contains no file it owns returns a no-op report without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — no-op short-circuit) -->
 4. The lane subprocess carries a validated, escalating time bound that a zero, empty, or non-numeric override cannot disable. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — timeout bound) -->
 5. Guard re-injection fails closed on a missing guard, an absent JSON-processing dependency, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) -->
-6. A lane whose background run ended without success counts as ended rather than in flight, so the gate re-demands it instead of awaiting it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_terminal --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+6. A lane whose background run ended without success counts as ended rather than in flight, so the gate re-demands it instead of awaiting it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_terminal --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (treats an unrecognised end status as terminal and a running status as not) -->
 7. That demand states the lane already ran without being credited. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::spawn_ended_unsuccessfully --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 
 **Constraints:**
@@ -2601,8 +2601,11 @@ None.
 3. A lane whose triage resolves to a no-op returns without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
 4. Every triage condition that cannot be resolved resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — fail-safe direction) -->
 
+5. A config that never mentions `enforce_tdd` resolves to on, not to a silent opt-out. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — config defaults) -->
+
 **Constraints:**
 
+- Both the packet and the triage block inlined into a lane's prompt are byte-capped; an oversized block degrades to a normal review rather than a skipped one.
 - Triage answers the SDD questions only; documentation scaffolding is not among them and the doc lane still checks its own index.
 - Lane ownership stays with the shell classifier and is passed in, never reimplemented in triage.
 - The no-op decision is read as a field; matching it anywhere in the serialised document would drop a required review.
@@ -2629,12 +2632,11 @@ None.
 2. A verdict published before the last required lane returned does not advance the checkpoint. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::latest_required_completion_line --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 3. Lanes that returned without a published verdict produce a demand for the verdict in the shape the gate matches. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 4. Acknowledgement is followed by a fix directive that states the head is already acknowledged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
-5. Every path that advances the checkpoint applies the verdict requirement, including the retroactive scan. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::retroactive_ack_scan --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
-6. Repeated unanswered verdict demands acknowledge the head rather than leave the checkpoint wedged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+5. Every path that advances the checkpoint applies the verdict requirement, including the retroactive scan. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::retroactive_ack_scan --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (applies the verdict requirement on the retroactive scan path, not just the live path) -->
+6. Repeated unanswered verdict demands acknowledge the head rather than leave the checkpoint wedged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::reack_on_repeated_demand --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (acknowledges after repeated unanswered demands instead of staying wedged) -->
 
 **Constraints:**
 
-- Every conditional sub-policy is embedded in the reviewer document rather than fetched: a fetch costs its bytes plus a turn, and a turn re-sends the whole prompt.
 - The verdict is recognised structurally, by its table header and divider in a message carrying no tool call; a command quoting the header is not a verdict.
 - Both runtimes recognise the same table shape, so a verdict is portable between them.
 

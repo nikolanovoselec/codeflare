@@ -155,8 +155,10 @@ const AGENT_LINE = (subagentType, ts, toolUseId = 'toolu_x') =>
     timestamp: ts,
   });
 
-const DONE_LINE = (toolUseId) =>
-  `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>completed</status></task-notification>`;
+const STATUS_LINE = (toolUseId, status) =>
+  `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>${status}</status></task-notification>`;
+
+const DONE_LINE = (toolUseId) => STATUS_LINE(toolUseId, 'completed');
 
 const SPEC_DONE_LINE = (toolUseId = 'toolu_sr1') => DONE_LINE(toolUseId);
 
@@ -205,8 +207,7 @@ const TRIAGE_LINE = () =>
 
 // A background call that exits non-zero. Same envelope, terminal status
 // `failed`: the lane ENDED, but produced nothing the gate may credit.
-const FAILED_LINE = (toolUseId) =>
-  `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>failed</status></task-notification>`;
+const FAILED_LINE = (toolUseId) => STATUS_LINE(toolUseId, 'failed');
 
 // The start receipt the harness returns the instant a background call is
 // launched. It carries the tool_use_id but means "launched", not "finished".
@@ -716,6 +717,45 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'an unreturned lane must not advance the checkpoint');
   });
 
+  // REQ-AGENT-102 AC6. The status set is OPEN: whitelisting end states is wrong
+  // in the direction that wedges the checkpoint, because an end state the hook
+  // has never heard of reads as "still running" forever. So the rule is
+  // inverted -- a status is terminal unless it is a known RUNNING state. Both
+  // directions are asserted, because either alone passes with a constant.
+  it('treats an unrecognised end status as terminal and a running status as not', () => {
+    const lanes = (codeStatus) => [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      STATUS_LINE('toolu_b1', codeStatus),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+      TRIAGE_LINE(),
+    ];
+    const drive = (status, headSha) => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, {
+        transcriptPath: writeTranscript(cwd, lanes(status)),
+        binDir: fakeGh(cwd, ghReturning('OPEN', headSha)),
+      });
+      return { cwd, r };
+    };
+
+    const running = drive('in_progress', 'runningsha');
+    assert.doesNotMatch(running.r.stdout, /run code-reviewer/,
+      'a lane still in_progress has not ended; re-demanding it duplicates a run that is still going');
+    assert.notEqual(ackOf(running.cwd), 'runningsha',
+      'and it cannot be credited either, so the checkpoint must not advance');
+
+    const ended = drive('cancelled', 'cancelledsha');
+    assert.match(ended.r.stdout, /run code-reviewer/,
+      'an end status outside any known list must count as ended and be re-demanded, or a new harness status wedges the gate forever');
+    assert.notEqual(ackOf(ended.cwd), 'cancelledsha',
+      'ended-without-success is not coverage; the checkpoint may not advance over it');
+  });
+
   // Acknowledgement is a claim about CONSUMPTION, not exit status. Lanes that
   // returned into a session that never read them leave findings unacted while
   // the checkpoint advances past them -- so the verdict, not the exit, is what
@@ -780,6 +820,57 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     runHook(cwd, { transcriptPath: t, binDir });
     assert.notEqual(ackOf(cwd), 'staleverdictsha',
       'a verdict predating the evidence cannot be a verdict about it');
+  });
+
+  // REQ-AGENT-104 AC6. The escape hatch exists so a head is never wedged, but it
+  // must be bought with VERDICT demands. Sharing the lane-demand counter meant a
+  // head that took five Stops to launch its lanes was acknowledged on the first
+  // pass, with its findings never triaged and a stderr line claiming otherwise.
+  it('acknowledges after repeated unanswered demands instead of staying wedged', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'wedgedsha'));
+    const lanes = [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ];
+    const t = writeTranscript(cwd, lanes);
+
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'wedgedsha',
+      'the very first unanswered demand must not acknowledge: no verdict has been asked for yet');
+
+    let acked = false;
+    for (let i = 0; i < 6 && !acked; i += 1) {
+      runHook(cwd, { transcriptPath: t, binDir });
+      acked = ackOf(cwd) === 'wedgedsha';
+    }
+    assert.equal(acked, true,
+      'repeated unanswered demands must acknowledge; a permanently wedged checkpoint is the failure being removed');
+  });
+
+  // REQ-AGENT-104 AC5.
+  it('applies the verdict requirement on the retroactive scan path, not just the live path', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'retroactivesha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'retroactivesha',
+      'the retroactive scan is a second acknowledgement path and must not bypass the verdict requirement');
   });
 
   // A background lane that exits non-zero terminates as `failed`, not
@@ -1777,6 +1868,8 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
+    assert.match(r.stdout, /FIX phase/,
+      'a docs-only round with its verdict published is complete, so the fix phase drives');
     assert.doesNotMatch(r.stdout, /run code-reviewer|run spec-reviewer/,
       'docs-only push must not demand the lanes it does not own');
     const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], {

@@ -638,11 +638,7 @@ triage_published_after_line() {
   awk -v s="$min_line" '
     NR > s && index($0, "\"type\":\"assistant\"") && !index($0, "\"type\":\"tool_use\"")
   ' "$TRANSCRIPT" \
-    | while IFS= read -r entry; do
-        printf '%s' "$entry" | jq -r '
-          [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]
-        ' 2>/dev/null
-      done \
+    | jq -r --slurp '.[] | [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]' 2>/dev/null \
     | awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
         { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
         END {
@@ -913,8 +909,9 @@ fi
 # would let the next Stop event start at 0 and block 5 more times,
 # repeating forever. The counter resets only when CURRENT_PR_HEAD
 # changes (next push lands).
-read_count() {
-  if [ -f "$COUNT_FILE" ]; then
+read_count_from() {
+  local file="$1"
+  if [ -f "$file" ]; then
     local stored hash count
     stored=$(cat "$COUNT_FILE" 2>/dev/null)
     hash="${stored%%:*}"
@@ -932,6 +929,30 @@ read_count() {
     fi
   fi
   echo "0"
+}
+
+read_count() { read_count_from "$COUNT_FILE"; }
+
+# The verdict demand gets its own head-keyed counter. Sharing the lane-demand
+# counter meant a head that took five Stop events to launch its lanes arrived
+# at the verdict check already at the limit, so the escape hatch fired on the
+# FIRST pass -- acknowledging a head whose findings were never triaged, before
+# a single verdict demand had been issued, while claiming five went unanswered.
+VERDICT_COUNT_FILE="$GIT_COMMON_DIR/sdd-review-verdict-count"
+
+reack_on_repeated_demand() {
+  local strikes
+  strikes=$(read_count_from "$VERDICT_COUNT_FILE")
+  if [ "$strikes" = "GIVEUP" ] || { [ "$strikes" -ge 5 ] 2>/dev/null; }; then
+    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    clear_counter
+    echo "enforce-review-spawn: ${CURRENT_PR_HEAD:0:7} acknowledged after repeated unanswered verdict demands; its findings were never triaged" >&2
+    return 0
+  fi
+  case "$strikes" in ''|*[!0-9]*) strikes=0 ;; esac
+  echo "$CURRENT_PR_HEAD:$((strikes + 1))" > "$VERDICT_COUNT_FILE" 2>/dev/null || true
+  return 1
 }
 
 clear_counter() {
@@ -1215,6 +1236,7 @@ if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
   if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
     echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
     emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane returned and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION from that table and nothing else — a rejected row stays rejected, and a row you accepted is not deferred. State what you fixed and anything you deliberately left."
   fi
@@ -1223,11 +1245,7 @@ if all_required_lanes_completed_for_current_head; then
   # the exact failure this whole path exists to remove -- it re-measures every
   # later range from a stale head. Take the escape hatch the 5-strike breaker
   # already defines: acknowledge, and say plainly that no verdict backed it.
-  VERDICT_STRIKES=$(read_count)
-  if [ "$VERDICT_STRIKES" = "GIVEUP" ] || [ "$VERDICT_STRIKES" -ge 5 ] 2>/dev/null; then
-    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
-    clear_counter
-    echo "enforce-review-spawn: ${CURRENT_PR_HEAD:0:7} acknowledged after $VERDICT_STRIKES unanswered verdict demands; its findings were never triaged" >&2
+  if reack_on_repeated_demand; then
     exit 0
   fi
   emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER'. Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
