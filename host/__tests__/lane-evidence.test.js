@@ -597,3 +597,43 @@ describe('build-review-packet.mjs — evidence rides the call that is actually m
     assert.equal(packet(cwd, 'doc-updater', range, '--with-evidence').lane, 'doc-updater');
   });
 });
+
+describe('lane-evidence.mjs — the block bounds itself', () => {
+  // The bound lives here, not in a caller. One runtime capped and shed by field;
+  // the runtime that asks through the packet CLI had no cap at all, so the same
+  // resolver was safe in one and unbounded in the other.
+  it('sheds bulk with a named marker rather than dropping the block', () => {
+    const { cwd, base } = makeRepo();
+    // Link-shaped, because the index field keeps only headings and links: plain
+    // filler never reaches it and the shed would never fire.
+    const rows = Array.from({ length: 2000 }, (_, i) => `- [Page ${i}](lanes/page${i}.md)`);
+    write(cwd, 'documentation/README.md', `# Docs\n\n${rows.join('\n')}\n`);
+    write(cwd, 'src/real.ts', 'export const kept = 1;\n');
+    write(cwd, 'documentation/architecture.md', 'Uses `kept`.\n');
+    const head = commit(cwd, 'docs: an index past the cap');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`);
+
+    assert.ok(out.omitted?.includes('docIndex'), 'a dropped field must name itself');
+    assert.ok(JSON.stringify(out).length <= 65536, 'the point of the shed is to land under the cap');
+    assert.equal(typeof out.references?.checked, 'number',
+      'resolutions are the part that removes turns and must survive the shed');
+  });
+
+  // A busy day reached 35 entries and 39 KB -- 72% of the spec lane's block, and
+  // still growing. Drift detection asks whether THIS diff got an entry.
+  it('caps the changelog by entry count, not just by date', () => {
+    const { cwd, base } = makeRepo();
+    const entries = Array.from({ length: 30 }, (_, i) => `- **Entry ${i}** something changed here.`);
+    write(cwd, 'sdd/spec/changes.md', `# Spec Changes\n\n## 2026-07-26\n\n${entries.join('\n\n')}\n\n## 2026-07-25\n\n- **Older day** ignored.\n`);
+    const head = commit(cwd, 'docs: a busy day');
+
+    const { changelog } = run(cwd, 'spec-reviewer', `${base}..${head}`);
+
+    assert.ok(changelog.includes('Entry 0'), 'the most recent entries are the ones drift is asked about');
+    assert.ok(!changelog.includes('Entry 29'), 'the tail of a long day must not ride on every turn');
+    assert.match(changelog, /older entries in this section omitted/,
+      'a truncated field states its recovery rather than reading as the whole section');
+    assert.ok(!changelog.includes('Older day'), 'the date scoping still holds');
+  });
+});

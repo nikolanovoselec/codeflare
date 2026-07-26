@@ -38,6 +38,13 @@ const MAX_LINE = 200;
 // with the tree, and blowing the evidence cap sheds the resolutions instead.
 const MAX_CITED_PATCH = 6000;
 const MAX_CITED_PATCH_TOTAL = 24000;
+const MAX_CHANGELOG_ENTRIES = 12;
+// The whole block is bounded HERE rather than by the caller, because only one
+// caller had a bound. A lane runner capped and shed by field; the runtime that
+// asks for this through the packet CLI had no cap at all, so the same resolver
+// was safe in one runtime and unbounded in the other. The shed belongs to the
+// program both runtimes share.
+const MAX_TOTAL = 65536;
 // Generated trees are derived output. A match inside one is never a call site a
 // reviewer acts on, and one minified line can be larger than the whole packet.
 //
@@ -397,9 +404,18 @@ function main() {
     // evidence cap and shed the resolutions that remove turns.
     const changelog = read(repo, `${specGlob}/changes.md`) ?? '';
     const dates = [...changelog.matchAll(/^## .+$/gm)];
-    out.changelog = dates.length > 1
+    const today = dates.length > 1
       ? changelog.slice(dates[0].index, dates[1].index)
-      : changelog.slice(0, 8000) || null;
+      : changelog.slice(0, 8000);
+    // Bounded by ENTRY COUNT, not just by date. A busy day reached 35 entries and
+    // 39 KB -- 72% of this lane's whole block and still growing, which would have
+    // pushed it past the cap and shed the resolutions that remove the turns.
+    // Drift detection asks whether THIS diff's REQs got an entry, so the recent
+    // ones answer it and the rest are history the lane can read if it needs to.
+    const entries = today.split(/\n(?=- \*\*)/);
+    out.changelog = entries.length > MAX_CHANGELOG_ENTRIES + 1
+      ? `${entries.slice(0, MAX_CHANGELOG_ENTRIES + 1).join('\n')}\n\n...${entries.length - 1 - MAX_CHANGELOG_ENTRIES} older entries in this section omitted; read the file if an older one matters.`
+      : today || null;
     out.specIndex = (read(repo, 'sdd/README.md') ?? '')
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*]\s*\[/.test(line)).join('\n') || null;
     out.pending = read(repo, 'sdd/spec/pending.md') ?? read(repo, 'sdd/pending.md');
@@ -460,8 +476,34 @@ function main() {
   return out;
 }
 
+// Over the cap, shed by FIELD and never by block: dropping everything sends the
+// lane back to gathering all of it, which is the cost this exists to remove.
+// Bulk first, resolutions last, and every drop leaves a named marker so an
+// absent field is never mistaken for a clean answer.
+function bound(out) {
+  const size = () => JSON.stringify(out).length;
+  if (size() <= MAX_TOTAL) return out;
+  for (const field of ['changelog', 'docIndex', 'specIndex', 'pending', 'queue']) {
+    if (out[field] === undefined || out[field] === null) continue;
+    delete out[field];
+    out.omitted = [...(out.omitted ?? []), field];
+    if (size() <= MAX_TOTAL) return out;
+  }
+  if (Array.isArray(out.docsCitingChanged)) {
+    out.docsCitingChanged = out.docsCitingChanged.map(({ patch, ...row }) => (
+      patch === undefined ? row : { ...row, patchOmitted: true }
+    ));
+    if (size() <= MAX_TOTAL) return out;
+  }
+  if (Array.isArray(out.adrs)) {
+    out.adrs = out.adrs.filter((entry) => entry.status !== 'Superseded');
+    out.omitted = [...(out.omitted ?? []), 'adrs:superseded'];
+  }
+  return out;
+}
+
 try {
-  process.stdout.write(`${JSON.stringify(main(), null, 1)}\n`);
+  process.stdout.write(`${JSON.stringify(bound(main()), null, 1)}\n`);
 } catch (error) {
   // An evidence failure must never look like a clean result: emit the error and
   // no fields, so every check falls back to the lane gathering it itself.

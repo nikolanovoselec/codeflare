@@ -138,7 +138,14 @@ function laneEvidence(repo, lane, range) {
     const script = new URL('./lane-evidence.mjs', import.meta.url);
     const out = execFileSync(process.execPath, [
       script.pathname, '--repo', repo, '--lane', lane, ...(range ? ['--range', range] : []),
-    ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 32 * 1024 * 1024 });
+    ], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 32 * 1024 * 1024,
+      // The resolver runs many greps. The other runtime bounds it with timeout(1);
+      // without this, a hang here holds the packet call open with nothing to show.
+      timeout: 60_000,
+    });
     return JSON.parse(out);
   } catch {
     return null;
