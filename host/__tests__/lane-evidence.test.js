@@ -123,6 +123,46 @@ describe('lane-evidence.mjs — anchor resolution', () => {
     assert.deepEqual(out.anchorsCitingChangedResolved.unresolved.map((row) => row.symbol), ['renamedAway'],
       'a path that still exists with the symbol gone is the drift this pass exists for');
   });
+
+  // The anchor regex accepts `<!-- @impl: path--> ` with no separating space,
+  // so a citation scan that cannot match it drops a real anchor -- a MISSED
+  // orphan, which is the direction this whole field exists to avoid.
+  it('finds an anchor written without a space before its comment terminator', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/thing.js', 'function stillHere() {}\n');
+    write(cwd, 'sdd/spec/agents.md', '1. Spaceless. <!-- @impl: src/thing.js::stillHere-->\n');
+    const anchored = commit(cwd, 'feat: anchored without a space');
+    write(cwd, 'src/thing.js', 'function stillHere() {}\n// touched\n');
+    const head = commit(cwd, 'fix: source only');
+
+    const out = run(cwd, 'spec-reviewer', `${anchored}..${head}`);
+
+    assert.equal(out.anchorsCitingChangedResolved.checked, 1,
+      'the space-less anchor form must still be found and resolved');
+  });
+
+  // A prefix match resolves to the same counts, because the target filter
+  // discards it -- so the observable cost is the candidate list inflating past
+  // the cap and reporting itself truncated, which sends the lane back to finish
+  // a scan that had in fact covered everything.
+  it('does not let sibling-prefix paths inflate the scan into a false truncation', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/a.js', 'function real() {}\n');
+    write(cwd, 'src/a.jsx', 'function sibling() {}\n');
+    for (let i = 0; i < 41; i += 1) {
+      write(cwd, `sdd/spec/page${i}.md`, `${i}. <!-- @impl: src/a.jsx::sibling -->\n`);
+    }
+    const anchored = commit(cwd, 'feat: many pages anchoring the sibling');
+    write(cwd, 'src/a.js', 'function real() {}\n// touched\n');
+    const head = commit(cwd, 'fix: change only the shorter path');
+
+    const out = run(cwd, 'spec-reviewer', `${anchored}..${head}`);
+
+    assert.equal(out.anchorsCitingChangedResolved.checked, 0,
+      'nothing anchors the changed file, so there is nothing to resolve');
+    assert.equal(out.anchorsCitingChangedResolved.truncated, undefined,
+      '41 sibling-prefix pages must not be collected as candidates and reported as a capped scan');
+  });
 });
 
 describe('lane-evidence.mjs — documentation references', () => {

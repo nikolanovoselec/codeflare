@@ -473,14 +473,20 @@ function main() {
     const changedSource = allChangedSource.slice(0, MAX_LIST);
     if (changedSource.length) {
       const citing = [...new Set(changedSource.flatMap((file) => git(repo, [
-        // Same trailing boundary as the citation scan above: without it a
-        // changed `src/a.js` also selects files anchoring `src/a.jsx`. The
-        // `targets` filter keeps resolution correct either way, but an inflated
-        // candidate list can trip the truncation flag and send the lane back to
-        // finish a scan that was already complete. An anchor target is followed
-        // by `::`, a space or `-->`, never by another path character.
+        // A trailing boundary, without which a changed `src/a.js` also selects
+        // files anchoring `src/a.jsx`. The `targets` filter keeps resolution
+        // correct either way, but an inflated candidate list can trip the
+        // truncation flag and send the lane back to finish a scan that was
+        // already complete.
+        //
+        // `-->` is spelled out rather than folded into the class: `-` has to
+        // stay excluded or `src/a` would match `src/a-b.js`, which drops the
+        // space-less `<!-- @impl: path--> ` form the anchor regex accepts. That
+        // is a MISSED anchor, the direction this whole field exists to avoid.
+        // This is deliberately not the boundary the prose citation scan uses --
+        // that one also admits a sentence-final period, which no anchor has.
         'grep', '-lE', '-a', '--',
-        `<!--\\s*@(impl|test):\\s*${ereEscape(file)}([^A-Za-z0-9_.-]|$)`, 'sdd',
+        `<!--\\s*@(impl|test):\\s*${ereEscape(file)}([^A-Za-z0-9_.-]|-->|$)`, 'sdd',
       ]).split('\n').filter(Boolean)))];
       out.anchorsCitingChangedResolved = fromDiff(summarise(
         resolveAnchors(repo, citing, new Set(changedSource)),
