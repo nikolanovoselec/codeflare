@@ -43,16 +43,17 @@ A changed input path alone does not invalidate every anchor in that file. Resolv
 
 ## `scope=diff` execution
 
-Use gather-then-reason evidence processing instead of alternating one read or search with one reasoning turn:
+**Two waves, then report.** A review turn re-sends the entire prompt, so cost grows with the square of the turn count: the difference between three turns and sixteen is not 5x the tokens, it is 25x. Structure the work into waves rather than alternating one lookup with one thought.
 
-1. Build and parse the lane packet exactly once inside the first Bash call, or skip straight to step 2 when the packet was inlined into your prompt. Every canonical policy arrives through the enforcement skill, so no policy retrieval call is needed.
-2. Derive the pending manifest and direct-impact candidates in that same evidence wave. Emit compact counts, failures, and snippets for every lane hunk and only anchor targets intersecting `changedInputs[].hunks`; do not emit raw packet JSON.
-3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate in one focused wave, batching independent lookups together. Never re-query policy text, packet sections, or evidence already retrieved. This cadence is not a turn limit: continue only when a named candidate still lacks concrete evidence, and state what evidence is missing before the next call.
-4. Bound every shell command that searches. `grep`/`rg` must carry `-c`, `| wc -l`, or `| head -N` so the transcript receives counts and named candidates rather than whatever the pattern happened to match. An unbounded scan defeats the packet.
-5. Inspect lane-owned hunks first. Follow a changed caller, contract, test, REQ anchor, or owner document only when its resolved symbol/block overlaps a changed-input hunk or a concrete lane candidate identifies the dependency. File-path equality alone is not direct invalidation.
-6. Read a whole file only after a hunk or direct invalidation identifies a candidate that cannot be verified from focused context. Treat generated seed files as derived output: review their canonical preseed source and use one deterministic source-to-seed identity check instead of searching generated lines repeatedly.
-7. Finalize every manifest row and give each candidate one direct-impact disposition. Do not recursively explore unrelated callers or graph communities.
-8. Stop when every lane-owned hunk, manifest row, and direct candidate has one disposition. Do not report unchanged baseline debt.
+**Wave 1 — everything derivable, in one call.** Parse the inlined packet (or build it once when no `<packet>` block is present). Derive the pending manifest and every direct-impact candidate. Read, in this same call, any conditional sub-policy the manifest triggers — a policy read that rides along in a call you were already making costs nothing, while a policy read on its own turn costs the whole prompt again. Emit compact counts, failures, and snippets for every lane hunk and only anchor targets intersecting `changedInputs[].hunks`; never raw packet JSON.
+
+**Wave 2 — every unresolved candidate at once, in one call.** Enter it only when a *named* candidate still lacks concrete evidence, and say what evidence is missing before you make the call. Then collect all of it together: one compound command answering every open question, not one command per question. Never re-query policy text, packet sections, or evidence already returned.
+
+**Then report.** Stop when every packet hunk, every manifest row, and every directly invalidated anchor has exactly one disposition.
+
+**This is a completeness rule, not a budget.** A required check is *batched*, never skipped to save a call, and a third wave is correct when a real question is genuinely still open — say why. What is forbidden is the drip: a call that answers one question when it could have answered eight, or that re-fetches something already in your context. If you find yourself on turn six, the cause is almost always that waves 1 and 2 each asked for less than they could have.
+
+Within a wave: inspect lane-owned hunks first, and follow a changed caller, contract, test, REQ anchor, or owner document only when its resolved symbol or block overlaps a changed-input hunk. File-path equality alone is not direct invalidation. Bound every searching command — `grep`/`rg` carries `-c`, `| wc -l`, or `| head -N`, so what returns is counts and named candidates rather than whatever the pattern happened to match; an unbounded scan puts raw output in context for every remaining turn and defeats the packet. Read a whole file only after a candidate genuinely cannot be verified from focused context. Treat generated seed files as derived output: review the canonical preseed source and run one deterministic source-to-seed identity check rather than searching generated lines. Do not recursively explore unrelated callers or graph communities, and do not report unchanged baseline debt.
 
 Code review does not re-review SDD or documentation prose. Spec and documentation reviewers may use `changedInputs` only to verify anchors or owned contract impact.
 

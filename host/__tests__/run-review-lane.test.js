@@ -264,6 +264,44 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
   });
 });
 
+// REQ-AGENT-105 AC1/AC4. Turn count is the dominant cost term, so an
+// over-budget lane must be visible -- but never stopped, because a truncated
+// review is a worse failure than an expensive one.
+describe('run-review-lane.sh — wave budget telemetry', () => {
+  const withTurns = (cwd, witness, turns) => {
+    const binDir = join(cwd, 'fake-bin');
+    mkdirSync(binDir, { recursive: true });
+    const p = join(binDir, 'claude');
+    writeFileSync(p,
+      `#!/usr/bin/env bash\necho invoked >> ${witness}\n` +
+      `echo '{"is_error":false,"num_turns":${turns},"total_cost_usd":0,` +
+      `"usage":{"input_tokens":1},"result":"## report"}'\n`);
+    chmodSync(p, 0o755);
+    return binDir;
+  };
+
+  it('notes a lane that ran over its wave budget', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const r = runLane({ repo: cwd, home, hookScripts, binDir: withTurns(cwd, witness, 12), lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(r.status, 0, 'an over-budget lane still succeeds; the budget is advisory');
+    assert.match(r.stdout, /## report/, 'its report must survive intact -- nothing is truncated');
+    assert.match(r.stderr, /12 turns against a 4-wave budget/);
+  });
+
+  it('says nothing when a lane stays within budget', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const r = runLane({ repo: cwd, home, hookScripts, binDir: withTurns(cwd, witness, 3), lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.doesNotMatch(r.stderr, /wave budget/,
+      'a within-budget lane must not emit noise, or the signal is worthless');
+  });
+});
+
 // REQ-AGENT-102 constraint: the container guards are re-injected explicitly,
 // and they must be invoked through a shell because the seeded hook scripts ship
 // non-executable and a bare command path silently no-ops.

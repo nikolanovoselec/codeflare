@@ -2889,3 +2889,26 @@ The subprocess is also time-bounded, and the bound is validated rather than mere
 
 **Supersedes:** none. Extends [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses).
 
+---
+
+### AD117: Review-lane cost is governed by turn count, so evidence gathering is structured in waves
+
+**Category:** Architecture, Cost
+
+**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-105](../../sdd/spec/agents.md#req-agent-105-review-lane-turn-economy).
+
+**Context:** Four measured review rounds refused to correlate with diff size — a two-commit range cost 1.30M prompt tokens while a nine-commit range cost 0.80M. Fitting all twelve lane-runs gives `prompt_tokens ~= T*(S+E) + 2.75k*T^2`, where `T` is turns, `S` the system prompt and `E` the inlined evidence. The fit is close: the spec lane at sixteen turns predicts 1,113k against 1,117k actual, the doc lane at eight predicts 362k against 401k. A lane re-sends its entire prompt every turn, so the accumulated conversation makes the second term quadratic and it dominates everything else past a handful of turns.
+
+Every cost lever considered before this was linear in `T` and therefore worth 5-10%: trimming reviewer prose, splitting apply-only policy out of the enforcement skills, narrowing the packet. The one lever that is quadratic had not been touched.
+
+**Decision:** Structure lane evidence gathering into waves rather than capping it. Wave one parses what the lane was handed, derives everything derivable, and reads any conditional sub-policy the manifest triggers. Wave two, entered only when a *named* candidate still lacks evidence, collects all of it in one call. Then the lane reports, stopping when every packet hunk, manifest row and invalidated anchor has exactly one disposition. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::scope=diff execution -->
+
+This is a completeness rule, not a budget, and the distinction is load-bearing: an earlier "at most four Bash calls" cap made a lane exhaust its allowance on environment discovery and report its required sub-policy read as unverified. Truncating a review is a worse failure than an expensive one. The wave budget is therefore surfaced on stderr and never enforced. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+
+The same measurement settles what to embed. Inlining beats fetching only when the fetch would cost an extra turn; inside a wave that was happening anyway, a fetch costs nothing while carrying the policy costs its bytes on every turn. So small, always-applicable policy is embedded — `review-scope`, the enforcement spines, `tdd-enforce` — and large conditional policy is read in wave one. Inlining `tdd-enforce` (15 KB) took the code lane from fourteen turns to eight; inlining `spec-enforce-ac` and `spec-enforce-truth` (41 KB) took the spec lane from ten turns to sixteen and cost 2.4x. Both followed from the same rule applied with and without regard to size.
+
+**Consequences:** Predicted at three turns: 57k for the code lane, 72k for spec, 61k for doc, against 262k / 1,117k / 401k measured at eight, sixteen and eight. The prediction is the point of the model and the next round is its test. The risk is that a lane reads the wave structure as permission to stop early; the completeness rule and the unchanged verdict gate are what hold against that, and the stderr line makes an over-budget run visible rather than silently truncated.
+
+**Related:** [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses), [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane).
+
+---

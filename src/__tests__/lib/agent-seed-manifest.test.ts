@@ -542,6 +542,22 @@ describe('Reviewer agents can access their enforce policy', () => {
       expect(doc!.content, `${name} must carry the packet section`).toMatch(
         /^## Your lane packet$/m,
       );
+
+      // REQ-AGENT-105 AC2/AC3: large conditional policy is fetched, small
+      // always-applicable policy is embedded. Inlining beats fetching only when
+      // the fetch would cost an extra turn -- inside a wave that was happening
+      // anyway it costs nothing, while carrying the bytes costs every turn.
+      // Measured: embedding tdd-enforce took the code lane 14 turns -> 8;
+      // embedding spec-enforce-ac + -truth took the spec lane 10 -> 16.
+      for (const conditional of [
+        'spec-enforce-ac', 'spec-enforce-truth',
+        'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth',
+      ]) {
+        expect(
+          doc!.content.includes(`# ${conditional}`) || doc!.content.includes(`name: ${conditional}`),
+          `${name} must not embed the large conditional policy ${conditional}`,
+        ).toBe(false);
+      }
     }
 
     const skill = AGENTS_SEEDED_CONFIGS.find(

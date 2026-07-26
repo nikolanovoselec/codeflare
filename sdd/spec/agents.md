@@ -2648,6 +2648,34 @@ None.
 
 ---
 
+### REQ-AGENT-105: Review Lane Turn Economy
+
+**Intent:** A lane re-sends its whole prompt every turn, so cost grows with the square of the turn count and the drip — one lookup per turn — is what a review actually pays for.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Lane evidence gathering is structured as waves, each collecting every outstanding question in one call. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::scope=diff execution --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+2. A conditional sub-policy is read inside a wave that was already being made, never on a turn of its own. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::scope=diff execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
+3. Policy that is small and applies to every run is embedded in the reviewer document. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Embedded canonical policy --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
+4. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+
+**Constraints:**
+
+- No hard turn, call, or token cap: a truncated review is a worse failure than an expensive one, and a cap produced exactly that.
+- The wave structure never licenses skipping a required check; an outstanding check is batched into a wave.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
+
+**Verification:** Automated test ([Review lane runner tests](../../host/__tests__/run-review-lane.test.js))
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-087: Pi Reviewer Execution Profile
 
 **Intent:** Pi review lanes need a bounded provider-neutral reasoning profile so complete enforcement remains responsive without coupling the workflow to one model provider.
