@@ -180,10 +180,20 @@ set -- \
 [ -n "$LANE_MODEL" ] && set -- "$@" --model "$LANE_MODEL"
 [ -n "$LANE_EFFORT" ] && set -- "$@" --effort "$LANE_EFFORT"
 
-RAW="$(claude "$@" 2>/dev/null)"
+# Keep stderr. The lane runs backgrounded and non-interactively, so this is the
+# only diagnostic an operator ever sees; discarding it collapses auth failure,
+# rate limiting, a bad --model and an unreadable --settings file into one
+# indistinguishable exit code.
+LANE_STDERR="$(mktemp -t review-lane-stderr.XXXXXX)"
+trap 'rm -f "$GUARD_SETTINGS" "$LANE_STDERR"' EXIT
+RAW="$(claude "$@" 2>"$LANE_STDERR")"
 STATUS=$?
 if [ $STATUS -ne 0 ] || [ -z "$RAW" ]; then
   echo "run-review-lane: $LANE lane failed to produce a report (exit $STATUS)" >&2
+  if [ -s "$LANE_STDERR" ]; then
+    echo "run-review-lane: last stderr from the lane:" >&2
+    tail -n 20 "$LANE_STDERR" >&2
+  fi
   exit 4
 fi
 

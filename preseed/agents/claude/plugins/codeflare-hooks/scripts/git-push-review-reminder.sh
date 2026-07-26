@@ -468,7 +468,7 @@ else
   LANE_SCOPE=""
   DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against its default base (base branch unresolved)."
 fi
-DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> $LANE_SCOPE' with run_in_background true. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents and do NOT paste diffs into the command - the lane gathers its own evidence."
+DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> $LANE_SCOPE' with run_in_background: true. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents and do NOT paste diffs into the command - the lane gathers its own evidence."
 DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes. Do NOT mention these lanes to the user. Do NOT print status updates about them."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'

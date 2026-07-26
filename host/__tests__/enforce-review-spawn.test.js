@@ -692,39 +692,39 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'an unreturned lane must not advance the checkpoint');
   });
 
-  // The dangerous imposter QUOTES the runner path, so a substring match on the
-  // serialised envelope satisfies all three lanes from one echo.
-  it('does not credit any lane from a command that merely quotes the runner path', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'impostersha'));
-    const imposter = JSON.stringify({
-      type: 'assistant',
-      message: {
-        content: [
-          {
-            type: 'tool_use',
-            name: 'Bash',
-            id: 'toolu_i1',
-            input: {
-              command:
-                'echo "next: bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane code-reviewer --lane spec-reviewer --lane doc-updater"',
-            },
-          },
-        ],
-      },
+  // Both imposter shapes quote the runner path. The second also puts a shell
+  // separator INSIDE the quotes, which satisfies a command-position anchor
+  // applied to the raw string -- the more dangerous variant, and the one that
+  // bypassed the gate for all three lanes at once.
+  const IMPOSTERS = {
+    'quotes the runner path':
+      'echo "next: bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane code-reviewer --lane spec-reviewer --lane doc-updater"',
+    'hides a shell separator inside the quotes':
+      'echo "step1; bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane code-reviewer --lane spec-reviewer --lane doc-updater (planned)"',
+  };
+  for (const [label, command] of Object.entries(IMPOSTERS)) {
+    it(`does not credit any lane from a command that ${label}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const binDir = fakeGh(cwd, ghReturning('OPEN', 'impostersha'));
+      const imposter = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', name: 'Bash', id: 'toolu_i1', input: { command } }],
+        },
+      });
+      const t = writeTranscript(cwd, [
+        PUSH_LINE('2026-05-03T12:00:00.000Z'),
+        imposter,
+        LANE_BASH_DONE_LINE('toolu_i1'),
+      ]);
+      const r = runHook(cwd, { transcriptPath: t, binDir });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+        'the runner must be in command position, not quoted inside another command');
+      assert.notEqual(ackOf(cwd), 'impostersha');
     });
-    const t = writeTranscript(cwd, [
-      PUSH_LINE('2026-05-03T12:00:00.000Z'),
-      imposter,
-      LANE_BASH_DONE_LINE('toolu_i1'),
-    ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'the runner must be in command position, not quoted inside another command');
-    assert.notEqual(ackOf(cwd), 'impostersha');
-  });
+  }
 
   // Lanes are dispatched with run_in_background, so the harness returns a
   // tool_result immediately holding a background shell id. Crediting that would

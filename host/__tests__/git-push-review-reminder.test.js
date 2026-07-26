@@ -703,7 +703,7 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/);
-    assert.match(r.stdout, /Spawn: doc-updater \(docs\/ lane\) only/,
+    assert.match(r.stdout, /Lanes: doc-updater \(docs\/ lane\) only/,
       'doc-only diff must produce the doc-only directive shape');
     assert.doesNotMatch(r.stdout, /code-reviewer/,
       'doc-only directive must NOT mention code-reviewer');
@@ -720,7 +720,7 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Parallel: spec-reviewer.*doc-updater/,
+    assert.match(r.stdout, /Lanes: spec-reviewer.*doc-updater/,
       'sdd-only diff must produce the parallel spec+doc directive');
     assert.doesNotMatch(r.stdout, /code-reviewer/,
       'sdd-only directive must NOT mention code-reviewer (no source touch)');
@@ -737,8 +737,8 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Parallel: code-reviewer/);
-    assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
+    assert.match(r.stdout, /Lanes: code-reviewer/);
+    assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
     assert.match(r.stdout, /Return findings to the root session; reviewers do not write project or triage files/,
       'the boundary directive must preserve root-only write ownership');
   });
@@ -766,8 +766,8 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Parallel: code-reviewer/);
-    assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
+    assert.match(r.stdout, /Lanes: code-reviewer/);
+    assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
   });
 });
 
@@ -784,7 +784,7 @@ describe('git-push-review-reminder.sh - inert source delta emission', () => {
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Spawn: code-reviewer \(source lane\) only/);
+    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) only/);
     assert.doesNotMatch(r.stdout, /spec-reviewer/,
       'a comment-only delta cannot have moved the spec surface');
     assert.doesNotMatch(r.stdout, /doc-updater/,
@@ -824,7 +824,7 @@ describe('git-push-review-reminder.sh - inert source delta emission', () => {
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
+    assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
   });
 });
 
@@ -846,7 +846,7 @@ describe('git-push-review-reminder.sh - review range vs. lagging PR metadata', (
     const binDir = fakeGhWithHead(cwd, { headSha: staleSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, new RegExp(`git diff ${ackSha} ${headSha}`),
+    assert.match(r.stdout, new RegExp(`${ackSha}\\.\\.${headSha}`),
       'the range must end at the pushed commit, not at the head GitHub has caught up to');
     assert.doesNotMatch(r.stdout, new RegExp(staleSha),
       'a stale gh headRefOid must not appear anywhere in the directive');
@@ -866,9 +866,9 @@ describe('git-push-review-reminder.sh - review range vs. lagging PR metadata', (
     const binDir = fakeGhWithHead(cwd, { headSha: 'b'.repeat(40) });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /fetches the full PR diff/,
+    assert.match(r.stdout, /full PR diff against origin\//,
       'an unprovable PR head must fall back to the full-diff directive');
-    assert.doesNotMatch(r.stdout, new RegExp(`git diff ${ackSha} `),
+    assert.doesNotMatch(r.stdout, new RegExp(`${ackSha}\\.\\.`),
       'the hook must not substitute local HEAD for a PR head it cannot prove it contains');
   });
 });

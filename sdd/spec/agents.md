@@ -2566,10 +2566,10 @@ None.
 
 **Constraints:**
 
-- Lane floor reduction requires replacing the system prompt and pruning tool schemas, both CLI-only, which is why a lane is a subprocess and not a subagent.
+- Lane floor reduction requires replacing the system prompt and pruning tool schemas (both CLI-only); a lane is therefore a subprocess, not a subagent.
 - `--lane <name>` is the gate's match token; renaming the flag silently disables review enforcement.
-- Dropping inherited settings drops hooks, so build/test guards are re-injected explicitly, invoked as `bash <script>` because seeded hooks ship non-executable.
-- Transport detection is additive: the legacy Agent shape stays credited, so migrating a lane never narrows what the gate accepts.
+- Dropping inherited settings drops hooks; build/test guards are re-injected explicitly and invoked as `bash <script>` (seeded hooks ship non-executable).
+- Transport detection is additive: the legacy Agent shape stays credited, so a migrated lane is still counted as reviewed.
 - A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
 
 **Priority:** P1

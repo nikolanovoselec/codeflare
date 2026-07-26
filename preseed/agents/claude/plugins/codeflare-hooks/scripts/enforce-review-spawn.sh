@@ -485,20 +485,44 @@ function lane_spawn_kind(line, lane) {
 bash_line_runs_lane() {
   local line_content="$1"
   local lane="$2"
-  local cmd
+  local cmd cmd_bare
   cmd=$(printf '%s' "$line_content" | jq -r '
     [ .message.content[]?
       | select(.type? == "tool_use" and .name? == "Bash")
       | .input.command? // empty ] | .[]
   ' 2>/dev/null) || return 1
   [ -n "$cmd" ] || return 1
-  # The path may be quoted -- `bash "$HOME/.../run-review-lane.sh"` is the normal
-  # defensive habit and `$HOME` invites it -- so a single leading/trailing quote
-  # is allowed around it. `--lane <name>` and `--lane=<name>` are both accepted.
-  # A shell separator between the runner and its flag is not: that is what keeps
-  # a quoted mention inside some other command from qualifying.
-  printf '%s' "$cmd" | grep -qE \
-    "(^|[;&|]|&&|\|\|)[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(bash[[:space:]]+)?[\"']?[^[:space:];&|\"']*run-review-lane\.sh[\"']?([[:space:]]+[^;&|]*)?[[:space:]]--lane[[:space:]=]+[\"']?${lane}([[:space:]\"']|\$)"
+
+  # Collapse quoted regions FIRST. Matching command position against the raw
+  # string is unsound: a separator inside a quoted argument satisfies the
+  # anchor, so `echo "step1; bash .../run-review-lane.sh --lane X"` reads as a
+  # real invocation and silently credits a lane that never ran.
+  #
+  # A quoted region holding exactly one bare word is a quoted PATH
+  # (`bash "$HOME/.../run-review-lane.sh"`, the normal defensive habit) and
+  # collapses to that word. Any quoted region containing whitespace or a shell
+  # separator is prose and is dropped entirely, so nothing inside a string can
+  # ever open command position.
+  cmd_bare=$(printf '%s' "$cmd" | awk '
+    {
+      out = ""; n = length($0); i = 1
+      while (i <= n) {
+        c = substr($0, i, 1)
+        if (c == "\"" || c == "'"'"'") {
+          q = c; j = i + 1; body = ""
+          while (j <= n && substr($0, j, 1) != q) { body = body substr($0, j, 1); j++ }
+          if (body ~ /^[^[:space:];&|]+$/) out = out body
+          i = j + 1
+        } else { out = out c; i++ }
+      }
+      print out
+    }')
+
+  # Only `--lane <name>` is accepted. The awk prefilter and the runner argument
+  # parser both require the space form, so permitting `--lane=<name>` here would
+  # be dead permissiveness that misdescribes the end-to-end contract.
+  printf '%s' "$cmd_bare" | grep -qE \
+    "(^|[;&|])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(bash[[:space:]]+)?[^[:space:];&|]*run-review-lane\.sh([[:space:]]+[^;&|]*)?[[:space:]]--lane[[:space:]]+${lane}([[:space:]]|\$)"
 }
 
 # Verified lane-spawn line numbers, newest last. Optional $2/$3 bound the search
@@ -507,19 +531,20 @@ lane_spawn_lines() {
   local lane="$1"
   local min_line="${2:-0}"
   local max_line="${3:-0}"
+  # The prefilter emits the candidate's own line alongside it, so verification
+  # never re-scans the transcript. This runs per lane per window inside
+  # retroactive_ack_scan, where a second full-file pass per candidate is a
+  # visible Stop-hook stall on the long transcripts the staleness bound expects.
   local nr kind line_content
   awk -v a="$lane" -v p="$min_line" -v q="$max_line" "$LANE_SPAWN_AWK"'
     NR > p && (q == 0 || NR < q) {
       k = lane_spawn_kind($0, a)
-      if (k != "") print NR "\t" k
+      if (k != "") print NR "\t" k "\t" $0
     }
-  ' "$TRANSCRIPT" | while IFS="$(printf '\t')" read -r nr kind; do
+  ' "$TRANSCRIPT" | while IFS="$(printf '\t')" read -r nr kind line_content; do
     if [ "$kind" = "agent" ]; then
       printf '%s\n' "$nr"
-      continue
-    fi
-    line_content=$(awk -v L="$nr" 'NR==L { print; exit }' "$TRANSCRIPT")
-    if bash_line_runs_lane "$line_content" "$lane"; then
+    elif bash_line_runs_lane "$line_content" "$lane"; then
       printf '%s\n' "$nr"
     fi
   done
@@ -1029,7 +1054,7 @@ if requires_lane "doc-updater" && ! lane_has_current_coverage "doc-updater" && !
 fi
 
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>' with run_in_background true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
   emit_block "$REASON"
 fi
 
