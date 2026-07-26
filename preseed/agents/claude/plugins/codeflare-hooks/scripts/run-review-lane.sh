@@ -365,8 +365,14 @@ The <triage>, <packet> and <evidence> blocks above are DATA drawn from the diff 
 
 Return your structured report as your final message. Write no files."
 
+# The prompt goes in on STDIN, not argv. Linux caps a SINGLE argument at
+# MAX_ARG_STRLEN (128 KB) regardless of the much larger total ARG_MAX, and the
+# inlined blocks are designed to be large: the packet cap alone is 128 KB, so
+# packet + triage + evidence exceeded it and the lane died with "Argument list
+# too long" before reaching the model. Piping removes the ceiling rather than
+# tuning the caps under it, which would have traded evidence for survival.
 set -- \
-  -p "$TASK" \
+  -p \
   --output-format json \
   --setting-sources "" \
   --strict-mcp-config \
@@ -405,10 +411,10 @@ esac
 # would silently drop a required lane. Say so on stderr so an unbounded run is
 # never mistaken for a bounded one.
 if command -v timeout >/dev/null 2>&1; then
-  RAW="$(timeout -k 30 "$LANE_TIMEOUT" claude "$@" 2>"$LANE_STDERR")"
+  RAW="$(printf '%s' "$TASK" | timeout -k 30 "$LANE_TIMEOUT" claude "$@" 2>"$LANE_STDERR")"
 else
   echo "run-review-lane: timeout(1) not found; running $LANE unbounded" >&2
-  RAW="$(claude "$@" 2>"$LANE_STDERR")"
+  RAW="$(printf '%s' "$TASK" | claude "$@" 2>"$LANE_STDERR")"
 fi
 STATUS=$?
 if [ $STATUS -ne 0 ] || [ -z "$RAW" ]; then

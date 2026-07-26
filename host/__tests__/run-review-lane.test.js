@@ -86,6 +86,7 @@ function fakeClaude(cwd, witness) {
   writeFileSync(
     p,
     `#!/usr/bin/env bash\necho invoked >> ${witness}\nprintf '%s\\n' "$@" >> ${witness}.argv\n` +
+      `cat > ${witness}.prompt\n` +
       `prev=""\nfor a in "$@"; do\n` +
       `  [ "$prev" = "--settings" ] && cat "$a" > ${witness}.settings\n` +
       `  prev="$a"\ndone\n` +
@@ -194,7 +195,7 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
 
     runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
-    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    const argv = readFileSync(`${witness}.prompt`, 'utf-8');
     assert.match(argv, /EVIDENCE_MARKER/,
       'a resolved lookup that never reaches the prompt is a lookup the lane still pays a turn for');
     assert.match(argv, /<evidence>/, 'the block must be delimited so the lane can tell it from the diff');
@@ -215,11 +216,32 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
 
     const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'doc-updater', range: `${base}..${head}` });
 
-    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    const argv = readFileSync(`${witness}.prompt`, 'utf-8');
     assert.doesNotMatch(argv, /zzzzzzzzzz/, 'the field that blew the cap must not reach the prompt');
     assert.match(argv, /src\/gone\.ts/,
       'the resolutions are the part that removes turns and must survive the shed');
     assert.match(r.stderr, /verbatim indexes omitted/);
+  });
+
+  // Linux caps ONE argument at MAX_ARG_STRLEN (128 KB) however large ARG_MAX is.
+  // The inlined blocks are meant to be big -- the packet cap alone is 128 KB --
+  // so passing the prompt as an argument killed the lane with "Argument list too
+  // long" before it reached the model. This drives a prompt past that ceiling.
+  it('delivers a prompt larger than a single argument can hold', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, { decision: 'proceed', marker: 'BIG_PROMPT_MARKER' });
+    stubEvidence(hookScripts, { lane: 'code-reviewer', filler: 'q'.repeat(200000) });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), true,
+      'the lane must reach the model however large its evidence is');
+    assert.doesNotMatch(r.stderr, /Argument list too long/);
+    assert.match(readFileSync(`${witness}.prompt`, 'utf-8'), /BIG_PROMPT_MARKER/,
+      'and the prompt must arrive intact, not truncated to fit');
   });
 
   it('reviews normally when evidence cannot be resolved', () => {
@@ -233,7 +255,7 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
 
     assert.equal(existsSync(witness), true,
       'an evidence failure degrades to the lane gathering it itself, never to a skipped review');
-    assert.doesNotMatch(readFileSync(`${witness}.argv`, 'utf-8'), /<evidence>/,
+    assert.doesNotMatch(readFileSync(`${witness}.prompt`, 'utf-8'), /<evidence>/,
       'an empty block must not be inlined as though it were resolved');
   });
 });
@@ -290,7 +312,7 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
 
     assert.equal(existsSync(witness), true, 'an oversized block degrades to a normal review, never to a skipped one');
     assert.match(r.stderr, /triage block over/);
-    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    const argv = readFileSync(`${witness}.prompt`, 'utf-8');
     assert.doesNotMatch(argv, /xxxxxxxxxx/, 'the oversized block must not reach the prompt');
   });
 
@@ -312,7 +334,7 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
     const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
     assert.equal(existsSync(witness), true);
-    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    const argv = readFileSync(`${witness}.prompt`, 'utf-8');
     assert.doesNotMatch(argv, /yyyyyyyyyy/, 'the field that blew the cap must not reach the prompt');
     assert.match(argv, /"mode": *"auto"|"mode":"auto"/,
       'the resolved decisions must survive, or the lane re-derives Phase 0 it was handed');
@@ -330,7 +352,7 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
 
     runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
-    assert.match(readFileSync(`${witness}.argv`, 'utf-8'), /TRIAGE_MARKER/,
+    assert.match(readFileSync(`${witness}.prompt`, 'utf-8'), /TRIAGE_MARKER/,
       'a block under the cap is inlined, or the lane pays a turn to rebuild it');
   });
 
@@ -350,7 +372,7 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
 
     runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base.slice(0, 8)}..${head.slice(0, 8)}` });
 
-    const argv = readFileSync(`${witness}.argv`, 'utf-8');
+    const argv = readFileSync(`${witness}.prompt`, 'utf-8');
     assert.match(argv, new RegExp(`${base}\\.\\.${head}`),
       'the packet must carry full SHAs; abbreviated ones make the CLI throw and the lane falls back to raw scans');
   });

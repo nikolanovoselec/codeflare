@@ -2678,6 +2678,7 @@ None.
 - Broad discovery is forbidden at every wave: no repository survey, no indexed search, no re-reading returned evidence, no re-deriving what an inlined block resolved.
 - Resolved evidence reports passes as a count and failures in full; enumerating what passed is what makes a handed answer cost more than the lookup it replaced.
 - A resolver failure yields an absent field, never an empty result: an unanswerable question must read as unknown, or a check is silently skipped.
+- The lane prompt is delivered on standard input; a single argument cannot hold it, and the inlined blocks are sized deliberately larger than that limit.
 
 **Priority:** P1
 
