@@ -113,15 +113,18 @@ trap 'rm -f "$GUARD_SETTINGS"' EXIT
 # Fail CLOSED. A missing guard would otherwise yield an empty hook list and run
 # the lane with bypassPermissions and no protection at all -- the same
 # silently-inert failure this block exists to prevent.
-GUARDS=""
+GUARD_CMDS=""
 for guard in block-local-builds.sh block-attributed-commits.sh; do
   if [ ! -f "$HOOK_DIR/$guard" ]; then
     echo "run-review-lane: required guard $HOOK_DIR/$guard is missing; refusing to run unguarded" >&2
     exit 3
   fi
-  GUARDS="$GUARDS${GUARDS:+,}$(printf '{"type":"command","command":"bash %s"}' "$HOOK_DIR/$guard")"
+  GUARD_CMDS="$GUARD_CMDS $HOOK_DIR/$guard"
 done
-printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[%s]}]}}\n' "$GUARDS" > "$GUARD_SETTINGS"
+# jq builds the JSON so a quote or backslash in CLAUDE_CONFIG_DIR/$HOME cannot
+# produce a malformed settings file.
+jq -n --args '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[$ARGS.positional[]|{type:"command",command:("bash "+.)}]}]}}' \
+  $GUARD_CMDS > "$GUARD_SETTINGS"
 
 # NO-OP SHORT-CIRCUIT.
 #
@@ -186,7 +189,11 @@ set -- \
 # indistinguishable exit code.
 LANE_STDERR="$(mktemp -t review-lane-stderr.XXXXXX)"
 trap 'rm -f "$GUARD_SETTINGS" "$LANE_STDERR"' EXIT
-RAW="$(claude "$@" 2>"$LANE_STDERR")"
+# Bounded. The argument parsing above is hardened precisely because a hung lane
+# inside the review gate wedges the turn, and an auth prompt, a network stall or
+# rate-limit backoff hangs just as hard. The Stop hook's staleness bound only
+# re-classifies an orphaned spawn; it never reaps the process.
+RAW="$(timeout "${REVIEW_LANE_TIMEOUT:-1800}" claude "$@" 2>"$LANE_STDERR")"
 STATUS=$?
 if [ $STATUS -ne 0 ] || [ -z "$RAW" ]; then
   echo "run-review-lane: $LANE lane failed to produce a report (exit $STATUS)" >&2

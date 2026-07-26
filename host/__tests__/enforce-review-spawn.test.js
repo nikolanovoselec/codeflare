@@ -161,8 +161,9 @@ const DONE_LINE = (toolUseId) =>
 const SPEC_DONE_LINE = (toolUseId = 'toolu_sr1') => DONE_LINE(toolUseId);
 
 // Headless transport: the lane runs as a Bash call to run-review-lane.sh rather
-// than an Agent subagent, so it emits no subagent_type and completes with an
-// ordinary tool_result instead of a background task notification.
+// than an Agent subagent, so it emits no subagent_type, and completes with the
+// same background task notification a backgrounded Agent emits. The immediate
+// tool_result is a launch receipt, not completion -- see START_RECEIPT_LINE.
 const LANE_BASH_LINE = (lane, ts, toolUseId = 'toolu_b') =>
   JSON.stringify({
     type: 'assistant',
@@ -623,7 +624,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
   });
 });
 
-// REQ-AGENT-086: reviewer lanes run as headless subprocesses. The gate accepts
+// REQ-AGENT-102: reviewer lanes run as headless subprocesses. The gate accepts
 // either transport, so migrating a lane cannot narrow what counts as reviewed.
 describe('enforce-review-spawn.sh — headless lane transport', () => {
   const ackOf = (cwd) => {

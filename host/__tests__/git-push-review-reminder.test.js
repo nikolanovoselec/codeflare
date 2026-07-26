@@ -739,7 +739,7 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     assert.equal(r.status, 0);
     assert.match(r.stdout, /Lanes: code-reviewer/);
     assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
-    assert.match(r.stdout, /Return findings to the root session; reviewers do not write project or triage files/,
+    assert.match(r.stdout, /Reviewers do not write project or triage files\. The root evaluates findings/,
       'the boundary directive must preserve root-only write ownership');
   });
 

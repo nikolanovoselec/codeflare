@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,14 +71,15 @@ function makeClaudeHome(cwd) {
   return { home, hookScripts };
 }
 
-// Fake `claude` that appends to a witness file when invoked.
+// Fake `claude` that records that it ran AND the argv it was handed, so tests
+// can assert what actually reached the CLI rather than only that it was called.
 function fakeClaude(cwd, witness) {
   const binDir = join(cwd, 'fake-bin');
   mkdirSync(binDir, { recursive: true });
   const p = join(binDir, 'claude');
   writeFileSync(
     p,
-    `#!/usr/bin/env bash\necho invoked >> ${witness}\n` +
+    `#!/usr/bin/env bash\necho invoked >> ${witness}\nprintf '%s\\n' "$@" >> ${witness}.argv\n` +
       `echo '{"is_error":false,"num_turns":1,"total_cost_usd":0,` +
       `"usage":{"input_tokens":1},"result":"## report"}'\n`,
   );
@@ -150,6 +151,73 @@ describe('run-review-lane.sh — no-op short-circuit', () => {
 
     assert.equal(existsSync(witness), true,
       'an unresolvable range must fall through to a full review, never silently skip one');
+  });
+});
+
+// REQ-AGENT-102 constraint: the container guards are re-injected explicitly,
+// and they must be invoked through a shell because the seeded hook scripts ship
+// non-executable and a bare command path silently no-ops.
+describe('run-review-lane.sh — guard re-injection', () => {
+  it('refuses to run at all when a required guard is missing', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    rmSync(join(hookScripts, 'block-local-builds.sh'));
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+
+    const r = runLane({
+      repo: cwd, home, hookScripts, binDir,
+      lane: 'code-reviewer', range: `${base}..${head}`,
+    });
+
+    assert.notEqual(r.status, 0, 'a missing guard must fail closed, not run unguarded');
+    assert.equal(existsSync(witness), false,
+      'no lane may run with bypassPermissions and an empty hook list');
+  });
+
+  it('passes each guard as a shell invocation, not a bare path', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+
+    runLane({
+      repo: cwd, home, hookScripts, binDir,
+      lane: 'code-reviewer', range: `${base}..${head}`,
+    });
+
+    const argv = readFileSync(`${witness}.argv`, 'utf-8').split('\n');
+    const settingsPath = argv[argv.indexOf('--settings') + 1];
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks.map((h) => h.command));
+    assert.equal(commands.length, 2);
+    for (const command of commands) {
+      assert.match(command, /^bash \//,
+        'a bare path silently no-ops against a non-executable hook script');
+    }
+  });
+});
+
+// REQ-AGENT-102: the transport must not silently re-tier a lane.
+describe('run-review-lane.sh — model and effort passthrough', () => {
+  it('forwards the model the lane document declares', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+
+    runLane({
+      repo: cwd, home, hookScripts, binDir,
+      lane: 'code-reviewer', range: `${base}..${head}`,
+    });
+
+    const argv = readFileSync(`${witness}.argv`, 'utf-8').split('\n');
+    assert.equal(argv[argv.indexOf('--model') + 1], 'sonnet',
+      'the lane document declares model: sonnet; the transport must forward it');
+    for (const flag of ['--setting-sources', '--tools', '--system-prompt']) {
+      assert.ok(argv.includes(flag), `${flag} is load-bearing for the lane floor`);
+    }
+    assert.equal(argv[argv.indexOf('--tools') + 1], 'Bash');
   });
 });
 
