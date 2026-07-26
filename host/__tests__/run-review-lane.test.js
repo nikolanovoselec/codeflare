@@ -665,6 +665,7 @@ describe('run-review-lane.sh — timeout bound', () => {
     ['non-numeric', 'abc', '1800'],
     ['empty', '', '1800'],
     ['a real override', '600', '600'],
+    ['a value that wraps 64-bit arithmetic', '99999999999999999999', '1800'],
   ]) {
     it(`resolves ${label} REVIEW_LANE_TIMEOUT to ${expected}s`, () => {
       const { cwd, base, head } = makeRepo('src/thing.ts');
@@ -702,6 +703,7 @@ describe('run-review-lane.sh — timeout bound', () => {
     ['empty', '', '300'],
     ['a leading-zero override', '0600', '600'],
     ['a real override', '600', '600'],
+    ['a value that wraps 64-bit arithmetic', '99999999999999999999', '300'],
   ]) {
     it(`resolves ${label} REVIEW_LANE_EVIDENCE_TIMEOUT to ${expected}s`, () => {
       const { cwd, base, head } = makeRepo('src/thing.ts');
