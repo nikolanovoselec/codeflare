@@ -46,6 +46,14 @@
 # round legible: a lane result landing in the middle of unrelated work gets
 # interleaved with it, and the user loses the thread of what was reviewed.
 #
+# The triage table is Pi's shape verbatim (REVIEW_TRIAGE_HEADER/DIVIDER in
+# extensions/review-helpers.ts), so both runtimes publish one comparable
+# artifact. Pi additionally ends the turn after the table and fixes in a
+# separate follow-up, because settled enforcement injects that follow-up for
+# it. Claude has no such injector -- ending the turn here would strand the
+# fixes until the user asked again -- so the fix runs in the same turn,
+# immediately after the table is published.
+#
 # Vibe-coding mode: if sdd/ does not exist, emits nothing. Zero friction.
 #
 # Fail-safe: any unexpected error → exit 0 (never lock users out).
@@ -485,7 +493,7 @@ DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root e
 # user's to see, and a silent round makes an autofix look like an unexplained
 # edit. Lane names are deliberately not written here: several emission tests
 # assert the directive carries no lane literal outside its Lanes: line.
-DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message and then END YOUR TURN. While the lanes are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every lane has returned. Only then print the triage result: per-lane severity counts, then each surviving finding as severity, file and a one-line claim, and name every finding you rejected together with the reason it is not legitimate. THEN fix every legitimate finding that survived triage, in this same session, and state what you fixed and anything you deliberately left. Never ask permission to fix a legitimate finding - a finding is either rejected with a stated cause or it is fixed now."
+DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message and then END YOUR TURN. While the lanes are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. THEN fix every finding whose MINIMAL DECISION is to fix, in this same session, and state what you fixed and anything you deliberately left. Never ask permission to fix a legitimate finding."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
 exit 0
