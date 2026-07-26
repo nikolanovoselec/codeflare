@@ -242,6 +242,7 @@ bounded_cap() {
 # $1 block  $2 cap  $3 jq shed program  $4 name  $5 what survived
 # Prints what to carry, or nothing when the shed form is still too large.
 shed_to_cap() {
+  local _SHED
   if [ "$(( $(printf '%s' "$1" | wc -c) ))" -le "$2" ]; then
     printf '%s' "$1"
     return
@@ -334,7 +335,9 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
   # citations and anchors. Reaping it there is the expensive failure -- the lane
   # re-derives every lookup by hand, which is the cost this block exists to
   # remove -- while an over-generous bound costs only wall clock, and only when
-  # something is genuinely wrong. It stays well inside the lane's own 30 minutes.
+  # something is genuinely wrong. It ADDS to the lane's own 30 minutes rather
+  # than nesting inside them: the resolver finishes before the lane subprocess is
+  # spawned, so the worst case a wedged gate can hold is 35, not 30.
   EVIDENCE_TIMEOUT="$(bounded_cap "${REVIEW_LANE_EVIDENCE_TIMEOUT:-}" 300)"
   if command -v timeout >/dev/null 2>&1; then
     EVIDENCE_JSON="$(timeout -k 5 "$EVIDENCE_TIMEOUT" node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
