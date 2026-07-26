@@ -306,6 +306,97 @@ describe('lane-evidence.mjs — a lane gets evidence for why it was spawned', ()
     assert.deepEqual(run(cwd, 'doc-updater', `${base}..${head}`).docsCitingChanged, [],
       'a genuine no-op must stay one, or the lane is given work that does not exist');
   });
+
+  // The packet is scoped to the files a lane OWNS. A doc lane spawned by a diff
+  // that touched no documentation/ file therefore got files:[] and an empty
+  // patch, and spent three of eleven turns re-running `git diff` per cited path
+  // to see what the change actually said.
+  it('carries the diff of each cited file, not just the citation', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/engine.ts', 'export function drive() { return 1; }\n');
+    write(cwd, 'documentation/architecture.md', 'The engine drives. <!-- @impl: src/engine.ts::drive -->\n');
+    commit(cwd, 'feat: engine and its page');
+    write(cwd, 'src/engine.ts', 'export function drive() { return 2; }\n');
+    const head = commit(cwd, 'feat: change what the page describes');
+
+    const row = run(cwd, 'doc-updater', `${base}..${head}`)
+      .docsCitingChanged.find((entry) => entry.file === 'src/engine.ts');
+
+    assert.match(row.patch, /^\+export function drive\(\) \{ return 2; \}$/m,
+      'the new text is what decides whether the page is stale');
+    assert.match(row.patch, /^-export function drive\(\) \{ return 1; \}$/m,
+      'the old text is what the page was written against');
+  });
+
+  // A prose mention is a dependency too, and the lane greps for it by hand when
+  // only the anchor form is resolved.
+  it('cites a page that names the changed path without an anchor', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/deployment.md', 'Run `scripts/ship.sh` to deploy.\n');
+    commit(cwd, 'docs: deployment page');
+    write(cwd, 'scripts/ship.sh', '#!/bin/sh\necho shipped\n');
+    const head = commit(cwd, 'feat: the script that page describes');
+
+    const row = run(cwd, 'doc-updater', `${base}..${head}`)
+      .docsCitingChanged.find((entry) => entry.file === 'scripts/ship.sh');
+
+    assert.ok(row, 'a page naming the path depends on it whether or not an anchor formalises it');
+    assert.deepEqual(row.citedBy, ['documentation/deployment.md']);
+  });
+
+  // Bounded twice, because this is the one field that scales with the diff. Over
+  // budget the row must say so: a silently absent patch would read as "no change
+  // to see" on a lane told the block is authoritative.
+  it('marks a row whose patch exceeded the budget rather than dropping it silently', () => {
+    const { cwd, base } = makeRepo();
+    const pages = [];
+    for (let i = 0; i < 8; i += 1) {
+      write(cwd, `documentation/page${i}.md`, `Describes src/big${i}.ts\n`);
+      pages.push(i);
+    }
+    commit(cwd, 'docs: pages');
+    for (const i of pages) {
+      write(cwd, `src/big${i}.ts`, `export const body${i} = '${'x'.repeat(9000)}';\n`);
+    }
+    const head = commit(cwd, 'feat: eight large files');
+
+    const rows = run(cwd, 'doc-updater', `${base}..${head}`).docsCitingChanged;
+
+    assert.equal(rows.length, 8, 'every citation is still reported');
+    assert.ok(rows.some((row) => row.patch), 'the budget spends before it runs out');
+    const omitted = rows.filter((row) => row.patchOmitted);
+    assert.ok(omitted.length > 0, 'the rows past the budget must be marked, not quietly patchless');
+    for (const row of omitted) {
+      assert.equal(row.patch, undefined, 'a marked row carries no partial patch to reason from');
+    }
+  });
+});
+
+describe('lane-evidence.mjs — the doc index is joined, not just quoted', () => {
+  // The spec lane is handed this join and dropped from 10 turns to 5. The doc
+  // lane was handed the index verbatim instead and walked documentation/ itself
+  // to pair the two -- raw material where the other lane gets the answer.
+  it('reports a tracked doc the index does not link, and passes one it does', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/README.md', '# Docs\n\n- [Architecture](lanes/architecture.md)\n');
+    write(cwd, 'documentation/lanes/architecture.md', '# Architecture\n');
+    write(cwd, 'documentation/lanes/orphan.md', '# Nobody links me\n');
+    const head = commit(cwd, 'docs: an indexed page and an orphan');
+
+    const integrity = run(cwd, 'doc-updater', `${base}..${head}`).indexIntegrity;
+
+    assert.deepEqual(integrity.unindexed, ['documentation/lanes/orphan.md']);
+    assert.deepEqual(integrity.dangling, [], 'a link that resolves is not a finding');
+  });
+
+  it('reports an index link that points at nothing', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/README.md', '# Docs\n\n- [Gone](lanes/removed.md)\n');
+    const head = commit(cwd, 'docs: index outlived its page');
+
+    assert.deepEqual(run(cwd, 'doc-updater', `${base}..${head}`).indexIntegrity.dangling,
+      ['lanes/removed.md']);
+  });
 });
 
 describe('lane-evidence.mjs — the spec manifest rows', () => {

@@ -2578,6 +2578,7 @@ None.
 - A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
 - A lane subprocess is time-bounded; an unbounded lane would hold the review gate open.
 - Guard settings are constructed programmatically and verified non-empty before use.
+- Triage state that alters a round is reported to the launching session, not only to the lane.
 
 **Priority:** P1
 
@@ -2666,7 +2667,7 @@ None.
 4. Every path that demands a lane passes the range under review, so the demanded lane receives its packet and its ownership short-circuit rather than reviewing the whole PR. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (scopes the lanes it demands to the range under review) -->
 5. Inlined evidence over its byte cap degrades by field, keeping the resolved answers. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (sheds config.raw rather than the whole triage block) -->
 6. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
-7. The lookups a lane checklist would order — index presence, tree layout, anchor resolution, documented-reference resolution, call sites, the decision ledger — are resolved before the lane starts and handed to it. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::main --> <!-- @test: host/__tests__/lane-evidence.test.js (reports an anchor whose symbol no longer exists as unresolved) --> <!-- @test: host/__tests__/run-review-lane.test.js (inlines the evidence block) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+7. The lookups a lane checklist would order — index presence, tree layout, anchor resolution, documented-reference resolution, call sites, the decision ledger — are resolved before the lane starts and handed to it. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::main --> <!-- @test: host/__tests__/lane-evidence.test.js (reports an anchor whose symbol no longer exists as unresolved) --> <!-- @test: host/__tests__/lane-evidence.test.js (carries the diff of each cited file, not just the citation) --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a tracked doc the index does not link, and passes one it does) --> <!-- @test: host/__tests__/run-review-lane.test.js (inlines the evidence block) --> <!-- @test: host/__tests__/run-review-lane.test.js (states the repository root so the lane does not spend a turn finding it) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
 
 **Constraints:**
 

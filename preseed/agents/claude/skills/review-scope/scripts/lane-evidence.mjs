@@ -33,6 +33,11 @@ import { join, resolve, sep } from 'node:path';
 
 const MAX_LIST = 40;
 const MAX_LINE = 200;
+// A cited file's own diff, and the ceiling on all of them together. Bounded
+// twice because this is the one field that scales with the diff rather than
+// with the tree, and blowing the evidence cap sheds the resolutions instead.
+const MAX_CITED_PATCH = 6000;
+const MAX_CITED_PATCH_TOTAL = 24000;
 // Generated trees are derived output. A match inside one is never a call site a
 // reviewer acts on, and one minified line can be larger than the whole packet.
 //
@@ -111,6 +116,53 @@ function adrLedger(repo) {
     entries.push({ id: heading[1], title: heading[2], status });
   }
   return entries;
+}
+
+// Which tracked files an index links to, and which of its links point at
+// nothing. Both index-owning lanes run the same walk, so it is written once.
+function indexIntegrity(repo, indexPath, tracked) {
+  // Resolve links relative to the INDEX file, not to the tree it indexes. The
+  // spec index lives at sdd/README.md and links `spec/agents.md`; resolving that
+  // under sdd/spec/ produced sdd/spec/spec/agents.md and reported every real
+  // entry as dangling -- a wall of false findings in a block the lane is told to
+  // trust.
+  const cut = indexPath.lastIndexOf('/');
+  const indexDir = cut === -1 ? '.' : indexPath.slice(0, cut);
+  const index = read(repo, indexPath) ?? '';
+  const linked = [...index.matchAll(/\]\(([^)#]+\.md)[^)]*\)/g)]
+    .map(([, target]) => target)
+    .filter((target) => !target.startsWith('http'));
+  const linkedNames = new Set(linked.map((target) => target.split('/').pop()));
+  return {
+    // Against the LINK TARGETS, not the raw text: a filename mentioned in prose,
+    // or a different file whose name merely contains this one, both satisfied a
+    // substring test and passed the row silently.
+    unindexed: tracked.filter((file) => {
+      const base = file.split('/').pop() ?? '';
+      return base !== 'README.md' && !base.startsWith('.') && !linkedNames.has(base);
+    }),
+    dangling: linked.filter((target) => !existsSync(join(repo, indexDir, target))),
+  };
+}
+
+// A doc goes stale because of what a change SAID, not because it happened. The
+// packet is scoped to the files a lane OWNS, so a doc lane reviewing a diff that
+// touched no documentation/ file was handed files:[] and an empty patch, then
+// spent three of its eleven turns re-running `git diff` one cited path at a
+// time. The change itself is the evidence for the only question asked about it.
+function filePatch(repo, range, file) {
+  if (!range) return null;
+  const patch = git(repo, ['diff', '--no-renames', range, '--', file]);
+  if (!patch) return null;
+  return patch.length > MAX_CITED_PATCH ? `${patch.slice(0, MAX_CITED_PATCH)}\n...truncated` : patch;
+}
+
+// A formal `@impl:` anchor and a plain mention of the path are both ways a doc
+// depends on a file, and the lane greps for both by hand. The anchor form
+// contains the path, so one fixed-string search over the path covers both.
+function citedBy(repo, file) {
+  return git(repo, ['grep', '-l', '--fixed-strings', '-a', '--', file, 'documentation'])
+    .split('\n').filter(Boolean).filter(live).slice(0, 12);
 }
 
 const IMPL_RE = /<!--\s*@impl:\s*([^:\s]+)(?:::([^\s=]+))?(?:\s*=\s*(.+?))?\s*-->/g;
@@ -321,28 +373,8 @@ function main() {
     // was costing a turn that re-sends the whole prompt.
     const specGlob = existsSync(join(repo, 'sdd/spec')) ? 'sdd/spec' : 'sdd';
     const specFiles = git(repo, ['ls-files', '--', `${specGlob}/*.md`]).split('\n').filter(Boolean);
-    // Resolve links relative to the INDEX file, not to the spec glob. The index
-    // lives at sdd/README.md and links `spec/agents.md`; resolving that under
-    // sdd/spec/ produced sdd/spec/spec/agents.md and reported every real entry
-    // as dangling -- a wall of false findings in a block the lane is told to
-    // trust.
     const indexPath = existsSync(join(repo, `${specGlob}/README.md`)) ? `${specGlob}/README.md` : 'sdd/README.md';
-    const indexDir = indexPath.slice(0, indexPath.lastIndexOf('/'));
-    const index = read(repo, indexPath) ?? '';
-    const linked = [...index.matchAll(/\]\(([^)#]+\.md)[^)]*\)/g)]
-      .map(([, target]) => target)
-      .filter((target) => !target.startsWith('http'));
-    const linkedNames = new Set(linked.map((target) => target.split('/').pop()));
-    out.indexIntegrity = {
-      // Against the LINK TARGETS, not the raw text: a filename mentioned in
-      // prose, or a different file whose name merely contains this one, both
-      // satisfied a substring test and passed the row silently.
-      unindexed: specFiles.filter((file) => {
-        const base = file.split('/').pop() ?? '';
-        return base !== 'README.md' && !base.startsWith('.') && !linkedNames.has(base);
-      }),
-      dangling: linked.filter((target) => !existsSync(join(repo, indexDir, target))),
-    };
+    out.indexIntegrity = indexIntegrity(repo, indexPath, specFiles);
     out.dependencyGraph = reqDependencyGraph(repo, specFiles);
     // Layout-resolved locally: this module does not carry the triage document,
     // and referencing it would have thrown into the catch-all, handing the lane
@@ -365,16 +397,35 @@ function main() {
     // the diff, so that citation IS its work set when no doc file was touched.
     // Handing it only the touched-doc anchors reported checked:0 and confirmed a
     // conclusion the spawn reason contradicts.
-    const source = files.filter((f) => !f.startsWith('sdd/') && !f.startsWith('documentation/'));
-    out.docsCitingChanged = source.slice(0, MAX_LIST).map((file) => ({
-      file,
-      citedBy: git(repo, ['grep', '-l', '--fixed-strings', '-a', '--', `@impl: ${file}`, 'documentation'])
-        .split('\n').filter(Boolean).filter(live).slice(0, 12),
-    })).filter((row) => row.citedBy.length > 0);
+    // Generated trees are excluded here for the same reason they are everywhere
+    // else in this module: regenerating an artifact cannot make a page stale, so
+    // its diff is never the evidence -- and one of them ate a quarter of the
+    // patch budget that the hand-written files needed.
+    const source = files
+      .filter((f) => !f.startsWith('sdd/') && !f.startsWith('documentation/'))
+      .filter(live);
+    let budget = MAX_CITED_PATCH_TOTAL;
+    out.docsCitingChanged = source.slice(0, MAX_LIST)
+      .map((file) => ({ file, citedBy: citedBy(repo, file) }))
+      .filter((row) => row.citedBy.length > 0)
+      .map((row) => {
+        const patch = budget > 0 ? filePatch(repo, range, row.file) : null;
+        if (patch === null) return { ...row, patchOmitted: true };
+        budget -= patch.length;
+        return { ...row, patch };
+      });
     const nested = existsSync(join(repo, 'documentation/lanes'));
     const index = read(repo, 'documentation/README.md');
     out.docLayout = nested ? 'nested' : 'flat';
     out.docIndexPresent = index !== null;
+    // The same join the spec lane is handed. Without it this lane was given the
+    // index verbatim and walked the tree itself to pair the two -- raw material
+    // where the other lane gets the answer.
+    out.indexIntegrity = indexIntegrity(
+      repo,
+      'documentation/README.md',
+      git(repo, ['ls-files', '--', 'documentation']).split('\n').filter((f) => f.endsWith('.md')),
+    );
     // The index routes; its prose principles do not. Headings and links only.
     out.docIndex = (index ?? '')
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*|]\s*.*\[/.test(line)).join('\n') || null;

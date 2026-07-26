@@ -259,10 +259,19 @@ if [ -n "$TRIAGE_JSON" ]; then
   # can appear inside a reason string or a nested finding without the lane
   # having been resolved to a no-op at all.
   TRIAGE_FIELDS="$(printf '%s' "$TRIAGE_JSON" \
-    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s);process.stdout.write(String(t.decision??"")+"\n"+String(t.reason??"").replace(/\s+/g," "))}catch{}})' 2>/dev/null)"
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s);const r=t.roundLimit||{};const b=t.bulkOpAudit||{};const x=t.transition||{};process.stdout.write(String(t.decision??"")+"\n"+String(t.reason??"").replace(/\s+/g," ")+"\n"+["decision="+(t.decision??"?"),"round="+(r.action??"?")+"("+(r.counted??"?")+"/"+(r.inspected??"?")+")","audit="+((b.findings||[]).length),"transition="+(x.corrupt?"corrupt":(x.active?"active":"clean"))].join(" "))}catch{}})' 2>/dev/null)"
   TRIAGE_DECISION="$(printf '%s\n' "$TRIAGE_FIELDS" | head -n 1)"
+  # Triage is a prompt INPUT, so a clean one is invisible to the session that
+  # launched the lane: nothing is echoed unless it resolves to a no-op or carries
+  # a finding the lane restates. That hid the state that changes what a round
+  # does -- a stopped round counter, a corrupt transition, a suppressed audit
+  # finding. One stderr line makes it visible and costs no model tokens.
+  TRIAGE_SUMMARY="$(printf '%s\n' "$TRIAGE_FIELDS" | sed -n '3p')"
+  if [ -n "$TRIAGE_SUMMARY" ]; then
+    echo "run-review-lane: lane=$LANE triage $TRIAGE_SUMMARY" >&2
+  fi
   if [ "$TRIAGE_DECISION" = "exit-no-op" ]; then
-    TRIAGE_REASON="$(printf '%s\n' "$TRIAGE_FIELDS" | tail -n +2)"
+    TRIAGE_REASON="$(printf '%s\n' "$TRIAGE_FIELDS" | sed -n '2p')"
     printf '## %s — NO-OP\n\n**Range:** `%s`\n\nTriage resolved this lane to a no-op before any model ran: %s.\n' \
       "$LANE" "${RANGE:-full PR diff}" "${TRIAGE_REASON:-lane suspended by triage}"
     echo "run-review-lane: lane=$LANE prompt_tokens=0 fresh_input=0 cache_write=0 cache_read=0 output_tokens=0 turns=0 cost_usd=0.0000 (short-circuited: ${TRIAGE_REASON:-triage no-op})" >&2
@@ -329,7 +338,7 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
   if [ "$(( $(printf '%s' "$EVIDENCE_JSON" | wc -c) ))" -gt "$EVIDENCE_MAX_BYTES" ]; then
     # Degrade by field, like the two blocks beside it. The verbatim indexes are
     # the bulky fields; the resolution results are the ones that remove turns.
-    SHRUNK=$(printf '%s' "$EVIDENCE_JSON" | jq -c 'del(.docIndex, .specIndex, .pending) + {indexesOmitted:true}' 2>/dev/null || true)
+    SHRUNK=$(printf '%s' "$EVIDENCE_JSON" | jq -c '(if has("docsCitingChanged") then .docsCitingChanged |= map(del(.patch) + {patchOmitted:true}) else . end) | del(.docIndex, .specIndex, .pending) + {indexesOmitted:true}' 2>/dev/null || true)
     if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$EVIDENCE_MAX_BYTES" ]; then
       echo "run-review-lane: evidence over ${EVIDENCE_MAX_BYTES}B; verbatim indexes omitted, resolutions retained" >&2
       EVIDENCE_JSON="$SHRUNK"
@@ -341,6 +350,11 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
 fi
 
 TASK="PR-boundary review, $LANE lane. $SCOPE"
+# Stated, not discovered. A lane that is not told where it is spends its first
+# turn on `git rev-parse --show-toplevel` before it has looked at anything.
+if [ -n "$REPO_ROOT" ]; then
+  TASK="$TASK You are already in the repository; its root is \`$REPO_ROOT\`."
+fi
 if [ -n "$TRIAGE_JSON" ]; then
   TASK="$TASK
 
@@ -362,7 +376,7 @@ fi
 if [ -n "$EVIDENCE_JSON" ]; then
   TASK="$TASK
 
-The lookups your checklist would otherwise order are already resolved below. Treat this block as authoritative: do NOT confirm an index exists, probe a layout, resolve an anchor, resolve a documented reference, enumerate call sites, or read the decision ledger — those answers are here. \`checked\` is how many were verified and \`unresolved\` lists every one that failed; an empty \`unresolved\` with a non-zero \`checked\` is a clean pass you may report without re-running it. A field that is null or absent is the ONLY case you gather yourself.
+The lookups your checklist would otherwise order are already resolved below. Treat this block as authoritative: do NOT confirm an index exists, probe a layout, resolve an anchor, resolve a documented reference, enumerate call sites, pair a tree against its index, or read the decision ledger — those answers are here. \`checked\` is how many were verified and \`unresolved\` lists every one that failed; an empty \`unresolved\` with a non-zero \`checked\` is a clean pass you may report without re-running it. Where a row carries a \`patch\`, that is the change under review for that file: read it there and do NOT run \`git diff\` for it. A field that is null or absent, or a row marked \`patchOmitted\`, is the ONLY case you gather yourself.
 
 <evidence>
 $EVIDENCE_JSON

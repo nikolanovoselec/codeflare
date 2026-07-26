@@ -206,6 +206,22 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     assert.match(argv, /<evidence>/, 'the block must be delimited so the lane can tell it from the diff');
   });
 
+  // A lane that is not told where it is opens with `git rev-parse
+  // --show-toplevel`, and that orientation call costs a whole turn before it has
+  // looked at anything.
+  it('states the repository root so the lane does not spend a turn finding it', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+
+    runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    const delivered = readFileSync(`${witness}.prompt`, 'utf-8');
+    const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf-8' }).stdout.trim();
+    assert.ok(delivered.includes(root), 'the lane must be handed its repository root, not made to discover it');
+  });
+
   // Same degrade-by-field rule as its two siblings: the verbatim indexes are the
   // bulk, the resolutions are what remove turns, so the resolutions survive.
   it('sheds the verbatim indexes rather than the whole evidence block', () => {
