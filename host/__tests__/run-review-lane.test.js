@@ -97,7 +97,7 @@ function fakeClaude(cwd, witness) {
   return binDir;
 }
 
-function runLane({ repo, home, hookScripts, binDir, lane, range }) {
+function runLane({ repo, home, hookScripts, binDir, lane, range, env = {} }) {
   // Invoke through the seeded copy so `dirname $0` resolves the classifier.
   const seededRunner = join(hookScripts, 'run-review-lane.sh');
   // readFileSync, not `cat`: a missing source would make cat return empty stdout
@@ -107,7 +107,7 @@ function runLane({ repo, home, hookScripts, binDir, lane, range }) {
   return spawnSync('bash', [seededRunner, '--lane', lane, '--range', range], {
     cwd: repo,
     encoding: 'utf-8',
-    env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: home },
+    env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: home, ...env },
   });
 }
 
@@ -230,12 +230,14 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
     stubEvidence(home, {
-      lane: 'doc-updater',
+      lane: 'code-reviewer',
       docIndex: 'z'.repeat(80000),
       references: { checked: 12, unresolved: [{ ref: 'src/gone.ts', resolved: false }] },
     });
 
-    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'doc-updater', range: `${base}..${head}` });
+    // The owning lane: a doc lane over a source-only range short-circuits before
+    // the model, so no prompt is ever built and the shed cannot be observed.
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
     const argv = readFileSync(`${witness}.prompt`, 'utf-8');
     assert.doesNotMatch(argv, /zzzzzzzzzz/, 'the field that blew the cap must not reach the prompt');
@@ -256,7 +258,13 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     stubTriage(hookScripts, { decision: 'proceed', marker: 'BIG_PROMPT_MARKER' });
     stubEvidence(home, { lane: 'code-reviewer', filler: 'q'.repeat(200000) });
 
-    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+    // The default cap would shed this block long before it reached the ceiling
+    // under test. The contract here is the stdin transport, not the cap, so the
+    // documented override lifts the cap out of the way.
+    const r = runLane({
+      repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}`,
+      env: { REVIEW_LANE_EVIDENCE_MAX_BYTES: '400000' },
+    });
 
     assert.equal(existsSync(witness), true,
       'the lane must reach the model however large its evidence is');
@@ -303,8 +311,8 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
 
     assert.equal(existsSync(witness), true,
       'an evidence failure degrades to the lane gathering it itself, never to a skipped review');
-    assert.doesNotMatch(readFileSync(`${witness}.prompt`, 'utf-8'), /<evidence>/,
-      'an empty block must not be inlined as though it were resolved');
+    assert.doesNotMatch(readFileSync(`${witness}.prompt`, 'utf-8'), /<evidence>\s*\{/,
+      'an empty block must not be inlined as though it were resolved; the wave text names the tag itself, so only a tag followed by JSON proves inlining');
   });
 });
 

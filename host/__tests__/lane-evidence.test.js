@@ -312,10 +312,12 @@ describe('lane-evidence.mjs — a lane gets evidence for why it was spawned', ()
   // patch, and spent three of eleven turns re-running `git diff` per cited path
   // to see what the change actually said.
   it('carries the diff of each cited file, not just the citation', () => {
-    const { cwd, base } = makeRepo();
+    const { cwd } = makeRepo();
     write(cwd, 'src/engine.ts', 'export function drive() { return 1; }\n');
     write(cwd, 'documentation/architecture.md', 'The engine drives. <!-- @impl: src/engine.ts::drive -->\n');
-    commit(cwd, 'feat: engine and its page');
+    // Range from AFTER the file exists: spanning its creation makes the change an
+    // addition with no old side, and the old text is half of what proves drift.
+    const base = commit(cwd, 'feat: engine and its page');
     write(cwd, 'src/engine.ts', 'export function drive() { return 2; }\n');
     const head = commit(cwd, 'feat: change what the page describes');
 
