@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = resolve(
   __dirname,
-  '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-evidence.mjs',
+  '../../preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs',
 );
 
 function git(cwd, ...args) {

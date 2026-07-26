@@ -129,11 +129,6 @@
       "advanced"
     ]
   },
-  "plugins/codeflare-hooks/scripts/lib/lane-evidence.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/codeflare-hooks/scripts/lib/lane-triage.mjs": {
     "modes": [
       "advanced"
@@ -649,6 +644,11 @@
     ]
   },
   "skills/review-scope/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/lane-evidence.mjs": {
     "modes": [
       "advanced"
     ]

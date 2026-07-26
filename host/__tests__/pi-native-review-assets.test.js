@@ -131,7 +131,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     // And byte-identity for these files is no longer covered by the
     // manifest-driven check above, because Pi's manifest deliberately does not
     // own them.
-    for (const script of ['build-review-packet.mjs', 'inert-source-delta.mjs']) {
+    for (const script of ['build-review-packet.mjs', 'inert-source-delta.mjs', 'lane-evidence.mjs']) {
       const canonical = readFileSync(
         join(repoRoot, 'preseed/agents/claude/skills/review-scope/scripts', script),
         'utf8',

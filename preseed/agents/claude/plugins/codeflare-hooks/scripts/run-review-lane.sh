@@ -303,7 +303,7 @@ fi
 # triage: an unreadable answer yields an absent field, and an absent field means
 # the lane gathers that item exactly as it did before.
 EVIDENCE_JSON=""
-EVIDENCE_SCRIPT="$(dirname "$0")/lib/lane-evidence.mjs"
+EVIDENCE_SCRIPT="$CLAUDE_HOME/skills/review-scope/scripts/lane-evidence.mjs"
 if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/null 2>&1; then
   # Bounded: the resolver runs many greps before the model is reached, so an
   # unbounded hang here holds the whole review gate open with nothing to show.
