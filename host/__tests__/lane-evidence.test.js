@@ -552,10 +552,9 @@ describe('lane-evidence.mjs — fail-safe direction', () => {
 
 describe('build-review-packet.mjs — evidence rides the call that is actually made', () => {
   // A runtime with a lane runner has evidence inlined for it; a runtime without
-  // one has to ask. Asking was a second command named mid-paragraph, and a
-  // measured run built the packet, skipped that sentence, and re-derived by hand
-  // exactly what the resolver returns. One flag on the call that IS made removes
-  // the reliance on that sentence being obeyed.
+  // one has to ask, and asking meant a second command beside the packet command.
+  // One flag on the call that is already made carries both, so there is no
+  // second instruction to follow.
   const PACKET = resolve(
     __dirname,
     '../../preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs',

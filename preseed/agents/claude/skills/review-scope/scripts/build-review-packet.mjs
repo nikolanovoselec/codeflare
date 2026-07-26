@@ -129,11 +129,10 @@ function parseArgs(argv) {
 }
 
 // A runtime with a lane runner has its evidence inlined for it. A runtime
-// without one has to ask, and asking was a second command named in the middle of
-// a paragraph: a measured run built the packet, skipped that sentence, and spent
-// three turns re-deriving by hand exactly what the resolver returns. This rides
-// the call that is actually made. Best-effort by construction -- no evidence
-// degrades to the lane gathering its own, never to a skipped check.
+// without one has to ask, and asking meant a second command beside this one.
+// Folding it in makes a single invocation carry both, so there is no second
+// instruction to follow. Best-effort by construction -- no evidence degrades to
+// the lane gathering its own, never to a skipped check.
 function laneEvidence(repo, lane, range) {
   try {
     const script = new URL('./lane-evidence.mjs', import.meta.url);
