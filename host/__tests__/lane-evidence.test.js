@@ -94,6 +94,35 @@ describe('lane-evidence.mjs — anchor resolution', () => {
     assert.deepEqual(out.anchors.unresolved, [],
       'a clean pass is a count; the lane may report it without re-running it');
   });
+
+  // The anchors that decide a source-only range live in spec files the range
+  // never touched, so `anchors` is legitimately 0 and the lane -- correctly told
+  // a zero is unknown rather than clean -- resolved all of them by hand. Twelve
+  // anchors, twelve turns, on a range whose only spec file was the changelog.
+  it('resolves the anchors that cite a changed file when no spec file changed', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/thing.js', 'function stillHere() {}\n');
+    write(cwd, 'src/other.js', 'function elsewhere() {}\n');
+    write(cwd, 'sdd/spec/agents.md', [
+      '1. Cites the changed file. <!-- @impl: src/thing.js::stillHere -->',
+      '2. Cites it and is stale. <!-- @impl: src/thing.js::renamedAway -->',
+      '3. Cites an untouched file. <!-- @impl: src/other.js::elsewhere -->',
+    ].join('\n'));
+    // Range from AFTER the spec file landed, so the diff under review carries
+    // source only -- the shape that produced the twelve turns.
+    const anchored = commit(cwd, 'feat: anchored');
+    write(cwd, 'src/thing.js', 'function stillHere() {}\n// touched\n');
+    const head = commit(cwd, 'fix: source only, no spec file in range');
+
+    const out = run(cwd, 'spec-reviewer', `${anchored}..${head}`);
+
+    assert.equal(out.anchors.checked, 0,
+      'no spec file is in this range, so the in-file pass has nothing to check');
+    assert.equal(out.anchorsCitingChanged.checked, 2,
+      'both anchors citing the changed file are resolved; the one citing an untouched file is not work this diff owes');
+    assert.deepEqual(out.anchorsCitingChanged.unresolved.map((row) => row.symbol), ['renamedAway'],
+      'a path that still exists with the symbol gone is the drift this pass exists for');
+  });
 });
 
 describe('lane-evidence.mjs — documentation references', () => {

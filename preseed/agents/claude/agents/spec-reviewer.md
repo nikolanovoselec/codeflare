@@ -71,9 +71,11 @@ Five manifest rows are already computed and carried in `evidence`; running them 
 | REQ dependency acyclicity | `dependencyGraph` (`reqs`, `edges`, `cycles`); a non-empty `cycles` is the finding |
 | queue hygiene and backlog re-triage | `queue`, the triage file verbatim |
 | changelog drift | `changelog`, the current date section — enough to see whether this diff's REQs got an entry |
-| CQ-SOURCE and CQ-TEST anchor resolution | `anchors.checked` with every failure in `anchors.unresolved` |
+| CQ-SOURCE and CQ-TEST anchor resolution | `anchors` for anchors inside changed spec files, **and `anchorsCitingChanged` for anchors elsewhere in `sdd/` that cite a file this diff changed** — each is `checked` plus every failure in `unresolved` |
 
 `evidence.specIndex` is the domain index and `evidence.pending` the known-gaps backlog. `evidence.adrs` lists every ADR as an `AD<n>|title|status` row (status omitted when the record carries none). A field that is null or absent is the only case you gather yourself.
+
+**A range carrying no REQ file still owes an anchor check, and `anchorsCitingChanged` is that check, already performed.** `anchors` covers anchors *inside* changed spec files, so it is legitimately `checked: 0` whenever the diff touched only the changelog — that zero is not a pass, but neither is it your cue to resolve anchors one at a time. When a changed source file is `@impl`- or `@test`-anchored from anywhere in `sdd/`, those anchors arrive here already resolved, bounded to the ones pointing at this diff. Re-deriving them by hand cost twelve turns on a range whose only spec-owned file was `changes.md`.
 
 ## Procedure
 

@@ -650,9 +650,13 @@ describe('run-review-lane.sh — guard settings under a hostile config path', ()
 describe('run-review-lane.sh — timeout bound', () => {
   // Shim `timeout` so the bound it was actually handed is observable; the real
   // one would just run the fake CLI and tell us nothing about its arguments.
+  // Keyed by the command being wrapped (`$4`, after `-k <kill> <bound>`). The
+  // runner bounds two different subprocesses -- the evidence resolver (`node`)
+  // and the lane itself (`claude`) -- and a single truncating witness would
+  // record only whichever ran last, making one of the two bounds unobservable.
   function fakeTimeout(binDir, witness) {
     const p = join(binDir, 'timeout');
-    writeFileSync(p, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > ${witness}.timeout\nshift 3\nexec "$@"\n`);
+    writeFileSync(p, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > ${witness}.timeout.$4\nshift 3\nexec "$@"\n`);
     chmodSync(p, 0o755);
   }
 
@@ -681,8 +685,48 @@ describe('run-review-lane.sh — timeout bound', () => {
         },
       });
 
-      const argv = readFileSync(`${witness}.timeout`, 'utf-8').split('\n');
+      const argv = readFileSync(`${witness}.timeout.claude`, 'utf-8').split('\n');
       assert.equal(argv[0], '-k', 'plain SIGTERM leaves a wedged lane running');
+      assert.equal(argv[2], expected);
+    });
+  }
+
+  // The resolver runs BEFORE the lane and holds the gate open for its own bound,
+  // so its default governs worst-case gate time just as the lane's does. It moved
+  // 60s -> 300s to cover a full-branch range on a resumed session; untested, a
+  // later edit or a mis-wired fallback would be invisible.
+  for (const [label, value, expected] of [
+    ['zero', '0', '300'],
+    ['all-zero', '00', '300'],
+    ['non-numeric', 'abc', '300'],
+    ['empty', '', '300'],
+    ['a leading-zero override', '0600', '600'],
+    ['a real override', '600', '600'],
+  ]) {
+    it(`resolves ${label} REVIEW_LANE_EVIDENCE_TIMEOUT to ${expected}s`, () => {
+      const { cwd, base, head } = makeRepo('src/thing.ts');
+      const { home, hookScripts } = makeClaudeHome(cwd);
+      const witness = join(cwd, 'claude-was-called');
+      const binDir = fakeClaude(cwd, witness);
+      fakeTimeout(binDir, witness);
+      // Without a resolver on disk the runner skips the block entirely and never
+      // bounds anything, so the assertion would pass on a file that never existed.
+      stubEvidence(home, { lane: 'code-reviewer', references: { checked: 1, unresolved: [] } });
+
+      const seededRunner = join(hookScripts, 'run-review-lane.sh');
+      writeFileSync(seededRunner, readFileSync(RUNNER, 'utf-8'));
+      spawnSync('bash', [seededRunner, '--lane', 'code-reviewer', '--range', `${base}..${head}`], {
+        cwd, encoding: 'utf-8',
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          CLAUDE_CONFIG_DIR: home,
+          REVIEW_LANE_EVIDENCE_TIMEOUT: value,
+        },
+      });
+
+      const argv = readFileSync(`${witness}.timeout.node`, 'utf-8').split('\n');
+      assert.equal(argv[0], '-k', 'a reaped resolver must escalate past SIGTERM');
       assert.equal(argv[2], expected);
     });
   }

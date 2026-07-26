@@ -196,12 +196,17 @@ const TEST_RE = /<!--\s*@test:\s*([^\s(]+)\s*\(([^)]+)\)\s*-->/g;
 // that file. Both halves matter: a path that exists with the symbol renamed
 // underneath is the drift these anchors are for, and it is what a lane spends a
 // turn per anchor discovering.
-function resolveAnchors(repo, files) {
+// `targets`, when given, restricts resolution to anchors pointing at those
+// files. A spec file can carry hundreds of anchors; when the question is "which
+// anchors does THIS diff invalidate", resolving the rest is work nobody asked
+// for and budget the answer needs.
+function resolveAnchors(repo, files, targets = null) {
   const rows = [];
   for (const file of files.slice(0, MAX_LIST)) {
     const body = read(repo, file);
     if (body === null) continue;
     for (const [, target, symbol, value] of body.matchAll(IMPL_RE)) {
+      if (targets && !targets.has(target)) continue;
       const targetBody = read(repo, target);
       const needle = value ?? symbol ?? null;
       rows.push({
@@ -213,6 +218,7 @@ function resolveAnchors(repo, files) {
       });
     }
     for (const [, target, title] of body.matchAll(TEST_RE)) {
+      if (targets && !targets.has(target)) continue;
       const targetBody = read(repo, target);
       rows.push({
         kind: 'test',
@@ -437,6 +443,23 @@ function main() {
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*]\s*\[/.test(line)).join('\n') || null;
     out.pending = read(repo, 'sdd/spec/pending.md') ?? read(repo, 'sdd/pending.md');
     out.anchors = fromDiff(summarise(resolveAnchors(repo, files.filter((f) => f.startsWith('sdd/')))));
+    // Anchors ELSEWHERE in the spec tree that cite a file this diff changed --
+    // the same gap the doc lane had, and the same fix. Anchors found INSIDE a
+    // changed spec file are empty on any range carrying no REQ file, and the
+    // lane is correctly told a zero count means unknown rather than clean, so it
+    // resolved every one of them by hand: twelve anchors, twelve turns, on a
+    // range whose only spec-owned file was the changelog. Resolution is bounded
+    // to anchors pointing AT the changed files, not to every anchor in whatever
+    // large REQ document happens to contain one.
+    const changedSource = files.filter((f) => !f.startsWith('sdd/'));
+    if (changedSource.length) {
+      const citing = [...new Set(changedSource.flatMap((file) => git(repo, [
+        'grep', '-lE', '-a', '--', `<!--\\s*@(impl|test):\\s*${ereEscape(file)}`, 'sdd',
+      ]).split('\n').filter(Boolean)))];
+      out.anchorsCitingChanged = fromDiff(
+        summarise(resolveAnchors(repo, citing, new Set(changedSource))),
+      );
+    }
   } else if (lane === 'doc-updater') {
     // The classifier spawns this lane when a documentation @impl cites a file in
     // the diff, so that citation IS its work set when no doc file was touched.
