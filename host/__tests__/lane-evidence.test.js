@@ -262,6 +262,69 @@ describe('lane-evidence.mjs — a declaration is not only a keyword', () => {
   });
 });
 
+describe('lane-evidence.mjs — a lane gets evidence for why it was spawned', () => {
+  // The doc lane is pulled in when a documentation @impl cites a changed file,
+  // and was then handed only the anchors inside touched doc files. On a range
+  // with no doc file at all that read as "nothing to verify", so three rounds
+  // returned clean without ever checking the anchors that caused the spawn.
+  it('lists the documentation pages whose anchors cite a changed source file', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/engine.ts', 'export function drive() { return 1; }\n');
+    write(cwd, 'documentation/architecture.md', 'The engine drives. <!-- @impl: src/engine.ts::drive -->\n');
+    commit(cwd, 'feat: engine and its page');
+    write(cwd, 'src/engine.ts', 'export function drive() { return 2; }\n');
+    const head = commit(cwd, 'feat: change what the page describes');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`);
+    const row = (out.docsCitingChanged ?? []).find((entry) => entry.file === 'src/engine.ts');
+
+    assert.ok(row, 'the page making a claim about the changed file is this lane\'s work set');
+    assert.ok(row.citedBy.includes('documentation/architecture.md'));
+  });
+
+  it('stays empty when no documentation page cites the change', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'documentation/a.md', '# unrelated\n');
+    commit(cwd, 'docs: unrelated page');
+    write(cwd, 'src/x.ts', 'export const untouchedByDocs = 1;\n');
+    const head = commit(cwd, 'feat: nothing cites this');
+
+    assert.deepEqual(run(cwd, 'doc-updater', `${base}..${head}`).docsCitingChanged, [],
+      'a genuine no-op must stay one, or the lane is given work that does not exist');
+  });
+});
+
+describe('lane-evidence.mjs — the spec manifest rows', () => {
+  // The spec lane was the only one whose turns never fell, because five of its
+  // manifest rows are tree walks it kept performing itself. Each is deterministic.
+  it('detects a dependency cycle rather than reporting a clean graph', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'sdd/spec/a.md', [
+      '### REQ-A-001: One', '', '**Dependencies:** [REQ-A-002](#req-a-002)', '',
+      '### REQ-A-002: Two', '', '**Dependencies:** [REQ-A-001](#req-a-001)', '',
+    ].join('\n'));
+    const head = commit(cwd, 'spec: a cycle');
+
+    const graph = run(cwd, 'spec-reviewer', `${base}..${head}`).dependencyGraph;
+
+    assert.equal(graph.reqs, 2);
+    assert.ok(graph.cycles.length > 0, 'a cycle reported as clean is worse than not checking at all');
+  });
+
+  it('resolves index links relative to the index, not the spec glob', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'sdd/README.md', '# Index\n\n- [Agents](spec/agents.md)\n- [Gone](spec/removed.md)\n');
+    write(cwd, 'sdd/spec/agents.md', '# Agents\n');
+    const head = commit(cwd, 'spec: index');
+
+    const integrity = run(cwd, 'spec-reviewer', `${base}..${head}`).indexIntegrity;
+
+    assert.deepEqual(integrity.dangling, ['spec/removed.md'],
+      'resolving against the wrong base reports every real entry as dangling');
+    assert.deepEqual(integrity.unindexed, [], 'an indexed file is not unindexed');
+  });
+});
+
 describe('lane-evidence.mjs — the decision record', () => {
   it('carries each ADR id, title and status so the record check costs no read', () => {
     const { cwd, base } = makeRepo();

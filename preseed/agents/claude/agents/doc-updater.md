@@ -49,6 +49,8 @@ Never persist the packet or echo raw packet JSON. `changedInputs` is how source 
 
 For Pass 8 (verification truth-check) and Pass 12 (stranger cold-read), every concrete reference in `documentation/` must resolve to real code. **That resolution is already done** — `evidence.references` carries `checked` and every failure in `unresolved`. Each unresolved entry is a stale doc (HIGH); an empty list over a non-zero `checked` is that pass, complete. Re-running it is a turn spent reproducing an answer you hold.
 
+**A range with no `documentation/` file in it is not automatically a no-op.** You are also spawned when a documentation `@impl` anchor cites a file the diff changed, and `evidence.docsCitingChanged` lists exactly those pairs. When it is non-empty, that IS your work set: for each cited page, check whether the changed source still matches what the page claims — an anchor pointing at a symbol that still exists but now behaves differently is a stale doc (HIGH), and it is the case this lane exists for that no other lane covers. The code lane catches the renamed-or-deleted half; this half is yours. When it is empty and no doc file is in the diff, say so and exit; that is a genuine no-op.
+
 For coverage gaps, cross-reference `changedInputs` against the `documentation/README.md` jump-TOC: a changed entry point with no doc page is HIGH `feature-without-doc`. Under `scope=diff` restrict that to surfaces the range touched; the repo-wide sweep is a `scope=all` obligation.
 
 ## Your triage block

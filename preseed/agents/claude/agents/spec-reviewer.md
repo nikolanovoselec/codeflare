@@ -59,6 +59,20 @@ A `<triage>` block carries every Phase 0 answer already: bootstrap and layout, t
 
 `transition.corrupt: true` → emit HIGH `sdd-transition-corrupt` and continue. `bulkOpAudit.findings` → report each as your own at the severity it carries; the script detected them, you are what surfaces them. `roundLimit` is informational. `decision: "exit-no-op"` never reaches you. If the block is absent, derive Phase 0 in **one** compound Bash call.
 
+## Your resolved evidence
+
+Five manifest rows are already computed and carried in `evidence`; running them yourself spends a turn reproducing an answer you hold.
+
+| Manifest row | Read it from |
+|---|---|
+| index integrity | `indexIntegrity.unindexed` and `.dangling` — both empty is that row, passed |
+| REQ dependency acyclicity | `dependencyGraph` (`reqs`, `edges`, `cycles`); a non-empty `cycles` is the finding |
+| queue hygiene and backlog re-triage | `queue`, the triage file verbatim |
+| changelog drift | `changelog`, the current date section — enough to see whether this diff's REQs got an entry |
+| CQ-SOURCE and CQ-TEST anchor resolution | `anchors.checked` with every failure in `anchors.unresolved` |
+
+`evidence.specIndex` is the domain index and `evidence.pending` the known-gaps backlog. `evidence.adrs` lists every ADR by id, title and status. A field that is null or absent is the only case you gather yourself.
+
 ## Procedure
 
 You own `sdd/` only, both layouts. `documentation/` is doc-updater's lane, source is code-reviewer's, root `README.md` is doc-updater's. You run on PR-boundary events targeting `main`/`master` and only when `sdd/` exists; otherwise exit silently.

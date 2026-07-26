@@ -2671,15 +2671,16 @@ None.
 **Constraints:**
 
 - No hard turn, call, or token cap; truncating a review is worse than paying for it.
-- A wave never licenses skipping a required check; it is batched into one.
-- Broad discovery is forbidden: no repository survey, no indexed search, no re-reading returned evidence, no re-deriving what an inlined block resolved.
+- A wave never licenses skipping a required check; it batches it.
+- Broad discovery is forbidden: no survey, no indexed search, no re-reading returned evidence, no re-deriving a resolved block.
 - Over-cap inlined evidence degrades by field, never by block.
 - A shed field is a named marker stating its recovery.
 - Resolved evidence counts passes and lists failures in full.
 - A resolver failure yields an absent field, never an empty one.
-- Report length is bounded: a finding is short, a clean pass is a count, and the search is never narrated back.
+- Report length is bounded: a finding is short, a clean pass a count, the search never narrated back.
 - The lane prompt arrives on standard input; no single argument holds it.
 - One canonical resolver serves both runtimes, reaching Pi byte-identically.
+- Evidence covers why a lane was spawned, not only the files it owns.
 
 **Priority:** P1
 

@@ -263,6 +263,49 @@ function callSites(repo, files, range) {
   return rows;
 }
 
+// REQ dependency acyclicity: every `Dependencies:` edge, walked for a cycle.
+// The lane reported "372 REQs, 585 edges, 0 cycles" by doing this itself, which
+// is a whole turn to learn a fact that does not need a model.
+function reqDependencyGraph(repo, specFiles) {
+  const edges = new Map();
+  for (const file of specFiles) {
+    const body = read(repo, file);
+    if (body === null) continue;
+    let current = null;
+    for (const line of body.split('\n')) {
+      const heading = /^###\s+(REQ-[A-Z]+-\d+)/.exec(line);
+      if (heading) { current = heading[1]; edges.set(current, edges.get(current) ?? []); continue; }
+      if (!current || !line.startsWith('**Dependencies:**')) continue;
+      for (const [, target] of line.matchAll(/(REQ-[A-Z]+-\d+)/g)) edges.get(current).push(target);
+    }
+  }
+  // Iterative DFS: a spec tree can be deep enough that recursion is a risk, and
+  // a crash here would read as "no cycles" to a lane told to trust this block.
+  const cycles = [];
+  const state = new Map();
+  for (const start of edges.keys()) {
+    if (state.get(start)) continue;
+    const stack = [[start, 0]];
+    const onPath = new Set([start]);
+    state.set(start, 1);
+    while (stack.length) {
+      const frame = stack[stack.length - 1];
+      const kids = edges.get(frame[0]) ?? [];
+      if (frame[1] >= kids.length) { onPath.delete(frame[0]); state.set(frame[0], 2); stack.pop(); continue; }
+      const next = kids[frame[1]];
+      frame[1] += 1;
+      if (!edges.has(next)) continue;
+      if (onPath.has(next)) { cycles.push(`${frame[0]} -> ${next}`); continue; }
+      if (state.get(next) === 2) continue;
+      state.set(next, 1);
+      onPath.add(next);
+      stack.push([next, 0]);
+    }
+  }
+  const edgeCount = [...edges.values()].reduce((total, list) => total + list.length, 0);
+  return { reqs: edges.size, edges: edgeCount, cycles: cycles.slice(0, MAX_LIST) };
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const repo = args.repo || process.cwd();
@@ -274,11 +317,58 @@ function main() {
   const out = { lane, adrs: adrLedger(repo) };
 
   if (lane === 'spec-reviewer') {
+    // The five manifest rows this lane was still computing itself. Each is a
+    // tree walk or a graph traversal -- no model required, and every one of them
+    // was costing a turn that re-sends the whole prompt.
+    const specGlob = existsSync(join(repo, 'sdd/spec')) ? 'sdd/spec' : 'sdd';
+    const specFiles = git(repo, ['ls-files', '--', `${specGlob}/*.md`]).split('\n').filter(Boolean);
+    // Resolve links relative to the INDEX file, not to the spec glob. The index
+    // lives at sdd/README.md and links `spec/agents.md`; resolving that under
+    // sdd/spec/ produced sdd/spec/spec/agents.md and reported every real entry
+    // as dangling -- a wall of false findings in a block the lane is told to
+    // trust.
+    const indexPath = existsSync(join(repo, `${specGlob}/README.md`)) ? `${specGlob}/README.md` : 'sdd/README.md';
+    const indexDir = indexPath.slice(0, indexPath.lastIndexOf('/'));
+    const index = read(repo, indexPath) ?? '';
+    out.indexIntegrity = {
+      unindexed: specFiles.filter((file) => {
+        const base = file.split('/').pop() ?? '';
+        return base !== 'README.md' && !base.startsWith('.') && !index.includes(base);
+      }),
+      dangling: [...index.matchAll(/\]\(([^)#]+\.md)[^)]*\)/g)]
+        .map(([, target]) => target)
+        .filter((target) => !target.startsWith('http') && !existsSync(join(repo, indexDir, target))),
+    };
+    out.dependencyGraph = reqDependencyGraph(repo, specFiles);
+    // Layout-resolved locally: this module does not carry the triage document,
+    // and referencing it would have thrown into the catch-all, handing the lane
+    // an error object and quietly restoring every lookup this removes.
+    out.queue = read(repo, specGlob === 'sdd/spec' ? 'sdd/spec/.review-queue.md' : 'sdd/.review-needed.md');
+    // Drift detection asks whether THIS diff's REQs got an entry, so the recent
+    // head of the file answers it; carrying the whole history would blow the
+    // evidence cap and shed the resolutions that remove turns.
+    const changelog = read(repo, `${specGlob}/changes.md`) ?? '';
+    const dates = [...changelog.matchAll(/^## .+$/gm)];
+    out.changelog = dates.length > 1
+      ? changelog.slice(dates[0].index, dates[1].index)
+      : changelog.slice(0, 8000) || null;
+  }
+  if (lane === 'spec-reviewer') {
     out.specIndex = (read(repo, 'sdd/README.md') ?? '')
       .split('\n').filter((line) => /^#{1,3}\s|^\s*[-*]\s*\[/.test(line)).join('\n') || null;
     out.pending = read(repo, 'sdd/spec/pending.md') ?? read(repo, 'sdd/pending.md');
     out.anchors = summarise(resolveAnchors(repo, files.filter((f) => f.startsWith('sdd/'))));
   } else if (lane === 'doc-updater') {
+    // The classifier spawns this lane when a documentation @impl cites a file in
+    // the diff, so that citation IS its work set when no doc file was touched.
+    // Handing it only the touched-doc anchors reported checked:0 and confirmed a
+    // conclusion the spawn reason contradicts.
+    const source = files.filter((f) => !f.startsWith('sdd/') && !f.startsWith('documentation/'));
+    out.docsCitingChanged = source.slice(0, MAX_LIST).map((file) => ({
+      file,
+      citedBy: git(repo, ['grep', '-l', '--fixed-strings', '-a', '--', `@impl: ${file}`, 'documentation'])
+        .split('\n').filter(Boolean).filter(live).slice(0, 12),
+    })).filter((row) => row.citedBy.length > 0);
     const nested = existsSync(join(repo, 'documentation/lanes'));
     const index = read(repo, 'documentation/README.md');
     out.docLayout = nested ? 'nested' : 'flat';
