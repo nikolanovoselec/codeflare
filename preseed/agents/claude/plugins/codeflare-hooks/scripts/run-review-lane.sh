@@ -259,16 +259,20 @@ if [ -n "$TRIAGE_JSON" ]; then
   # can appear inside a reason string or a nested finding without the lane
   # having been resolved to a no-op at all.
   TRIAGE_FIELDS="$(printf '%s' "$TRIAGE_JSON" \
-    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s);const r=t.roundLimit||{};const b=t.bulkOpAudit||{};const x=t.transition||{};process.stdout.write(String(t.decision??"")+"\n"+String(t.reason??"").replace(/\s+/g," ")+"\n"+["decision="+(t.decision??"?"),"round="+(r.action??"?")+"("+(r.counted??"?")+"/"+(r.inspected??"?")+")","audit="+((b.findings||[]).length),"transition="+(x.corrupt?"corrupt":(x.active?"active":"clean"))].join(" "))}catch{}})' 2>/dev/null)"
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s);const r=t.roundLimit||{};const b=t.bulkOpAudit||{};const x=t.transition||{};const n=(b.findings||[]).length;const clean=t.decision==="proceed"&&!x.corrupt&&!x.active&&n===0&&r.action==="continue";process.stdout.write(String(t.decision??"")+"\n"+String(t.reason??"").replace(/\s+/g," ")+"\n"+["triage="+(clean?"clean":"attention"),"decision="+(t.decision??"?"),"round="+(r.action??"?")+"("+(r.counted??"?")+"/"+(r.inspected??"?")+")","audit="+n,"transition="+(x.corrupt?"corrupt":(x.active?"active":"clean"))].join(" "))}catch{}})' 2>/dev/null)"
   TRIAGE_DECISION="$(printf '%s\n' "$TRIAGE_FIELDS" | head -n 1)"
   # Triage is a prompt INPUT, so a clean one is invisible to the session that
   # launched the lane: nothing is echoed unless it resolves to a no-op or carries
   # a finding the lane restates. That hid the state that changes what a round
   # does -- a stopped round counter, a corrupt transition, a suppressed audit
   # finding. One stderr line makes it visible and costs no model tokens.
+  #
+  # It leads with a verdict rather than only fields. "Everything passed" and
+  # "nobody looked" are the two readings of silence, and a reader should not have
+  # to reconstruct which one this was out of four scalars.
   TRIAGE_SUMMARY="$(printf '%s\n' "$TRIAGE_FIELDS" | sed -n '3p')"
   if [ -n "$TRIAGE_SUMMARY" ]; then
-    echo "run-review-lane: lane=$LANE triage $TRIAGE_SUMMARY" >&2
+    echo "run-review-lane: lane=$LANE $TRIAGE_SUMMARY" >&2
   fi
   if [ "$TRIAGE_DECISION" = "exit-no-op" ]; then
     TRIAGE_REASON="$(printf '%s\n' "$TRIAGE_FIELDS" | sed -n '2p')"

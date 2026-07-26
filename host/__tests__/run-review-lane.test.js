@@ -345,6 +345,54 @@ describe('run-review-lane.sh — triage no-op short-circuit', () => {
   });
 });
 
+// Triage is a prompt input, so a clean one reached the launching session as
+// nothing at all -- and "everything passed" and "nobody looked" are the same
+// silence. The state that changes what a round does has to be legible without
+// the lane choosing to restate it.
+describe('run-review-lane.sh — triage state reaches the launching session', () => {
+  it('calls a nominal triage clean and carries the state behind that verdict', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, {
+      decision: 'proceed',
+      roundLimit: { counted: 0, inspected: 6, action: 'continue' },
+      bulkOpAudit: { checked: 3, findings: [] },
+      transition: { active: false, corrupt: false },
+    });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.match(r.stderr, /triage=clean/,
+      'a reader must not have to reconstruct the verdict out of four scalars');
+    assert.match(r.stderr, /round=continue\(0\/6\)/);
+    assert.match(r.stderr, /audit=0/);
+  });
+
+  it('withholds the clean verdict when triage carries state a round should notice', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, {
+      decision: 'proceed',
+      roundLimit: { counted: 5, inspected: 6, action: 'stop' },
+      bulkOpAudit: { checked: 4, findings: [{ id: 'bulk-prefix-missing' }] },
+      transition: { active: false, corrupt: true },
+    });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.doesNotMatch(r.stderr, /triage=clean/,
+      'a stopped counter, a corrupt transition and an audit finding must never read as clean');
+    assert.match(r.stderr, /triage=attention/);
+    assert.match(r.stderr, /audit=1/, 'the finding count is what says the lane owes a restatement');
+    assert.match(r.stderr, /transition=corrupt/);
+    assert.equal(existsSync(witness), true, 'reporting state must not stop the review');
+  });
+});
+
 // Both blocks are inlined into every turn's prompt prefix, so both are bounded.
 // The cap is the only thing standing between a large config and a cost paid on
 // every turn of the run.
