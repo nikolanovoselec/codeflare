@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,11 +15,11 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNNER = join(
   HERE,
-  '../preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh',
+  '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh',
 );
 const CLASSIFIER_SRC = join(
   HERE,
-  '../preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh',
+  '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh',
 );
 
 function git(cwd, ...args) {
@@ -66,7 +66,7 @@ function makeClaudeHome(cwd) {
   }
   writeFileSync(
     join(hookScripts, 'lib/lane-classifier.sh'),
-    spawnSync('cat', [CLASSIFIER_SRC], { encoding: 'utf-8' }).stdout,
+    readFileSync(CLASSIFIER_SRC, 'utf-8'),
   );
   return { home, hookScripts };
 }
@@ -89,7 +89,10 @@ function fakeClaude(cwd, witness) {
 function runLane({ repo, home, hookScripts, binDir, lane, range }) {
   // Invoke through the seeded copy so `dirname $0` resolves the classifier.
   const seededRunner = join(hookScripts, 'run-review-lane.sh');
-  writeFileSync(seededRunner, spawnSync('cat', [RUNNER], { encoding: 'utf-8' }).stdout);
+  // readFileSync, not `cat`: a missing source would make cat return empty stdout
+  // without throwing, writing a zero-byte "runner" and reporting a confusing
+  // symptom instead of the real cause.
+  writeFileSync(seededRunner, readFileSync(RUNNER, 'utf-8'));
   return spawnSync('bash', [seededRunner, '--lane', lane, '--range', range], {
     cwd: repo,
     encoding: 'utf-8',

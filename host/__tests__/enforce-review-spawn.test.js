@@ -181,7 +181,13 @@ const LANE_BASH_LINE = (lane, ts, toolUseId = 'toolu_b') =>
     timestamp: ts,
   });
 
-const LANE_BASH_DONE_LINE = (toolUseId) =>
+// A backgrounded Bash lane completes with the SAME notification shape a
+// backgrounded Agent uses, so one completion contract covers both transports.
+const LANE_BASH_DONE_LINE = (toolUseId) => DONE_LINE(toolUseId);
+
+// The start receipt the harness returns the instant a background call is
+// launched. It carries the tool_use_id but means "launched", not "finished".
+const START_RECEIPT_LINE = (toolUseId) =>
   JSON.stringify({
     type: 'user',
     message: { content: [{ type: 'tool_result', tool_use_id: toolUseId }] },
@@ -720,25 +726,64 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     assert.notEqual(ackOf(cwd), 'impostersha');
   });
 
-  // A backgrounded Agent spawn emits a tool_result carrying its tool_use_id at
-  // START time. Accepting that shape for the Agent transport would credit an
-  // in-flight subagent as finished.
-  it('does not treat a background Agent start receipt as lane completion', () => {
+  // Lanes are dispatched with run_in_background, so the harness returns a
+  // tool_result immediately holding a background shell id. Crediting that would
+  // ack the head the instant the lanes launch, while they are still running.
+  for (const [label, spawn] of [
+    ['headless Bash', LANE_BASH_LINE],
+    ['Agent subagent', AGENT_LINE],
+  ]) {
+    it(`does not treat a background ${label} start receipt as completion`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const sha = 'inflightsha';
+      const binDir = fakeGh(cwd, ghReturning('OPEN', sha));
+      const t = writeTranscript(cwd, [
+        PUSH_LINE('2026-05-03T12:00:00.000Z'),
+        spawn('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_1'),
+        START_RECEIPT_LINE('toolu_1'),
+        spawn('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_2'),
+        START_RECEIPT_LINE('toolu_2'),
+        spawn('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_3'),
+        START_RECEIPT_LINE('toolu_3'),
+      ]);
+      runHook(cwd, { transcriptPath: t, binDir });
+      assert.notEqual(ackOf(cwd), sha,
+        'a launch receipt must never advance the checkpoint');
+    });
+  }
+
+  // Quoting the path is the normal defensive habit and $HOME invites it.
+  it('credits a lane whose runner path is quoted', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'inflightsha'));
+    const sha = 'quotedpathsha';
+    const binDir = fakeGh(cwd, ghReturning('OPEN', sha));
+    const quoted = (lane, id) =>
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'Bash',
+              id,
+              input: {
+                command: `bash "$HOME/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh" --lane ${lane} --range aaa..bbb`,
+              },
+            },
+          ],
+        },
+      });
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
-      AGENT_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_cr1'),
-      LANE_BASH_DONE_LINE('toolu_cr1'),
-      AGENT_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_sr1'),
-      LANE_BASH_DONE_LINE('toolu_sr1'),
-      AGENT_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_du1'),
-      LANE_BASH_DONE_LINE('toolu_du1'),
+      quoted('code-reviewer', 'toolu_q1'), DONE_LINE('toolu_q1'),
+      quoted('spec-reviewer', 'toolu_q2'), DONE_LINE('toolu_q2'),
+      quoted('doc-updater', 'toolu_q3'), DONE_LINE('toolu_q3'),
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.notEqual(ackOf(cwd), 'inflightsha',
-      'only a completion notification may finish an Agent-transport lane');
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), sha,
+      'a quoted runner path is still a real lane invocation');
   });
 });
 

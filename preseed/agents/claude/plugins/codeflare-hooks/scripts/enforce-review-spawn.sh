@@ -492,8 +492,13 @@ bash_line_runs_lane() {
       | .input.command? // empty ] | .[]
   ' 2>/dev/null) || return 1
   [ -n "$cmd" ] || return 1
+  # The path may be quoted -- `bash "$HOME/.../run-review-lane.sh"` is the normal
+  # defensive habit and `$HOME` invites it -- so a single leading/trailing quote
+  # is allowed around it. `--lane <name>` and `--lane=<name>` are both accepted.
+  # A shell separator between the runner and its flag is not: that is what keeps
+  # a quoted mention inside some other command from qualifying.
   printf '%s' "$cmd" | grep -qE \
-    "(^|[;&|]|&&|\|\|)[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(bash[[:space:]]+)?[^[:space:];&|\"']*run-review-lane\.sh([[:space:]]+[^;&|\"']*)?[[:space:]]--lane[[:space:]]+${lane}([[:space:]]|\$)"
+    "(^|[;&|]|&&|\|\|)[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(bash[[:space:]]+)?[\"']?[^[:space:];&|\"']*run-review-lane\.sh[\"']?([[:space:]]+[^;&|]*)?[[:space:]]--lane[[:space:]=]+[\"']?${lane}([[:space:]\"']|\$)"
 }
 
 # Verified lane-spawn line numbers, newest last. Optional $2/$3 bound the search
@@ -520,13 +525,6 @@ lane_spawn_lines() {
   done
 }
 
-# True when the transcript line is a headless lane-runner Bash envelope. The
-# tool_result completion shape is only valid for that transport (see below).
-spawn_line_is_bash_runner() {
-  local line_content
-  line_content=$(awk -v L="$1" 'NR==L { print; exit }' "$TRANSCRIPT")
-  printf '%s' "$line_content" | grep -qF 'run-review-lane.sh'
-}
 
 # Completion correlation for a spawned lane, shared by every check below.
 #
@@ -534,28 +532,25 @@ spawn_line_is_bash_runner() {
 #
 #   (a) Agent subagent - a background task notification carrying
 #       `tool-use-id>ID<` together with `completed</status>`.
-#   (b) Headless subprocess - the Bash tool_result envelope carrying
-#       `"tool_use_id":"ID"`. A synchronous Bash call never emits the
-#       background-notification shape, so (a) alone would leave every
-#       subprocess lane looking permanently in-flight.
+#   (b) Headless subprocess - launched as a BACKGROUND Bash call, which emits
+#       the very same notification shape on completion.
 #
-# The tool_result shape is accepted ONLY for the subprocess transport. A
-# BACKGROUNDED Agent spawn emits a tool_result carrying the same tool_use_id at
-# START time, long before `completed</status>` arrives, so applying (b) to the
-# Agent transport would credit an in-flight subagent as finished and ack a head
-# whose review never ran. Shape (a) alone therefore remains the whole contract
-# for Agent spawns - byte-for-byte the previous behaviour.
+# One contract therefore covers both transports, byte-for-byte the behaviour
+# that predates the headless transport.
+#
+# A tool_result carrying `"tool_use_id":"ID"` is deliberately NOT accepted. Under
+# `run_in_background`, which is how lanes are dispatched, the harness returns
+# that envelope IMMEDIATELY as a start receipt holding a background shell id -
+# it means "launched", never "finished". Treating it as completion would credit
+# all three lanes the instant they launch and ack a head whose review is still
+# running. That applies equally to a backgrounded Agent spawn, so no transport
+# may use it.
 tool_use_id_completed() {
   local spawn_line="$1"
   local tool_use_id="$2"
-  if awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-      | grep -F "tool-use-id>${tool_use_id}<" \
-      | grep -qF 'completed</status>'; then
-    return 0
-  fi
-  spawn_line_is_bash_runner "$spawn_line" || return 1
   awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-    | grep -qF "\"tool_use_id\":\"${tool_use_id}\""
+    | grep -F "tool-use-id>${tool_use_id}<" \
+    | grep -qF 'completed</status>'
 }
 
 retroactive_ack_scan() {
@@ -788,7 +783,7 @@ fi
 # ---------------------------------------------------------------------------
 
 # Lane-envelope match contract (used by the lane-coverage and in-flight checks
-# below) lives in `is_lane_spawn` / `tool_use_id_completed` near the top of this
+# below) lives in `lane_spawn_lines` / `tool_use_id_completed` near the top of this
 # script, so both transports are described in exactly one place. Every match
 # anchors on `"type":"tool_use"` on the same line, so it only fires on real
 # tool_use envelopes - not on prose / tool_result text / ctx_execute output that
@@ -1034,7 +1029,7 @@ if requires_lane "doc-updater" && ! lane_has_current_coverage "doc-updater" && !
 fi
 
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn$MISSING in parallel. Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>' with run_in_background true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
   emit_block "$REASON"
 fi
 
