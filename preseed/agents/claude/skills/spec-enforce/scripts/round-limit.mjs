@@ -19,9 +19,16 @@ function action(countedCommits, autonomyOverride) {
 // is an intentional bulk op and is neither; a plain commit in the lane is
 // user-directed work, which closes the window -- anything older is a prior cycle.
 function countRounds(repo, lane) {
+  // A bare prefix would let `--lane sdd` match `sdd-notes/`.
+  const lanePrefix = lane.endsWith('/') ? lane : `${lane}/`;
+
   // NUL-delimited: a commit subject may itself contain any printable delimiter,
   // and a phantom block is the same miscount this script exists to remove.
-  const log = execFileSync('git', ['log', `-${WINDOW}`, '--name-only', '--format=%x00%H %s'], {
+  // `-m --first-parent`: without it a merge carries no file list at all, so a
+  // user-directed merge landing lane work neither counts nor closes the window.
+  const log = execFileSync('git', [
+    'log', `-${WINDOW}`, '--name-only', '-m', '--first-parent', '--format=%x00%H %s',
+  ], {
     cwd: repo,
     encoding: 'utf8',
   });
@@ -30,7 +37,7 @@ function countRounds(repo, lane) {
   for (const block of log.split('\0').slice(1)) {
     const lines = block.split('\n');
     const subject = lines[0].slice(lines[0].indexOf(' ') + 1);
-    const touchedLane = lines.slice(1).some((file) => file && file.startsWith(lane));
+    const touchedLane = lines.slice(1).some((file) => file && file.startsWith(lanePrefix));
 
     if (COUNTED.some((tag) => subject.startsWith(tag))) {
       if (touchedLane) counted += 1;

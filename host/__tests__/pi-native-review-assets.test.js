@@ -14,6 +14,19 @@ const jsonEnd = generatedSource.lastIndexOf('];') + 1;
 assert.ok(jsonStart >= assignment.length && jsonEnd > jsonStart, 'generated seed document array not found');
 const documents = JSON.parse(generatedSource.slice(jsonStart, jsonEnd));
 const piManifest = JSON.parse(readFileSync(join(repoRoot, 'preseed/agents/pi/manifest.json'), 'utf8'));
+const GATE_SCRIPT = join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs');
+
+// Sorted, de-duplicated tag literals, so the policy prose and the gate's arrays
+// are compared as sets rather than as text.
+const declaredTags = (text) => [...new Set(
+  [...text.matchAll(/(\[[a-z-]+\])/g)].map((match) => match[1]),
+)].sort();
+
+const gateArray = (name) => declaredTags(
+  readFileSync(GATE_SCRIPT, 'utf8').match(new RegExp(`^const ${name} = \\[(.*)\\];$`, 'm'))?.[1] ?? '',
+);
+const gateCountedTags = () => gateArray('COUNTED');
+const gateExcludedTags = () => gateArray('EXCLUDED');
 
 function targetKey(relativePath) {
   if (relativePath === 'package.json' || relativePath === 'package-lock.json') {
@@ -174,8 +187,18 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     // Commits oldest-first.
     function repoWith(commits) {
       const cwd = mkdtempSync(join(tmpdir(), 'round-limit-'));
-      const git = (...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
-      git('init', '-q', '.');
+      // Hermetic: an ambient `commit.gpgsign` or `core.hooksPath` would fail the
+      // commit and surface as a wrong count rather than as the real cause.
+      const git = (...args) => {
+        const result = spawnSync('git', args, {
+          cwd,
+          encoding: 'utf8',
+          env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+        });
+        assert.equal(result.status, 0, `git ${args[0]} failed: ${result.stderr}`);
+        return result;
+      };
+      git('init', '-q', '-b', 'main', '.');
       git('config', 'user.email', 'test@users.noreply.github.com');
       git('config', 'user.name', 'test');
       commits.forEach(({ subject, files }, index) => {
@@ -210,6 +233,25 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       assert.equal(count(cwd), 'counted=2 gate=continue');
     });
 
+    it('counts every tag the policy declares, and none it excludes', () => {
+      // Driven per tag rather than asserted from the array, so a tag that is
+      // declared but mishandled at runtime cannot pass on its declaration alone.
+      for (const tag of gateCountedTags()) {
+        const cwd = repoWith([
+          { subject: 'feat: base', files: ['README.md'] },
+          { subject: `${tag} fix: lane work`, files: ['sdd/spec/x.md'] },
+        ]);
+        assert.equal(count(cwd), 'counted=1 gate=continue', `${tag} is counted, so it must count`);
+      }
+      for (const tag of gateExcludedTags()) {
+        const cwd = repoWith([
+          { subject: 'feat: base', files: ['README.md'] },
+          { subject: `${tag} chore: bulk operation`, files: ['sdd/spec/x.md'] },
+        ]);
+        assert.equal(count(cwd), 'counted=0 gate=continue', `${tag} is a bulk op, so it must not count`);
+      }
+    });
+
     it('is not fooled by a commit subject that looks like a record separator', () => {
       const cwd = repoWith([
         { subject: 'feat: base', files: ['README.md'] },
@@ -229,6 +271,40 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
         { subject: '[code-reviewer] fix: this cycle', files: ['sdd/spec/x.md'] },
       ]);
       assert.equal(count(cwd), 'counted=1 gate=continue');
+    });
+
+    it('sees lane changes that arrive through a user-directed merge', () => {
+      const cwd = repoWith([{ subject: 'feat: base', files: ['README.md'] }]);
+      const git = (...args) => spawnSync('git', args, {
+        cwd,
+        encoding: 'utf8',
+        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+      });
+      git('checkout', '-q', '-b', 'side');
+      mkdirSync(join(cwd, 'sdd/spec'), { recursive: true });
+      writeFileSync(join(cwd, 'sdd/spec/x.md'), 'side\n');
+      git('add', '-A');
+      git('commit', '-q', '-m', '[code-reviewer] fix: on the side branch');
+      git('checkout', '-q', 'main');
+      const merged = git('merge', '-q', '--no-ff', 'side', '-m', 'fix: merge user work');
+      assert.equal(merged.status, 0, merged.stderr);
+
+      // A merge carries no file list of its own, so the lane work it lands used
+      // to be invisible: it neither counted nor closed the window.
+      assert.equal(count(cwd), 'counted=0 gate=continue');
+    });
+
+    it('does not treat a sibling directory as the lane', () => {
+      const cwd = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: sibling directory', files: ['sdd-notes/x.md'] },
+      ]);
+      // `--lane sdd` must not swallow `sdd-notes/`.
+      const result = spawnSync(process.execPath, [script, '--repo', cwd, '--lane', 'sdd'], {
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), 'counted=0 gate=continue');
     });
 
     it('does not close the window on a plain commit outside the lane', () => {
@@ -278,19 +354,11 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       'the row must scope counting to the closed set, not leave the tag scope to be inferred');
     const countedSet = skill.match(/\*\*Counted as agent-authored\*\*[^\n]*/)?.[0];
     assert.ok(countedSet, 'the contract the row defers to must declare the counted set');
-    // Compared against the gate's own set rather than a third hardcoded list:
-    // the policy the reviewer reads and the tags the gate counts must be one set,
-    // and two copies can otherwise drift in opposite directions unnoticed.
-    const gateSource = readFileSync(
-      join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs'),
-      'utf8',
-    );
-    const gateTags = [...(gateSource.match(/^const COUNTED = \[(.*)\];$/m)?.[1] ?? '')
-      .matchAll(/'(\[[a-z-]+\])'/g)].map((match) => match[1]);
-    assert.ok(gateTags.length >= 5, 'the gate must declare the counted tag set it counts');
-    for (const tag of gateTags) {
-      assert.ok(countedSet.includes(tag), `${tag} is counted by the gate but absent from the policy set`);
-    }
+    // Compared against the gate's own set rather than a third hardcoded list,
+    // and in both directions: a tag the policy declares but the gate omits is
+    // the direction that fails open -- the gate simply never counts it.
+    assert.deepEqual(gateCountedTags(), declaredTags(countedSet.split('Example:')[0]),
+      'the tags the policy declares and the tags the gate counts must be one set');
     // Both halves of the evidence contract live in the row's trailing status
     // template, so parse that cell rather than the whole row: a substring match
     // would also accept the field appearing loose in the prose beside it.
