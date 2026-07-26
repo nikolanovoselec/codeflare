@@ -195,8 +195,14 @@ const CODE_PATH = /\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|py|go|rs|java|rb|php|sql)$/;
 const ereEscape = (value) => value.replace(/[.[\]{}()*+?^$|\\/-]/g, '\\$&');
 
 const declaredIn = (repo, symbol) => {
+  const name = ereEscape(symbol);
   const hits = git(repo, ['grep', '-lE', '-a', '--',
-    `(function|const|let|var|class|export|def|func|type|interface)[[:space:]]+${ereEscape(symbol)}\\b`])
+    // Keyword form (`function foo`, `const foo`, `export foo`), definition
+    // shape (`foo() {` for a shell function or a class method), and binding
+    // shape (`foo:` / `foo =` for an object member or a re-export).
+    `((function|const|let|var|class|export|def|func|type|interface)[[:space:]]+${name}\\b`
+    + `|(^|[[:space:]])${name}[[:space:]]*\\([^)]*\\)[[:space:]]*[{:]`
+    + `|(^|[[:space:]])${name}[[:space:]]*[:=][^=])`])
     .split('\n').filter(Boolean).filter(live).filter((path) => CODE_PATH.test(path));
   return hits.length > 0;
 };
@@ -237,16 +243,19 @@ function callSites(repo, files, range) {
   }
   const rows = [];
   for (const symbol of [...symbols].slice(0, MAX_LIST)) {
-    const hits = git(repo, ['grep', '-n', '--fixed-strings', '-a', '--', symbol])
+    const matched = git(repo, ['grep', '-n', '--fixed-strings', '-a', '--', symbol])
       .split('\n').filter(Boolean).filter(live)
-      .filter((line) => CODE_PATH.test(line.split(':')[0] ?? ''))
-      .map(clip);
+      .filter((line) => CODE_PATH.test(line.split(':')[0] ?? ''));
+    // Cap BEFORE clipping: one over the cap is all that is needed to know the
+    // symbol is too common, and clipping the rest is work whose only outcome is
+    // being discarded -- inside a time budget whose expiry loses all evidence.
+    const hits = matched.slice(0, 13).map(clip);
     // A name with more hits than the cap is too common for the list to be
     // useful -- but DROPPING the row reads to the lane as "no callers", and the
     // lane is told not to re-check what it was handed. Say so instead, so it
     // knows to search this one symbol itself.
     if (hits.length > 12) {
-      rows.push({ symbol, sites: [], tooCommon: true, hitCount: hits.length });
+      rows.push({ symbol, sites: [], tooCommon: true, hitCount: matched.length });
       continue;
     }
     rows.push({ symbol, sites: hits });

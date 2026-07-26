@@ -252,6 +252,29 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
       'and arrive intact, not truncated to fit');
   });
 
+  // The resolver is time-bounded, so it can be reaped mid-write, and the capture
+  // keeps whatever bytes arrived. Only the over-cap branch reached jq, so a
+  // truncated sub-cap document was inlined as an authoritative block the lane is
+  // explicitly told not to re-derive.
+  it('refuses to inline evidence that is not valid JSON', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    mkdirSync(join(home, 'skills/review-scope/scripts'), { recursive: true });
+    writeFileSync(join(home, 'skills/review-scope/scripts/lane-evidence.mjs'),
+      'process.stdout.write("{\\"lane\\":\\"truncated-half-w");\n');
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+    const delivered = readFileSync(`${witness}.prompt`, 'utf-8');
+
+    assert.doesNotMatch(delivered, /truncated-half-w/,
+      'a partial document must not be presented as resolved lookups');
+    assert.equal(delivered.split('\n').includes('<evidence>'), false,
+      'and no block may be opened at all, or the lane treats absence as an answer');
+    assert.match(r.stderr, /not valid JSON/);
+  });
+
   it('reviews normally when evidence cannot be resolved', () => {
     const { cwd, base, head } = makeRepo('src/thing.ts');
     const { home, hookScripts } = makeClaudeHome(cwd);

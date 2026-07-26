@@ -317,6 +317,13 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
     EVIDENCE_JSON="$(node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
       ${RANGE_FULL:+--range "$RANGE_FULL"} 2>/dev/null || true)"
   fi
+  # A reaped or crashed resolver leaves whatever bytes reached the pipe. Inlining
+  # those as authoritative is worse than inlining nothing, because the lane is
+  # told not to re-derive the block. Unparseable means absent.
+  if [ -n "$EVIDENCE_JSON" ] && ! printf '%s' "$EVIDENCE_JSON" | jq -e . >/dev/null 2>&1; then
+    echo "run-review-lane: evidence was not valid JSON; lane gathers it itself" >&2
+    EVIDENCE_JSON=""
+  fi
   EVIDENCE_MAX_BYTES="${REVIEW_LANE_EVIDENCE_MAX_BYTES:-65536}"
   case "$EVIDENCE_MAX_BYTES" in ''|*[!0-9]*|0) EVIDENCE_MAX_BYTES=65536 ;; esac
   if [ "$(( $(printf '%s' "$EVIDENCE_JSON" | wc -c) ))" -gt "$EVIDENCE_MAX_BYTES" ]; then

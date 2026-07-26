@@ -243,6 +243,25 @@ describe('lane-evidence.mjs — a reference match must be literal', () => {
   });
 });
 
+describe('lane-evidence.mjs — a declaration is not only a keyword', () => {
+  // Keyword-prefixed declarations are one shape among several. A shell function,
+  // a class method and an object member declare a symbol without any of them,
+  // and this repository is full of the first -- so live references were being
+  // reported as stale, which is the same false verdict in the other direction.
+  it('resolves shell functions, methods and members, not just keyword forms', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'scripts/lane.sh', 'run_lane() {\n  echo hi\n}\n');
+    write(cwd, 'src/a.ts', 'class Thing {\n  methodName() { return 1; }\n}\nconst obj = { memberName: 1 };\n');
+    write(cwd, 'documentation/x.md', 'Calls `run_lane`, `methodName`, `memberName`, and the gone `neverDefined`.\n');
+    const head = commit(cwd, 'docs: shapes');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((row) => row.ref);
+
+    assert.deepEqual(unresolved, ['neverDefined'],
+      'only the symbol that genuinely does not exist may be reported; the other three are declared');
+  });
+});
+
 describe('lane-evidence.mjs — the decision record', () => {
   it('carries each ADR id, title and status so the record check costs no read', () => {
     const { cwd, base } = makeRepo();
