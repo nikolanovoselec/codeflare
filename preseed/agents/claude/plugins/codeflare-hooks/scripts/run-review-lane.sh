@@ -341,13 +341,14 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
   case "$EVIDENCE_MAX_BYTES" in ''|*[!0-9]*|0) EVIDENCE_MAX_BYTES=65536 ;; esac
   if [ "$(( $(printf '%s' "$EVIDENCE_JSON" | wc -c) ))" -gt "$EVIDENCE_MAX_BYTES" ]; then
     # Degrade by field, like the two blocks beside it. The verbatim indexes are
-    # the bulky fields; the resolved answers are the ones that remove turns. The
-    # config is a resolution rather than an index, so dropping it is named the
-    # way the module's own shed names it -- a silent loss reads as a field the
-    # block never carried.
-    SHRUNK=$(printf '%s' "$EVIDENCE_JSON" | jq -c '(if has("docsCitingChanged") then .docsCitingChanged |= map(del(.patch) + {patchOmitted:true}) else . end) | del(.docIndex, .specIndex, .pending, .config) + {indexesOmitted:true} + (if has("config") then {omitted:((.omitted//[])+["config"])} else {} end)' 2>/dev/null || true)
+    # the bulk; the resolved answers are what remove turns. Every field this
+    # drops is named, the way the module's own shed names them -- `pending` and
+    # `config` are resolutions rather than indexes, and a loss that is never
+    # announced reads as a field the block never carried, so the lane re-derives
+    # it and spends the turn the shed exists to save.
+    SHRUNK=$(printf '%s' "$EVIDENCE_JSON" | jq -c '. as $in | (if has("docsCitingChanged") then .docsCitingChanged |= map(del(.patch) + {patchOmitted:true}) else . end) | del(.docIndex, .specIndex, .pending, .config) + {indexesOmitted:true, omitted:(($in.omitted//[]) + (["docIndex","specIndex","pending","config"] | map(. as $f | select($in | has($f)))))}' 2>/dev/null || true)
     if [ -n "$SHRUNK" ] && [ "$(( $(printf '%s' "$SHRUNK" | wc -c) ))" -le "$EVIDENCE_MAX_BYTES" ]; then
-      echo "run-review-lane: evidence over ${EVIDENCE_MAX_BYTES}B; verbatim indexes and config omitted, resolved answers retained" >&2
+      echo "run-review-lane: evidence over ${EVIDENCE_MAX_BYTES}B; shed fields named in .omitted" >&2
       EVIDENCE_JSON="$SHRUNK"
     else
       echo "run-review-lane: evidence over ${EVIDENCE_MAX_BYTES}B even without the indexes; lane gathers it itself" >&2

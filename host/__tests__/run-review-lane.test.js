@@ -227,7 +227,8 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
   });
 
   // Same degrade-by-field rule as its two siblings: the verbatim indexes are the
-  // bulk, the resolutions are what remove turns, so the resolutions survive.
+  // bulk, the resolutions are what remove turns, so the resolutions survive --
+  // and whatever does go is named, so the lane can tell a shed from an absence.
   it('sheds the verbatim indexes rather than the whole evidence block', () => {
     const { cwd, base, head } = makeRepo('src/thing.ts');
     const { home, hookScripts } = makeClaudeHome(cwd);
@@ -236,6 +237,9 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     stubEvidence(home, {
       lane: 'code-reviewer',
       docIndex: 'z'.repeat(80000),
+      // A resolution the shed also drops. Absent and shed are the same shape to
+      // the lane, so an unnamed loss is re-derived at the cost of a turn.
+      pending: 'a pending manifest',
       references: { checked: 12, unresolved: [{ ref: 'src/gone.ts', resolved: false }] },
     });
 
@@ -247,7 +251,11 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     assert.doesNotMatch(argv, /zzzzzzzzzz/, 'the field that blew the cap must not reach the prompt');
     assert.match(argv, /src\/gone\.ts/,
       'the resolutions are the part that removes turns and must survive the shed');
-    assert.match(r.stderr, /verbatim indexes omitted/);
+    assert.match(argv, /"omitted":\[[^\]]*"pending"/,
+      'a dropped resolution must name itself; unnamed, it is indistinguishable from one that was never carried');
+    assert.doesNotMatch(argv, /"omitted":\[[^\]]*"config"/,
+      'a field the block never carried must not be reported as shed');
+    assert.match(r.stderr, /shed fields named in \.omitted/);
   });
 
   // Linux caps ONE argument at MAX_ARG_STRLEN (128 KB) however large ARG_MAX is.
