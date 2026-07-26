@@ -261,10 +261,11 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
         { subject: '[code-reviewer] fix: an earlier round', files: ['sdd/spec/x.md'] },
         { subject: '[not-a-real-tag] fix: lane work', files: ['sdd/spec/x.md'] },
       ]);
-      // Distinguishes all three ways this can be wrong: counting it gives 2,
-      // treating it as a bulk op gives 1, and only closing the window gives 0.
-      // This is what proves the gate counts no tag beyond the contract, without
-      // reading its source for the list.
+      // An unlisted tag is ordinary user-directed work. Distinguishes all three
+      // ways that can go wrong: counting it gives 2, treating it as a bulk op
+      // gives 1, closing the window gives 0. It covers this tag, not every tag
+      // the gate might have added -- that direction has no fixture, and reading
+      // the gate's source for it is what these tests stopped doing.
       assert.equal(count(cwd), 'counted=0 gate=continue');
     });
 
@@ -294,8 +295,14 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     // lane work it lands is invisible to both the count and the reset. The
     // commit-prefix contract already requires agent commits to carry a tag, so
     // an agent landing a round through a merge tags the merge.
+    // The earlier round below the branch point is load-bearing: without it a
+    // gate that ignored merges entirely would also report zero, and the closure
+    // case could not fail for the reason its name gives.
     function mergeLanding(subject) {
-      const { cwd, git } = repoWith([{ subject: 'feat: base', files: ['README.md'] }]);
+      const { cwd, git } = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: an earlier round', files: ['sdd/spec/x.md'] },
+      ]);
       git('checkout', '-q', '-b', 'side');
       mkdirSync(join(cwd, 'sdd/spec'), { recursive: true });
       writeFileSync(join(cwd, 'sdd/spec/x.md'), 'side\n');
@@ -317,11 +324,15 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     });
 
     it('closes the window at lane work landed by a user-directed merge', () => {
+      // Zero only if the merge closed the window: a gate blind to merges would
+      // walk past it and still count the round beneath.
       assert.equal(count(mergeLanding('fix: merge user work')), 'counted=0 gate=continue');
     });
 
     it('counts lane work landed by an agent-tagged merge', () => {
-      assert.equal(count(mergeLanding('[code-reviewer] fix: merge the round')), 'counted=1 gate=continue');
+      // Two: the merge itself plus the round beneath it, which a merge-blind
+      // gate would undercount to one.
+      assert.equal(count(mergeLanding('[code-reviewer] fix: merge the round')), 'counted=2 gate=continue');
     });
 
     it('does not treat a sibling directory as the lane', () => {
