@@ -552,6 +552,27 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
         )?.[1];
         assert.equal(embedded, expectedCanonicalSkill(skillName), `${reviewer} drifted from ${skillName}`);
       }
+
+      // Both runtimes, one list. Only Pi's was pinned, and the two trees then
+      // diverged on HOW policy reaches the reviewer: Pi embedded every
+      // sub-policy while Claude fetched the conditional ones at runtime. That
+      // cost Claude a turn per fetch and re-sent the fetched bytes outside the
+      // cached prefix for the rest of the run -- 6 turns and 349k tokens on one
+      // range against 4 and 138k, with the SMALLER system prompt. A divergence
+      // in delivery is a divergence in cost and in what the reviewer holds when
+      // it first reads the diff, so it is pinned on both sides now.
+      const claudeDocument = documents.find((document) => document.key === `.claude/agents/${reviewer}.md`);
+      assert.ok(claudeDocument, `.claude/agents/${reviewer}.md not found`);
+      assert.deepEqual(
+        [...claudeDocument.content.matchAll(/<embedded-skill name="([^"]+)">/g)].map((match) => match[1]),
+        skillNames,
+        `${reviewer} must receive the same policy set in both runtimes`,
+      );
+      assert.doesNotMatch(
+        claudeDocument.content,
+        /skills\/<name>\/SKILL\.md/,
+        `${reviewer} must not be told to fetch a policy it already holds`,
+      );
     }
   });
 

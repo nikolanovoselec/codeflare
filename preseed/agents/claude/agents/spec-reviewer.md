@@ -18,19 +18,17 @@ You never delete or rewrite a REQ (report the deletion plus successor handling),
 
 ## Embedded canonical policy
 
-Apply these directly — the spine is embedded and you already hold it, so never re-fetch it.
+Apply these directly — every policy you need is embedded and you already hold it, so never re-fetch one.
 
 <!-- @include-skill review-scope -->
 
 <!-- @include-skill spec-enforce -->
 
-Two sub-policies are **not** embedded, because they are large and conditional: `spec-enforce-ac`, `spec-enforce-truth`. Read whichever the manifest triggers **inside your wave-1 call**, batched with the evidence you were already gathering:
+<!-- @include-skill spec-enforce-ac -->
 
-```bash
-cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
-```
+<!-- @include-skill spec-enforce-truth -->
 
-**One policy per call, never two concatenated, and never bundled with other output.** Each is about 20 KB; a call returning both exceeds the inline result limit, gets spilled to a file, and is then read back in slices — a measured run lost three of its six turns to exactly that (`wc -l`, then two `sed` ranges), all of it plumbing and none of it review. Two calls returning 20 KB each cost two waves and spill nothing.
+The conditional sub-policies are embedded too, and that is a reversal: they were fetched at runtime because they are large and only sometimes needed. Measured against the runtime that embeds them, fetching lost on every axis — the read costs a turn, and a turn re-sends the whole prompt, while the fetched bytes land after the cached prefix and are re-sent at full price for the rest of the run. On one range the fetching lane spent 6 turns and 349k tokens where the embedding lane spent 4 and 138k, with the larger system prompt. Carrying a policy whose condition did not fire costs its bytes once, in the cached prefix; fetching one costs a turn plus its bytes on every turn after. Never re-fetch any of these.
 
 A policy read that rides along in a call you were making anyway costs nothing. A policy read on its own turn costs the whole prompt again — and carrying 41 KB you did not need costs it on every turn of the run. Never read one whose condition did not fire, and never read one twice.
 

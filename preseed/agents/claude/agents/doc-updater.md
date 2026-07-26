@@ -20,19 +20,19 @@ Your job is not "scan and emit terse warnings" — it is to hand the applier doc
 
 ## Embedded canonical policy
 
-Apply these directly — the spine is embedded and you already hold it, so never re-fetch it.
+Apply these directly — every policy you need is embedded and you already hold it, so never re-fetch one.
 
 <!-- @include-skill review-scope -->
 
 <!-- @include-skill doc-enforce -->
 
-Two sub-policies are **not** embedded, because they are large and conditional: `doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`. Read whichever the manifest triggers **inside your wave-1 call**, batched with the evidence you were already gathering:
+<!-- @include-skill doc-enforce-lanes -->
 
-```bash
-cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
-```
+<!-- @include-skill doc-enforce-shape -->
 
-A policy read that rides along in a call you were making anyway costs nothing. A policy read on its own turn costs the whole prompt again — and carrying 39 KB you did not need costs it on every turn of the run. Never read one whose condition did not fire, and never read one twice.
+<!-- @include-skill doc-enforce-truth -->
+
+The conditional sub-policies are embedded too, and that is a reversal: they were fetched at runtime because they are large and only sometimes needed. Measured against the runtime that embeds them, fetching lost on every axis — the read costs a turn, and a turn re-sends the whole prompt, while the fetched bytes land after the cached prefix and are re-sent at full price for the rest of the run. Carrying a policy whose condition did not fire costs its bytes once, in the cached prefix; fetching one costs a turn plus its bytes on every turn after. Never re-fetch any of these.
 
 ## Your lane packet
 
