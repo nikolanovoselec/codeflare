@@ -163,6 +163,53 @@ describe('run-review-lane.sh — no-op short-circuit', () => {
   });
 });
 
+// Stand in for lane-triage.mjs. The runner's contract with it is exactly one
+// thing -- a JSON document on stdout -- so a stub that emits a chosen document
+// exercises the runner's reading of it without reimplementing triage.
+function stubTriage(hookScripts, doc) {
+  writeFileSync(
+    join(hookScripts, 'lib/lane-triage.mjs'),
+    `process.stdout.write(${JSON.stringify(JSON.stringify(doc, null, 2))});\n`,
+  );
+}
+
+// REQ-AGENT-103 AC3
+describe('run-review-lane.sh — triage no-op short-circuit', () => {
+  it('returns without invoking a model when triage decides the lane is a no-op', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, { decision: 'exit-no-op', reason: 'an SDD transition is active' });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), false,
+      'the lane owns the changed file, so only triage can have stopped it -- and it must stop it before the model');
+    assert.match(r.stdout, /NO-OP/);
+    assert.match(r.stdout, /an SDD transition is active/);
+  });
+
+  // The decision is a field, not a substring of the document. A reason that
+  // quotes the serialised no-op fragment is the case that separates reading the
+  // field from grepping the blob: here the lane must still be reviewed.
+  it('reviews when only a reason string contains the serialised no-op decision', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, {
+      decision: 'proceed',
+      reason: 'a prior round emitted "decision": "exit-no-op" and that must not carry over',
+    });
+
+    runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), true,
+      'only decision === exit-no-op may skip the model; matching the document body drops a required review');
+  });
+});
+
 // REQ-AGENT-102 constraint: the container guards are re-injected explicitly,
 // and they must be invoked through a shell because the seeded hook scripts ship
 // non-executable and a bare command path silently no-ops.
@@ -233,8 +280,11 @@ describe('run-review-lane.sh — guard settings under a hostile config path', ()
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
 
-    runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+    const result = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
+    // A runner that never started surfaces as an ENOENT on the settings snapshot
+    // below rather than as the regression it actually is.
+    assert.equal(result.status, 0, result.stderr);
     const settings = JSON.parse(readFileSync(`${witness}.settings`, 'utf-8'));
     const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks.map((h) => h.command));
     assert.equal(commands.length, 2, 'a split path would yield a different number of hooks');

@@ -227,17 +227,20 @@ if [ -n "$REPO_ROOT" ] && [ -f "$TRIAGE_SCRIPT" ] && command -v node >/dev/null 
     ${RANGE:+--range "$RANGE"} ${REQUIRED:+--required-lanes "$REQUIRED"} 2>/dev/null || true)"
   # A decisive no-op costs zero tokens, same contract as the ownership
   # short-circuit above. Only the three conditions the reviewer prose already
-  # defines as no-ops can produce this, and each is proven positively.
-  case "$TRIAGE_JSON" in
-    *'"decision": "exit-no-op"'*)
-      TRIAGE_REASON="$(printf '%s' "$TRIAGE_JSON" \
-        | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).reason??""))}catch{}})' 2>/dev/null)"
-      printf '## %s — NO-OP\n\n**Range:** `%s`\n\nTriage resolved this lane to a no-op before any model ran: %s.\n' \
-        "$LANE" "${RANGE:-full PR diff}" "${TRIAGE_REASON:-lane suspended by triage}"
-      echo "run-review-lane: lane=$LANE prompt_tokens=0 fresh_input=0 cache_write=0 cache_read=0 output_tokens=0 turns=0 cost_usd=0.0000 (short-circuited: ${TRIAGE_REASON:-triage no-op})" >&2
-      exit 0
-      ;;
-  esac
+  # defines as no-ops can produce this, and each is proven positively. Read the
+  # decision field rather than matching the serialised document: the same bytes
+  # can appear inside a reason string or a nested finding without the lane
+  # having been resolved to a no-op at all.
+  TRIAGE_FIELDS="$(printf '%s' "$TRIAGE_JSON" \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s);process.stdout.write(String(t.decision??"")+"\n"+String(t.reason??"").replace(/\s+/g," "))}catch{}})' 2>/dev/null)"
+  TRIAGE_DECISION="$(printf '%s\n' "$TRIAGE_FIELDS" | head -n 1)"
+  if [ "$TRIAGE_DECISION" = "exit-no-op" ]; then
+    TRIAGE_REASON="$(printf '%s\n' "$TRIAGE_FIELDS" | tail -n +2)"
+    printf '## %s — NO-OP\n\n**Range:** `%s`\n\nTriage resolved this lane to a no-op before any model ran: %s.\n' \
+      "$LANE" "${RANGE:-full PR diff}" "${TRIAGE_REASON:-lane suspended by triage}"
+    echo "run-review-lane: lane=$LANE prompt_tokens=0 fresh_input=0 cache_write=0 cache_read=0 output_tokens=0 turns=0 cost_usd=0.0000 (short-circuited: ${TRIAGE_REASON:-triage no-op})" >&2
+    exit 0
+  fi
 fi
 
 PACKET_JSON=""
@@ -249,7 +252,10 @@ PACKET_MAX_BYTES="${REVIEW_LANE_PACKET_MAX_BYTES:-131072}"
 case "$PACKET_MAX_BYTES" in ''|*[!0-9]*|0) PACKET_MAX_BYTES=131072 ;; esac
 if [ -n "$REPO_ROOT" ] && [ -n "$RANGE" ] && [ -f "$PACKET_SCRIPT" ] && command -v node >/dev/null 2>&1; then
   CANDIDATE="$(node "$PACKET_SCRIPT" --repo "$REPO_ROOT" --scope diff --range "${RANGE_FULL:-$RANGE}" --lane "$LANE" 2>/dev/null || true)"
-  if [ -n "$CANDIDATE" ] && [ "${#CANDIDATE}" -le "$PACKET_MAX_BYTES" ]; then
+  # Bytes, not characters: a packet is UTF-8 and the cap exists to bound what
+  # is sent, so a multi-byte path or identifier must count for what it costs.
+  CANDIDATE_BYTES=$(( $(printf '%s' "$CANDIDATE" | wc -c) ))
+  if [ -n "$CANDIDATE" ] && [ "$CANDIDATE_BYTES" -le "$PACKET_MAX_BYTES" ]; then
     PACKET_JSON="$CANDIDATE"
   fi
 fi
@@ -275,7 +281,7 @@ $PACKET_JSON
 fi
 TASK="$TASK
 
-Evidence budget: you have at most 4 Bash calls. Triage and the packet are already above, so spend them only on leads the packet names — resolving an anchor, checking whether a cited symbol still exists, reading the bounded lines around a hunk. Batch aggressively: one compound command, not one command per question. Every extra call re-sends this entire prompt, so a call you did not need is the most expensive thing you can do. If you reach the budget, report what you have.
+Evidence gathering: triage and the packet are already above, so spend Bash only on leads the packet names — resolving an anchor, checking whether a cited symbol still exists, reading the bounded lines around a hunk. Batch aggressively: one compound command answering several questions, not one command per question. Every call re-sends this entire prompt, so an unbatched call is the most expensive thing you can do. Batching is the only lever here: never skip a check your manifest requires in order to make fewer calls — fold it into a batch instead.
 
 Return your structured report as your final message. Write no files."
 
@@ -313,7 +319,17 @@ esac
 # -k escalates to SIGKILL 30s after SIGTERM. Plain `timeout` sends only TERM,
 # which a process wedged in an uninterruptible auth prompt or a tight retry loop
 # can ignore -- leaving exactly the hung lane the bound was meant to reap.
-RAW="$(timeout -k 30 "$LANE_TIMEOUT" claude "$@" 2>"$LANE_STDERR")"
+#
+# `timeout` is coreutils and not guaranteed present. Its absence loses the bound,
+# not the review: a lane that runs unbounded still reviews, whereas exiting here
+# would silently drop a required lane. Say so on stderr so an unbounded run is
+# never mistaken for a bounded one.
+if command -v timeout >/dev/null 2>&1; then
+  RAW="$(timeout -k 30 "$LANE_TIMEOUT" claude "$@" 2>"$LANE_STDERR")"
+else
+  echo "run-review-lane: timeout(1) not found; running $LANE unbounded" >&2
+  RAW="$(claude "$@" 2>"$LANE_STDERR")"
+fi
 STATUS=$?
 if [ $STATUS -ne 0 ] || [ -z "$RAW" ]; then
   echo "run-review-lane: $LANE lane failed to produce a report (exit $STATUS)" >&2

@@ -2531,7 +2531,7 @@ None.
 4. The root session alone persists PR-boundary triage content. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
 5. The root session evaluates and applies legitimate PR-boundary fixes. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
 6. The code reviewer runs pinned `high` reasoning effort while the specification and documentation reviewers run `medium`; transformed runtimes never inherit the Claude-only effort key. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::effort = high --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::effort = medium --> <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms) -->
-7. Each Claude PR-boundary reviewer builds its lane evidence packet once through the seeded `review-scope` packet CLI and reasons from that packet instead of repository-wide scans. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Build the lane packet once --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools) -->
+7. Each Claude PR-boundary reviewer reasons from one `review-scope` evidence packet instead of repository-wide scans, building it through the seeded CLI only when the runner did not hand it one. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Your lane packet --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Your lane packet --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Your lane packet --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools) -->
 
 **Constraints:**
 
@@ -2565,8 +2565,6 @@ None.
 3. A lane whose range contains no file it owns returns a no-op report without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — no-op short-circuit) -->
 4. The lane subprocess carries a validated, escalating time bound that a zero, empty, or non-numeric override cannot disable. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — timeout bound) -->
 5. Guard re-injection fails closed on a missing guard, an absent `jq`, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) -->
-6. Each lane's Phase 0 triage is resolved deterministically before the subprocess starts and handed to it, and a triage-proven no-op returns without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — transition gate) --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — round counter) -->
-7. The pre-computed triage reproduces the bulk-op audit and round-limit gates the reviewer prose defines, and every unresolvable condition resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::bulkOpAudit --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — bulk-op audit) --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — fail-safe direction) -->
 
 **Constraints:**
 
@@ -2575,14 +2573,44 @@ None.
 - Dropping inherited settings drops hooks; build/test guards are re-injected explicitly and invoked as `bash <script>` (seeded hooks ship non-executable).
 - Transport detection is additive: the legacy Agent shape stays credited, so a migrated lane is still counted as reviewed.
 - A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
-- A lane subprocess is time-bounded; a lane that never returns must not hold the review gate open. The bound is validated and escalating: a zero, empty, or non-numeric override resolves to the default rather than disabling the bound, and expiry escalates past SIGTERM so a wedged lane is actually reaped.
-- The guard settings are built by `jq` from a quoted argument array and the result is verified non-empty; a missing `jq`, a missing guard, or a config path containing a space must fail closed rather than yield hooks that silently never fire.
+- A lane subprocess is time-bounded; a lane that never returns must not hold the review gate open.
+- The bound is validated and escalating: a zero, empty, or non-numeric override resolves to the default, and expiry escalates past SIGTERM so a wedged lane is reaped.
+- Guard settings are constructed programmatically and verified non-empty; a missing dependency, a missing guard, or a config path containing a space fails closed rather than yielding hooks that silently never fire.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-086](#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff)
 
 **Verification:** Automated test ([Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-103: Deterministic Lane Triage
+
+**Intent:** A lane's Phase 0 answers are the same for every lane on a given range, so resolving them once outside the model costs nothing per lane and cannot drift between them.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Each lane's Phase 0 triage is resolved deterministically before the subprocess starts and handed to it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — transition gate) --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — round counter) -->
+2. The pre-computed triage reproduces the bulk-op audit and round-limit gates the reviewer prose defines. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::bulkOpAudit --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — bulk-op audit) -->
+3. A lane whose triage resolves to a no-op returns without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
+4. Every triage condition that cannot be resolved resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — fail-safe direction) -->
+
+**Constraints:**
+
+- Triage answers the SDD questions only; documentation scaffolding is not among them and the doc lane still checks its own index.
+- Lane ownership stays with the shell classifier and is passed in, never reimplemented in triage.
+- The no-op decision is read as a field; matching it anywhere in the serialised document would drop a required review.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
+
+**Verification:** Automated test ([Lane triage tests](../../host/__tests__/lane-triage.test.js))
 
 **Status:** Implemented
 

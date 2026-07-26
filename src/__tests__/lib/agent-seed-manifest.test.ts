@@ -540,7 +540,7 @@ describe('Reviewer agents can access their enforce policy', () => {
         `${name} must invoke the seeded packet CLI`,
       ).toContain('skills/review-scope/scripts/build-review-packet.mjs');
       expect(doc!.content, `${name} must carry the packet section`).toMatch(
-        /^## Build the lane packet once$/m,
+        /^## Your lane packet$/m,
       );
     }
 

@@ -80,6 +80,10 @@ Never persist the packet or echo raw packet JSON back into your context.
 
 A `changedInputs` path is a lead, not a finding. Follow a caller, contract, or anchor only when its resolved symbol range overlaps a changed hunk — the packet module exports `changedInputIntersects(input, range)` for exactly that test. File-path equality alone is not impact.
 
+For Pass 8 (verification truth-check) and Pass 12 (stranger cold-read), every concrete reference in `documentation/` — a function name, file path, route handler, env-var consumer — must resolve to real code. Resolve it literally and boundedly: `git grep -n '<symbol>' -- <path>` answers whether a doc-cited symbol still exists, and a reference that resolves nowhere is a stale doc (HIGH). Bound every search with `-c`, `| wc -l`, or `| head -N`; an unbounded scan puts raw output in your context and defeats the packet. `grep` treats a file containing a NUL byte as binary and silently matches nothing — pass `-a` when that is possible.
+
+For coverage gaps — a shipped feature with no doc section — cross-reference the packet's `changedInputs` against the `documentation/README.md` jump-TOC; a changed entry point with no doc page is HIGH `feature-without-doc`. Under `scope=diff` restrict that cross-check to surfaces the range actually touched; the repo-wide sweep is a `scope=all` obligation.
+
 ## Deferring a JUDGMENT finding
 
 Before escalating a JUDGMENT finding (lane violation acceptance, new-doc-file proposal, doc-vs-spec conflict resolution), check the repository record with Bash: an Accepted ADR in `documentation/decisions/README.md` or a disposition recorded in `sdd/spec/config.yml` is sufficient justification to defer (not delete) the finding. A proposal that contradicts a settled decision is the proposal's bug, not the decision's. Doc-vs-spec conflicts on safety/data-loss surfaces (CRITICAL) override preferences — surface regardless.
@@ -128,6 +132,13 @@ Act on it as follows:
 - `roundLimit` is informational once you are running; the transport already stopped you if it fired.
 
 If the `<triage>` block is absent (a direct invocation outside the transport), fall back to deriving Phase 0 yourself in **one** compound Bash call — never one call per step.
+
+### Documentation scaffolding gate (binding — triage does not answer this)
+
+Triage resolves `sdd/`, not `documentation/`. Confirm the index exists (`test -f documentation/README.md`), batched into whatever first Bash call you were going to make anyway:
+
+- Absent → HIGH gap. **Do NOT auto-create** the file. Report the missing index and exit; the user must scaffold `documentation/` deliberately.
+- Present → it is the routing table for every phase below. Read it rather than hardcoding file names.
 
 ## Phase 1: Sync — bring docs in line with code
 

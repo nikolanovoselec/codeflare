@@ -93,9 +93,13 @@ function readConfig(repo, configPath) {
   } catch {
     return { present: false, raw: '' };
   }
+  // Trailing `# ...` is a YAML comment, not part of the value. Booleans survive
+  // it by accident (`true # note` is simply not `true`), but `mode` and
+  // `changelog_entry_style` reach the lane prompt verbatim and would carry it.
   const scalar = (key) => {
     const m = raw.match(new RegExp(`^${key}:[ \\t]*(.+?)[ \\t]*$`, 'm'));
-    return m ? m[1].replace(/^["']|["']$/g, '') : undefined;
+    if (!m) return undefined;
+    return m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
   };
   return {
     present: true,
@@ -166,24 +170,28 @@ function roundCounter(repo, lane) {
 const AUDIT_LINES = [
   {
     id: 'phase-7a-evidence-missing',
+    label: 'Phase 7a anchor verifier line',
     severity: 'CRITICAL',
     onlyFor: ['[sdd-init]'],
     re: /^[\s>*`-]*Phase 7a verifier: parsed=\d+ resolved=\d+ orphaned=\d+ drifted=\d+/m,
   },
   {
     id: 'phase-7b-evidence-missing',
+    label: 'Phase 7b enum verifier line',
     severity: 'CRITICAL',
     onlyFor: ['[sdd-init]'],
     re: /^[\s>*`-]*Phase 7b enum verifier: enumerated=\d+ accounted=\d+ unaccounted=\d+/m,
   },
   {
     id: 'enforcement-skill-not-invoked',
+    label: 'spec-enforce audit line',
     severity: 'HIGH',
     onlyFor: ['[sdd-init]', '[sdd-clean]'],
     re: /^[\s>*`-]*spec-enforce: ran \([^)]*anchors verified[^)]*\)/m,
   },
   {
     id: 'enforcement-skill-not-invoked',
+    label: 'doc-enforce audit line',
     severity: 'HIGH',
     onlyFor: ['[sdd-init]', '[sdd-clean]'],
     re: /^[\s>*`-]*doc-enforce: ran \([^)]*anchors verified[^)]*\)/m,
@@ -206,7 +214,7 @@ function bulkOpAudit(repo) {
     for (const line of AUDIT_LINES) {
       if (!line.onlyFor.includes(prefix)) continue;
       if (!line.re.test(body)) {
-        findings.push({ sha, subject, id: line.id, severity: line.severity, missing: String(line.re) });
+        findings.push({ sha, subject, id: line.id, severity: line.severity, missing: line.label });
       }
     }
     // The Phase 7b line is load-bearing beyond mere presence: unaccounted > 0
