@@ -656,7 +656,7 @@ describe('run-review-lane.sh — timeout bound', () => {
   // record only whichever ran last, making one of the two bounds unobservable.
   function fakeTimeout(binDir, witness) {
     const p = join(binDir, 'timeout');
-    writeFileSync(p, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > ${witness}.timeout.$4\nshift 3\nexec "$@"\n`);
+    writeFileSync(p, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${witness}.timeout.$(basename "$4")"\nshift 3\nexec "$@"\n`);
     chmodSync(p, 0o755);
   }
 

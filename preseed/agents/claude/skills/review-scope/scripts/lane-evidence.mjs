@@ -473,7 +473,14 @@ function main() {
     const changedSource = allChangedSource.slice(0, MAX_LIST);
     if (changedSource.length) {
       const citing = [...new Set(changedSource.flatMap((file) => git(repo, [
-        'grep', '-lE', '-a', '--', `<!--\\s*@(impl|test):\\s*${ereEscape(file)}`, 'sdd',
+        // Same trailing boundary as the citation scan above: without it a
+        // changed `src/a.js` also selects files anchoring `src/a.jsx`. The
+        // `targets` filter keeps resolution correct either way, but an inflated
+        // candidate list can trip the truncation flag and send the lane back to
+        // finish a scan that was already complete. An anchor target is followed
+        // by `::`, a space or `-->`, never by another path character.
+        'grep', '-lE', '-a', '--',
+        `<!--\\s*@(impl|test):\\s*${ereEscape(file)}([^A-Za-z0-9_.-]|$)`, 'sdd',
       ]).split('\n').filter(Boolean)))];
       out.anchorsCitingChangedResolved = fromDiff(summarise(
         resolveAnchors(repo, citing, new Set(changedSource)),
