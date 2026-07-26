@@ -98,6 +98,18 @@ Own `sdd/` only — both layouts (`sdd/spec/**/*.md` nested, `sdd/*.md` flat). N
 
 Your prompt carries a `<triage>` block holding every Phase 0 answer: SDD bootstrap and layout (with `configPath`, `triageFile`, `initTriage`, `changelog` already resolved for that layout), the config (parsed decision scalars plus the file verbatim in `config.raw`), transition state, the round counter, and the bulk-op audit.
 
+**Path resolution (binding).** Every layout-dependent path this document names later resolves from that block, not from a probe you run:
+
+| This document says | Read it from |
+|---|---|
+| `$TRIAGE_FILE` | `sdd.triageFile` (nested: `sdd/spec/.review-queue.md`; flat: `sdd/.review-needed.md`) |
+| the config | `sdd.configPath`, contents already in `config.raw` |
+| the init-triage file | `sdd.initTriage` |
+| the changelog | `sdd.changelog` |
+| spec file globs | `sdd/spec/**/*.md` when `sdd.layout` is `nested`, else `sdd/*.md` |
+
+One block, two layouts — the same contract the old inline `LAYOUT`/`TRIAGE_FILE` shell snippet provided, resolved before you start.
+
 **Do not re-derive any of it.** No `test -d sdd`, no layout probe, no config read, no `git log` round-counter walk, no bulk-op audit pass. Those were six sequential Bash calls and therefore six turns; they are now free, and repeating one costs a full turn to learn something you were handed.
 
 Act on it as follows:
