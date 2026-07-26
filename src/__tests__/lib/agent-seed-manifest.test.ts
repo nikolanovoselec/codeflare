@@ -491,9 +491,19 @@ describe('Reviewer agents can access their enforce policy', () => {
       expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
       const embedded = [...doc!.content.matchAll(/<embedded-skill name="([^"]+)">/g)].map((m) => m[1]);
       expect(embedded, `${name} must embed exactly its lane policy`).toEqual(skills);
+      // Body identity, not a delimiter probe: embedding is now the sole
+      // policy-delivery path for these lanes, so a truncated or stale body is
+      // exactly the regression that matters. Same check the Pi tree already has.
       for (const skill of skills) {
-        expect(doc!.content, `${name} embedded ${skill} must carry content`).toContain(
-          `<embedded-skill name="${skill}">\n---`,
+        const source = AGENTS_SEEDED_CONFIGS.find(
+          (d) => d.key === `.claude/skills/${skill}/SKILL.md`,
+        );
+        expect(source, `${skill} must be seeded for Claude`).toBeTruthy();
+        const body = doc!.content.match(
+          new RegExp(`<embedded-skill name="${skill}">\\n([\\s\\S]*?)</embedded-skill>`),
+        )?.[1];
+        expect(body, `${name} embedded ${skill} must match the seeded skill byte-for-byte`).toBe(
+          source!.content,
         );
       }
     }

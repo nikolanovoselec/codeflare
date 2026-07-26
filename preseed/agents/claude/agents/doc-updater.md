@@ -28,11 +28,13 @@ Apply these generated, canonical skill documents directly. They are the whole en
 
 <!-- @include-skill doc-enforce -->
 
-<!-- @include-skill doc-enforce-lanes -->
+Conditional policy is NOT embedded. When the spine's manifest says a sub-policy applies, read it in your existing Bash call:
 
-<!-- @include-skill doc-enforce-shape -->
+```bash
+cat ~/.claude/skills/<name>/SKILL.md
+```
 
-<!-- @include-skill doc-enforce-truth -->
+Reading one costs its bytes only when the condition actually fires; carrying all of them costs every run. Never read one whose condition did not fire.
 
 ## First action: apply the embedded doc-enforce policy (binding)
 

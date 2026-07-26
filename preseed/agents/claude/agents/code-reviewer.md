@@ -22,7 +22,13 @@ Apply these generated, canonical skill documents directly. They are the whole en
 
 <!-- @include-skill review-scope -->
 
-<!-- @include-skill tdd-enforce -->
+Conditional policy is NOT embedded. When the spine's manifest says a sub-policy applies, read it in your existing Bash call:
+
+```bash
+cat ~/.claude/skills/<name>/SKILL.md
+```
+
+Reading one costs its bytes only when the condition actually fires; carrying all of them costs every run. Never read one whose condition did not fire.
 
 ## Build the lane packet once
 
@@ -41,7 +47,7 @@ Bound every command that searches. `grep`/`rg` must carry `-c`, `| wc -l`, or `|
 
 If the packet returns no lane-owned files, nothing in the range belongs to your lane: report zero findings and stop. Note the narrow shape of that gate — a diff of nothing but comments IS your lane, because "is this comment still true?" is a code-review question and no other lane asks it. Exit on an empty lane, never on a lane whose only content is prose.
 
-Do not assume any tool beyond the four you are granted. Indexed retrieval (`ctx_*`), file mutation, and the graph-traversal tools are deliberately absent; a command that reaches for one is a bug in your plan, not a missing capability.
+Bash is your only tool. Indexed retrieval (`ctx_*`), file mutation, and the graph-traversal tools are deliberately absent; a command that reaches for one is a bug in your plan, not a missing capability.
 
 ## Deferring a finding on a recorded decision
 

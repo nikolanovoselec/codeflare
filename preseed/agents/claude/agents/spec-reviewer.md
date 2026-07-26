@@ -18,7 +18,7 @@ Wherever a phase below says "apply", "auto-fix", "edit the file", "commit", or "
 
 Deliberate bulk repair is unaffected: `/sdd clean` and `/sdd init` run through their own `sdd-clean` / `sdd-init` skills (not this agent) and still apply + commit. This agent is the PR-boundary review actor only.
 
-The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (23-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) lives in the `spec-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (23-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) is embedded below. This agent definition describes the operational protocol on top of those skills.
 
 ## Embedded canonical policy
 
@@ -28,20 +28,24 @@ Apply these generated, canonical skill documents directly. They are the whole en
 
 <!-- @include-skill spec-enforce -->
 
-<!-- @include-skill spec-enforce-ac -->
+Conditional policy is NOT embedded. When the spine's manifest says a sub-policy applies, read it in your existing Bash call:
 
-<!-- @include-skill spec-enforce-truth -->
+```bash
+cat ~/.claude/skills/<name>/SKILL.md
+```
+
+Reading one costs its bytes only when the condition actually fires; carrying all of them costs every run. Never read one whose condition did not fire.
 
 ## First action: apply the embedded spec-enforce policy (binding)
 
-On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `spec-enforce` skill against the current diff. The skill is the orchestrator: it runs the 23-row manifest inline AND conditionally invokes `spec-enforce-ac` (when ACs touched) + `spec-enforce-truth` (when Implemented or Partial REQs touched OR scope=all — Partial included so CQ-SOURCE can validate `@impl` anchors) on your behalf.
+On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be applying the embedded `spec-enforce` policy to the current diff. The skill is the orchestrator: it runs the 23-row manifest inline AND conditionally invokes `spec-enforce-ac` (when ACs touched) + `spec-enforce-truth` (when Implemented or Partial REQs touched OR scope=all — Partial included so CQ-SOURCE can validate `@impl` anchors) on your behalf.
 
 Invocation form:
 - PR-boundary trigger: `spec-enforce` with `scope=diff`, `mode=<from sdd/config.yml>`.
 - `/sdd clean --all`: `spec-enforce` with `scope=all`, `mode=<from config>`.
 - `/sdd clean --scope=diff`: `spec-enforce` with `scope=diff`, `mode=<from config>`.
 
-The skill returns findings + auto-fix proposals + an evidence-row manifest. You apply per-mode rules (Phase 3 below) and write Phase 4 changelog + Phase 5 report.
+Applying it yields findings + auto-fix proposals + an evidence-row manifest. You apply per-mode rules (Phase 3 below) and write Phase 4 changelog + Phase 5 report.
 
 Skipping it = HIGH `enforcement-skill-not-invoked`. Record its execution row to per-category commit bodies (on `/sdd clean`: audit via `git log --grep='\[sdd-clean\]'`) or the agent's commit body (on PR-boundary, with fallback to `$TRIAGE_FILE` if no commits land); absence is detectable.
 
@@ -76,7 +80,7 @@ The `spec-enforce-truth` CQ-1 and CQ-2 checks still run literal-text matching in
 
 For the Phase 1 sync question — is there a shipped surface with no REQ covering it? — cross-check the packet's `changedInputs` against `sdd/{domain}.md`; a shipped entry point with no REQ is HIGH `missing-req-for-shipped-feature`. Under `scope=diff` restrict that cross-check to surfaces the range actually touched — the repo-wide sweep is a `scope=all` obligation, not something to re-run on every incremental push.
 
-Do not assume any tool beyond the four you are granted. Indexed retrieval (`ctx_*`), file mutation, and the graph-traversal tools are deliberately absent; a command that reaches for one is a bug in your plan, not a missing capability.
+Bash is your only tool. Indexed retrieval (`ctx_*`), file mutation, and the graph-traversal tools are deliberately absent; a command that reaches for one is a bug in your plan, not a missing capability.
 
 ## Deferring a JUDGMENT finding
 
@@ -193,7 +197,7 @@ For each behavioral change in the diff, identify the spec change it requires and
 
 ## Phase 2: Validate — apply the embedded spec-enforce policy
 
-Invoke the `spec-enforce` skill against the post-Phase-1 spec. The skill runs the full 23-row manifest, conditionally invokes `spec-enforce-ac` and `spec-enforce-truth`, and returns:
+Apply the embedded `spec-enforce` policy to the post-Phase-1 spec. It runs the full 23-row manifest, conditionally invokes `spec-enforce-ac` and `spec-enforce-truth`, and returns:
 
 - Findings list with severity (CRITICAL / HIGH / MEDIUM / LOW)
 - Auto-fix proposals per finding (where mechanical)

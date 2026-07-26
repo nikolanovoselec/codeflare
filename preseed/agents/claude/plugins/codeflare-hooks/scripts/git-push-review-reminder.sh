@@ -380,7 +380,12 @@ if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
   if command -v resolve_review_head >/dev/null 2>&1; then
     CURRENT_PR_HEAD=$(resolve_review_head "$GH_PR_HEAD")
   else
-    CURRENT_PR_HEAD="$GH_PR_HEAD"
+    # Empty, not the raw gh head. Since the cached path now supplies GH_PR_HEAD
+    # from the cache file rather than from the helper, a stale install could
+    # otherwise classify against an unvalidated head up to 60s old -- and if it
+    # matched the last ack, require no lanes at all for a push carrying new
+    # commits. Skipping classification leaves the all-three default instead.
+    CURRENT_PR_HEAD=""
   fi
 
   if [ -n "$CURRENT_PR_HEAD" ]; then

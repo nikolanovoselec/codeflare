@@ -109,12 +109,14 @@ describe('prefilter-transcript.sh payload ceilings', () => {
 
   it('bounds the rescue list so it cannot outgrow the per-turn cap', () => {
     // Appended after the cap, so an unbounded list would defeat it: this turn
-    // carries 400 distinct hashes past the cut. The endpoints are pinned to the
-    // same values Pi's capTurn test asserts, so the two runtimes cannot drift on
-    // the cap, the sort order, or the regex dialect that decides what a ref is.
+    // carries 400 distinct hashes past the cut. Endpoints are pinned so the cap
+    // and the selection order are both fixed; cross-runtime parity on separator,
+    // sort order and regex dialect is carried by the citation-rescue test above,
+    // which pins the same literal Pi's capTurn test does.
     const shas = Array.from({ length: 400 }, (_, i) => i.toString(16).padStart(8, 'b'));
     const { rows } = runPrefilter(['pre '.repeat(3000) + shas.join(' ')]);
-    const refs = rows[0].text.split('\n').pop().replace('[refs dropped in truncation: ', '').replace(']', '').split(', ');
+    const rescue = rows[0].text.split('\n').pop();
+    const refs = rescue.match(/^\[refs dropped in truncation: (.*)\]$/)?.[1].split(', ') ?? [];
     assert.equal(refs.length, RESCUE_REF_CAP);
     assert.equal(refs[0], 'bbbbb100');
     assert.equal(refs.at(-1), 'bbbbb131');

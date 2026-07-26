@@ -605,6 +605,21 @@ function expandSkillIncludes(content, withinPath, skillContents, label) {
   return expanded;
 }
 
+// Replace an agent's "## Embedded canonical policy" section (heading, prose and
+// directives) with a retrieval pointer for runtimes that receive the skills as
+// files instead. Agents without the section are returned unchanged.
+function stripEmbeddedPolicySection(content, config) {
+  const section = /^## Embedded canonical policy\n[\s\S]*?(?=^## )/m;
+  if (!section.test(content)) return content;
+  // No skillsPrefix means this runtime receives no skill files at all, so there
+  // is no pointer to give: drop the section rather than name an absent path.
+  if (!config.skillsPrefix) return content.replace(section, '');
+  return content.replace(
+    section,
+    `## Canonical policy\n\nYour lane's enforcement policy is installed as files. Read the ones your\nmanifest says apply, in your existing shell call:\n\n\`\`\`bash\ncat ~/${config.skillsPrefix}/<name>/SKILL.md\n\`\`\`\n\nRead one only when its condition actually fires.\n\n`,
+  );
+}
+
 /** Ensure no duplicate (key, mode) pairs across all documents. */
 function validateDocuments(documents) {
   const seen = new Map();
@@ -857,15 +872,19 @@ async function generate() {
         const baseName = fileName.replace(/\.md$/, '');
         const key = `${config.agentsPrefix}/${baseName}${config.agentExtension}`;
 
-        // Directives are stripped, not expanded: the embedded policy is a
-        // Claude-lane decision, and inlining every enforcement skill into each
-        // transformed runtime would multiply the seed for agents that never run
-        // the PR lanes.
+        // The whole embedded-policy section goes, not just the directives:
+        // inlining every enforcement skill into each transformed runtime would
+        // multiply the seed for agents that never run the PR lanes, but leaving
+        // the surrounding prose behind is worse than either choice. It promises
+        // policy that is no longer there and tells the agent there is nothing
+        // further to retrieve, while these runtimes do receive the skills on
+        // disk through the skills loop above. Replace it with the pointer they
+        // can actually act on.
         documents.push({
           key,
           contentType: 'text/markdown; charset=utf-8',
           content: adaptAgentFrontmatter(
-            file.content.replace(SKILL_INCLUDE_PATTERN, '').replace(/\n{3,}/g, '\n\n'),
+            stripEmbeddedPolicySection(file.content, config),
             agentId,
           ),
           modes: file.modes,
