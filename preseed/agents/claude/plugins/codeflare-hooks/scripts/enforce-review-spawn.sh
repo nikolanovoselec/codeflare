@@ -444,6 +444,58 @@ fi
 # LAST_ACK regress or jump to a SHA that is not an ancestor of (or
 # equal to) HEAD.
 # ---------------------------------------------------------------------------
+
+# Lane-spawn match contract, shared by every coverage / in-flight check below.
+#
+# A lane counts as spawned under EITHER transport:
+#
+#   (a) Agent subagent - an `Agent` tool_use whose `subagent_type` is the lane.
+#   (b) Headless subprocess - a `Bash` tool_use invoking run-review-lane.sh with
+#       `--lane <name>`. The lane runs as `claude -p` with a replaced system
+#       prompt, which is what makes it affordable; it emits no subagent_type.
+#
+# Both conditions anchor on `"type":"tool_use"` so the substring match only
+# fires on real tool_use envelopes, never on prose or tool_result text that
+# happens to quote the same bytes. Detection is deliberately additive: shape (a)
+# is unchanged, so the transport migration cannot narrow what the gate accepts.
+LANE_SPAWN_AWK='
+function is_lane_spawn(line, lane) {
+  if (!index(line, "\"type\":\"tool_use\"")) return 0
+  if (index(line, "\"name\":\"Agent\"") \
+      && index(line, "\"subagent_type\":\"" lane "\"")) return 1
+  if (index(line, "\"name\":\"Bash\"") \
+      && index(line, "run-review-lane.sh") \
+      && index(line, "--lane " lane)) return 1
+  return 0
+}
+'
+
+# Completion correlation for a spawned lane, shared by every check below.
+#
+# A lane completes under EITHER transport:
+#
+#   (a) Agent subagent - a background task notification carrying
+#       `tool-use-id>ID<` together with `completed</status>`.
+#   (b) Headless subprocess - the Bash tool_result envelope carrying
+#       `"tool_use_id":"ID"`. A synchronous Bash call never emits the
+#       background-notification shape, so (a) alone would leave every
+#       subprocess lane looking permanently in-flight.
+#
+# Additive in the same way as is_lane_spawn: shape (a) is evaluated first and
+# is byte-for-byte the previous behaviour.
+tool_use_id_completed() {
+  local spawn_line="$1"
+  local tool_use_id="$2"
+  local tail_lines
+  tail_lines=$(awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT")
+  if printf '%s' "$tail_lines" \
+      | grep -F "tool-use-id>${tool_use_id}<" \
+      | grep -qF 'completed</status>'; then
+    return 0
+  fi
+  printf '%s' "$tail_lines" | grep -qF "\"tool_use_id\":\"${tool_use_id}\""
+}
+
 retroactive_ack_scan() {
   [ -f "$TRANSCRIPT" ] || return
   local total
@@ -555,11 +607,8 @@ retroactive_ack_scan() {
     local lane
     for lane in $required_lanes; do
       local spawn_line
-      spawn_line=$(awk -v s="$start" -v e="$end" -v a="$lane" '
-        NR > s && NR < e \
-          && index($0, "\"type\":\"tool_use\"") \
-          && index($0, "\"name\":\"Agent\"") \
-          && index($0, "\"subagent_type\":\"" a "\"") { print NR }
+      spawn_line=$(awk -v s="$start" -v e="$end" -v a="$lane" "$LANE_SPAWN_AWK"'
+        NR > s && NR < e && is_lane_spawn($0, a) { print NR }
       ' "$TRANSCRIPT" | tail -1)
       if [ -z "$spawn_line" ]; then
         window_complete=0; break
@@ -572,9 +621,7 @@ retroactive_ack_scan() {
       fi
       # Completion can land anywhere after the spawn (notifications may
       # arrive in a later turn).
-      if ! awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-          | grep -F "tool-use-id>${tool_use_id}<" \
-          | grep -qF 'completed</status>'; then
+      if ! tool_use_id_completed "$spawn_line" "$tool_use_id"; then
         window_complete=0; break
       fi
     done
@@ -680,14 +727,14 @@ fi
 # authoritative order. No timestamp parsing needed.
 # ---------------------------------------------------------------------------
 
-# Agent-envelope match contract (used by the lane-coverage and in-flight
-# checks below): anchor each `"subagent_type"` match on `"type":"tool_use"`
-# AND `"name":"Agent"` on the same line, so the substring match only fires on
-# real Agent tool_use envelopes - not on prose / tool_result text / ctx_execute
-# output that happens to quote the literal `"subagent_type":"<name>"` bytes
-# (e.g. a diagnostic script printing hook JSON to the transcript). The JSONL
-# transcript serialises each tool_use envelope on a single line, so the
-# triple-condition match is reliable.
+# Lane-envelope match contract (used by the lane-coverage and in-flight checks
+# below) lives in `is_lane_spawn` / `tool_use_id_completed` near the top of this
+# script, so both transports are described in exactly one place. Every match
+# anchors on `"type":"tool_use"` on the same line, so it only fires on real
+# tool_use envelopes - not on prose / tool_result text / ctx_execute output that
+# happens to quote the literal marker bytes (e.g. a diagnostic script printing
+# hook JSON to the transcript). The JSONL transcript serialises each tool_use
+# envelope on a single line, so the conjunctive match is reliable.
 
 # 5-strike circuit breaker (keyed by CURRENT_PR_HEAD - unique per PR state)
 #
@@ -823,10 +870,8 @@ IN_FLIGHT_STALE_LINES=1200
 lane_in_flight() {
   local lane="$1"
   local spawn_line
-  spawn_line=$(awk -v a="$lane" '
-    index($0, "\"type\":\"tool_use\"") \
-      && index($0, "\"name\":\"Agent\"") \
-      && index($0, "\"subagent_type\":\"" a "\"") { print NR }
+  spawn_line=$(awk -v a="$lane" "$LANE_SPAWN_AWK"'
+    is_lane_spawn($0, a) { print NR }
   ' "$TRANSCRIPT" | tail -1)
   [ -n "$spawn_line" ] || return 1  # never spawned -> not in flight
   # Staleness bound: an uncompleted spawn far behind the transcript tail is
@@ -840,9 +885,7 @@ lane_in_flight() {
   line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
   tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
   [ -n "$tool_use_id" ] || return 1  # can't correlate -> treat as not in flight
-  if awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-      | grep -F "tool-use-id>${tool_use_id}<" \
-      | grep -qF 'completed</status>'; then
+  if tool_use_id_completed "$spawn_line" "$tool_use_id"; then
     return 1  # completed -> not in flight
   fi
   return 0  # spawned recently, no completion yet -> in flight
@@ -851,11 +894,8 @@ lane_in_flight() {
 latest_lane_spawn_after_line() {
   local lane="$1"
   local min_line="$2"
-  awk -v p="$min_line" -v a="$lane" '
-    NR > p \
-      && index($0, "\"type\":\"tool_use\"") \
-      && index($0, "\"name\":\"Agent\"") \
-      && index($0, "\"subagent_type\":\"" a "\"") { print NR }
+  awk -v p="$min_line" -v a="$lane" "$LANE_SPAWN_AWK"'
+    NR > p && is_lane_spawn($0, a) { print NR }
   ' "$TRANSCRIPT" | tail -1
 }
 
@@ -865,9 +905,7 @@ spawn_completed() {
   line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
   tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
   [ -n "$tool_use_id" ] || return 1
-  awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-    | grep -F "tool-use-id>${tool_use_id}<" \
-    | grep -qF 'completed</status>'
+  tool_use_id_completed "$spawn_line" "$tool_use_id"
 }
 
 lane_has_coverage_after_line() {

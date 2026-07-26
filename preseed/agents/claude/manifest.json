@@ -114,6 +114,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/run-review-lane.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
     "modes": [
       "advanced"

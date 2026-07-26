@@ -160,6 +160,33 @@ const DONE_LINE = (toolUseId) =>
 
 const SPEC_DONE_LINE = (toolUseId = 'toolu_sr1') => DONE_LINE(toolUseId);
 
+// Headless transport: the lane runs as a Bash call to run-review-lane.sh rather
+// than an Agent subagent, so it emits no subagent_type and completes with an
+// ordinary tool_result instead of a background task notification.
+const LANE_BASH_LINE = (lane, ts, toolUseId = 'toolu_b') =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'Bash',
+          id: toolUseId,
+          input: {
+            command: `bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane ${lane} --range aaa..bbb`,
+          },
+        },
+      ],
+    },
+    timestamp: ts,
+  });
+
+const LANE_BASH_DONE_LINE = (toolUseId) =>
+  JSON.stringify({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: toolUseId }] },
+  });
+
 // REQ-AGENT-036: PR-Boundary Review Trigger Conditions
 // REQ-AGENT-040: PR-Boundary Lane Classification and Agent Dispatch
 // REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
@@ -587,6 +614,105 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     const ackFile = join(cwd, gitCommonDir, 'sdd-last-ack-pr-head');
     assert.equal(readFileSync(ackFile, 'utf-8').trim(), headSha,
       'checkpoint must advance to the just-acked PR HEAD SHA');
+  });
+});
+
+// REQ-AGENT-086: reviewer lanes run as headless subprocesses. The gate accepts
+// either transport, so migrating a lane cannot narrow what counts as reviewed.
+describe('enforce-review-spawn.sh — headless lane transport', () => {
+  const ackOf = (cwd) => {
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const ackFile = join(cwd, gitCommonDir, 'sdd-last-ack-pr-head');
+    return existsSync(ackFile) ? readFileSync(ackFile, 'utf-8').trim() : '';
+  };
+
+  it('acks when every lane ran as a run-review-lane.sh Bash call', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = 'headlesspipelinesha';
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(ackOf(cwd), headSha,
+      'a fully headless round must advance the checkpoint exactly like a subagent round');
+  });
+
+  it('acks a round that mixes both transports', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = 'mixedtransportsha';
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      AGENT_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_sr1'),
+      DONE_LINE('toolu_sr1'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.equal(ackOf(cwd), headSha);
+  });
+
+  it('still blocks when a headless lane started but never returned', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'incompletesha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      // doc-updater spawned, no tool_result -> lane never completed.
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'incompletesha',
+      'an unreturned lane must not advance the checkpoint');
+  });
+
+  it('does not credit a lane from a Bash call that is not the lane runner', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'impostersha'));
+    const imposter = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'Bash',
+            id: 'toolu_i1',
+            input: { command: 'echo "--lane code-reviewer --lane spec-reviewer --lane doc-updater"' },
+          },
+        ],
+      },
+    });
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      imposter,
+      LANE_BASH_DONE_LINE('toolu_i1'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'the runner path must be part of the match, not the --lane token alone');
+    assert.notEqual(ackOf(cwd), 'impostersha');
   });
 });
 

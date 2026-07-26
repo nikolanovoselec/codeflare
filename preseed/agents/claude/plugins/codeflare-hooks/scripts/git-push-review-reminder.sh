@@ -427,28 +427,39 @@ DIRECTIVE="[silent] SDD $CONTEXT detected. Execute NOW without user-facing outpu
 # root session, so they run in parallel without shared-file writes or ordering dependency.
 # Pure doc-only or spec-only pushes simply demand fewer lanes.
 if [ "$needs_code" = "1" ] && [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
-  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three run concurrently and return structured reports."
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three."
 elif [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
-  DIRECTIVE="$DIRECTIVE Parallel: spec-reviewer (sdd/ lane) and doc-updater (docs/ lane) - run concurrently and return structured reports. Code lane silently excluded by Stop hook (no source files in diff)."
+  DIRECTIVE="$DIRECTIVE Lanes: spec-reviewer (sdd/ lane) and doc-updater (docs/ lane) - both. Code lane silently excluded by Stop hook (no source files in diff)."
 elif [ "$needs_doc" = "1" ] && [ "$needs_code" = "0" ] && [ "$needs_spec" = "0" ]; then
-  DIRECTIVE="$DIRECTIVE Spawn: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
+  DIRECTIVE="$DIRECTIVE Lanes: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
 elif [ "$needs_code" = "1" ] && [ "$needs_doc" = "1" ] && [ "$needs_spec" = "0" ]; then
-  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane) and doc-updater (docs/ lane) - run concurrently and return structured reports. Spec lane silently excluded by Stop hook (the source delta is comments and whitespace only, so the spec surface is unchanged)."
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) and doc-updater (docs/ lane) - both. Spec lane silently excluded by Stop hook (the source delta is comments and whitespace only, so the spec surface is unchanged)."
 elif [ "$needs_code" = "1" ] && [ "$needs_spec" = "0" ] && [ "$needs_doc" = "0" ]; then
-  DIRECTIVE="$DIRECTIVE Spawn: code-reviewer (source lane) only. Spec and doc lanes silently excluded by Stop hook (the source delta is comments and whitespace only, so behaviour, the spec surface, and the documentation surface are all unchanged - but whether the new comment is TRUE is still a code-review question)."
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) only. Spec and doc lanes silently excluded by Stop hook (the source delta is comments and whitespace only, so behaviour, the spec surface, and the documentation surface are all unchanged - but whether the new comment is TRUE is still a code-review question)."
 else
   # Defensive: any unexpected combination falls back to the all-three parallel directive.
   # The Stop hook is still the source of truth and will correct any over-spawn by silently
   # acking the SHA when the required lanes' agents are spawned.
-  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three run concurrently and return structured reports."
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three."
 fi
 
+# Transport: each lane runs as a headless `claude -p` subprocess, NOT as an Agent
+# subagent. A subagent inherits CLAUDE.md, every ~/.claude/rules/*.md, MEMORY.md
+# and the SessionStart blocks with no per-agent way to exclude them - a measured
+# 20,513-token floor before the lane does any work. run-review-lane.sh replaces
+# the system prompt and prunes the tool schemas, which the CLI supports and
+# subagent frontmatter does not, taking that floor to ~1,533. The Stop hook
+# accepts either transport, so a lane spawned the old way still acks.
+RUNNER="$HOME/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh"
 if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$CURRENT_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
-  DIRECTIVE="$DIRECTIVE Each agent reviews ONLY the incremental diff since the last reviewed head: 'git diff $LAST_ACK_PR_HEAD $CURRENT_PR_HEAD'. Do NOT review the full PR diff against origin/$PR_BASE - only the delta from this push. Do NOT paste diffs into the prompt; just give a one-line task framing."
+  LANE_SCOPE="--range $LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD"
+  DIRECTIVE="$DIRECTIVE Each lane reviews ONLY the incremental diff since the last reviewed head ($LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD), not the full PR diff against origin/$PR_BASE."
 else
-  DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff (no prior review base): 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) - the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
+  LANE_SCOPE="--base $PR_BASE"
+  DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against origin/$PR_BASE (no prior review base)."
 fi
-DIRECTIVE="$DIRECTIVE Return findings to the root session; reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes. Do NOT mention these agents to the user. Do NOT print status updates about them."
+DIRECTIVE="$DIRECTIVE Run each required lane with a single Bash call, all lanes concurrently in ONE message: 'bash $RUNNER --lane <name> $LANE_SCOPE'. Each call returns that lane's structured report on stdout. Do NOT spawn review subagents and do NOT paste diffs into the command - the lane gathers its own evidence."
+DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes. Do NOT mention these lanes to the user. Do NOT print status updates about them."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
 exit 0
