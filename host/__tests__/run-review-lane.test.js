@@ -190,11 +190,15 @@ describe('run-review-lane.sh — guard re-injection', () => {
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
 
-    runLane({
+    const r = runLane({
       repo: cwd, home, hookScripts, binDir,
       lane: 'code-reviewer', range: `${base}..${head}`,
     });
 
+    // Assert the launch first: without this, a runner that never started
+    // surfaces as an ENOENT on the snapshot below rather than as the
+    // regression it actually is.
+    assert.equal(r.status, 0, r.stderr);
     const settings = JSON.parse(readFileSync(`${witness}.settings`, 'utf-8'));
     const commands = settings.hooks.PreToolUse.flatMap((e) => e.hooks.map((h) => h.command));
     assert.equal(commands.length, 2);
@@ -302,10 +306,15 @@ describe('run-review-lane.sh — model and effort passthrough', () => {
     const argv = readFileSync(`${witness}.argv`, 'utf-8').split('\n');
     assert.equal(argv[argv.indexOf('--model') + 1], 'sonnet',
       'the lane document declares model: sonnet; the transport must forward it');
-    for (const flag of ['--setting-sources', '--tools', '--system-prompt']) {
-      assert.ok(argv.includes(flag), `${flag} is load-bearing for the lane floor`);
-    }
+    // Assert the VALUES, not merely that the flags appear. Presence alone is
+    // satisfied by `--setting-sources user`, which restores exactly the
+    // inherited hook configuration the guard re-injection exists to replace --
+    // the lane would run with someone else's settings and the test would pass.
+    assert.equal(argv[argv.indexOf('--setting-sources') + 1], '',
+      'the empty string is the security property: any other value re-inherits settings');
     assert.equal(argv[argv.indexOf('--tools') + 1], 'Bash');
+    assert.match(argv[argv.indexOf('--system-prompt') + 1], /You are the code-reviewer lane\./,
+      'the system prompt must be the lane document body, not a default');
   });
 });
 

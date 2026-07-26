@@ -851,7 +851,7 @@ describe('git-push-review-reminder.sh - inert source delta emission', () => {
   it('adds the spec lane when a code-token change is cited by an sdd/ @impl anchor', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    commitAt(cwd, 'sdd/spec/x.md', '### AC1\n@impl: src/a.ts::a\n', 'spec: anchor');
+    commitAt(cwd, 'sdd/spec/x.md', '### AC1\n<!-- @impl: src/a.ts::a -->\n', 'spec: anchor');
     const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // x\n', 'feat: seed');
     writeAck(cwd, ackSha);
     const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 2; // y\n', 'fix: bump');
@@ -866,7 +866,7 @@ describe('git-push-review-reminder.sh - inert source delta emission', () => {
   it('keeps the spec lane out when the cited file changes only comments', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    commitAt(cwd, 'sdd/spec/x.md', '### AC1\n@impl: src/a.ts::a\n', 'spec: anchor');
+    commitAt(cwd, 'sdd/spec/x.md', '### AC1\n<!-- @impl: src/a.ts::a -->\n', 'spec: anchor');
     const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // x\n', 'feat: seed');
     writeAck(cwd, ackSha);
     const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // y\n', 'docs: reword');
