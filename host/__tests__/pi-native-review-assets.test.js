@@ -164,6 +164,43 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     assert.equal(decide(5, 'FULLY AUTONOMOUS'), 'stop');
   });
 
+  // The gate above is only reached if the manifest row sends a lane to it. That
+  // row is executed inline, so it has to be self-sufficient: a lane that reads
+  // it as an invitation to judge can return `continue` on a window the gate
+  // would stop, and the anti-spiral limit silently stops existing.
+  it('REQ-AGENT-084: the round-limit row routes the verdict to the gate in every runtime', () => {
+    const rowOf = (text) => text
+      .split('\n')
+      .find((line) => line.startsWith('| Commit-prefix + 5-round limit |'));
+
+    const canonical = rowOf(readFileSync(
+      join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/SKILL.md'),
+      'utf8',
+    ));
+    assert.ok(canonical, 'the enforcement manifest must carry the round-limit row');
+    assert.match(canonical, /round-limit\.mjs/,
+      'the row must name the executable gate, not leave the verdict to judgment');
+    assert.match(canonical, /gate=/,
+      'the evidence template must carry the verdict, so a self-judged one is not reportable');
+
+    // Pi enforces the same rule from the same source. Only the runtime root is
+    // adapted, and it must be -- Pi cannot execute a `~/.claude` path.
+    const piSpecReviewer = documents.find((document) => document.key === '.pi/agent/agents/spec-reviewer.md');
+    assert.ok(piSpecReviewer, '.pi/agent/agents/spec-reviewer.md not found');
+    const piRow = rowOf(piSpecReviewer.content);
+    assert.equal(piRow, canonical.replace('~/.claude/skills/', '~/.pi/agent/skills/'),
+      'apart from the runtime root Pi enforces the canonical row; a paraphrase is a parity gap');
+
+    // A row naming a gate that does not ship is the same failure as no row.
+    for (const [row, key] of [
+      [canonical, '.claude/skills/spec-enforce/scripts/round-limit.mjs'],
+      [piRow, '.pi/agent/skills/spec-enforce/scripts/round-limit.mjs'],
+    ]) {
+      assert.ok(row.includes(`~/${key}`), `the row must name the gate it ships: ${key}`);
+      assert.ok(documents.some((document) => document.key === key), `${key} must be seeded`);
+    }
+  });
+
   it('REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt', () => {
     const requiredSkills = {
       'code-reviewer': ['review-scope', 'tdd-enforce'],
