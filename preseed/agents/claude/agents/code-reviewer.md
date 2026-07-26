@@ -99,6 +99,8 @@ When the diff renames, moves, or deletes a source symbol, anchors may now point 
 
 If `sdd/` exists, check changes align with it — a new feature should have a REQ. Judge that from the spec hunks in `changedInputs` and `evidence.anchorsCitingChanged`; do not survey the spec tree. If `documentation/decisions/README.md` exists, check it before flagging an architectural pattern. If neither exists, review on code quality alone; projects without SDD are fully supported. Also honour project conventions from `CLAUDE.md` or project rules — file-size limits, emoji policy, immutability, database and error-handling patterns, state management. When in doubt, match the surrounding codebase.
 
+**When there is no `<evidence>` block, you gather it yourself.** The block is supplied by the PR-boundary lane runner; a `/review` phase or a direct invocation has none, and every `evidence.*` reference above then means *perform that lookup*. Batch them into your first wave: the decision ledger from `documentation/decisions/README.md`, call sites for each changed top-level symbol, and a fixed-string search for `@impl:` anchors naming any changed file. An absent block never means a check is skipped.
+
 ## Rules that catch reviewers out
 
 - **Over-flagging style the codebase doesn't share.** Before recommending early returns, composition, or an extracted helper, check whether nearby code already does that. Consistency beats taste.

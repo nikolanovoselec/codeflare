@@ -1245,7 +1245,6 @@ None.
 5. A source delta proven to be comments or whitespace only requires the code lane alone. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/inert-source-delta.mjs::inert --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes - inert source deltas) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - inert source delta emission) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: reduces a proven comment-only source delta to the code lane alone) -->
 6. A file the prover cannot decide keeps all three lanes. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/inert-source-delta.mjs::inert --> <!-- @test: host/__tests__/inert-source-delta.test.js (inert-source-delta project()) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: an inert source delta still earns the lanes its other paths touch, and any undecidable file keeps all three) -->
 7. Both runtimes decide a given range identically. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::inertSourceDelta --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: Pi and Claude resolve the same range to the same lanes) -->
-8. A lane already at its round limit costs no model invocation in either runtime. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::roundLimitReached --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (drops a lane at its round limit instead of demanding it) -->
 
 **Constraints:**
 
@@ -1258,6 +1257,31 @@ None.
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
 **Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Claude lane classifier tests](../../host/__tests__/lane-classifier.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-106: Round-Limit Lane Suppression
+
+**Intent:** A lane that has exhausted its review rounds must stop costing model invocations, so a stuck review converges instead of billing another full round per push.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A lane already at its round limit costs no model invocation in either runtime. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::roundLimitReached --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (drops a lane at its round limit instead of demanding it) -->
+
+**Constraints:**
+
+- Suppression counts agent-authored review-loop commits only; user-directed commits reset the counter.
+- The limit bounds invocations, never findings: a suppressed lane is reported as suppressed, never as clean.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
+
+**Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 

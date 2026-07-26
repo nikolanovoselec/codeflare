@@ -73,7 +73,7 @@ Five manifest rows are already computed and carried in `evidence`; running them 
 | changelog drift | `changelog`, the current date section — enough to see whether this diff's REQs got an entry |
 | CQ-SOURCE and CQ-TEST anchor resolution | `anchors.checked` with every failure in `anchors.unresolved` |
 
-`evidence.specIndex` is the domain index and `evidence.pending` the known-gaps backlog. `evidence.adrs` lists every ADR by id, title and status. A field that is null or absent is the only case you gather yourself.
+`evidence.specIndex` is the domain index and `evidence.pending` the known-gaps backlog. `evidence.adrs` lists every ADR as an `AD<n>|title|status` row (status omitted when the record carries none). A field that is null or absent is the only case you gather yourself.
 
 ## Procedure
 
@@ -99,6 +99,8 @@ Severity governs how you surface a finding, never whether you report it:
 - **HIGH / MEDIUM** — itemised at true severity.
 - **LOW** — under a "defer to `/sdd clean`" heading.
 - **JUDGMENT** (doc-vs-spec conflict, oversized-REQ split, deprecated-without-successor) — options plus a recommendation and cross-session graph evidence, never a silent pick. Before escalating one, check the record — `evidence.adrs` (id, title, status), the config in `config.raw`, and `evidence.pending` are all in hand, so this costs no lookup. Read one ADR body only when its title says it may settle the finding. A REQ whose AC contradicts an Accepted ADR is the REQ's bug.
+
+**When there is no `<evidence>` block, you gather it yourself.** The block is supplied by the PR-boundary lane runner; a `/review` phase or a direct invocation has none, and every `evidence.*` reference above then means *perform that lookup*. Batch them into your first wave: the domain index, the pending backlog, the review queue, the current changelog section, the SDD config and its recorded dispositions, anchor resolution over the touched spec files, index-versus-tree integrity, and REQ dependency acyclicity. An absent block never means a check is skipped.
 
 ## Rules that catch reviewers out
 

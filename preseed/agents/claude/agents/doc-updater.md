@@ -100,6 +100,8 @@ You own `documentation/` (both layouts: `documentation/lanes/**/*.md` nested, `d
 - **LOW** — under a "defer to `/sdd clean`" heading.
 - **Doc-vs-spec conflicts** — under `## Doc-vs-spec conflicts`, both sides described with a recommendation, never resolved by overwriting either. Before escalating a JUDGMENT finding (lane-violation acceptance, new-file proposal, conflict resolution), check the record: an Accepted ADR in `documentation/decisions/README.md` or a disposition in the config justifies deferring it, not deleting it. A proposal contradicting a settled decision is the proposal's bug. Safety and data-loss conflicts are CRITICAL and surface regardless.
 
+**When there is no `<evidence>` block, you gather it yourself.** The block is supplied by the PR-boundary lane runner; a `/review` phase or a direct invocation has none, and every `evidence.*` reference above then means *perform that lookup*. Batch them into your first wave: index presence and layout, index-versus-tree integrity, anchor and documented-reference resolution, the SDD config and its recorded dispositions, the decision ledger, and the pages citing each changed source file. An absent block never means a check is skipped.
+
 ## Rules that catch reviewers out
 
 - **Never create a doc file without confirmation.** The index is the routing table; a topic that fits nothing gets escalated, not scaffolded. New files become orphaned without an owner.
