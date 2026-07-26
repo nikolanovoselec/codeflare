@@ -396,8 +396,12 @@ function main() {
   // A full-PR review and an `all` scope both arrive without a range, so this was
   // the module's own forbidden direction: unresolved reported as resolved.
   const fromDiff = (value) => (range ? value : null);
+  // The recorded dispositions a rule defers to. Handed to EVERY lane: one
+  // runtime gets them for some lanes in a triage block the other runtime does
+  // not have, and a lane that cannot see a disposition enforces a rule the
+  // project already settled. Excluding a lane here recreated exactly that.
   const specRoot = existsSync(join(repo, 'sdd/spec')) ? 'sdd/spec' : 'sdd';
-  if (lane !== 'code-reviewer') out.config = read(repo, `${specRoot}/config.yml`);
+  out.config = read(repo, `${specRoot}/config.yml`);
 
   if (lane === 'spec-reviewer') {
     // The five manifest rows this lane was still computing itself. Each is a
@@ -412,10 +416,6 @@ function main() {
     // and referencing it would have thrown into the catch-all, handing the lane
     // an error object and quietly restoring every lookup this removes.
     out.queue = read(repo, specGlob === 'sdd/spec' ? 'sdd/spec/.review-queue.md' : 'sdd/.review-needed.md');
-    // The config carries the recorded dispositions a rule defers to. One runtime
-    // is handed it in a triage block the other runtime does not have, and that
-    // runtime raised four findings the config had already settled. A disposition
-    // only one runtime can see is a rule only one runtime enforces.
     // Drift detection asks whether THIS diff's REQs got an entry, so the recent
     // head of the file answers it; carrying the whole history would blow the
     // evidence cap and shed the resolutions that remove turns.
@@ -507,7 +507,7 @@ function bound(out) {
   // the shed exists to prevent.
   const size = () => JSON.stringify(out, null, 1).length;
   if (size() <= MAX_TOTAL) return out;
-  for (const field of ['changelog', 'docIndex', 'specIndex', 'pending', 'queue']) {
+  for (const field of ['changelog', 'docIndex', 'specIndex', 'pending', 'queue', 'config']) {
     if (out[field] === undefined || out[field] === null) continue;
     delete out[field];
     out.omitted = [...(out.omitted ?? []), field];

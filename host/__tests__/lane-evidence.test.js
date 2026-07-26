@@ -613,6 +613,83 @@ describe('build-review-packet.mjs — evidence rides the call that is actually m
   });
 });
 
+describe('lane-evidence.mjs — no range means unknown, never clean', () => {
+  // A full-PR review and an `all` scope both arrive without a range. With no
+  // range `changedFiles` is empty, so every diff-derived check summarised to
+  // `{checked: 0, unresolved: []}` -- which reads as performed and passed. The
+  // lane is told an empty `unresolved` is a clean pass, so that silently
+  // converted "not checked" into "checked, nothing wrong".
+  it('reports diff-derived checks as unknown when no range is given', () => {
+    const { cwd } = makeRepo();
+    write(cwd, 'src/thing.ts', 'export function drive() { return 1; }\n');
+    write(cwd, 'documentation/architecture.md', 'Uses `drive`.\n');
+    write(cwd, 'sdd/spec/agents.md', '1. <!-- @impl: src/thing.ts::drive -->\n');
+    commit(cwd, 'feat: a tree with anchors, docs and code');
+
+    const spec = run(cwd, 'spec-reviewer');
+    const doc = run(cwd, 'doc-updater');
+    const code = run(cwd, 'code-reviewer');
+
+    assert.equal(spec.anchors, null, 'an unrun anchor check must not report zero failures');
+    assert.equal(doc.anchors, null);
+    assert.equal(doc.references, null);
+    assert.equal(doc.docsCitingChanged, null,
+      'an empty citation list would claim nothing changed cites a page');
+    assert.equal(code.callSites, null);
+    assert.equal(code.anchorsCitingChanged, null);
+  });
+
+  // The tree-derived answers do not depend on a diff and must survive, or
+  // removing the false clean would cost every lane the checks it can still keep.
+  it('still resolves the tree-derived answers without a range', () => {
+    const { cwd } = makeRepo();
+    write(cwd, 'documentation/README.md', '# Docs\n\n- [Arch](architecture.md)\n');
+    write(cwd, 'documentation/architecture.md', '# Arch\n');
+    write(cwd, 'documentation/decisions/README.md', '### AD001: A decision\n\n**Status:** Accepted\n');
+    commit(cwd, 'docs: a tree with no diff under review');
+
+    const doc = run(cwd, 'doc-updater');
+
+    assert.deepEqual(doc.adrs, ['AD001|A decision|Accepted']);
+    assert.deepEqual(doc.indexIntegrity, { unindexed: [], dangling: [] });
+    assert.equal(doc.docIndexPresent, true);
+  });
+});
+
+describe('lane-evidence.mjs — the recorded dispositions reach every lane', () => {
+  // A rule that defers to a config disposition is only enforced by a lane that
+  // can see it. One runtime is handed the config in a triage block for some
+  // lanes; the other has no triage block at all, so gating this by lane
+  // recreated the split it exists to remove.
+  it('carries the config to every lane, not just the ones with a triage block', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'sdd/spec/config.yml', 'mode: interactive\nenforce_tdd: true\n');
+    write(cwd, 'src/thing.ts', 'export const x = 1;\n');
+    const head = commit(cwd, 'feat: config plus a source change');
+
+    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      const out = run(cwd, lane, `${base}..${head}`);
+      assert.match(out.config, /enforce_tdd: true/,
+        `${lane} must see the dispositions a rule defers to`);
+    }
+  });
+
+  it('sheds the config with a marker rather than losing the whole block', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'sdd/spec/config.yml', `mode: interactive\n${'# filler disposition line\n'.repeat(40000)}`);
+    write(cwd, 'src/thing.ts', 'export const x = 1;\n');
+    const head = commit(cwd, 'feat: an oversized config');
+
+    const out = run(cwd, 'code-reviewer', `${base}..${head}`);
+
+    assert.ok(out.omitted?.includes('config'), 'a config too large to carry must name itself');
+    assert.ok(JSON.stringify(out, null, 1).length <= 65536,
+      'an unsheddable field would push the block over the cap and blank every resolution');
+    assert.ok(Array.isArray(out.adrs) || out.adrs === null,
+      'the resolutions survive the shed');
+  });
+});
+
 describe('lane-evidence.mjs — the block bounds itself', () => {
   // The bound lives here, not in a caller. One runtime capped and shed by field;
   // the runtime that asks through the packet CLI had no cap at all, so the same
