@@ -89,6 +89,10 @@ function fakeClaude(cwd, witness) {
       `cat > ${witness}.prompt\n` +
       `prev=""\nfor a in "$@"; do\n` +
       `  [ "$prev" = "--settings" ] && cat "$a" > ${witness}.settings\n` +
+      // The argv witness is newline-delimited, so a multi-line value cannot be
+      // indexed out of it -- the line after `--system-prompt` is the body's
+      // leading blank, not the body. Snapshot it whole, like `--settings`.
+      `  [ "$prev" = "--system-prompt" ] && printf '%s' "$a" > ${witness}.sysprompt\n` +
       `  prev="$a"\ndone\n` +
       `echo '{"is_error":false,"num_turns":1,"total_cost_usd":0,` +
       `"usage":{"input_tokens":1},"result":"## report"}'\n`,
@@ -696,7 +700,7 @@ describe('run-review-lane.sh — model and effort passthrough', () => {
     assert.equal(argv[argv.indexOf('--setting-sources') + 1], '',
       'the empty string is the security property: any other value re-inherits settings');
     assert.equal(argv[argv.indexOf('--tools') + 1], 'Bash');
-    assert.match(argv[argv.indexOf('--system-prompt') + 1], /You are the code-reviewer lane\./,
+    assert.match(readFileSync(`${witness}.sysprompt`, 'utf-8'), /You are the code-reviewer lane\./,
       'the system prompt must be the lane document body, not a default');
   });
 });
