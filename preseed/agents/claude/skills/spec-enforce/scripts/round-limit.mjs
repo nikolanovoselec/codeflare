@@ -53,6 +53,17 @@ function countRounds(repo, lane) {
   return counted;
 }
 
+// Owns the failure contract: an unreadable window must never leave the caller a
+// verdict, nor a stack trace where it expects one.
+function resolveCount(repo, lane) {
+  try {
+    return countRounds(repo, lane);
+  } catch (error) {
+    process.stderr.write(`cannot read git history in ${repo}: ${error.message.split('\n')[0]}\n`);
+    process.exit(2);
+  }
+}
+
 const argv = process.argv.slice(2);
 const autonomyOverride = argv.includes('fully-autonomous') ? 'fully-autonomous' : undefined;
 const repoIndex = argv.indexOf('--repo');
@@ -72,13 +83,6 @@ if (repoIndex === -1) {
     process.stderr.write('--repo <dir> and --lane <path-prefix> are both required\n');
     process.exit(2);
   }
-  let counted;
-  try {
-    counted = countRounds(repo, lane);
-  } catch (error) {
-    // Never leave the caller a stack trace where it expects a verdict.
-    process.stderr.write(`cannot read git history in ${repo}: ${error.message.split('\n')[0]}\n`);
-    process.exit(2);
-  }
+  const counted = resolveCount(repo, lane);
   process.stdout.write(`counted=${counted} gate=${action(counted, autonomyOverride)}\n`);
 }

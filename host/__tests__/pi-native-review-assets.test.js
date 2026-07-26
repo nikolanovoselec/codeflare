@@ -339,13 +339,16 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       const { cwd } = repoWith([
         { subject: 'feat: base', files: ['README.md'] },
         { subject: '[code-reviewer] fix: sibling directory', files: ['sdd-notes/x.md'] },
+        { subject: '[code-reviewer] fix: the real lane', files: ['sdd/spec/x.md'] },
       ]);
-      // `--lane sdd` must not swallow `sdd-notes/`.
+      // The real lane commit is the positive control: one means the sibling was
+      // rejected while the lane was still counted, where an over-matching prefix
+      // reads two and a gate that counts nothing reads zero.
       const result = spawnSync(process.execPath, [script, '--repo', cwd, '--lane', 'sdd'], {
         encoding: 'utf8',
       });
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(result.stdout.trim(), 'counted=0 gate=continue');
+      assert.equal(result.stdout.trim(), 'counted=1 gate=continue');
     });
 
     it('does not close the window on a plain commit outside the lane', () => {
