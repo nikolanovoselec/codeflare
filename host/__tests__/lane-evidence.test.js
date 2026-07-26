@@ -938,13 +938,21 @@ describe('lane-evidence.mjs — cost is bounded by the tree, not the document', 
     write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
     const head = commit(cwd, 'docs: many names');
 
-    const started = Date.now();
     const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
-    const elapsed = Date.now() - started;
+
+    // Same tree, a tenth of the names. The contract is that the second run
+    // costs the same passes over the tree as the first -- asserted as a count,
+    // not a duration: a stopwatch on a shared runner fails for load rather than
+    // for regression, and the per-candidate design this replaced would have
+    // scaled the COUNT, not merely the clock.
+    write(cwd, 'documentation/x.md', `Uses ${names.slice(0, 20).map((n) => `\`${n}\``).join(', ')}.\n`);
+    const fewer = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: fewer names')}`).references;
 
     assert.equal(out.checked, names.length, 'every name must be answered, not a capped sample');
     assert.equal(out.unresolved.length, 150, 'the fifty declared names resolve and the rest do not');
-    assert.ok(elapsed < 30_000, `resolution must not scale with the name count (took ${elapsed}ms)`);
+    assert.ok(out.passes > 0, 'the resolver must report how many passes over the tree it took');
+    assert.equal(out.passes, fewer.passes,
+      `resolution must cost the same passes for ${names.length} names as for 20`);
   });
 });
 
@@ -995,5 +1003,24 @@ describe('lane-evidence.mjs — the resolver ships to every bootstrapped repo', 
     const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((r) => r.ref);
     assert.deepEqual(unresolved.sort(), ['match', 'unless'],
       'a block opener must not resolve; the real function beside it must');
+  });
+});
+
+describe('lane-evidence.mjs — a bounded list says so', () => {
+  it('marks a list that reaches the bound as truncated', () => {
+    const { cwd, base } = makeRepo();
+    // The list is bounded, and the lane is told a non-truncated list is a
+    // complete pass. So the only thing that makes a bound safe is that reaching
+    // it is visible: an unmarked 400 of 500 reads as "those are all of them",
+    // which is the false clean the whole resolver exists to avoid.
+    const names = Array.from({ length: 500 }, (_, i) => `absent${i}`);
+    write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
+    const head = commit(cwd, 'docs: past the bound');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
+
+    assert.equal(out.truncated, true, 'a list that reaches its bound must be marked');
+    assert.ok(out.unresolved.length < names.length,
+      'the bound must actually bound the list it marks');
   });
 });

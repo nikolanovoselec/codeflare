@@ -556,25 +556,32 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
   });
 
   it('REQ-AGENT-108: a self-building reviewer is told how to proceed without evidence', () => {
-    // The runtime with a lane runner carries a per-lane fallback naming the
-    // lookups to perform when the block is absent. The runtime that builds its
-    // own packet had none -- only anti-re-derivation prose that presupposes the
-    // block arrived -- so a resolver breach left it holding instructions for
-    // evidence it did not have, and no instruction to reconstruct it.
-    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
-      const seeded = documents.find((document) => document.key === `.pi/agent/agents/${lane}.md`);
-      assert.ok(seeded, `.pi/agent/agents/${lane}.md not found`);
-      // Ordered, not two independent probes: the fallback is only usable if the
-      // field naming WHY evidence is missing sits inside it, so the sentence
-      // must come first and the field must follow within the same paragraph.
-      const opening = seeded.content.indexOf('no `evidence` block, you gather it yourself');
-      assert.ok(opening !== -1,
-        `${lane} must carry an absent-evidence fallback, not only the present-evidence contract`);
-      const paragraph = seeded.content.slice(opening).split('\n\n')[0];
-      assert.match(paragraph, /evidenceOmitted/,
-        `${lane}'s fallback must name the field carrying why evidence is missing`);
-      assert.match(paragraph, /perform that lookup/,
-        `${lane}'s fallback must say the references become lookups, not merely that the block is absent`);
+    // The invariant, not the wording. A reviewer that is told to build its own
+    // packet is the only kind that can be handed `evidenceOmitted` instead of a
+    // block, so every such reviewer must also carry the absent-evidence branch
+    // -- and a FOURTH one added later without it must fail here. Asserting the
+    // sentence instead would pass on any document containing that sentence and
+    // fail on a rewrite that kept the contract, which pins the copy and not the
+    // property.
+    const selfBuilding = documents.filter((document) => (
+      document.key.startsWith('.pi/agent/agents/')
+      && document.content.includes('build-review-packet.mjs')
+    ));
+    assert.ok(selfBuilding.length >= 3,
+      'the Pi reviewers that build their own packet must be discovered, not assumed');
+
+    for (const document of selfBuilding) {
+      assert.match(document.content, /evidenceOmitted/,
+        `${document.key} builds its own packet, so it must name the field carrying why evidence is missing`);
+      // The field alone is not the contract: it has to sit in a branch that
+      // tells the reviewer to perform the lookups itself, which is what an
+      // absent block costs. Same paragraph, so a mention parked elsewhere in
+      // the document does not satisfy it.
+      const branch = document.content
+        .split('\n\n')
+        .find((paragraph) => paragraph.includes('evidenceOmitted'));
+      assert.ok(branch && /lookup/i.test(branch),
+        `${document.key}'s absent-evidence branch must turn the evidence references into lookups it performs`);
     }
   });
 });

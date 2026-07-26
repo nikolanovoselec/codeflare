@@ -140,7 +140,16 @@ function parseArgs(argv) {
 // this one, so that lane silently lost its evidence on every boundary event in
 // one runtime and kept it in the other. A bound that differs by transport turns
 // a shared program into two different programs.
-const EVIDENCE_TIMEOUT_MS = 300_000;
+//
+// Read from the same environment variable, with the same clamp, for the same
+// reason: parity that holds only at the default is not parity. An operator
+// raising the runner's bound would otherwise leave this one at 300s and
+// recreate the split this constant exists to close. The runner's value is
+// seconds; the clamp rejects a non-numeric, zero or absurdly long value and
+// falls back rather than wrapping.
+const EVIDENCE_TIMEOUT_MS = ((raw) => (
+  /^[0-9]{1,9}$/.test(raw ?? '') && Number(raw) > 0 ? Number(raw) * 1000 : 300_000
+))(process.env.REVIEW_LANE_EVIDENCE_TIMEOUT);
 
 // A runtime with a lane runner has its evidence inlined for it. A runtime
 // without one has to ask, and asking meant a second command beside this one.

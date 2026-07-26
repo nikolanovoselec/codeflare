@@ -39,6 +39,9 @@ const MAX_LIST = 40;
 // rather than verdicts. `MAX_TOTAL` below is the real bound; this only stops a
 // pathological list from being the whole block.
 const MAX_UNRESOLVED = 400;
+// What the scan will look at, as opposed to how many failures it will list.
+// Sharing one number made a clean doc set trip the truncation marker.
+const MAX_CANDIDATES = 600;
 const MAX_LINE = 200;
 // A cited file's own diff, and the ceiling on all of them together. Bounded
 // twice because this is the one field that scales with the diff rather than
@@ -72,22 +75,40 @@ const clip = (line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}...`
 // `unresolved` -- which the lane is told to read as a clean pass. That is a
 // false clean in the one direction this module promises never to fail in, so a
 // scan that did not see everything says so and the lane finishes it.
-function summarise(rows, inputTruncated = false) {
+function summarise(rows, inputTruncated = false, passes) {
   const failed = rows.filter((row) => !row.resolved);
   const truncated = inputTruncated || failed.length > MAX_UNRESOLVED;
   return {
     checked: rows.length,
     unresolved: failed.slice(0, MAX_UNRESOLVED),
     ...(truncated ? { truncated: true } : {}),
+    // How many passes over the tree the answers cost. Constant against the
+    // number of names asked about -- which is the contract, and is otherwise
+    // only checkable with a stopwatch.
+    ...(passes === undefined ? {} : { passes }),
   };
 }
 
-function git(repo, args) {
+// Counted so the cost contract is checkable rather than timed: reference
+// resolution must take the same number of passes over the tree whether a
+// document cites twenty names or two hundred.
+let gitCalls = 0;
+
+// `git grep` exits 1 for "no match", which is an answer. Any other non-zero
+// status is a failure, and a failure that reads as an empty result turns every
+// symbol in the dropped chunk into a stale-doc finding -- so the two are
+// distinguished here rather than collapsed.
+function gitStatus(repo, args) {
+  gitCalls += 1;
   try {
-    return execFileSync('git', args, { cwd: repo, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 });
-  } catch {
-    return '';
+    return { out: execFileSync('git', args, { cwd: repo, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 }), failed: false };
+  } catch (error) {
+    return { out: String(error?.stdout ?? ''), failed: error?.status !== 1 };
   }
+}
+
+function git(repo, args) {
+  return gitStatus(repo, args).out;
 }
 
 function read(repo, relative) {
@@ -268,7 +289,7 @@ function resolveAnchors(repo, files, targets = null) {
 // asked. Demanding a unique match reported `security.md` as a stale reference
 // because the tree has three of them, which is the false finding this resolver
 // exists to avoid, in the direction that wastes a reviewer's turn.
-function trackedNames(repo) {
+function trackedNames(tracked) {
   const names = new Set();
   // Both spellings are added as each form is produced. De-slashing by walking
   // the accumulated set instead made this quadratic in tree size -- a full copy
@@ -285,7 +306,7 @@ function trackedNames(repo) {
       add(path.slice(i + 1));
     }
   };
-  for (const path of git(repo, ['ls-files']).split('\n').filter(Boolean)) {
+  for (const path of tracked) {
     suffixes(path);
     const base = path.slice(path.lastIndexOf('/') + 1);
     names.add(base.replace(/\.[^.]+$/, ''));
@@ -309,15 +330,17 @@ const LITERAL_SHAPE = /^[A-Za-z0-9_@][\w./@-]{1,120}$/;
 
 function quotedLiterals(repo, paths) {
   const names = new Set();
+  let degraded = false;
   for (let i = 0; i < paths.length; i += 400) {
-    const out = git(repo, ['grep', '-hoE', '-a', '--',
+    const { out, failed } = gitStatus(repo, ['grep', '-hoE', '-a', '--',
       '["\x27][A-Za-z0-9_@][A-Za-z0-9_@./-]{1,120}["\x27]', ...paths.slice(i, i + 400)]);
+    if (failed) { degraded = true; continue; }
     for (const hit of out.split('\n')) {
       const value = hit.slice(1, -1);
       if (value && LITERAL_SHAPE.test(value)) names.add(value);
     }
   }
-  return names;
+  return { names, degraded };
 }
 
 // A dependency is declared by the manifest, not by a declaration in this tree.
@@ -332,9 +355,22 @@ function quotedLiterals(repo, paths) {
 // resolve without this module learning nine file formats.
 const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|Pipfile|go\.mod|Gemfile|composer\.json|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
 
-function declaredDependencies(repo) {
+// The first token on a manifest line is a dependency in `Cargo.toml` and
+// `requirements.txt` and a directive in `Gemfile`, `go.mod` and a Gradle build.
+// Without this, `gem`, `source`, `module` and `require` become resolvable names
+// -- a false clean in the one check whose job is spotting what no longer
+// resolves. Same role as NOT_A_DECLARATION, for manifests.
+const NOT_A_DEPENDENCY = new Set([
+  'gem', 'source', 'require', 'module', 'go', 'toolchain', 'replace', 'exclude',
+  'retract', 'plugins', 'dependencies', 'implementation', 'api', 'testImplementation',
+  'compileOnly', 'runtimeOnly', 'classpath', 'group', 'name', 'version', 'ruby',
+  'gemspec', 'git', 'path', 'platforms', 'targets', 'products', 'defp', 'def',
+  'deps', 'application', 'project', 'build', 'extras', 'include', 'python',
+]);
+
+function declaredDependencies(repo, listing) {
   const names = new Set();
-  const tracked = git(repo, ['ls-files']).split('\n').filter(Boolean).filter(live);
+  const tracked = listing.filter(live);
 
   for (const path of tracked.filter((entry) => /(^|\/)package\.json$/.test(entry))) {
     let manifest;
@@ -360,7 +396,7 @@ function declaredDependencies(repo) {
         if (LITERAL_SHAPE.test(value)) names.add(value);
       }
       const bare = line.match(/^[A-Za-z0-9_@][\w./@-]{1,120}/);
-      if (bare && LITERAL_SHAPE.test(bare[0])) names.add(bare[0]);
+      if (bare && LITERAL_SHAPE.test(bare[0]) && !NOT_A_DEPENDENCY.has(bare[0])) names.add(bare[0]);
     }
   }
   return names;
@@ -369,12 +405,22 @@ function declaredDependencies(repo) {
 function resolveDocReferences(repo, files) {
   const rows = [];
   const seen = new Set();
-  const codePaths = git(repo, ['ls-files'])
-    .split('\n').filter(Boolean).filter(live).filter((path) => CODE_PATH.test(path));
-  const declared = declarationIndex(repo, codePaths);
-  const literals = quotedLiterals(repo, codePaths);
-  const names = trackedNames(repo);
-  const dependencies = declaredDependencies(repo);
+  const passesBefore = gitCalls;
+  // One listing, four consumers. It was shelled out three times, and the
+  // referent set was built from the unfiltered form, so a generated artifact
+  // resolved a documented name by its basename.
+  const listing = git(repo, ['ls-files']).split('\n').filter(Boolean);
+  const codePaths = listing.filter(live).filter((path) => CODE_PATH.test(path));
+  const declarations = declarationIndex(repo, codePaths);
+  const quoted = quotedLiterals(repo, codePaths);
+  const declared = declarations.index;
+  const literals = quoted.names;
+  const names = trackedNames(listing.filter(live));
+  const dependencies = declaredDependencies(repo, listing);
+  // A dropped chunk is a partial scan, and the lane is told a non-truncated
+  // list is a complete pass -- so it has to arrive marked.
+  let capped = declarations.degraded || quoted.degraded;
+  const done = () => ({ rows, capped, passes: gitCalls - passesBefore });
   for (const file of files.slice(0, MAX_LIST)) {
     const body = read(repo, file);
     if (body === null) continue;
@@ -398,14 +444,14 @@ function resolveDocReferences(repo, files) {
       if (/^\/.*\//.test(candidate) || /^[a-z0-9-]+\.[a-z]{2,}\//.test(candidate)) continue;
       if (/^[A-Z][A-Z0-9_]*$/.test(candidate) || /(^|[^A-Za-z])(NNN|XXX)([^A-Za-z]|$)/.test(candidate)) continue;
       seen.add(candidate);
-      // Ceiling raised to match the failure budget and, more importantly, made
-      // VISIBLE. At 160 it stopped collecting without recording anything, so
-      // `summarise` could never see a list long enough to mark truncated -- a
-      // capped scan reached the lane as a complete one, which is the false
-      // clean the summary contract promises never to produce. The measured
-      // range already produced 149 candidates, one doc file short of the old
-      // ceiling.
-      if (rows.length >= MAX_UNRESOLVED) { rows.capped = true; return rows; }
+      // Its own ceiling, not the failure budget's. At 160 it stopped collecting
+      // without recording anything, so `summarise` could never see a list long
+      // enough to mark truncated -- a capped scan reached the lane as a
+      // complete one, which is the false clean the summary contract promises
+      // never to produce. Sharing MAX_UNRESOLVED then counted RESOLVED rows
+      // against a failure budget, so a doc set resolving cleanly could stop the
+      // scan and report truncated with nothing having failed.
+      if (rows.length >= MAX_CANDIDATES) { capped = true; return done(); }
       if (candidate.includes('/') || candidate.includes('.')) {
         // Same repo-escape guard as read(): a `../` candidate must not probe
         // outside the tree just because this branch checks a path directly.
@@ -447,7 +493,7 @@ function resolveDocReferences(repo, files) {
       rows.push({ ref: candidate, resolved: literals.has(candidate), as: literals.has(candidate) ? 'literal' : 'symbol' });
     }
   }
-  return rows;
+  return done();
 }
 
 // Only a path that can hold code answers "does this resolve to code?". A token
@@ -512,13 +558,17 @@ const NOT_A_DECLARATION = new Set([
 
 function declarationIndex(repo, paths) {
   const index = new Set();
-  if (!paths.length) return index;
+  let degraded = false;
+  if (!paths.length) return { index, degraded };
   for (const { shape, pick } of DECL_SHAPES) {
     // Chunked: a pathspec list of every code file in a large repo can exceed the
-    // argument limit, and a throw here would empty the index -- which reads as
-    // "nothing is declared" and turns every reference into a stale-doc finding.
+    // argument limit. A chunk that fails anyway contributes no declarations,
+    // which reads as "nothing here is declared" and turns every symbol in it
+    // into a stale-doc finding -- so a failure is reported as a partial scan
+    // rather than absorbed as an empty one.
     for (let i = 0; i < paths.length; i += 400) {
-      const out = git(repo, ['grep', '-hoE', '-a', '--', shape, ...paths.slice(i, i + 400)]);
+      const { out, failed } = gitStatus(repo, ['grep', '-hoE', '-a', '--', shape, ...paths.slice(i, i + 400)]);
+      if (failed) { degraded = true; continue; }
       for (const hit of out.split('\n')) {
         if (!hit) continue;
         const words = hit.trim().split(/[^A-Za-z0-9_]+/).filter(Boolean);
@@ -527,7 +577,7 @@ function declarationIndex(repo, paths) {
       }
     }
   }
-  return index;
+  return { index, degraded };
 }
 
 // Identifiers too short or too generic to be a caller signal. Left unfiltered,
@@ -769,7 +819,9 @@ function main() {
     const docFiles = files.filter((f) => f.startsWith('documentation/') || /^[A-Z]+\.md$/.test(f));
     out.anchors = fromDiff(summarise(resolveAnchors(repo, docFiles), docFiles.length > MAX_LIST));
     const references = resolveDocReferences(repo, docFiles);
-    out.references = fromDiff(summarise(references, references.capped === true || docFiles.length > MAX_LIST));
+    out.references = fromDiff(summarise(
+      references.rows, references.capped || docFiles.length > MAX_LIST, references.passes,
+    ));
   } else if (lane === 'code-reviewer') {
     const source = files.filter((f) => !f.startsWith('sdd/') && !f.startsWith('documentation/'));
     out.callSites = fromDiff(callSites(repo, source, range));
