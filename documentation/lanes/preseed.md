@@ -1140,6 +1140,7 @@ Merge commits are followed with their diffs, because a merge carrying lane work 
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds -->
+<!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount -->
 
 After every required reviewer result arrives, the launch handoff requires an automatic triage summary before mutation. The root separately judges finding validity and proposed-fix proportionality, prefers existing machinery, rejects unsupported or overengineered proposals, and applies legitimate minimal fixes unless the user requested approval.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
