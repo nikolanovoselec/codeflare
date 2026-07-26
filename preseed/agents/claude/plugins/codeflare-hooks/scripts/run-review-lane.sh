@@ -42,11 +42,18 @@ set -uo pipefail
 LANE=""
 RANGE=""
 BASE=""
+# `shift 2` with only one argument left FAILS and does not shift, and this script
+# runs without `set -e`, so a trailing valueless flag would spin the loop
+# forever. A hung lane inside the review gate wedges the turn, so every flag
+# asserts it has a value before shifting.
+need_value() {
+  [ "$1" -ge 2 ] || { echo "run-review-lane: $2 requires a value" >&2; exit 2; }
+}
 while [ $# -gt 0 ]; do
   case "$1" in
-    --lane)  LANE="${2:-}"; shift 2 ;;
-    --range) RANGE="${2:-}"; shift 2 ;;
-    --base)  BASE="${2:-}"; shift 2 ;;
+    --lane)  need_value $# --lane;  LANE="$2";  shift 2 ;;
+    --range) need_value $# --range; RANGE="$2"; shift 2 ;;
+    --base)  need_value $# --base;  BASE="$2";  shift 2 ;;
     *) echo "run-review-lane: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -103,9 +110,15 @@ LANE_EFFORT="$(frontmatter_value "$AGENT_DOC" effort)"
 HOOK_DIR="$CLAUDE_HOME/plugins/codeflare-hooks/scripts"
 GUARD_SETTINGS="$(mktemp -t review-lane-guards.XXXXXX.json)"
 trap 'rm -f "$GUARD_SETTINGS"' EXIT
+# Fail CLOSED. A missing guard would otherwise yield an empty hook list and run
+# the lane with bypassPermissions and no protection at all -- the same
+# silently-inert failure this block exists to prevent.
 GUARDS=""
 for guard in block-local-builds.sh block-attributed-commits.sh; do
-  [ -f "$HOOK_DIR/$guard" ] || continue
+  if [ ! -f "$HOOK_DIR/$guard" ]; then
+    echo "run-review-lane: required guard $HOOK_DIR/$guard is missing; refusing to run unguarded" >&2
+    exit 3
+  fi
   GUARDS="$GUARDS${GUARDS:+,}$(printf '{"type":"command","command":"bash %s"}' "$HOOK_DIR/$guard")"
 done
 printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[%s]}]}}\n' "$GUARDS" > "$GUARD_SETTINGS"

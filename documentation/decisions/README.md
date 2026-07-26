@@ -2821,6 +2821,24 @@ The extension compiles its exact `node-pty` dependency for OpenVSCode's Node 22 
 
 ---
 
+### AD115: Claude PR-boundary review lanes run as headless `claude -p` subprocesses
+
+**Category:** Architecture, Cost
+
+**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport).
+
+**Context:** A review lane began work already holding context it had no way to refuse. Claude Code injects CLAUDE.md, every `~/.claude/rules/*.md`, MEMORY.md and the SessionStart blocks into every subagent, and exposes no frontmatter field that excludes any of them — measured at 20,513 prompt tokens against an agent whose own document is nearly empty, so the figure is the harness rather than the lane. Reducing the reviewers to `tools: ["Bash"]` moved it by roughly 1,200 tokens, because tool schemas are already loaded on demand and were never where the cost sat. What a lane actually carried was a memory index of files it has no tool to open, a block instructing it to prefer retrieval tools it is explicitly denied, and rule files whose enforcement content it already embeds. This mirrors the Pi-side problem settled in [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
+
+**Decision:** Run each lane as a headless subprocess — `claude -p --setting-sources "" --strict-mcp-config --system-prompt <agent-doc> --tools Bash` — rather than an Agent subagent. The three controls that collapse the floor exist only on the command line, which is what forces a subprocess: `--setting-sources ""` takes the measured floor to 21,034, `--system-prompt` to 17,598, and `--tools Bash` to 1,533. Each lane's declared `model` and `effort` are read from its own frontmatter and passed through, so the transport change re-tiers nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+
+Declining inherited settings also declines hooks, so the container guards are passed back explicitly via `--settings` and invoked as `bash <script>`: the seeded hook scripts ship non-executable, and a bare command path fails silently, which reads as permission rather than as breakage.
+
+The Stop-hook gate matched an Agent envelope, which a subprocess never emits. It now credits either transport, with the legacy shape evaluated first and unchanged, so migrating a lane can never narrow what qualifies as reviewed. Two failure modes found while reviewing this decision shape the match: a backgrounded subagent emits a tool_result carrying its own identifier at start time, so that completion shape is accepted only for the subprocess transport; and a substring match let a single command quoting the runner path satisfy every lane at once, so the runner is now parsed structurally and must occupy command position. `--lane <name>` is the gate's match token, and renaming it would disable enforcement silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_spawn_lines --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_completed -->
+
+**Related:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
+
+---
+
 ### AD114: Native Pi Chat and the official Claude extension own editor integration
 
 **Category:** Architecture, Security, Supply Chain

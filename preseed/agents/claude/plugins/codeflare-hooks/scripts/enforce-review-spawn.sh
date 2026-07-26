@@ -458,17 +458,75 @@ fi
 # fires on real tool_use envelopes, never on prose or tool_result text that
 # happens to quote the same bytes. Detection is deliberately additive: shape (a)
 # is unchanged, so the transport migration cannot narrow what the gate accepts.
+# The awk half is only a CHEAP PREFILTER. It emits `<line>\t<kind>`; a `bash`
+# kind is a candidate that must still survive structural verification in
+# `bash_line_runs_lane`, because a substring match on the serialised envelope
+# also fires on the runner path appearing INSIDE a command string. One
+# `echo "... --lane code-reviewer --lane spec-reviewer --lane doc-updater"`
+# would otherwise satisfy all three lanes and bypass the gate wholesale - the
+# same class as matching `git push` inside `echo "git push later"`.
 LANE_SPAWN_AWK='
-function is_lane_spawn(line, lane) {
-  if (!index(line, "\"type\":\"tool_use\"")) return 0
+function lane_spawn_kind(line, lane) {
+  if (!index(line, "\"type\":\"tool_use\"")) return ""
   if (index(line, "\"name\":\"Agent\"") \
-      && index(line, "\"subagent_type\":\"" lane "\"")) return 1
+      && index(line, "\"subagent_type\":\"" lane "\"")) return "agent"
   if (index(line, "\"name\":\"Bash\"") \
       && index(line, "run-review-lane.sh") \
-      && index(line, "--lane " lane)) return 1
-  return 0
+      && index(line, "--lane " lane)) return "bash"
+  return ""
 }
 '
+
+# Structural verification of a Bash lane-runner envelope. Parses the command out
+# of the tool_use with jq (already a hard dependency of this hook) and requires
+# the runner to sit in COMMAND position - start of line or after a shell
+# separator - with `--lane <name>` among its arguments and no separator in
+# between. Quoted mentions inside another command therefore never qualify.
+bash_line_runs_lane() {
+  local line_content="$1"
+  local lane="$2"
+  local cmd
+  cmd=$(printf '%s' "$line_content" | jq -r '
+    [ .message.content[]?
+      | select(.type? == "tool_use" and .name? == "Bash")
+      | .input.command? // empty ] | .[]
+  ' 2>/dev/null) || return 1
+  [ -n "$cmd" ] || return 1
+  printf '%s' "$cmd" | grep -qE \
+    "(^|[;&|]|&&|\|\|)[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(bash[[:space:]]+)?[^[:space:];&|\"']*run-review-lane\.sh([[:space:]]+[^;&|\"']*)?[[:space:]]--lane[[:space:]]+${lane}([[:space:]]|\$)"
+}
+
+# Verified lane-spawn line numbers, newest last. Optional $2/$3 bound the search
+# to an exclusive (min, max) line window; omit or pass 0 for unbounded.
+lane_spawn_lines() {
+  local lane="$1"
+  local min_line="${2:-0}"
+  local max_line="${3:-0}"
+  local nr kind line_content
+  awk -v a="$lane" -v p="$min_line" -v q="$max_line" "$LANE_SPAWN_AWK"'
+    NR > p && (q == 0 || NR < q) {
+      k = lane_spawn_kind($0, a)
+      if (k != "") print NR "\t" k
+    }
+  ' "$TRANSCRIPT" | while IFS="$(printf '\t')" read -r nr kind; do
+    if [ "$kind" = "agent" ]; then
+      printf '%s\n' "$nr"
+      continue
+    fi
+    line_content=$(awk -v L="$nr" 'NR==L { print; exit }' "$TRANSCRIPT")
+    if bash_line_runs_lane "$line_content" "$lane"; then
+      printf '%s\n' "$nr"
+    fi
+  done
+}
+
+# True when the transcript line is a headless lane-runner Bash envelope. The
+# tool_result completion shape is only valid for that transport (see below).
+spawn_line_is_bash_runner() {
+  local line_content
+  line_content=$(awk -v L="$1" 'NR==L { print; exit }' "$TRANSCRIPT")
+  printf '%s' "$line_content" | grep -qF 'run-review-lane.sh'
+}
 
 # Completion correlation for a spawned lane, shared by every check below.
 #
@@ -481,19 +539,23 @@ function is_lane_spawn(line, lane) {
 #       background-notification shape, so (a) alone would leave every
 #       subprocess lane looking permanently in-flight.
 #
-# Additive in the same way as is_lane_spawn: shape (a) is evaluated first and
-# is byte-for-byte the previous behaviour.
+# The tool_result shape is accepted ONLY for the subprocess transport. A
+# BACKGROUNDED Agent spawn emits a tool_result carrying the same tool_use_id at
+# START time, long before `completed</status>` arrives, so applying (b) to the
+# Agent transport would credit an in-flight subagent as finished and ack a head
+# whose review never ran. Shape (a) alone therefore remains the whole contract
+# for Agent spawns - byte-for-byte the previous behaviour.
 tool_use_id_completed() {
   local spawn_line="$1"
   local tool_use_id="$2"
-  local tail_lines
-  tail_lines=$(awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT")
-  if printf '%s' "$tail_lines" \
+  if awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
       | grep -F "tool-use-id>${tool_use_id}<" \
       | grep -qF 'completed</status>'; then
     return 0
   fi
-  printf '%s' "$tail_lines" | grep -qF "\"tool_use_id\":\"${tool_use_id}\""
+  spawn_line_is_bash_runner "$spawn_line" || return 1
+  awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
+    | grep -qF "\"tool_use_id\":\"${tool_use_id}\""
 }
 
 retroactive_ack_scan() {
@@ -607,9 +669,7 @@ retroactive_ack_scan() {
     local lane
     for lane in $required_lanes; do
       local spawn_line
-      spawn_line=$(awk -v s="$start" -v e="$end" -v a="$lane" "$LANE_SPAWN_AWK"'
-        NR > s && NR < e && is_lane_spawn($0, a) { print NR }
-      ' "$TRANSCRIPT" | tail -1)
+      spawn_line=$(lane_spawn_lines "$lane" "$start" "$end" | tail -1)
       if [ -z "$spawn_line" ]; then
         window_complete=0; break
       fi
@@ -870,9 +930,7 @@ IN_FLIGHT_STALE_LINES=1200
 lane_in_flight() {
   local lane="$1"
   local spawn_line
-  spawn_line=$(awk -v a="$lane" "$LANE_SPAWN_AWK"'
-    is_lane_spawn($0, a) { print NR }
-  ' "$TRANSCRIPT" | tail -1)
+  spawn_line=$(lane_spawn_lines "$lane" | tail -1)
   [ -n "$spawn_line" ] || return 1  # never spawned -> not in flight
   # Staleness bound: an uncompleted spawn far behind the transcript tail is
   # treated as orphaned (dead subagent), not in-flight, so the gate re-fires.
@@ -894,9 +952,7 @@ lane_in_flight() {
 latest_lane_spawn_after_line() {
   local lane="$1"
   local min_line="$2"
-  awk -v p="$min_line" -v a="$lane" "$LANE_SPAWN_AWK"'
-    NR > p && is_lane_spawn($0, a) { print NR }
-  ' "$TRANSCRIPT" | tail -1
+  lane_spawn_lines "$lane" "$min_line" | tail -1
 }
 
 spawn_completed() {

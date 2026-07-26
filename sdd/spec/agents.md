@@ -2533,14 +2533,8 @@ None.
 6. The code reviewer runs pinned `high` reasoning effort while the specification and documentation reviewers run `medium`; transformed runtimes never inherit the Claude-only effort key. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::effort = high --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::effort = medium --> <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms) -->
 7. Each Claude PR-boundary reviewer builds its lane evidence packet once through the seeded `review-scope` packet CLI and reasons from that packet instead of repository-wide scans. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Build the lane packet once --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools) -->
 
-8. Each Claude PR-boundary lane runs as a headless `claude -p` subprocess whose system prompt is the lane's own agent document, and the review gate credits a lane under either that transport or a legacy Agent subagent spawn. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::is_lane_spawn --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_completed --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
-
 **Constraints:**
 
-- A subagent inherits CLAUDE.md, every user rule file, the memory index and the session-start blocks with no per-agent exclusion, so the lane floor is only reducible by replacing the system prompt and pruning tool schemas -- both CLI-only, which is why a lane is a subprocess rather than a subagent.
-- `--lane <name>` is the gate's match token; renaming the flag silently disables review enforcement.
-- Dropping inherited settings also drops hooks, so the container build/test guards are re-injected explicitly; they must be invoked as `bash <script>` because the seeded hook scripts ship non-executable.
-- Transport detection is additive: the legacy Agent-subagent shape stays credited, so migrating a lane can never narrow what the gate accepts.
 - Exact-head checkpoints, ancestry-derived ranges, lane classification, parallel launch, and completion correlation remain unchanged.
 - Review scope, enforcement manifests, severity, and evidence truth remain complete.
 - Reviewers inspect the complete scoped work set; the evidence packet bounds context, never scope.
@@ -2552,7 +2546,36 @@ None.
 
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
 
-**Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [Claude review reminder tests](../../host/__tests__/git-push-review-reminder.test.js), [Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
+**Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [Claude review reminder tests](../../host/__tests__/git-push-review-reminder.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-102: Claude Reviewer Headless Lane Transport
+
+**Intent:** A PR-boundary lane must pay for its own review policy and nothing else, so the lane runs in a process whose context it fully controls rather than inheriting a session it cannot trim.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Each Claude PR-boundary lane runs as a headless `claude -p` subprocess whose system prompt is the lane's own agent document. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+2. The review gate credits a lane under either that headless transport or a legacy Agent subagent spawn. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_spawn_lines --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_completed --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+
+**Constraints:**
+
+- Lane floor reduction requires replacing the system prompt and pruning tool schemas, both CLI-only, which is why a lane is a subprocess and not a subagent.
+- `--lane <name>` is the gate's match token; renaming the flag silently disables review enforcement.
+- Dropping inherited settings drops hooks, so build/test guards are re-injected explicitly, invoked as `bash <script>` because seeded hooks ship non-executable.
+- Transport detection is additive: the legacy Agent shape stays credited, so migrating a lane never narrows what the gate accepts.
+- A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-086](#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff)
+
+**Verification:** Automated test ([Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
 
 **Status:** Implemented
 

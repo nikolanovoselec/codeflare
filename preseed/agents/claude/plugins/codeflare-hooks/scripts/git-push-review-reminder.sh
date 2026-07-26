@@ -450,15 +450,25 @@ fi
 # the system prompt and prunes the tool schemas, which the CLI supports and
 # subagent frontmatter does not, taking that floor to ~1,533. The Stop hook
 # accepts either transport, so a lane spawned the old way still acks.
-RUNNER="$HOME/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh"
+# Must agree with run-review-lane.sh's own resolution: it honours
+# CLAUDE_CONFIG_DIR, so hardcoding $HOME/.claude here would emit a directive
+# pointing at a path that does not exist under a relocated config, every lane
+# would exit non-zero, and the Bash envelope would still satisfy the gate's
+# spawn match - acking a head whose review never ran.
+RUNNER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh"
 if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$CURRENT_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
   LANE_SCOPE="--range $LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD"
-  DIRECTIVE="$DIRECTIVE Each lane reviews ONLY the incremental diff since the last reviewed head ($LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD), not the full PR diff against origin/$PR_BASE."
-else
+  DIRECTIVE="$DIRECTIVE Each lane reviews ONLY the incremental diff since the last reviewed head ($LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD), not the full PR diff."
+elif [ -n "$PR_BASE" ]; then
   LANE_SCOPE="--base $PR_BASE"
   DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against origin/$PR_BASE (no prior review base)."
+else
+  # PR_BASE is allowed to be empty upstream (it fails open to enforcement).
+  # Emitting `--base ` with no value would hand the runner a dangling flag.
+  LANE_SCOPE=""
+  DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against its default base (base branch unresolved)."
 fi
-DIRECTIVE="$DIRECTIVE Run each required lane with a single Bash call, all lanes concurrently in ONE message: 'bash $RUNNER --lane <name> $LANE_SCOPE'. Each call returns that lane's structured report on stdout. Do NOT spawn review subagents and do NOT paste diffs into the command - the lane gathers its own evidence."
+DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> $LANE_SCOPE' with run_in_background true. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents and do NOT paste diffs into the command - the lane gathers its own evidence."
 DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes. Do NOT mention these lanes to the user. Do NOT print status updates about them."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'

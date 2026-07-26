@@ -37,7 +37,7 @@ deployed on Recreate or new bucket creation.
 | Pi startup header and local statusline | Yes | Yes | Yes |
 | Cloudflare-stack, ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (Claude + Pi) | No | Yes | Yes |
-| CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
+| CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn`, `run-review-lane` | No | Yes | Yes |
 | Language rules (common, TS, Python, Go, Swift) | No | Yes | Yes |
 | Agent definitions (architect, code-reviewer, deep-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
 | Commands (/brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
@@ -1090,6 +1090,8 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 ### Resetting Review-Spawn Checkpoints
 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
+
+**Lane transport (headless subprocess).** Each required lane runs as a headless `claude -p` subprocess launched via `bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name> [--range <base>..<head> | --base <ref>]`, with the lane's own agent document (`~/.claude/agents/<name>.md`) supplied as `--system-prompt` and `--tools Bash` as the only granted tool ([REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport)). An in-session subagent cannot be made cheap: Claude Code injects CLAUDE.md, every `~/.claude/rules/*.md`, MEMORY.md and the SessionStart blocks into every subagent with no per-agent exclusion, measured at a 20,513-token floor before the lane does any work. Replacing the system prompt and pruning tool schemas — both CLI-only controls — brings that to roughly 1,533. `--setting-sources ""` also drops hooks, so the container guards (`block-local-builds.sh`, `block-attributed-commits.sh`) are re-injected via `--settings` and invoked as `bash <script>`, because the seeded hook scripts ship non-executable and a bare path fails silently. The Stop hook credits *either* transport — a legacy `Agent` subagent envelope or this `Bash` runner invocation — so migrating a lane never narrows what the gate accepts. `--lane <name>` is the gate's match token: renaming it silently disables review enforcement. The runner must appear in command position, so a quoted mention inside another command credits nothing, and a backgrounded subagent's start receipt is not accepted as completion.
 
 Pi uses the supported command grammar in
 [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize protected-base `gh pr create`, explicit single-branch pushes, and implicit bare, remote-only, or `HEAD` pushes.

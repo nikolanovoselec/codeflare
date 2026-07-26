@@ -686,7 +686,9 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'an unreturned lane must not advance the checkpoint');
   });
 
-  it('does not credit a lane from a Bash call that is not the lane runner', () => {
+  // The dangerous imposter QUOTES the runner path, so a substring match on the
+  // serialised envelope satisfies all three lanes from one echo.
+  it('does not credit any lane from a command that merely quotes the runner path', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'impostersha'));
@@ -698,7 +700,10 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
             type: 'tool_use',
             name: 'Bash',
             id: 'toolu_i1',
-            input: { command: 'echo "--lane code-reviewer --lane spec-reviewer --lane doc-updater"' },
+            input: {
+              command:
+                'echo "next: bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane code-reviewer --lane spec-reviewer --lane doc-updater"',
+            },
           },
         ],
       },
@@ -711,8 +716,29 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'the runner path must be part of the match, not the --lane token alone');
+      'the runner must be in command position, not quoted inside another command');
     assert.notEqual(ackOf(cwd), 'impostersha');
+  });
+
+  // A backgrounded Agent spawn emits a tool_result carrying its tool_use_id at
+  // START time. Accepting that shape for the Agent transport would credit an
+  // in-flight subagent as finished.
+  it('does not treat a background Agent start receipt as lane completion', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'inflightsha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      AGENT_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_cr1'),
+      LANE_BASH_DONE_LINE('toolu_cr1'),
+      AGENT_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_sr1'),
+      LANE_BASH_DONE_LINE('toolu_sr1'),
+      AGENT_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_du1'),
+      LANE_BASH_DONE_LINE('toolu_du1'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'inflightsha',
+      'only a completion notification may finish an Agent-transport lane');
   });
 });
 
