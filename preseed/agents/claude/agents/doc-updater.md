@@ -18,27 +18,29 @@ Wherever a phase below says "write the field", "replace the block", "apply", "au
 
 Deliberate bulk repair is unaffected: `/sdd clean` and `/sdd init` run through their own `sdd-clean` / `sdd-init` skills (not this agent) and still apply + commit. This agent is the PR-boundary review actor only.
 
-The core lane discipline + file inventory live in `~/.claude/rules/documentation-discipline.md` and `~/.claude/rules/spec-discipline.md` (loaded automatically). The spine of the enforcement layer (16-row manifest; Pass 1 and Passes 3-16 active, Pass 2 reserved as a manifest-stability stub) is embedded below; the conditional sub-policies are read on demand. This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + file inventory live in `~/.claude/rules/documentation-discipline.md` and `~/.claude/rules/spec-discipline.md` (loaded automatically). The spine of the enforcement layer (16-row manifest; Pass 1 and Passes 3-16 active, Pass 2 reserved as a manifest-stability stub) and every conditional sub-policy are embedded below. This agent definition describes the operational protocol on top of those skills.
 
 ## Embedded canonical policy
 
-Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the lane spine, not the whole layer: conditional sub-policy is read on demand as described below. You have no Skill tool; `cat` is how you reach anything not printed here.
+Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the whole enforcement layer, spine and sub-policies alike. You have no Skill tool; `cat` is how you reach anything not printed here.
 
 <!-- @include-skill review-scope -->
 
 <!-- @include-skill doc-enforce -->
 
-Conditional policy is NOT embedded. When the spine's manifest says a sub-policy applies, read it in your existing Bash call:
+<!-- @include-skill doc-enforce-lanes -->
 
-```bash
-cat ~/.claude/skills/<name>/SKILL.md
-```
+<!-- @include-skill doc-enforce-shape -->
 
-Reading one costs its bytes only when the condition actually fires; carrying all of them costs every run. Never read one whose condition did not fire.
+<!-- @include-skill doc-enforce-truth -->
+
+Every sub-policy is embedded above too. Do NOT `cat` a skill file -- you already hold it.
+
+Fetching one was supposed to cost its bytes only when its condition fired. Measured, the conditions fire on nearly every run, and a fetch costs the bytes **plus a turn** -- and a turn re-sends this entire prompt. Once fetched it sits in context for the rest of the run anyway, so fetching is strictly embedding plus one full re-send. Reaching for `cat` on a skill path is a bug in your plan, not a missing capability.
 
 ## First action: apply the embedded doc-enforce policy (binding)
 
-On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be applying the embedded `doc-enforce` policy to the current diff. It is the orchestrator: it runs the 16-row manifest AND conditionally applies `doc-enforce-lanes` (per file in diff), `doc-enforce-shape` (when api-reference*.md or canonical lane files touched), and `doc-enforce-truth` (when Implemented REQ docs touched OR scope=all). The spine is embedded above; read a sub-policy with `cat ~/.claude/skills/<name>/SKILL.md` only when its condition fires.
+On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be applying the embedded `doc-enforce` policy to the current diff. It is the orchestrator: it runs the 16-row manifest AND conditionally applies `doc-enforce-lanes` (per file in diff), `doc-enforce-shape` (when api-reference*.md or canonical lane files touched), and `doc-enforce-truth` (when Implemented REQ docs touched OR scope=all). All four are embedded above; apply the conditional ones when their condition fires, without fetching anything.
 
 Parameters:
 - PR-boundary trigger: `doc-enforce` at `scope=diff`, `mode=<from sdd/config.yml>`.

@@ -18,17 +18,15 @@ PR-boundary events: PR opens, or a push lands on a branch that already has an op
 
 ## Embedded canonical policy
 
-Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the lane spine, not the whole layer: conditional sub-policy is read on demand as described below. You have no Skill tool; `cat` is how you reach anything not printed here.
+Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the whole enforcement layer, spine and sub-policies alike. You have no Skill tool; `cat` is how you reach anything not printed here.
 
 <!-- @include-skill review-scope -->
 
-Conditional policy is NOT embedded. When the spine's manifest says a sub-policy applies, read it in your existing Bash call:
+<!-- @include-skill tdd-enforce -->
 
-```bash
-cat ~/.claude/skills/<name>/SKILL.md
-```
+Every sub-policy is embedded above too. Do NOT `cat` a skill file -- you already hold it.
 
-Reading one costs its bytes only when the condition actually fires; carrying all of them costs every run. Never read one whose condition did not fire.
+Fetching one was supposed to cost its bytes only when its condition fired. Measured, the conditions fire on nearly every run, and a fetch costs the bytes **plus a turn** -- and a turn re-sends this entire prompt. Once fetched it sits in context for the rest of the run anyway, so fetching is strictly embedding plus one full re-send. Reaching for `cat` on a skill path is a bug in your plan, not a missing capability.
 
 ## Your lane packet
 

@@ -18,23 +18,23 @@ Wherever a phase below says "apply", "auto-fix", "edit the file", "commit", or "
 
 Deliberate bulk repair is unaffected: `/sdd clean` and `/sdd init` run through their own `sdd-clean` / `sdd-init` skills (not this agent) and still apply + commit. This agent is the PR-boundary review actor only.
 
-The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (23-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) is embedded below (spine only; conditional sub-policy is read on demand). This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (23-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) is embedded below (spine and every conditional sub-policy). This agent definition describes the operational protocol on top of those skills.
 
 ## Embedded canonical policy
 
-Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the lane spine, not the whole layer: conditional sub-policy is read on demand as described below. You have no Skill tool; `cat` is how you reach anything not printed here.
+Apply these generated, canonical skill documents directly -- they are canonical and you hold them already. They are the whole enforcement layer, spine and sub-policies alike. You have no Skill tool; `cat` is how you reach anything not printed here.
 
 <!-- @include-skill review-scope -->
 
 <!-- @include-skill spec-enforce -->
 
-Conditional policy is NOT embedded. When the spine's manifest says a sub-policy applies, read it in your existing Bash call:
+<!-- @include-skill spec-enforce-ac -->
 
-```bash
-cat ~/.claude/skills/<name>/SKILL.md
-```
+<!-- @include-skill spec-enforce-truth -->
 
-Reading one costs its bytes only when the condition actually fires; carrying all of them costs every run. Never read one whose condition did not fire.
+Every sub-policy is embedded above too. Do NOT `cat` a skill file -- you already hold it.
+
+Fetching one was supposed to cost its bytes only when its condition fired. Measured, the conditions fire on nearly every run, and a fetch costs the bytes **plus a turn** -- and a turn re-sends this entire prompt. Once fetched it sits in context for the rest of the run anyway, so fetching is strictly embedding plus one full re-send. Reaching for `cat` on a skill path is a bug in your plan, not a missing capability.
 
 ## First action: apply the embedded spec-enforce policy (binding)
 

@@ -2634,6 +2634,7 @@ None.
 
 **Constraints:**
 
+- Every conditional sub-policy is embedded in the reviewer document rather than fetched: a fetch costs its bytes plus a turn, and a turn re-sends the whole prompt.
 - The verdict is recognised structurally, by its table header and divider in a message carrying no tool call; a command quoting the header is not a verdict.
 - Both runtimes recognise the same table shape, so a verdict is portable between them.
 
