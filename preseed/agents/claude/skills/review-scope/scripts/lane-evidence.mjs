@@ -369,7 +369,6 @@ function quotedLiterals(repo, paths) {
 // generic pass takes -- so a Rust repo's `serde` and a Python repo's `httpx`
 // resolve without this module learning nine file formats.
 const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|Pipfile|go\.mod|Gemfile|composer\.json|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
-// Three manifest grammars, three rules for what a leading token means.
 //
 // A documented name is also resolvable as a dependency. How that is read is
 // stated at the loop below, not here: outside `package.json` the manifest is
@@ -414,6 +413,13 @@ function declaredDependencies(repo, listing) {
   for (const path of tracked.filter((entry) => DEP_MANIFEST.test(entry))) {
     for (const token of (read(repo, path) ?? '').match(/[A-Za-z0-9_@][\w./@-]{1,120}/g) ?? []) {
       if (LITERAL_SHAPE.test(token)) tokens.add(token);
+      // A dot or slash is legal inside a package name, so it has to stay in the
+      // token -- but it is also what separates a table from the package it
+      // names. `[dependencies.serde]` matches as ONE token, and without the
+      // segments `serde` never enters the set at all.
+      for (const segment of token.split(/[./]/)) {
+        if (LITERAL_SHAPE.test(segment)) tokens.add(segment);
+      }
     }
   }
   return { exact, tokens };
