@@ -73,10 +73,11 @@ updates:
     # either ahead of its runtime types the extension against APIs that are not
     # there and moves the failure from build time to activation time. They are
     # bumped by hand together with the thing they describe. The lockstep test in
-    # host/__tests__/entrypoint-openvscode.test.js holds @types/vscode to the
-    # server's minor and @types/node to the engines.node major -- node minors
-    # move on DefinitelyTyped's cadence, not Node's, so they are left free here
-    # and only majors are ignored below.
+    # host/__tests__/entrypoint-openvscode.test.js anchors both to the Dockerfile
+    # -- @types/vscode to OPENVSCODE_VERSION's minor, @types/node to the major of
+    # the Node the sidebar builder stage runs. Node type minors move on
+    # DefinitelyTyped's cadence rather than Node's, so they are left free here and
+    # only majors are ignored below.
     ignore:
       - dependency-name: "@types/vscode"
       - dependency-name: "@types/node"
