@@ -330,6 +330,57 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
+  describe('REQ-TERM-022: a rejected container forward closes retryably instead of throwing', () => {
+    // A destroyed container REJECTS the forward ('Network connection lost.'); the
+    // forward race only ever covered the HANG. An uncaught reject escaped as an
+    // unhandled exception, so the browser saw an abnormal closure (1006) - in the
+    // client's retryable set, but no socket ever opened, so its backoff stayed
+    // pinned at the 500ms base. Observed in prod 2026-07-27: ~1 upgrade/second for
+    // 20+ minutes against a dead session. Resolving with a retryable close is what
+    // lets the client's existing backoff actually run.
+    it('resolves with a WebSocket close instead of propagating the container reject', async () => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId,
+        name: 'Test',
+        userId: 'test-bucket',
+        createdAt: '2026-01-01T00:00:00Z',
+        lastAccessedAt: '2026-01-01T00:00:00Z',
+        // 'running' on purpose: this is exactly the state a destroyed session is
+        // left in when onStop cannot write KV, which is what bypasses the 4503
+        // gate and drops the request onto the forward path.
+        status: 'running',
+      });
+      mockContainerFetch.mockRejectedValueOnce(new Error('Network connection lost.'));
+
+      const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
+        headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },
+      });
+      const env = { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env;
+      const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+      const routeResult = validateWebSocketRoute(request);
+
+      const result = await handleWebSocketUpgrade(request, env, ctx, routeResult as any);
+
+      // Reaching the forward at all is half the contract - a 4503 short-circuit
+      // would also return 101 and would pass a status-only assertion.
+      expect(mockContainerFetch).toHaveBeenCalled();
+      expect(result.status).toBe(101);
+      expect(result.webSocket).toBeDefined();
+
+      // The close CODE is the contract, not merely that a socket came back: 1013
+      // is in the client's retryable set and drives its backoff, while 4503 would
+      // strand a user whose container is only transiently unreachable and 1000
+      // would end the session silently. Asserting only 101 cannot tell those apart.
+      const ws = result.webSocket!;
+      const closeCode = new Promise<number>((resolve) => {
+        ws.addEventListener('close', (event) => resolve((event as unknown as { code: number }).code));
+      });
+      ws.accept();
+      expect(await closeCode).toBe(1013);
+    });
+  });
+
   describe('CF-015: Stopped session returns 4503 close code / REQ-SEC-020 AC1 (4503 short-circuit BEFORE WS rate-limit check)', () => {
     it('returns WebSocket upgrade with 4503 close for stopped session', async () => {
       const sessionId = 'abcdef1234567890';

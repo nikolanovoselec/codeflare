@@ -574,3 +574,26 @@ None.
 **Verification:** Automated test ([Drain auth on the delete path](../../src/__tests__/container/index.test.ts), [idle/quota-stop drain auth](../../src/__tests__/container/container-metrics-drain.test.ts))
 
 **Status:** Implemented
+
+---
+
+### REQ-SESSION-020: The metrics alarm outlives a container that stops answering
+
+**Intent:** The metrics alarm is the only detector of a container that has stopped serving, so it must not be killable by that same condition. Its re-arm is the last statement of the tick and the schedule is one-shot, which means a poll that never returns takes the loop with it, and no other path restores it: a start hook only runs on a fresh container start, and an error hook only fires when the platform monitor sees the container exit, neither of which happens to a container that is wedged but still reported running.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every request the metrics alarm awaits on an external party is bounded, so a peer that accepts the connection and never answers ends that request rather than the tick. <!-- @impl: src/container/container-metrics.ts::pollContainer --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (re-arms the alarm when an in-container poll never answers) -->
+2. A poll that does not answer leaves the alarm armed, so idle detection and health reporting continue on the next tick. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (re-arms the alarm when an in-container poll never answers) -->
+
+**Constraints:** The bound applies to the poll, not to the tick: the exits that deliberately stop the loop (a confirmed exit, an idle stop, a zombie DO, a stop already issued) must keep ending it.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit)
+
+**Verification:** Automated test ([metrics alarm survives an unanswered poll](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
