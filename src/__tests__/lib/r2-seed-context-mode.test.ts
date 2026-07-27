@@ -45,7 +45,8 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
   };
 });
 
-vi.mock('../../lib/r2-client', () => ({
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: mockCreateR2Client,
   getR2Url: mockGetR2Url,
 }));

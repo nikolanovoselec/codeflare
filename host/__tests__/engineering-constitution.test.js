@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseGeneratedSeed } from '../../scripts/materialize-agent-seed.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
@@ -14,10 +15,7 @@ const piDir = resolve(repoRoot, 'preseed/agents/pi');
 const piConstitution = readFileSync(resolve(piDir, 'rules/engineering-constitution.md'), 'utf8');
 const piGitWorkflow = readFileSync(resolve(piDir, 'rules/git-workflow.md'), 'utf8');
 const generatedSource = readFileSync(resolve(repoRoot, 'src/lib/agent-seed.generated.ts'), 'utf8');
-const assignment = 'export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ';
-const jsonStart = generatedSource.indexOf(assignment) + assignment.length;
-const jsonEnd = generatedSource.lastIndexOf('];') + 1;
-const generatedDocuments = JSON.parse(generatedSource.slice(jsonStart, jsonEnd));
+const generatedDocuments = parseGeneratedSeed(generatedSource);
 
 // REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 describe('engineering constitution preseed', () => {

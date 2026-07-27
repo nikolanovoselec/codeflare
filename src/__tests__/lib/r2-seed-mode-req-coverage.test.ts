@@ -27,7 +27,8 @@ const { mockFetch, mockCreateR2Client, testState } = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../lib/r2-client', () => ({
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: mockCreateR2Client,
   getR2Url: vi.fn((endpoint: string, bucket: string, key: string) =>
     `${endpoint}/${bucket}/${key}`

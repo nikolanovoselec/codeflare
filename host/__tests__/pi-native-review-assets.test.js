@@ -5,14 +5,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { parseGeneratedSeed } from '../../scripts/materialize-agent-seed.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const generatedSource = readFileSync(join(repoRoot, 'src/lib/agent-seed.generated.ts'), 'utf8');
-const assignment = 'export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ';
-const jsonStart = generatedSource.indexOf(assignment) + assignment.length;
-const jsonEnd = generatedSource.lastIndexOf('];') + 1;
-assert.ok(jsonStart >= assignment.length && jsonEnd > jsonStart, 'generated seed document array not found');
-const documents = JSON.parse(generatedSource.slice(jsonStart, jsonEnd));
+const documents = parseGeneratedSeed(generatedSource);
 const piManifest = JSON.parse(readFileSync(join(repoRoot, 'preseed/agents/pi/manifest.json'), 'utf8'));
 // The contract, stated here and nowhere else in this file. It drives the
 // behavioural fixtures, which spawn the real gate: what the gate does with each

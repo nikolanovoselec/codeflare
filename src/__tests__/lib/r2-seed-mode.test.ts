@@ -54,7 +54,10 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
   };
 });
 
-vi.mock('../../lib/r2-client', () => ({
+// Partial: the sweep parses real ListObjectsV2 XML, so the parser stays real and
+// the fixtures below are the wire format rather than a hand-shaped parse result.
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: mockCreateR2Client,
   getR2Url: mockGetR2Url,
 }));

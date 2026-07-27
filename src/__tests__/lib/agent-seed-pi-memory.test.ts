@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
+import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_MAX_TOTAL_CHARS, MEMORY_CAPTURE_MAX_TURN_CHARS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, selectTurns, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -341,7 +341,13 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(PRESEED_CONTENT_HASH).toMatch(/^[0-9a-f]{16}$/);
     const { createHash } = require('node:crypto');
     const sorted = [...AGENTS_SEEDED_CONFIGS].sort((a, b) => a.key.localeCompare(b.key));
-    const recomputed = createHash('sha256').update(JSON.stringify(sorted)).digest('hex').slice(0, 16);
+    // The retired list is inside the hash so that shipping it triggers the
+    // upgrade that applies it (REQ-STOR-019); recomputing without it would pass
+    // only while the list stayed empty.
+    const recomputed = createHash('sha256')
+      .update(JSON.stringify({ documents: sorted, retired: RETIRED_PRESEED_KEYS }))
+      .digest('hex')
+      .slice(0, 16);
     expect(PRESEED_CONTENT_HASH).toBe(recomputed);
   });
 });
