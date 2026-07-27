@@ -28,7 +28,15 @@ const PRESEED_MARKER_HEADER = 'x-amz-meta-codeflare-preseed';
 
 const markerHeaders = (): Record<string, string> => ({ [PRESEED_MARKER_HEADER]: PRESEED_CONTENT_HASH });
 
-/** Ceiling and fan-out width for the stale-marker sweep; see deleteStaleMarkedConfigs. */
+/**
+ * Ceiling and fan-out width for the stale-marker sweep.
+ *
+ * The cap is what bounds total requests: each candidate costs a HEAD and at most
+ * a DELETE, so it is set to half the headroom the sweep is allowed to spend on
+ * top of the reconcile's one PUT per live key. The batch bounds CONCURRENCY
+ * only -- it does not reduce the total, it stops the whole candidate set being
+ * issued at once.
+ */
 const MAX_STALE_MARKER_CANDIDATES = 200;
 const STALE_MARKER_BATCH = 25;
 
@@ -297,11 +305,12 @@ async function deleteStaleMarkedConfigs(
 
   // Derived from the seed itself, so a new runtime directory is covered without
   // anyone remembering to add it here. A key shallower than three segments has
-  // no directory to group by and lists as itself.
+  // no directory to group by, and listing it would return only itself -- which
+  // is seeded, so it can never be a candidate. Skipped rather than listed.
   const prefixes = new Set<string>();
   for (const key of seededKeys) {
     const segments = key.split('/');
-    prefixes.add(segments.length > 2 ? `${segments[0]}/${segments[1]}/` : key);
+    if (segments.length > 2) prefixes.add(`${segments[0]}/${segments[1]}/`);
   }
 
   const candidates: string[] = [];
@@ -327,8 +336,16 @@ async function deleteStaleMarkedConfigs(
         if (isRuntimeManagedKey(object.key)) continue;
         found.push(object.key);
       }
+      // Derived from the flag, never from the token: the parser sets the two
+      // independently, so a truncated page whose token did not parse would
+      // otherwise read as a finished listing and its partial view would be
+      // swept -- the case this per-prefix merge exists to prevent.
+      if (parsed.isTruncated && !parsed.nextContinuationToken) {
+        warnings.push(`LIST ${prefix}: truncated without a continuation token`);
+        break;
+      }
       continuationToken = parsed.isTruncated ? parsed.nextContinuationToken : undefined;
-      complete = continuationToken === undefined;
+      complete = !parsed.isTruncated;
 
       // Checked while paging, not after. The caller has already spent one PUT
       // per live key in this same request, so continuing to page a large tree

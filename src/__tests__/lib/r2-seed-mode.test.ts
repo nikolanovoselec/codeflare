@@ -484,6 +484,49 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     expect(result.deleted).toContain(orphan);
   });
 
+  it('treats a truncated page with no continuation token as a failed listing', async () => {
+    // The parser sets IsTruncated and the token independently, so deriving
+    // completeness from the token would read this as a finished listing and
+    // sweep the partial view it returned.
+    const partial = '.claude/skills/seen-before-truncation/SKILL.md';
+    mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
+        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        return Promise.resolve(
+          new Response(
+            `<?xml version="1.0"?><ListBucketResult><IsTruncated>true</IsTruncated><Contents><Key>${partial}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified><ETag>"x"</ETag></Contents></ListBucketResult>`,
+            { status: 200 },
+          ),
+        );
+      }
+      if (method === 'HEAD') {
+        return Promise.resolve(
+          new Response(null, { status: 200, headers: { 'x-amz-meta-codeflare-preseed': 'an-older-build' } }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).not.toContain(partial);
+    expect(deleteRequests()).not.toContain(partial);
+    expect(result.warnings.some((w) => w.includes('truncated'))).toBe(true);
+  });
+
+  it('issues no listing for a seeded key too shallow to have a directory', async () => {
+    // `.codex/AGENTS.md` and friends would list only themselves, and they are
+    // seeded, so the request could never produce a candidate.
+    mockR2();
+
+    await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(listedPrefixes()).not.toContain('.codex/AGENTS.md');
+    for (const prefix of listedPrefixes()) expect(prefix.endsWith('/')).toBe(true);
+  });
+
   it('deletes nothing from a prefix whose listing failed part-way', async () => {
     // Page one succeeded and named a marked orphan, page two failed. Acting on
     // that is deleting on the strength of not having looked, so the whole
