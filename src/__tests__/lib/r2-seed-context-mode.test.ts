@@ -45,6 +45,9 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
   };
 });
 
+// Partial rather than a bare factory: every cleanup reconcile runs the stale-marker
+// sweep, which needs the real parser even here, where no listing fixture is supplied
+// and it parses the empty body into an empty result.
 vi.mock('../../lib/r2-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: mockCreateR2Client,
