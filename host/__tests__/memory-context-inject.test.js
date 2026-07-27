@@ -4,7 +4,8 @@
 //   AC3: fires at most once per session (sentinel file gate)
 //   AC4: skips prompts shorter than 20 characters
 //   AC7: a graph past the size ceiling is skipped without spending the sentinel
-//        (AC5 and AC6 are covered in src/__tests__/lib/pi-memory-inject.test.ts)
+// The REQ's other criteria are Pi-side; the spec's @test anchors, not this
+// header, are what record where each one is covered.
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
@@ -187,13 +188,13 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
   });
 
   it('AC7: skips a graph past the ceiling without spending the session sentinel', () => {
-    const counterDir = mkdtempSync(join(baseTmp, 'ac5-counter-'));
-    const homeDir = mkdtempSync(join(baseTmp, 'ac5-home-'));
+    const counterDir = mkdtempSync(join(baseTmp, 'ac7-counter-'));
+    const homeDir = mkdtempSync(join(baseTmp, 'ac7-home-'));
     const graphDir = join(homeDir, '.graphify');
     makeGraph(graphDir, [
       { id: '1', label: 'handleVaultRequest', source: 'src/routes/vault.ts', description: 'Main vault route handler' },
     ]);
-    const sessionId = 'ac5-session';
+    const sessionId = 'ac7-session';
 
     // Below the graph's own size: the ceiling, not the content, decides.
     const skipped = runHook({

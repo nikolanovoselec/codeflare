@@ -110,9 +110,26 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
 
     expect(resolveGraphPath(deps)).toBe(deps.globalGraph);
     expect(resolveGraphPath({ ...deps, maxGraphBytes: 1 })).toBeNull();
-    // No unified graph means no injection: a repo graph is a subset the merger
-    // already folded into it, and at session start it does not exist at all.
-    expect(resolveGraphPath({ ...deps, globalGraph: join(deps.root, 'missing.json') })).toBeNull();
+  });
+
+  it('AC5: substitutes no repo graph even when one sits in the working directory', () => {
+    const deps = workspace();
+    const repo = mkdtempSync(join(tmpdir(), 'pi-mem-repo-'));
+    roots.push(repo);
+    mkdirSync(join(repo, 'graphify-out'), { recursive: true });
+    writeFileSync(join(repo, 'graphify-out', 'graph.json'), JSON.stringify({ nodes: NODES }));
+
+    // The cwd is the only place a fallback could come back from, since no
+    // caller passes one any more. Standing in a repo that has a graph, with no
+    // unified graph to read, must still yield nothing.
+    const previous = process.cwd();
+    process.chdir(repo);
+    try {
+      expect(resolveGraphPath({ ...deps, globalGraph: join(deps.root, 'missing.json') })).toBeNull();
+      expect(buildInjection({ ...deps, globalGraph: join(deps.root, 'missing.json') }, PROMPT)).toBeNull();
+    } finally {
+      process.chdir(previous);
+    }
   });
 
   it('AC5: an injected ceiling is not outranked by the ambient environment', () => {
