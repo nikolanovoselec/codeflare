@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
-import { RETIRED_PRESEED_KEYS } from '../../lib/r2-seed';
+import { AGENTS_SEEDED_CONFIGS, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
@@ -485,9 +484,9 @@ describe('Reviewer agents can access their enforce policy', () => {
   // tdd-enforce is its ONLY conditional policy, and its document states the lane
   // has none to fetch, so a `cat` there would be a bug rather than a capability.
   const LANE_SKILLS: Record<string, string[]> = {
-    'code-reviewer': ['review-scope', 'tdd-enforce'],
-    'spec-reviewer': ['review-scope', 'spec-enforce'],
-    'doc-updater': ['review-scope', 'doc-enforce'],
+    'code-reviewer': ['review-scope', 'tdd-enforce', 'code-review-checklist'],
+    'spec-reviewer': ['review-scope', 'spec-enforce', 'spec-enforce-ac', 'spec-enforce-truth'],
+    'doc-updater': ['review-scope', 'doc-enforce', 'doc-enforce-lanes'],
   };
 
   it('every Claude PR reviewer embeds its lane policy instead of discovering it', () => {
@@ -520,17 +519,27 @@ describe('Reviewer agents can access their enforce policy', () => {
     expect(JSON.parse(frontmatter(doc!.content).tools) as string[]).toContain('Skill');
   });
 
-  // Inlining beats fetching only when the fetch would cost an extra turn --
-  // inside a wave that was happening anyway it costs nothing, while carrying the
-  // bytes costs every turn. Measured: embedding tdd-enforce took the code lane
-  // 14 turns -> 8; embedding spec-enforce-ac + -truth took the spec lane 10 -> 16.
+  // Carry what fires on almost every run; fetch what usually does not. The
+  // split is by FIRE RATE, not by whether a policy is nominally conditional:
+  // spec-enforce-ac is conditional on ACs being touched, and a spec diff
+  // touches ACs nearly every time, so it is carried.
+  //
+  // This reverses an earlier measurement recorded here, and the reversal is the
+  // point. On 2026-07-26 (8d9635a) embedding spec-enforce-ac + -truth took the
+  // spec lane 10 turns -> 16. Post-eac3d97 it takes 6 -> 1, reproduced on two
+  // different fresh ranges. Both numbers were honest; eac3d97 landed in between
+  // and fixed a reference resolver that ran 283s against a 60s bound on one
+  // transport, so the lane had been dripping to rebuild evidence it never
+  // received. Re-measure after any change to what a lane is handed -- a policy
+  // sizing rule is only valid against the evidence pipeline it was measured on.
+  //
   // Both halves are asserted, because the fetch is the half that fails silently:
   // a policy that is neither embedded nor reachable is enforcement quietly lost.
   it('REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded', () => {
-    const CONDITIONAL = [
-      'spec-enforce-ac', 'spec-enforce-truth',
-      'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth',
-    ];
+    // What is still fetched: inert unless a canonical-shape file is in scope,
+    // and only when an Implemented REQ's docs are touched. doc-enforce-lanes
+    // left this list because it runs per file in the diff -- it always fires.
+    const CONDITIONAL = ['doc-enforce-shape', 'doc-enforce-truth'];
     for (const name of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
       const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
       expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
@@ -550,7 +559,9 @@ describe('Reviewer agents can access their enforce policy', () => {
     // The prompts resolve the config dir rather than hardcoding ~/.claude: under
     // CLAUDE_CONFIG_DIR a hardcoded cat fails and the lane runs with no
     // enforcement layer at all, which is silent rather than loud.
-    for (const name of ['spec-reviewer', 'doc-updater']) {
+    // Only a lane that still fetches something needs the fetch form, and it
+    // must resolve the config dir rather than hardcoding ~/.claude.
+    for (const name of ['doc-updater']) {
       const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
       expect(doc!.content, `${name} must resolve the config dir when fetching policy`)
         .toContain('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/');

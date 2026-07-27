@@ -99,8 +99,14 @@ tool I/O and ends up only summarising whatever was freshest.
 ```bash
 mkdir -p {WORK_DIR}
 PREFILTER=/home/user/.claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh
-"$PREFILTER" "{TRANSCRIPT}" "{LAST_LINE}" "{TOTAL_LINES}" "{WORK_DIR}" 20
+bash "$PREFILTER" "{TRANSCRIPT}" "{LAST_LINE}" "{TOTAL_LINES}" "{WORK_DIR}" 20
 ```
+
+Invoke it through `bash`, not directly. The seed transports file *content*
+only -- no POSIX mode -- so every seeded script lands non-executable and a
+bare `"$PREFILTER"` fails with EACCES on a fresh lay-down. `bash <path>` is
+what every hook in `settings.json` already uses, and it does not depend on
+the mode bit.
 
 The script writes `{WORK_DIR}/clean.ndjson` plus `chunk-aa.md`,
 `chunk-ab.md`, ... `chunk-??.md` (20 entries per chunk by default) and

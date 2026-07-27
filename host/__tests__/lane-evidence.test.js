@@ -10,7 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -810,5 +810,403 @@ describe('lane-evidence.mjs — the block bounds itself', () => {
     assert.match(changelog, /older entries in this section omitted/,
       'a truncated field states its recovery rather than reading as the whole section');
     assert.ok(!changelog.includes('Older day'), 'the date scoping still holds');
+  });
+});
+
+describe('lane-evidence.mjs — the index that replaced the per-candidate scan', () => {
+  // The scan ran one full-tree grep per backticked token -- 149 of them on a
+  // three-file range, measured at 283s, which is 99.94% of this lane's runtime
+  // and four times the bound the packet CLI wraps it in, so one runtime lost
+  // this block entirely. Reading the tree once is only a valid swap if the
+  // verdicts survive, and the two that can move are the two asserted here: a
+  // generated tree must still not declare anything, and a name must still be
+  // matched exactly rather than by the shape of its parts.
+  it('does not let a generated tree declare a symbol', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/lib/seed.generated.ts', 'export const ghostFromSeed = 1;\n');
+    write(cwd, 'src/real.ts', 'export const livingSymbol = 1;\n');
+    write(cwd, 'documentation/x.md', 'Uses `ghostFromSeed` and `livingSymbol`.\n');
+    const head = commit(cwd, 'docs: generated');
+
+    const rows = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const unresolved = rows.unresolved.map((row) => row.ref);
+
+    assert.ok(unresolved.includes('ghostFromSeed'),
+      'a name that exists only in generated output is not a declaration; resolving it is a false clean');
+    assert.ok(!unresolved.includes('livingSymbol'), 'and a real declaration still resolves');
+  });
+
+  it('does not resolve a name by the identifier next to it', () => {
+    const { cwd, base } = makeRepo();
+    // `handler(payload) {` declares handler, not payload; `const a = b` declares
+    // a, not b. Reading one identifier per match is what keeps those apart, and
+    // taking the wrong end of either span would resolve a reference to a name
+    // nothing declares.
+    write(cwd, 'src/a.ts', 'class T {\n  handlerName(payloadName) { return 1; }\n}\nconst leftName = rightName;\n');
+    write(cwd, 'documentation/x.md', 'Uses `handlerName`, `payloadName`, `leftName`, `rightName`.\n');
+    const head = commit(cwd, 'docs: spans');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((row) => row.ref).sort();
+
+    assert.deepEqual(unresolved, ['payloadName', 'rightName'],
+      'a parameter and a right-hand side are referenced, not declared');
+  });
+});
+
+describe('lane-evidence.mjs — a documented file named without its path', () => {
+  // Seventeen of the unresolved rows on the measured range were scripts and
+  // rules named by basename. They reached the symbol branch, which asks whether
+  // a name is DECLARED, and failed there -- inventing a stale-doc finding for a
+  // file that exists. The path branch never saw them because it only fires on a
+  // candidate carrying a slash or a dot.
+  it('resolves a tracked file referenced by its basename', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'scripts/run-the-lane.sh', 'echo hi\n');
+    write(cwd, 'documentation/x.md', 'See `run-the-lane` and `never-a-file`.\n');
+    const head = commit(cwd, 'docs: basenames');
+
+    const rows = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const resolved = rows.unresolved.map((row) => row.ref);
+
+    assert.ok(!resolved.includes('run-the-lane'), 'the file exists, so the reference is not stale');
+    assert.ok(resolved.includes('never-a-file'), 'and a basename matching nothing is still reported');
+  });
+
+  it('resolves a name that appears under more than one directory', () => {
+    const { cwd, base } = makeRepo();
+    // Existence, not uniqueness. The row records whether the name still names
+    // something, never which file -- and staleness is the question. Demanding
+    // one match reported `security.md` stale because the tree holds three.
+    write(cwd, 'a/twinName.ts', 'export const one = 1;\n');
+    write(cwd, 'b/twinName.ts', 'export const two = 2;\n');
+    write(cwd, 'documentation/x.md', 'See `twinName` and `nothingNamedThis`.\n');
+    const head = commit(cwd, 'docs: ambiguous');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((row) => row.ref);
+
+    assert.ok(!unresolved.includes('twinName'), 'the name still names tracked files, so the reference is not stale');
+    assert.ok(unresolved.includes('nothingNamedThis'), 'and a name matching nothing is still reported');
+  });
+
+  it('resolves a file named by a path tail, a command by its registered name, and a declared package', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'rules/common/style.md', '# style\n');
+    write(cwd, 'src/cmd.ts', 'registerCommand("reload", {});\n');
+    write(cwd, 'package.json', '{"dependencies":{"@scope/dep":"1.0.0"}}\n');
+    write(cwd, 'documentation/x.md',
+      'See `common/style.md`, `/reload`, `@scope/dep`, `--verify-high`, and `goneEntirely`.\n');
+    const head = commit(cwd, 'docs: shapes');
+
+    const rows = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const unresolved = rows.unresolved.map((row) => row.ref);
+
+    assert.deepEqual(unresolved, ['goneEntirely'],
+      'a nested path tail, a string-registered command and a declared dependency all name real things');
+    assert.ok(!rows.unresolved.some((row) => row.ref === '--verify-high'),
+      'a flag documents an interface and is never a candidate');
+  });
+});
+
+describe('lane-evidence.mjs — the failure list is the finding', () => {
+  it('reports every unresolved reference rather than a capped sample', () => {
+    const { cwd, base } = makeRepo();
+    // The cap was 40 while a clean tree produced 113 failures, so the lane saw a
+    // slice with a flag and could not act on what it was handed -- and two
+    // comparisons of this resolver's own output silently compared slices.
+    const refs = Array.from({ length: 60 }, (_, i) => `goneSymbol${i}`);
+    write(cwd, 'documentation/x.md', `Uses ${refs.map((r) => `\`${r}\``).join(', ')}.\n`);
+    const head = commit(cwd, 'docs: many');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
+
+    assert.equal(out.unresolved.length, refs.length, 'every failure must be listed, not a sample of them');
+    assert.ok(!out.truncated, 'a list that fits is not truncated');
+  });
+});
+
+describe('lane-evidence.mjs — cost is bounded by the tree, not the document', () => {
+  it('answers two hundred names for the cost of reading the tree', () => {
+    const { cwd, base } = makeRepo();
+    // The contract AC1 states. Under the per-candidate design this was one
+    // full-tree search per name -- 149 names measured at 283 seconds, and a
+    // miss costs more than a hit because the search cannot stop early. Two
+    // hundred names would have taken minutes; the bound here is generous
+    // enough to be stable on a loaded machine and still two orders of
+    // magnitude below that.
+    for (let i = 0; i < 50; i += 1) write(cwd, `src/mod${i}.ts`, `export const sym${i} = ${i};\n`);
+    const names = Array.from({ length: 200 }, (_, i) => (i < 50 ? `sym${i}` : `absent${i}`));
+    write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
+    const head = commit(cwd, 'docs: many names');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
+
+    // Same tree, a tenth of the names. The contract is that the second run
+    // costs the same passes over the tree as the first -- asserted as a count,
+    // not a duration: a stopwatch on a shared runner fails for load rather than
+    // for regression, and the per-candidate design this replaced would have
+    // scaled the COUNT, not merely the clock.
+    write(cwd, 'documentation/x.md', `Uses ${names.slice(0, 20).map((n) => `\`${n}\``).join(', ')}.\n`);
+    const fewer = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: fewer names')}`).references;
+
+    assert.equal(out.checked, names.length, 'every name must be answered, not a capped sample');
+    assert.equal(out.unresolved.length, 150, 'the fifty declared names resolve and the rest do not');
+    assert.ok(out.passes > 0, 'the resolver must report how many passes over the tree it took');
+    assert.equal(out.passes, fewer.passes,
+      `resolution must cost the same passes for ${names.length} names as for 20`);
+  });
+});
+
+describe('lane-evidence.mjs — the resolver ships to every bootstrapped repo', () => {
+  it('resolves declarations and dependencies in a repo that is not JavaScript', () => {
+    const { cwd, base } = makeRepo();
+    // The resolver is seeded by `/sdd init` into whatever repo runs it, and an
+    // unresolved reference is reported to the doc lane as a stale document. So
+    // a declaration index that only understands one language does not degrade
+    // gracefully -- it turns a consistent Rust or Python tree into a page of
+    // false findings on every boundary event.
+    write(cwd, 'src/lib.rs', 'pub struct Widget {}\npub fn render_widget() {}\nenum Mode { On }\n');
+    write(cwd, 'app/service.py', 'class OrderService:\n    def compute_total(self):\n        return 0\n');
+    write(cwd, 'cmd/main.go', 'type Config struct {}\nfunc StartServer() {\n}\n');
+    write(cwd, 'lib/report.rb', 'class ReportBuilder\n  def generate_report\n  end\nend\n');
+    write(cwd, 'Cargo.toml', '[dependencies]\nserde = { version = "1" }\n');
+    write(cwd, 'pyproject.toml', '[project]\ndependencies = ["httpx>=0.27"]\n');
+    write(cwd, 'Gemfile', "source 'https://rubygems.org'\ngem 'rails'\n");
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: polyglot tree');
+
+    write(cwd, 'documentation/architecture.md',
+      'Types `Widget`, `Mode`, `Config`, `OrderService`, `ReportBuilder`.\n'
+      + 'Functions `render_widget`, `compute_total`, `StartServer`, `generate_report`.\n'
+      + 'Dependencies `serde`, `httpx`, `rails`. Removed: `vanishedHelper`.\n');
+    const head = commit(cwd, 'docs: architecture');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    const unresolved = out.unresolved.map((row) => row.ref);
+
+    assert.deepEqual(unresolved, ['vanishedHelper'],
+      'only the name with no declaration anywhere in the tree may be reported stale');
+    assert.equal(out.checked, 13, 'every documented name must be answered');
+  });
+
+  it('does not let a control keyword in another language declare a name', () => {
+    const { cwd, base } = makeRepo();
+    // `match x {` is a Rust block opener, not a declaration of `match`. The
+    // definition shape cannot tell them apart, so the exclusion list has to.
+    write(cwd, 'src/lib.rs', 'pub fn run(x: u8) {\n    match x {\n        _ => (),\n    }\n}\n');
+    write(cwd, 'lib/a.rb', 'def go\n  unless true\n  end\nend\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: keywords');
+
+    write(cwd, 'documentation/architecture.md', 'Calls `match` and `unless` and `run`.\n');
+    const head = commit(cwd, 'docs: keywords');
+
+    const unresolved = run(cwd, 'doc-updater', `${base}..${head}`).references.unresolved.map((r) => r.ref);
+    assert.deepEqual(unresolved.sort(), ['match', 'unless'],
+      'a block opener must not resolve; the real function beside it must');
+  });
+});
+
+describe('lane-evidence.mjs — a bounded list says so', () => {
+  it('marks a list that reaches the bound as truncated', () => {
+    const { cwd, base } = makeRepo();
+    // The list is bounded, and the lane is told a non-truncated list is a
+    // complete pass. So the only thing that makes a bound safe is that reaching
+    // it is visible: an unmarked 400 of 500 reads as "those are all of them",
+    // which is the false clean the whole resolver exists to avoid.
+    const names = Array.from({ length: 500 }, (_, i) => `absent${i}`);
+    write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
+    const head = commit(cwd, 'docs: past the bound');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`).references;
+
+    assert.equal(out.truncated, true, 'a list that reaches its bound must be marked');
+    assert.ok(out.unresolved.length < names.length,
+      'the bound must actually bound the list it marks');
+  });
+});
+
+describe('lane-evidence.mjs — the weakest resolution is reported as such', () => {
+  it('separates a name kept alive only by a quoted string from a declared one', () => {
+    const { cwd, base } = makeRepo();
+    // A quoted string is real evidence and the weakest this resolver accepts:
+    // it is equally satisfied by a registration, an error message, a fixture
+    // and a dead compatibility branch. Reporting it as an ordinary clean hands
+    // the lane a verdict it cannot weigh, so it arrives in its own list.
+    write(cwd, 'src/app.ts', 'export const declaredThing = 1;\nconst t = ["registeredThing"];\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: two kinds of evidence');
+
+    write(cwd, 'documentation/x.md', 'Uses `declaredThing` and `registeredThing` and `goneThing`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref), ['goneThing']);
+    assert.deepEqual((out.resolvedOnlyByStringLiteral ?? []).map((r) => r.ref), ['registeredThing'],
+      'a name resolved only by a quoted string must be reported separately from a declaration');
+  });
+});
+
+describe('lane-evidence.mjs — the candidate ceiling and a failed scan', () => {
+  it('marks a scan that stops at the candidate ceiling', () => {
+    const { cwd, base } = makeRepo();
+    // Distinct from the failure budget: this is the number of references the
+    // scan will LOOK at. Reaching it stops collection mid-document, so a lane
+    // told the list is complete would be reading a prefix of the work.
+    const names = Array.from({ length: 900 }, (_, i) => `sym${i}`);
+    write(cwd, 'src/a.ts', names.map((n) => `export const ${n} = 1;`).join('\n'));
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: many symbols');
+    // Every name RESOLVES, so the failure budget cannot be what fires here.
+    write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: many')}`).references;
+
+    assert.equal(out.unresolved.length, 0, 'the fixture must fail nothing, so only the ceiling can mark it');
+    assert.equal(out.truncated, true, 'a scan stopped by the candidate ceiling must say so');
+    assert.ok(out.checked < names.length, 'the ceiling must actually stop collection');
+  });
+
+  it('reports a partial scan when a tree read fails rather than reporting nothing declared', () => {
+    const { cwd, base } = makeRepo();
+    // A failed chunk contributes no declarations, which is indistinguishable
+    // from "nothing here is declared" -- and that turns every symbol in the
+    // dropped chunk into a stale-doc finding. Injected with a `git` shim that
+    // fails ONLY `grep`, because that is the call the declaration index makes
+    // and the only way to reach the branch without depending on a platform
+    // argument limit.
+    write(cwd, 'src/a.ts', 'export const declaredThing = 1;\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: one symbol');
+    write(cwd, 'documentation/x.md', 'Uses `declaredThing`.\n');
+    const head = commit(cwd, 'docs: x');
+
+    const clean = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    assert.deepEqual(clean.unresolved.map((row) => row.ref), [],
+      'control: the symbol resolves when the scan works');
+    assert.notEqual(clean.truncated, true, 'control: a working scan is not truncated');
+
+    const realGit = spawnSync('which', ['git'], { encoding: 'utf-8' }).stdout.trim();
+    assert.ok(realGit, 'the shim needs a real git to delegate to');
+    const shimDir = mkdtempSync(join(tmpdir(), 'git-shim-'));
+    try {
+      writeFileSync(join(shimDir, 'git'),
+        `#!/bin/sh\nfor a in "$@"; do if [ "$a" = grep ]; then exit 2; fi; break; done\nexec ${realGit} "$@"\n`);
+      chmodSync(join(shimDir, 'git'), 0o755);
+      const degraded = JSON.parse(spawnSync('node',
+        [SCRIPT, '--repo', cwd, '--lane', 'doc-updater', '--range', `${base}..${head}`],
+        { cwd, encoding: 'utf-8', env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}` } },
+      ).stdout).references;
+
+      assert.equal(degraded.truncated, true,
+        'a scan whose tree read failed must be reported partial, not complete');
+    } finally {
+      rmSync(shimDir, { recursive: true, force: true });
+    }
+  });
+
+  it('marks a weak-resolution list that reaches the bound', () => {
+    const { cwd, base } = makeRepo();
+    // The third way truncation fires, and the one the last round added: neither
+    // the failure list nor the candidate ceiling, but the literal-only list.
+    // Between 401 and 599 weak resolutions it is the ONLY clause that can mark
+    // the scan, and an unmarked capped list of them is a page of names the lane
+    // is told resolved when it only saw four hundred of them.
+    const names = Array.from({ length: 500 }, (_, i) => `registered${i}`);
+    write(cwd, 'src/a.ts', `const registry = ${JSON.stringify(names)};\n`);
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: registrations');
+    write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.equal(out.unresolved.length, 0, 'the fixture must fail nothing, so only the weak list can mark it');
+    assert.equal(out.resolvedOnlyByStringLiteral.length, 400, 'the weak list is bounded at the failure budget');
+    assert.equal(out.truncated, true, 'a bounded weak list must say it was bounded');
+  });
+});
+
+describe('lane-evidence.mjs — a manifest token is the weakest resolution, not a clean', () => {
+  it('resolves every package in a dependency list whatever shape the file is written in', () => {
+    const { cwd, base } = makeRepo();
+    // Seven consecutive defects lived in the grammar this replaces, and each was
+    // a layout it did not anticipate: a multi-line array, an extras bracket
+    // closing it early, a per-package sub-table, a heading that merely contained
+    // the word. None of those shapes can fail now, which is the point of the
+    // change -- every one of them is just tokens in a manifest.
+    write(cwd, 'pyproject.toml', [
+      '[project]',
+      'dependencies = [',
+      '  "httpx>=0.27",',
+      '  "uvicorn[standard]>=0.30",',
+      ']', '',
+      '[build-system]', 'requires = ["setuptools>=68"]', '',
+    ].join('\n'));
+    write(cwd, 'Cargo.toml', [
+      '[build-dependencies]', 'cc = "1"', '',
+      '[dependencies.serde]', 'version = "1"', '',
+    ].join('\n'));
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: manifests');
+
+    write(cwd, 'documentation/x.md',
+      'Uses `httpx`, `uvicorn`, `setuptools`, `cc`, `serde`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref), [],
+      'no manifest layout can hide a declared package from resolution');
+  });
+
+  it('reports a name known only from a manifest as a weak resolution rather than a pass', () => {
+    const { cwd, base } = makeRepo();
+    // The trade this change makes. `where` is a setuptools setting, not a
+    // package, and tokenising admits it -- so it must NOT arrive as an ordinary
+    // clean. It arrives labelled, which is the whole reason the grammar could be
+    // dropped: the lane is told what the evidence actually is.
+    write(cwd, 'pyproject.toml',
+      '[tool.setuptools.packages.find]\nwhere = ["srcdir"]\n\n[project]\ndependencies = ["httpx>=0.27"]\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: manifest');
+
+    write(cwd, 'documentation/x.md', 'Uses `httpx`, `where`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref), [], 'both are manifest tokens');
+    assert.deepEqual((out.resolvedOnlyByDependencyManifest ?? []).map((r) => r.ref).sort(),
+      ['httpx', 'where'],
+      'a manifest token resolves into the weak class, never into a silent clean');
+  });
+
+  it('retries the last segment for a package but never for a version fragment', () => {
+    const { cwd, base } = makeRepo();
+    // The retry exists so `[dependencies.serde]`, which matches as ONE token,
+    // still yields `serde`. A dotted version literal has the same shape and must
+    // not yield its tail: `34` is not a name anything can be documented under,
+    // and admitting it would put a bare number in the resolvable set.
+    write(cwd, 'Cargo.toml', '[dependencies.serde]\nversion = "1.2.34"\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: cargo');
+
+    write(cwd, 'documentation/x.md', 'Uses `serde` at `34`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref), ['34'],
+      'the package tail is retried, the version tail is not');
+    assert.deepEqual((out.resolvedOnlyByDependencyManifest ?? []).map((r) => r.ref), ['serde'],
+      'and the tail it does retry lands in the weak class');
+  });
+
+  it('does not demote a real declaration that a manifest happens to also mention', () => {
+    const { cwd, base } = makeRepo();
+    // The weak class is checked last precisely so a coincidental token cannot
+    // downgrade a symbol the tree really declares.
+    write(cwd, 'src/render.js', 'export function renderWidget() {}\n');
+    write(cwd, 'Cargo.toml', '[dependencies]\nrenderWidget = "1"\n');
+    write(cwd, 'package.json', '{"dependencies":{"lodash":"4"}}\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: tree');
+
+    write(cwd, 'documentation/x.md', 'Uses `renderWidget` and `lodash`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref), []);
+    assert.deepEqual((out.resolvedOnlyByDependencyManifest ?? []).map((r) => r.ref), [],
+      'a declared symbol and an exact package.json entry are both stronger than a manifest token');
   });
 });

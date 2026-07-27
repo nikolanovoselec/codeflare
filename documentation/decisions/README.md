@@ -2644,7 +2644,7 @@ Separately, manual verification was REQ-level: `Verification: Manual check` exem
 
 **Decision:** The Claude-tree skill files are the single canonical, agent-neutral enforcement contract; Pi receives them through the existing seed-generator transform (tool-name remap, path rewrites, appended compatibility note), and the seven Pi-native overrides plus their manifest entries are deleted. Reviewer agent definitions and Pi's `review`/`review-scope` dispatch layer are unchanged ([AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) still governs the Pi-native `review` skill; this decision covers only the enforcement-policy layer). Where the copies conflicted, the stricter side won: 40-word list items, `prose-unverifiable` HIGH, mandated verbatim integrity commands. Pi-only rules were ported into the canon: `spec-test-anchor-multiple` (HIGH — the greedy title capture cannot parse two `@test` anchors on one line) and the FULLY AUTONOMOUS round-limit override backed by the shared `round-limit.mjs` gate.
 
-Manual verification became per-AC: an AC that cannot be automatically verified carries inline `<!-- @manual -->` (bare) or `<!-- @manual: <procedure> -->` (with dedicated guidance) instead of anchors; the `Verification:` field derives categorically from the markers (`Manual check` iff every AC is `@manual`; drift is MEDIUM `verification-field-marker-drift`); the four checklist sections, their TOC entries, and all pointer sites were deleted, with the eleven bespoke procedures relocated verbatim into their owning REQs' marker payloads ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract), [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)).
+Manual verification became per-AC: an AC that cannot be automatically verified carries inline `<!-- @manual -->` (bare) or `<!-- @manual: <procedure> -->` (with dedicated guidance) instead of anchors; the `Verification:` field derives categorically from the markers (`Manual check` iff every AC is `@manual`; drift is MEDIUM `verification-field-marker-drift`); the four checklist sections, their TOC entries, and all pointer sites were deleted, with the eleven bespoke procedures relocated verbatim into their owning REQs' marker payloads ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract), [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)).
 <!-- @impl: scripts/generate-agent-seed.mjs::adaptPiSkillContent -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
 <!-- @impl: preseed/agents/claude/skills/spec-driven-development/SKILL.md::Manual-verification convention (@manual, per-AC) -->
@@ -2910,5 +2910,29 @@ The same measurement settles what to embed. Inlining beats fetching only when th
 **Consequences:** Predicted at three turns: 57k for the code lane, 72k for spec, 61k for doc, against 262k / 1,117k / 401k measured at eight, sixteen and eight. The prediction is the point of the model and the next round is its test. The risk is that a lane reads the wave structure as permission to stop early; the completeness rule and the unchanged verdict gate are what hold against that, and the stderr line makes an over-budget run visible rather than silently truncated.
 
 **Related:** [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses), [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane).
+
+---
+
+### AD118: Seed provenance is carried in R2 custom metadata, verified before it was relied on
+
+**Status:** Accepted (2026-07-27). Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
+
+**Context:** Files a release stopped shipping were never removed from existing buckets, so retired policy kept loading beside whatever replaced it. Cleanup derived its delete list from the generated seed, so a key dropped from the seed also vanished from the delete list; the escape hatch was a hand-maintained enumeration carrying three entries against a real backlog of 165.
+
+Removing them by name alone is not safe, because a key is a filename and not proof of ownership — a user may have their own file at a retired path. The distinguishing fact has to be recorded when the file is written, not guessed when it is deleted.
+
+**Decision:** Every seed write stamps `x-amz-meta-codeflare-preseed` with the writing build's preseed hash. A reconcile rewrites every live key before cleaning, so an object still carrying an older build's marker is one the product has dropped — which removes the bookkeeping rather than automating it, since the object already records what a list would have had to remember. <!-- @impl: src/lib/r2-seed.ts::seedDocuments -->
+
+**Verification (empirical, 2026-07-27).** The mechanism rests on three claims about systems we do not control, so they were probed against a real R2 bucket before anything was built on them, with a throwaway key deleted afterwards:
+
+- a PUT carrying `x-amz-meta-*` round-trips: HEAD returned `x-amz-meta-codeflare-preseed` verbatim;
+- a rewrite without the header drops it — S3 replaces object metadata wholesale, so an edit through the file browser or by rclone (which does not send custom metadata unless asked) silently transfers ownership to the user at no cost;
+- **a listing does not expose custom metadata.** The key appeared in `ListObjectsV2`; the marker did not.
+
+The third result is why the sweep is shaped as it is: the marker can only be read with a HEAD, so candidates are narrowed to keys the current build did not just write, listing is issued per two-segment prefix rather than per runtime root, runtime-owned paths are excluded before counting, and a candidate count past the cap skips the sweep rather than spending the requests. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs -->
+
+**Consequences:** Deletion always requires positive evidence, so the failure direction is a leak and never lost user data. Files already in buckets predate the marker and carry none, so they are enumerated once from the seed module's history and deleted by name in a single clean-slate pass; that list is frozen, and nothing is appended to it. Two guards were rejected on evidence: an age cutoff, because rclone rewrites object timestamps on sync and would have made the backlog immortal, and a content-hash match, because the clean slate is one-time and the marker takes over after it.
+
+**Related:** [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) supplies the upgrade that runs it.
 
 ---

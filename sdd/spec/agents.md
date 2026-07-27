@@ -1386,6 +1386,8 @@ None.
 3. spec-reviewer runs the spec analogs (REQ-test truth-check beyond literal ID match, vendor/protocol drift detection, content-preservation on shrink). <!-- @manual -->
 4. code-reviewer flags tests whose name claims behavior the assertions don't actually verify (the test-name-lies antipattern from `tdd-discipline`). <!-- @manual -->
 5. Auto-fixes derive concrete content from source or REQ when possible; load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose, or the trim is reverted with a finding. <!-- @manual -->
+6. A resolved source anchor is checked for whether the body contradicts what the criterion or documented fact asserts, never for whether their words overlap. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/SKILL.md::CQ-SOURCE --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-truth/SKILL.md::Pass 15 --> <!-- @manual -->
+7. What a reviewer is told to look for is shared policy, so every runtime's lane of the same kind applies the same categories. <!-- @impl: preseed/agents/claude/skills/code-review-checklist/SKILL.md::Review checklist --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 
 **Constraints:**
 
@@ -2335,31 +2337,91 @@ None.
 
 ---
 
-### REQ-AGENT-084: Pi Reviewer Policy Contract
+### REQ-AGENT-084: Reviewer Policy Contract
 
-**Intent:** Pi reviewers must begin every run with complete canonical scope and enforcement policy, including deterministic round control, without spending review turns on policy discovery.
+**Intent:** Every runtime's reviewers must hold the same policy set and begin a run holding the part of it that applies to almost every run, so no reviewer reads a diff before the rules it is judged against have arrived, and no reviewer spends a turn discovering policy.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Code, specification, and documentation reviewers begin with every declared canonical policy available before their first tool call. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+1. Every reviewer begins holding the canonical policy that applies to almost every run; a policy gated on a diff condition may instead arrive in the evidence wave the lane was already making. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
-4. At five or more counted commits, the direct-user fully-autonomous marker changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker) -->
-5. Every reviewer takes both its round count and its round-limit decision from the deterministic gate it is directed to, which counts any agent-authored tag that touched the lane rather than only the reviewer's own. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: the round-limit row routes the verdict to the gate in every runtime) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (counts any agent tag that touched the lane, and only those) -->
-6. Every reviewer reports both the counted total and the gate's decision as enforcement evidence. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: the round-limit row routes the verdict to the gate in every runtime) -->
-7. A gate that cannot read the commit history fails with a non-zero status and a concise diagnostic rather than a verdict, so an unreadable window is never mistaken for a permissive one. <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (refuses to return a verdict when the history cannot be read) -->
 
 **Constraints:**
 
 - Canonical skill files remain the only hand-maintained policy source.
 - Reviewer launch prompts carry only dynamic repository, scope, range, and direct-user override inputs.
 - Preloading changes no review scope, manifest row, or acknowledgement condition.
+- One policy set per reviewer in every runtime; whether a policy is carried or fetched is chosen per lane from measurement, never by default.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+
+**Verification:** Automated test ([Pi-native review asset tests](../../host/__tests__/pi-native-review-assets.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-108: Reviewer Evidence Resolution Fidelity
+
+**Intent:** The evidence a review lane is handed must be produced fast enough that every transport delivers it, must resolve a documented name by any honest form it can be written in, and must name its own failure, so a lane never re-derives what it holds nor acts on a list of names that were never stale.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Reference resolution costs a bounded pass over the tree regardless of how many names a document cites. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @test: host/__tests__/lane-evidence.test.js (answers two hundred names for the cost of reading the tree) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not resolve a name by the identifier next to it) -->
+2. A name declared only inside generated output is not a declaration. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a generated tree declare a symbol) -->
+3. A documented name resolves by the strongest form holding it, never a weaker one: path tail, basename, directory, declaration in any repository language, exact npm dependency, registered string, then a token in a dependency manifest. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::quotedLiterals --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declaredDependencies --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::DECL_SHAPES --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a name that appears under more than one directory) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves declarations and dependencies in a repo that is not JavaScript) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a control keyword in another language declare a name) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not demote a real declaration that a manifest happens to also mention) -->
+4. Notation that documents an interface rather than naming code is never a resolvable candidate. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::resolveDocReferences --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) -->
+5. The unresolved list carries an explicit bound, and a list reaching that bound is marked truncated so the remainder is known to be outstanding. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports every unresolved reference rather than a capped sample) --> <!-- @test: host/__tests__/lane-evidence.test.js (marks a list that reaches the bound as truncated) -->
+6. A resolver that fails names the reason in the packet instead of omitting the block. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::laneEvidence --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-108: an evidence failure is named in the packet, not dropped) -->
+7. Every reviewer that builds its own packet is told what to do when the evidence block is absent. <!-- @impl: preseed/agents/pi/agents/doc-updater.md::evidenceOmitted --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-108: a self-building reviewer is told how to proceed without evidence) -->
+8. A name resolved only on the weakest evidence the resolver accepts -- a registered string, or a token in a dependency manifest -- is reported in its own class rather than as an ordinary pass. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a name known only from a manifest as a weak resolution rather than a pass) --> <!-- @test: host/__tests__/lane-evidence.test.js (retries the last segment for a package but never for a version fragment) -->
+
+**Constraints:**
+
+- One resolver serves every runtime, under one bound; a transport may not change what it can deliver.
+- Resolution answers whether a name still names something, never which file it named.
+- Outside `package.json`, dependency manifests are tokenised rather than parsed by grammar; a manifest setting resolving alongside a real package is the accepted cost (rationale: `sdd/spec/changes.md`, 2026-07-27).
+- The resolver is seeded into every repository `/sdd` bootstraps, so nothing in it may assume the language the repository is written in or the package manager it uses; a stack it does not recognise indexes no declarations and reports a consistent tree as entirely stale.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-105](#req-agent-105-review-lane-turn-economy)
+
+**Verification:** Automated test ([lane evidence tests](../../host/__tests__/lane-evidence.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-107: Deterministic Round-Limit Gate
+
+**Intent:** The anti-spiral round limit must be decided by one executable gate every runtime is directed to, so the same window yields the same verdict regardless of which agent reads it, and so releasing the limit is a stated contract rather than a reader's judgment.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. At five or more counted commits, the direct-user fully-autonomous marker changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: enforcement round limit honors only the exact fully autonomous marker) -->
+2. The agent executing a user-invoked clean reports the round-limit row inert without consulting the gate. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::The 5-round commit cycle limit --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the user-invoked exemption is wired on both sides in every runtime) -->
+3. Every reviewer takes both its round count and its round-limit decision from the deterministic gate it is directed to, which counts any agent-authored tag that touched the lane rather than only the reviewer's own. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the round-limit row routes the verdict to the gate in every runtime) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (counts any agent tag that touched the lane, and only those) -->
+4. Every reviewer reports both the counted total and the gate's decision as enforcement evidence. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the round-limit row routes the verdict to the gate in every runtime) -->
+5. A gate that cannot read the commit history fails with a non-zero status and a concise diagnostic rather than a verdict, so an unreadable window is never mistaken for a permissive one. <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (refuses to return a verdict when the history cannot be read) -->
+
+**Constraints:**
+
+- The limit binds agent-authored review rounds only; user-invoked runs are released, never counted down.
+- One gate serves every runtime; a reviewer that derives count or verdict itself is in breach.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Automated test ([Pi-native review asset tests](../../host/__tests__/pi-native-review-assets.test.js))
 
@@ -2385,7 +2447,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Automated test ([Test-anchor parser tests](../../host/__tests__/test-anchor-parser.test.js))
 
@@ -2416,7 +2478,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Automated test ([Pi compact-context tests](../../src/__tests__/lib/pi-compact-context.test.ts), [Pi native-asset tests](../../host/__tests__/pi-native-review-assets.test.js))
 
@@ -2537,7 +2599,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts), [reviewer tool-guard tests](../../src/__tests__/lib/review-tool-guard.test.ts), [review work-set tests](../../host/__tests__/pi-review-workset.test.js))
 
@@ -2689,8 +2751,8 @@ None.
 **Acceptance Criteria:**
 
 1. Lane evidence gathering is structured as waves, each collecting every outstanding question in one call. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
-2. A conditional sub-policy is read inside a wave that was already being made, never on a turn of its own. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
-3. Policy that is small and applies to every run is embedded in the reviewer document. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Embedded canonical policy --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
+2. Where a runtime fetches a sub-policy rather than carrying it, the read happens inside a wave that was already being made rather than on a turn of its own. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
+3. Policy that applies on almost every run is embedded in the reviewer document, whether or not it is nominally conditional. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Embedded canonical policy --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
 4. Every path that demands a lane passes the range under review, so the demanded lane receives its packet and its ownership short-circuit rather than reviewing the whole PR. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (scopes the lanes it demands to the range under review) -->
 5. Inlined evidence over its byte cap degrades by field, keeping the resolved answers. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (sheds config.raw rather than the whole triage block) -->
 6. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
@@ -2736,7 +2798,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Manual check
 

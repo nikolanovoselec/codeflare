@@ -21,7 +21,7 @@ Resolve one scope before any reviewer or enforcement pass starts. Return the sco
 
 ## Build the lane packet once
 
-**When your prompt already carries a `<packet>` block, it is built — reason from it and do not run the CLI.** Rebuilding spends a turn to obtain what you were handed. Everything below applies when no such block is present (a very large diff, or a direct invocation).
+**When your prompt already carries a `<packet>` block, it is built — reason from it and do not run the CLI.** You already have what it would return. Everything below applies when no such block is present (a very large diff, or a direct invocation).
 
 For `diff`, validate the range and obtain the lane-owned file list and hunks in one call:
 
@@ -43,15 +43,15 @@ A changed input path alone does not invalidate every anchor in that file. Resolv
 
 ## `scope=diff` execution
 
-**Two waves, then report.** A review turn re-sends the entire prompt, so cost grows with the square of the turn count: the difference between three turns and sixteen is not 5x the tokens, it is 25x. Structure the work into waves rather than alternating one lookup with one thought.
+**Work in waves, then report.** Ask everything outstanding in one call rather than alternating one lookup with one thought. A wave is a batching discipline, not a quota: the number of waves a review takes is whatever the open questions require.
 
-**Wave 1 — everything derivable, in one call.** Parse the inlined packet (or build it once when no `<packet>` block is present). Derive the pending manifest and every direct-impact candidate. Read, in this same call, any conditional sub-policy the manifest triggers — a policy read that rides along in a call you were already making costs nothing, while a policy read on its own turn costs the whole prompt again. Emit compact counts, failures, and snippets for every lane hunk and only anchor targets intersecting `changedInputs[].hunks`; never raw packet JSON.
+**Wave 1 — everything derivable, in one call.** Parse the inlined packet (or build it once when no `<packet>` block is present). Derive the pending manifest and every direct-impact candidate. Read, in this same call, any conditional sub-policy the manifest triggers, so the policy arrives with the evidence it applies to. Emit compact counts, failures, and snippets for every lane hunk and only anchor targets intersecting `changedInputs[].hunks`; never raw packet JSON.
 
 **Wave 2 — every unresolved candidate at once, in one call.** Enter it only when a *named* candidate still lacks concrete evidence, and say what evidence is missing before you make the call. Then collect all of it together: one compound command answering every open question, not one command per question. Never re-query policy text, packet sections, or evidence already returned.
 
 **Then report.** Stop when every packet hunk, every manifest row, and every directly invalidated anchor has exactly one disposition.
 
-**This is a completeness rule, not a budget.** A required check is *batched*, never skipped to save a call, and a third wave is correct when a real question is genuinely still open — say why. What is forbidden is the drip: a call that answers one question when it could have answered eight, or that re-fetches something already in your context. If you find yourself on turn six, the cause is almost always that waves 1 and 2 each asked for less than they could have.
+**This is a completeness rule, not a budget.** A required check is *batched*, never skipped to save a call. Take a further wave whenever a real question is still open — say what is missing, then ask. There is no turn count that is too many for a question you actually have, and no finding is ever traded for a shorter run. What is forbidden is only the drip: a call that answers one question when it could have answered eight, or that re-fetches something already in your context.
 
 Within a wave: inspect lane-owned hunks first, and follow a changed caller, contract, test, REQ anchor, or owner document only when its resolved symbol or block overlaps a changed-input hunk. File-path equality alone is not direct invalidation. Bound every searching command — `grep`/`rg` carries `-c`, `| wc -l`, or `| head -N`, so what returns is counts and named candidates rather than whatever the pattern happened to match; an unbounded scan puts raw output in context for every remaining turn and defeats the packet. Read a whole file only when a NAMED candidate genuinely cannot be verified from focused context, batched into a wave you were already taking. Treat generated seed files as derived output: review the canonical preseed source and run one deterministic source-to-seed identity check rather than searching generated lines. Do not recursively explore unrelated callers or graph communities, and do not report unchanged baseline debt.
 
@@ -63,4 +63,4 @@ Walk every packet file in the requested corpus and execute every applicable enfo
 
 Scope controls breadth only. It does not change severity, evidence, truth, or report-only restrictions. Never impose token, turn, tool, or concurrency limits as a substitute for scope.
 
-Broad discovery is forbidden at every wave: no repository survey, no indexed search, no re-reading evidence already returned, and no re-deriving what an inlined `<triage>`, `<packet>` or `<evidence>` block already resolved. Being handed an answer is not permission to skip the check — it *is* the check, already performed, and reproducing it costs a turn that re-sends the whole prompt.
+Broad discovery is forbidden at every wave: no repository survey, no indexed search, no re-reading evidence already returned, and no re-deriving what an inlined `<triage>`, `<packet>` or `<evidence>` block already resolved. Being handed an answer is not permission to skip the check — it *is* the check, already performed. A resolution discharges only what its field NAMES — an anchor row proves the symbol exists and, where a value pattern was given, that the value is present. It never reads the body against the claim, so CQ-SOURCE step 4 and Pass 15 step 4 are still yours, from the patch and locations already in hand: that is the one check being handed an answer does not perform.

@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseGeneratedSeed } from '../../scripts/materialize-agent-seed.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(
@@ -98,11 +99,7 @@ test('REQ-MEM-017: session graph uses its title, canonical concepts, and unique 
 test('REQ-MEM-017: generated Pi seed mirrors the deterministic graph builder', () => {
   const generatedPath = path.join(__dirname, '..', '..', 'src', 'lib', 'agent-seed.generated.ts');
   const generatedSource = fs.readFileSync(generatedPath, 'utf8');
-  const assignment = 'export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ';
-  const jsonStart = generatedSource.indexOf(assignment) + assignment.length;
-  const jsonEnd = generatedSource.lastIndexOf('];') + 1;
-  assert.ok(jsonStart >= assignment.length && jsonEnd > jsonStart);
-  const documents = JSON.parse(generatedSource.slice(jsonStart, jsonEnd));
+  const documents = parseGeneratedSeed(generatedSource);
   const seeded = documents.find((document) => document.key === '.pi/agent/scripts/build-memory-graph.py');
 
   assert.ok(seeded, 'generated Pi memory graph builder not found');

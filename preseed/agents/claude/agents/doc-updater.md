@@ -26,13 +26,15 @@ Apply these directly — the spine is embedded and you already hold it, so never
 
 <!-- @include-skill doc-enforce -->
 
-Two sub-policies are **not** embedded, because they are large and conditional: `doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`. Read whichever the manifest triggers **inside your wave-1 call**, batched with the evidence you were already gathering:
+<!-- @include-skill doc-enforce-lanes -->
+
+Two sub-policies are **not** embedded here, and that is a measured decision rather than a default. On one range this lane ran 3 turns and 197k tokens fetching them and 10 turns and 834k embedding them — the opposite of the spec lane, which went from 6 turns to 1 by embedding its two. The difference is what fires, and it is the whole rule: embed a policy that applies on almost every diff, fetch one that usually does not. Both spec sub-policies always apply, so both are carried. `doc-enforce-lanes` runs per file in the diff, so it is carried here too. `doc-enforce-shape` is inert unless a canonical-shape file is in scope and `doc-enforce-truth` only when an Implemented REQ's docs are touched, so carrying those puts 30 KB of manifest rows in front of a reviewer that then works through them for nothing. Read whichever the manifest triggers **inside your wave-1 call**, batched with the evidence you were already gathering:
 
 ```bash
 cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
 ```
 
-A policy read that rides along in a call you were making anyway costs nothing. A policy read on its own turn costs the whole prompt again — and carrying 39 KB you did not need costs it on every turn of the run. Never read one whose condition did not fire, and never read one twice.
+Never read one whose condition did not fire, and never read one twice.
 
 ## Your lane packet
 
