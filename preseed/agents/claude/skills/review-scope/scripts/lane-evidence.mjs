@@ -415,11 +415,15 @@ function declaredDependencies(repo, listing) {
       if (LITERAL_SHAPE.test(token)) tokens.add(token);
       // A dot or slash is legal inside a package name, so it has to stay in the
       // token -- but it is also what separates a table from the package it
-      // names. `[dependencies.serde]` matches as ONE token, and without the
-      // segments `serde` never enters the set at all.
-      for (const segment of token.split(/[./]/)) {
-        if (LITERAL_SHAPE.test(segment)) tokens.add(segment);
-      }
+      // names. `[dependencies.serde]` matches as ONE token, and without this
+      // `serde` never enters the set at all.
+      //
+      // The LAST segment only. Taking every segment would admit `dependencies`,
+      // `tool` and `project` -- table names, not packages -- and widen the weak
+      // class past the one thing this split exists to recover.
+      const segments = token.split(/[./]/);
+      const last = segments[segments.length - 1];
+      if (segments.length > 1 && LITERAL_SHAPE.test(last)) tokens.add(last);
     }
   }
   return { exact, tokens };
