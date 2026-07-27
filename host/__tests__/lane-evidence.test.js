@@ -1148,3 +1148,85 @@ describe('lane-evidence.mjs — a manifest key is not a dependency', () => {
       'metadata keys and values are not dependencies; the packages under a dependency key are');
   });
 });
+
+describe('lane-evidence.mjs — a dependency manifest is read by its own grammar', () => {
+  it('resolves a dependency list that spans multiple lines', () => {
+    const { cwd, base } = makeRepo();
+    // The canonical PEP-621 layout. `dependencies = [` carries no name at all
+    // and every package sits on a continuation line, so a rule that admits only
+    // the line whose own key says `depend` resolves NOTHING here -- silently and
+    // totally, which reads as every documented package being stale. `requires`
+    // is the same shape under `[build-system]`, which is not a heading either.
+    write(cwd, 'pyproject.toml', [
+      '[project]', 'description = "notapackage"',
+      'dependencies = [', '  "httpx>=0.27",', '  "pydantic>=2",', ']', '',
+      '[build-system]', 'requires = [', '  "setuptools>=68",', ']', '',
+    ].join('\n'));
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: pep621');
+
+    write(cwd, 'documentation/x.md', 'Uses `httpx`, `pydantic`, `setuptools`, `notapackage`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref), ['notapackage'],
+      'every package on a continuation line resolves; the metadata value above them does not');
+  });
+
+  it('closes the list at its bracket rather than at the next heading', () => {
+    const { cwd, base } = makeRepo();
+    // An array left open swallows `[tool.black]` as content and resolves its
+    // settings as packages.
+    write(cwd, 'pyproject.toml', [
+      '[project]', 'dependencies = [', '  "httpx>=0.27",', ']', '',
+      '[tool.black]', 'preview = "notapackage"', '',
+    ].join('\n'));
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: pep621');
+
+    write(cwd, 'documentation/x.md', 'Uses `httpx`, `preview`, `notapackage`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['notapackage', 'preview'],
+      'settings after the closing bracket are not dependencies');
+  });
+
+  it('reads a per-package sub-table from its heading, not from its body', () => {
+    const { cwd, base } = makeRepo();
+    // `[build-dependencies]` and `[target.'cfg(unix)'.dependencies]` name the
+    // table in their LAST segment and hold packages. `[dependencies.serde]` is
+    // the opposite -- FIRST segment names the table, last names the package --
+    // so `serde` comes from the heading and `version`, itself a real published
+    // crate, must not come from the body.
+    write(cwd, 'Cargo.toml', [
+      '[build-dependencies]', 'cc = "1"', '',
+      "[target.'cfg(unix)'.dependencies]", 'nix = "0.29"', '',
+      '[dependencies.serde]', 'version = "1"', 'features = ["derive"]', '',
+    ].join('\n'));
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: cargo');
+
+    write(cwd, 'documentation/x.md', 'Uses `cc`, `nix`, `serde`, `version`, `features`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['features', 'version'],
+      'the sub-table package resolves from its heading; its own metadata keys do not');
+  });
+
+  it('does not admit a build setting whose heading merely contains the word', () => {
+    const { cwd, base } = makeRepo();
+    // `[tool.setuptools.packages.find]` configures where source lives; its keys
+    // are paths, and a substring test on the heading resolves them as packages.
+    write(cwd, 'pyproject.toml', [
+      '[tool.setuptools.packages.find]', 'where = ["srcdir"]', 'namespaces = false', '',
+      '[packages]', 'httpx = "*"', '',
+    ].join('\n'));
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: setuptools');
+
+    write(cwd, 'documentation/x.md', 'Uses `httpx`, `where`, `namespaces`, `srcdir`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['namespaces', 'srcdir', 'where'],
+      'a heading naming a build setting is not a dependency table');
+  });
+});

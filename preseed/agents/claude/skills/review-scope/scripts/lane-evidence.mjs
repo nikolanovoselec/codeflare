@@ -379,10 +379,18 @@ const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|
 // on the grammar it sits in.
 const DIRECTIVE_MANIFEST = /(^|\/)(go\.mod|Gemfile|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
 const SECTIONED_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|Pipfile)$/;
-// `[packages]` and `[dev-packages]` are Pipfile's dependency headings and match
-// neither `dependencies` nor `deps`, so the heading test has to admit them or
-// the file resolves nothing.
-const DEPENDENCY_HEADING = /depend|packages/i;
+// A heading admits when its FIRST or LAST dotted segment NAMES a dependency
+// table, rather than merely containing the word anywhere.
+//
+// Last covers `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`,
+// `[tool.poetry.dependencies]`, `[target.'cfg(unix)'.dependencies]` and
+// Pipfile's `[packages]` / `[dev-packages]`. First covers Cargo's per-package
+// sub-table `[dependencies.serde]`, where the trailing segment is the package.
+// Neither position matches `[tool.setuptools.packages.find]` -- a build setting
+// whose keys are paths, not packages -- which a bare substring test admits, and
+// admitting it resolves `where` and `namespaces` as though they were published
+// names. That is a false clean, the one direction this module must not fail in.
+const DEPENDENCY_SEGMENT = /(^|-)(dependencies|packages)$/i;
 
 // The first token on a manifest line is a dependency in `Cargo.toml` and
 // `requirements.txt` and a directive in `Gemfile`, `go.mod` and a Gradle build.
@@ -424,18 +432,43 @@ function declaredDependencies(repo, listing) {
     const directives = DIRECTIVE_MANIFEST.test(path);
     const sectioned = SECTIONED_MANIFEST.test(path);
     let inDependencies = !sectioned;
+    let inArray = false;
     for (const raw of (read(repo, path) ?? '').split('\n')) {
       const line = raw.trim();
-      if (sectioned && line.startsWith('[')) {
-        inDependencies = DEPENDENCY_HEADING.test(line);
+      if (sectioned && line.startsWith('[') && !inArray) {
+        const segments = line.replace(/^\[+|\]+$/g, '').split('.');
+        const last = segments[segments.length - 1];
+        // Two heading shapes, and they are read in OPPOSITE directions.
+        // `[dependencies.serde]` names the package in the heading and fills its
+        // body with that package's own metadata -- `version`, `features`,
+        // `optional` -- so the name is taken from the heading and the body is
+        // NOT admitted. Reading it as a dependency section instead resolves
+        // `version` as though it were a published package, which is a false
+        // clean. Every other shape (`[dependencies]`, `[dev-dependencies]`,
+        // `[tool.poetry.dependencies]`, `[packages]`) names the table and puts
+        // the packages inside it.
+        if (segments.length > 1 && DEPENDENCY_SEGMENT.test(segments[0])) {
+          if (LITERAL_SHAPE.test(last)) names.add(last);
+          inDependencies = false;
+        } else {
+          inDependencies = DEPENDENCY_SEGMENT.test(last);
+        }
         continue;
       }
       if (!line || line.startsWith('#') || line.startsWith('//')) continue;
-      // Admitted by SECTION or by the line's own key. Gating on the section
-      // alone would drop PEP-621, which writes `dependencies = [...]` under
-      // `[project]`; admitting `[project]` wholesale would re-admit the
-      // `name = "thing"` two lines above it. The key decides that line.
-      const admit = inDependencies || /^[A-Za-z0-9_.-]*depend/i.test(line);
+      // Admitted by SECTION, by an open ARRAY, or by the line's own key.
+      //
+      // All three are needed and each was learned from a defect. Section alone
+      // drops PEP-621, which writes `dependencies = [...]` under `[project]`.
+      // Admitting `[project]` wholesale re-admits the `name = "thing"` two
+      // lines above it. And the key alone drops the canonical multi-line form,
+      // where `dependencies = [` carries no name and every name sits on a
+      // continuation line that matches nothing -- silently emptying the
+      // dependency set of any normally-formatted pyproject.toml.
+      const opensArray = /=\s*\[/.test(line) && !line.includes(']');
+      const admit = inDependencies || inArray || /^[A-Za-z0-9_.-]*depend|^requires\b/i.test(line);
+      if (admit && opensArray) inArray = true;
+      else if (inArray && line.includes(']')) inArray = false;
       if (!admit) continue;
       // No closing quote required: `"httpx>=0.27"` must yield `httpx`, and a
       // version specifier is exactly what stops the name.
