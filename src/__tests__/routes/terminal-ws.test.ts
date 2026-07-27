@@ -332,8 +332,9 @@ describe('handleWebSocketUpgrade', () => {
 
   describe('REQ-TERM-022: a rejected container forward closes retryably instead of throwing', () => {
     // A destroyed container REJECTS the forward ('Network connection lost.'); the
-    // forward race only ever covered the HANG. An uncaught reject escaped as an
-    // unhandled exception, so the browser saw an abnormal closure (1006) - in the
+    // forward race only ever covered the HANG. An unhandled reject fell through to
+    // the route's generic 500 handler, and a handshake answered by anything other
+    // than a 101 reaches the browser as an abnormal closure (1006) - in the
     // client's retryable set, but no socket ever opened, so its backoff stayed
     // pinned at the 500ms base. Observed in prod 2026-07-27: ~1 upgrade/second for
     // 20+ minutes against a dead session. Resolving with a retryable close is what

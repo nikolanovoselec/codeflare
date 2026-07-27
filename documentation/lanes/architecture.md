@@ -405,9 +405,9 @@ stateDiagram-v2
 
 Newly started sessions have a 3-minute startup guard (`session-polling.ts`) during which only `4503` close code can transition them to stopped. The user explicitly clicks the session card to reconnect. Terminal initialization only occurs during: (1) explicit session start by user, (2) `loadSessions()` on initial page load where KV is authoritative.
 
-**Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so no KV write)
+**Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` persists the `shutdownRequested` marker, then writes KV `status: 'stopped'` itself (via `updateKvStatus`, while `_bucketName` is still set) -> clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so it makes no KV write of its own; the write above is what records the stop) ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC3-AC4)
 
-**Delete:** Worker `KV.delete()` -> `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` -> `super.destroy()` -> `onStop()` bails (no identifiers, so deleted session cannot be resurrected in KV)
+**Delete:** Worker calls `container.destroy()` -> `destroy()` persists the marker, writes KV `status: 'stopped'`, then clears `SESSION_ID_KEY` + `bucketName` -> `super.destroy()` -> `onStop()` bails -> Worker then `KV.delete()` removes the record entirely, superseding the stopped write rather than resurrecting anything ([REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state))
 
 ```mermaid
 flowchart TD

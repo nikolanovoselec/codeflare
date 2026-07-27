@@ -115,7 +115,7 @@ vi.mock('../../../lib/container-helpers', () => ({
   getContainerId: vi.fn((bucket: string, sessionId: string) => `${bucket}-${sessionId}`),
 }));
 
-import lifecycleRoutes from '../../../routes/container/lifecycle';
+import lifecycleRoutes, { startOrRestartContainer } from '../../../routes/container/lifecycle';
 import { AppError } from '../../../lib/error-types';
 
 describe('Container Lifecycle - Scoped R2 Tokens', () => {
@@ -409,5 +409,39 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
   it('encryptionKey absent when ENCRYPTION_KEY not set', async () => {
     const body = await startSessionAndGetBody();
     expect(body.encryptionKey).toBeUndefined();
+  });
+});
+
+// REQ-SESSION-020 AC3: destroy() records the session stopped and persists the
+// deliberate-stop marker. A restart path that destroys the container must
+// therefore always go on to start it -- reporting already_running instead would
+// leave nothing to clear the marker or restore 'running', so self-heal declines
+// by design and the authoritative 4503 gate refuses every terminal upgrade.
+describe('Container Lifecycle - restart after a bucket change', () => {
+  it('starts the container even when the bucket forward fails after destroy', async () => {
+    const waitUntil = vi.fn();
+    const container = {
+      fetch: vi.fn().mockRejectedValue(new Error('Network connection lost.')),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      getState: vi.fn().mockResolvedValue({ status: 'running' }),
+      startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await startOrRestartContainer({
+      container,
+      needsBucketUpdate: true,
+      setBucketBody: JSON.stringify({ bucketName: 'codeflare-test-example-com' }),
+      containerId: 'container-abc',
+      sessionData: { id: 'sess123', status: 'running' } as unknown as Session,
+      sessionKey: 'session:codeflare-test-example-com:sess123',
+      env: { KV: createMockKV() } as unknown as Env,
+      shortContainerId: 'cont-abc',
+      logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any,
+      waitUntil,
+    });
+
+    expect(container.destroy).toHaveBeenCalled();
+    expect(result.status).toBe('starting');
+    expect(waitUntil).toHaveBeenCalled();
   });
 });

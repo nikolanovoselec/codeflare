@@ -75,6 +75,15 @@ export async function startOrRestartContainer(params: {
     logger.info('Bucket name changed, destroying container to restart with correct bucket');
     try {
       await container.destroy();
+      // The container is stopped the moment destroy() returns, whether or not the
+      // bucket forward below succeeds. Recording that here rather than after the
+      // forward is load-bearing: destroy() persists the deliberate-stop marker and
+      // writes KV 'stopped', so leaving this reading at 'running' on a forward
+      // failure returns already_running without kicking off a start -- onStart()
+      // never runs, so nothing clears the marker or restores 'running', self-heal
+      // declines by design, and the 4503 gate then refuses every terminal upgrade
+      // until the user starts the session by hand (REQ-SESSION-020 AC3).
+      currentState = { status: 'stopped' };
       await getContainerInternalCB(containerId).execute(() =>
         container.fetch(
           new Request('http://container/_internal/setBucketName', {
@@ -84,7 +93,6 @@ export async function startOrRestartContainer(params: {
           })
         )
       );
-      currentState = { status: 'stopped' };
     } catch (error) {
       logger.error('Failed to destroy container', toError(error));
     }
