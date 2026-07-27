@@ -553,26 +553,36 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
         assert.equal(embedded, expectedCanonicalSkill(skillName), `${reviewer} drifted from ${skillName}`);
       }
 
-      // Both runtimes, one list. Only Pi's was pinned, and the two trees then
-      // diverged on HOW policy reaches the reviewer: Pi embedded every
-      // sub-policy while Claude fetched the conditional ones at runtime. That
-      // cost Claude a turn per fetch and re-sent the fetched bytes outside the
-      // cached prefix for the rest of the run -- 6 turns and 349k tokens on one
-      // range against 4 and 138k, with the SMALLER system prompt. A divergence
-      // in delivery is a divergence in cost and in what the reviewer holds when
-      // it first reads the diff, so it is pinned on both sides now.
+      // Both runtimes, one policy SET -- but not necessarily one delivery.
+      // Only Pi's list was pinned, and the trees then diverged on which
+      // policies a reviewer even had: Claude's code lane carried a performance
+      // category and reviewer traps Pi had never seen. What must never differ
+      // is the set. HOW it arrives is measured per lane and differs on purpose:
+      // embedding took the spec lane from 6 turns to 1, and the doc lane from
+      // 3 turns to 10, because `doc-enforce-shape` is inert unless a
+      // canonical-shape file is in scope. So each skill must be embedded OR
+      // named as fetchable, and a policy that is neither is the real defect.
       const claudeDocument = documents.find((document) => document.key === `.claude/agents/${reviewer}.md`);
       assert.ok(claudeDocument, `.claude/agents/${reviewer}.md not found`);
-      assert.deepEqual(
-        [...claudeDocument.content.matchAll(/<embedded-skill name="([^"]+)">/g)].map((match) => match[1]),
-        skillNames,
-        `${reviewer} must receive the same policy set in both runtimes`,
-      );
-      assert.doesNotMatch(
-        claudeDocument.content,
-        /skills\/<name>\/SKILL\.md/,
-        `${reviewer} must not be told to fetch a policy it already holds`,
-      );
+      const claudeEmbedded = [...claudeDocument.content.matchAll(/<embedded-skill name="([^"]+)">/g)]
+        .map((match) => match[1]);
+      for (const skillName of skillNames) {
+        assert.ok(
+          claudeEmbedded.includes(skillName) || claudeDocument.content.includes(skillName),
+          `${reviewer} must hold or be able to reach ${skillName}, which the other runtime has`,
+        );
+      }
+      // Whatever IS embedded must not also be advertised as a runtime fetch --
+      // that is the contradiction the spec lane shipped, telling a reviewer in
+      // one paragraph never to re-fetch what the next told it to read.
+      if (!claudeDocument.content.includes('skills/<name>/SKILL.md')) continue;
+      for (const skillName of claudeEmbedded.filter((name) => name !== 'review-scope')) {
+        assert.doesNotMatch(
+          claudeDocument.content,
+          new RegExp(`not embedded[^\\n]*\`${skillName}\``),
+          `${reviewer} embeds ${skillName} and must not also list it as unembedded`,
+        );
+      }
     }
   });
 

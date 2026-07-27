@@ -10,7 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1042,5 +1042,58 @@ describe('lane-evidence.mjs — the weakest resolution is reported as such', () 
     assert.deepEqual(out.unresolved.map((r) => r.ref), ['goneThing']);
     assert.deepEqual((out.resolvedOnlyByStringLiteral ?? []).map((r) => r.ref), ['registeredThing'],
       'a name resolved only by a quoted string must be reported separately from a declaration');
+  });
+});
+
+describe('lane-evidence.mjs — the candidate ceiling and a failed scan', () => {
+  it('marks a scan that stops at the candidate ceiling', () => {
+    const { cwd, base } = makeRepo();
+    // Distinct from the failure budget: this is the number of references the
+    // scan will LOOK at. Reaching it stops collection mid-document, so a lane
+    // told the list is complete would be reading a prefix of the work.
+    const names = Array.from({ length: 900 }, (_, i) => `sym${i}`);
+    write(cwd, 'src/a.ts', names.map((n) => `export const ${n} = 1;`).join('\n'));
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: many symbols');
+    // Every name RESOLVES, so the failure budget cannot be what fires here.
+    write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: many')}`).references;
+
+    assert.equal(out.unresolved.length, 0, 'the fixture must fail nothing, so only the ceiling can mark it');
+    assert.equal(out.truncated, true, 'a scan stopped by the candidate ceiling must say so');
+    assert.ok(out.checked < names.length, 'the ceiling must actually stop collection');
+  });
+
+  it('reports a partial scan when a tree read fails rather than reporting nothing declared', () => {
+    const { cwd, base } = makeRepo();
+    // A failed chunk contributes no declarations, which is indistinguishable
+    // from "nothing here is declared" -- and that turns every symbol in the
+    // dropped chunk into a stale-doc finding. Injected with a `git` shim that
+    // fails ONLY `grep`, because that is the call the declaration index makes
+    // and the only way to reach the branch without depending on a platform
+    // argument limit.
+    write(cwd, 'src/a.ts', 'export const declaredThing = 1;\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: one symbol');
+    write(cwd, 'documentation/x.md', 'Uses `declaredThing`.\n');
+    const head = commit(cwd, 'docs: x');
+
+    const clean = run(cwd, 'doc-updater', `${base}..${head}`).references;
+    assert.deepEqual(clean.unresolved.map((row) => row.ref), [],
+      'control: the symbol resolves when the scan works');
+    assert.notEqual(clean.truncated, true, 'control: a working scan is not truncated');
+
+    const shimDir = mkdtempSync(join(tmpdir(), 'git-shim-'));
+    const realGit = spawnSync('which', ['git'], { encoding: 'utf-8' }).stdout.trim();
+    writeFileSync(join(shimDir, 'git'),
+      `#!/bin/sh\nfor a in "$@"; do if [ "$a" = grep ]; then exit 2; fi; break; done\nexec ${realGit} "$@"\n`);
+    chmodSync(join(shimDir, 'git'), 0o755);
+    const degraded = JSON.parse(spawnSync('node',
+      [SCRIPT, '--repo', cwd, '--lane', 'doc-updater', '--range', `${base}..${head}`],
+      { cwd, encoding: 'utf-8', env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}` } },
+    ).stdout).references;
+
+    assert.equal(degraded.truncated, true,
+      'a scan whose tree read failed must be reported partial, not complete');
   });
 });

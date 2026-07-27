@@ -20,19 +20,19 @@ Your job is not "scan and emit terse warnings" — it is to hand the applier doc
 
 ## Embedded canonical policy
 
-Apply these directly — every policy you need is embedded and you already hold it, so never re-fetch one.
+Apply these directly — the spine is embedded and you already hold it, so never re-fetch it.
 
 <!-- @include-skill review-scope -->
 
 <!-- @include-skill doc-enforce -->
 
-<!-- @include-skill doc-enforce-lanes -->
+Three sub-policies are **not** embedded here, and that is a measured decision rather than a default. On one range this lane ran 3 turns and 197k tokens fetching them and 10 turns and 834k embedding them — the opposite of the spec lane, which went from 6 turns to 1 by embedding its two. The difference is what fires: the spec lane's sub-policies both apply on almost every diff, while `doc-enforce-shape` is inert unless a canonical-shape file is in scope, so embedding it carries 16 KB that is never read and puts every one of its manifest rows in front of a reviewer that then works through them. Read whichever the manifest triggers **inside your wave-1 call**, batched with the evidence you were already gathering:
 
-<!-- @include-skill doc-enforce-shape -->
+```bash
+cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
+```
 
-<!-- @include-skill doc-enforce-truth -->
-
-The conditional sub-policies are embedded too, and that is a reversal: they were fetched at runtime because they are large and only sometimes needed. Measured against the runtime that embeds them, fetching lost on every axis — the read costs a turn, and a turn re-sends the whole prompt, while the fetched bytes land after the cached prefix and are re-sent at full price for the rest of the run. Carrying a policy whose condition did not fire costs its bytes once, in the cached prefix; fetching one costs a turn plus its bytes on every turn after. Never re-fetch any of these.
+Never read one whose condition did not fire, and never read one twice.
 
 ## Your lane packet
 

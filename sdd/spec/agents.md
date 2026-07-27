@@ -2354,7 +2354,7 @@ None.
 - Canonical skill files remain the only hand-maintained policy source.
 - Reviewer launch prompts carry only dynamic repository, scope, range, and direct-user override inputs.
 - Preloading changes no review scope, manifest row, or acknowledgement condition.
-- One policy set per reviewer, delivered the same way in every runtime; a runtime that fetches at runtime what another holds pays a turn for it and reads the diff without it.
+- One policy set per reviewer in every runtime; whether a policy is carried or fetched is chosen per lane from measurement, never by default.
 
 **Priority:** P1
 

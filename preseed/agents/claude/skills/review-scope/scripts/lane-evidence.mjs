@@ -78,7 +78,10 @@ const clip = (line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}...`
 function summarise(rows, inputTruncated = false, passes) {
   const failed = rows.filter((row) => !row.resolved);
   const weak = rows.filter((row) => row.resolved && row.as === 'literal');
-  const truncated = inputTruncated || failed.length > MAX_UNRESOLVED;
+  // Both emitted lists are bounded, so both have to be able to raise the flag.
+  // Marking only the failure list reintroduced the exact false clean this
+  // function documents, in the field added to prevent one.
+  const truncated = inputTruncated || failed.length > MAX_UNRESOLVED || weak.length > MAX_UNRESOLVED;
   return {
     checked: rows.length,
     unresolved: failed.slice(0, MAX_UNRESOLVED),
@@ -361,12 +364,20 @@ function quotedLiterals(repo, paths) {
 // generic pass takes -- so a Rust repo's `serde` and a Python repo's `httpx`
 // resolve without this module learning nine file formats.
 const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|Pipfile|go\.mod|Gemfile|composer\.json|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
+// Where a leading token is a directive rather than a package name.
+const DIRECTIVE_MANIFEST = /(^|\/)(go\.mod|Gemfile|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
 
 // The first token on a manifest line is a dependency in `Cargo.toml` and
 // `requirements.txt` and a directive in `Gemfile`, `go.mod` and a Gradle build.
 // Without this, `gem`, `source`, `module` and `require` become resolvable names
 // -- a false clean in the one check whose job is spotting what no longer
 // resolves. Same role as NOT_A_DECLARATION, for manifests.
+//
+// Applied ONLY to the manifests whose first token is a directive. `build`,
+// `api`, `path`, `version`, `include`, `group`, `project` and `name` are all
+// real published packages, so filtering them everywhere turned a documented
+// reference to one into a stale-doc finding -- trading a false clean for a
+// false positive rather than removing either.
 const NOT_A_DEPENDENCY = new Set([
   'gem', 'source', 'require', 'module', 'go', 'toolchain', 'replace', 'exclude',
   'retract', 'plugins', 'dependencies', 'implementation', 'api', 'testImplementation',
@@ -393,6 +404,7 @@ function declaredDependencies(repo, listing) {
   }
 
   for (const path of tracked.filter((entry) => DEP_MANIFEST.test(entry))) {
+    const directives = DIRECTIVE_MANIFEST.test(path);
     for (const raw of (read(repo, path) ?? '').split('\n')) {
       const line = raw.trim();
       if (!line || line.startsWith('#') || line.startsWith('//')) continue;
@@ -403,7 +415,8 @@ function declaredDependencies(repo, listing) {
         if (LITERAL_SHAPE.test(value)) names.add(value);
       }
       const bare = line.match(/^[A-Za-z0-9_@][\w./@-]{1,120}/);
-      if (bare && LITERAL_SHAPE.test(bare[0]) && !NOT_A_DEPENDENCY.has(bare[0])) names.add(bare[0]);
+      if (bare && LITERAL_SHAPE.test(bare[0])
+        && !(directives && NOT_A_DEPENDENCY.has(bare[0]))) names.add(bare[0]);
     }
   }
   return names;
