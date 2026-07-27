@@ -341,6 +341,10 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(PRESEED_CONTENT_HASH).toMatch(/^[0-9a-f]{16}$/);
     const { createHash } = require('node:crypto');
     const sorted = [...AGENTS_SEEDED_CONFIGS].sort((a, b) => a.key.localeCompare(b.key));
+    // Mirrors computePreseedHash in scripts/generate-agent-seed.mjs, which cannot
+    // be imported here: that module invokes generate() at import time and would
+    // rewrite the generated seed mid-suite. Change the formula there and this
+    // recomputation fails until it is changed to match.
     // The retired list is inside the hash so that shipping it triggers the
     // upgrade that applies it (REQ-STOR-019); recomputing without it would pass
     // only while the list stayed empty.
