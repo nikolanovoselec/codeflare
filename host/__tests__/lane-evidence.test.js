@@ -1122,111 +1122,72 @@ describe('lane-evidence.mjs — the candidate ceiling and a failed scan', () => 
   });
 });
 
-describe('lane-evidence.mjs — a manifest key is not a dependency', () => {
-  it('does not resolve a metadata key in a sectioned manifest', () => {
+describe('lane-evidence.mjs — a manifest token is the weakest resolution, not a clean', () => {
+  it('resolves every package in a dependency list whatever shape the file is written in', () => {
     const { cwd, base } = makeRepo();
-    // Every one of these keys is also a real published package name, so the
-    // resolver cannot filter them by name -- only by where they sit. Above a
-    // dependencies heading they are metadata; under one they are packages.
-    write(cwd, 'Cargo.toml', '[package]\nname = "thing"\nversion = "1"\nbuild = "b.rs"\n\n[dependencies]\nserde = "1"\n');
-    write(cwd, 'Pipfile', '[[source]]\nurl = "https://pypi.org/simple"\nverify_ssl = true\n\n[packages]\nhttpx = "*"\n');
+    // Seven consecutive defects lived in the grammar this replaces, and each was
+    // a layout it did not anticipate: a multi-line array, an extras bracket
+    // closing it early, a per-package sub-table, a heading that merely contained
+    // the word. None of those shapes can fail now, which is the point of the
+    // change -- every one of them is just tokens in a manifest.
+    write(cwd, 'pyproject.toml', [
+      '[project]',
+      'dependencies = [',
+      '  "httpx>=0.27",',
+      '  "uvicorn[standard]>=0.30",',
+      ']', '',
+      '[build-system]', 'requires = ["setuptools>=68"]', '',
+    ].join('\n'));
+    write(cwd, 'Cargo.toml', [
+      '[build-dependencies]', 'cc = "1"', '',
+      '[dependencies.serde]', 'version = "1"', '',
+    ].join('\n'));
     git(cwd, 'add', '-A');
     git(cwd, 'commit', '-q', '-m', 'feat: manifests');
 
-    write(cwd, 'pyproject.toml', '[project]\nname = "proj"\ndependencies = ["httpcore>=1"]\n');
-    git(cwd, 'add', '-A');
-    git(cwd, 'commit', '-q', '-m', 'feat: pep621');
-    // `thing` and `proj` are metadata VALUES, `build`/`verify_ssl` metadata
-    // KEYS. Both sides of the line have to be gated, and `httpcore` proves the
-    // gate did not take PEP-621 with it -- its dependency list lives under
-    // `[project]`, which is not a dependencies heading.
     write(cwd, 'documentation/x.md',
-      'Uses `serde`, `httpx`, `httpcore`, `build`, `verify_ssl`, `thing`, `proj`.\n');
+      'Uses `httpx`, `uvicorn`, `setuptools`, `cc`, `serde`.\n');
     const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
 
-    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['build', 'proj', 'thing', 'verify_ssl'],
-      'metadata keys and values are not dependencies; the packages under a dependency key are');
-  });
-});
-
-describe('lane-evidence.mjs — a dependency manifest is read by its own grammar', () => {
-  it('resolves a dependency list that spans multiple lines', () => {
-    const { cwd, base } = makeRepo();
-    // The canonical PEP-621 layout. `dependencies = [` carries no name at all
-    // and every package sits on a continuation line, so a rule that admits only
-    // the line whose own key says `depend` resolves NOTHING here -- silently and
-    // totally, which reads as every documented package being stale. `requires`
-    // is the same shape under `[build-system]`, which is not a heading either.
-    write(cwd, 'pyproject.toml', [
-      '[project]', 'description = "notapackage"',
-      'dependencies = [', '  "httpx>=0.27",', '  "pydantic>=2",', ']', '',
-      '[build-system]', 'requires = [', '  "setuptools>=68",', ']', '',
-    ].join('\n'));
-    git(cwd, 'add', '-A');
-    git(cwd, 'commit', '-q', '-m', 'feat: pep621');
-
-    write(cwd, 'documentation/x.md', 'Uses `httpx`, `pydantic`, `setuptools`, `notapackage`.\n');
-    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
-
-    assert.deepEqual(out.unresolved.map((r) => r.ref), ['notapackage'],
-      'every package on a continuation line resolves; the metadata value above them does not');
+    assert.deepEqual(out.unresolved.map((r) => r.ref), [],
+      'no manifest layout can hide a declared package from resolution');
   });
 
-  it('closes the list at its bracket rather than at the next heading', () => {
+  it('reports a name known only from a manifest as a weak resolution rather than a pass', () => {
     const { cwd, base } = makeRepo();
-    // An array left open swallows `[tool.black]` as content and resolves its
-    // settings as packages.
-    write(cwd, 'pyproject.toml', [
-      '[project]', 'dependencies = [', '  "httpx>=0.27",', ']', '',
-      '[tool.black]', 'preview = "notapackage"', '',
-    ].join('\n'));
+    // The trade this change makes. `where` is a setuptools setting, not a
+    // package, and tokenising admits it -- so it must NOT arrive as an ordinary
+    // clean. It arrives labelled, which is the whole reason the grammar could be
+    // dropped: the lane is told what the evidence actually is.
+    write(cwd, 'pyproject.toml',
+      '[tool.setuptools.packages.find]\nwhere = ["srcdir"]\n\n[project]\ndependencies = ["httpx>=0.27"]\n');
     git(cwd, 'add', '-A');
-    git(cwd, 'commit', '-q', '-m', 'feat: pep621');
+    git(cwd, 'commit', '-q', '-m', 'feat: manifest');
 
-    write(cwd, 'documentation/x.md', 'Uses `httpx`, `preview`, `notapackage`.\n');
+    write(cwd, 'documentation/x.md', 'Uses `httpx`, `where`.\n');
     const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
 
-    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['notapackage', 'preview'],
-      'settings after the closing bracket are not dependencies');
+    assert.deepEqual(out.unresolved.map((r) => r.ref), [], 'both are manifest tokens');
+    assert.deepEqual((out.resolvedOnlyByDependencyManifest ?? []).map((r) => r.ref).sort(),
+      ['httpx', 'where'],
+      'a manifest token resolves into the weak class, never into a silent clean');
   });
 
-  it('reads a per-package sub-table from its heading, not from its body', () => {
+  it('does not demote a real declaration that a manifest happens to also mention', () => {
     const { cwd, base } = makeRepo();
-    // `[build-dependencies]` and `[target.'cfg(unix)'.dependencies]` name the
-    // table in their LAST segment and hold packages. `[dependencies.serde]` is
-    // the opposite -- FIRST segment names the table, last names the package --
-    // so `serde` comes from the heading and `version`, itself a real published
-    // crate, must not come from the body.
-    write(cwd, 'Cargo.toml', [
-      '[build-dependencies]', 'cc = "1"', '',
-      "[target.'cfg(unix)'.dependencies]", 'nix = "0.29"', '',
-      '[dependencies.serde]', 'version = "1"', 'features = ["derive"]', '',
-    ].join('\n'));
+    // The weak class is checked last precisely so a coincidental token cannot
+    // downgrade a symbol the tree really declares.
+    write(cwd, 'src/render.js', 'export function renderWidget() {}\n');
+    write(cwd, 'Cargo.toml', '[dependencies]\nrenderWidget = "1"\n');
+    write(cwd, 'package.json', '{"dependencies":{"lodash":"4"}}\n');
     git(cwd, 'add', '-A');
-    git(cwd, 'commit', '-q', '-m', 'feat: cargo');
+    git(cwd, 'commit', '-q', '-m', 'feat: tree');
 
-    write(cwd, 'documentation/x.md', 'Uses `cc`, `nix`, `serde`, `version`, `features`.\n');
+    write(cwd, 'documentation/x.md', 'Uses `renderWidget` and `lodash`.\n');
     const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
 
-    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['features', 'version'],
-      'the sub-table package resolves from its heading; its own metadata keys do not');
-  });
-
-  it('does not admit a build setting whose heading merely contains the word', () => {
-    const { cwd, base } = makeRepo();
-    // `[tool.setuptools.packages.find]` configures where source lives; its keys
-    // are paths, and a substring test on the heading resolves them as packages.
-    write(cwd, 'pyproject.toml', [
-      '[tool.setuptools.packages.find]', 'where = ["srcdir"]', 'namespaces = false', '',
-      '[packages]', 'httpx = "*"', '',
-    ].join('\n'));
-    git(cwd, 'add', '-A');
-    git(cwd, 'commit', '-q', '-m', 'feat: setuptools');
-
-    write(cwd, 'documentation/x.md', 'Uses `httpx`, `where`, `namespaces`, `srcdir`.\n');
-    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
-
-    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['namespaces', 'srcdir', 'where'],
-      'a heading naming a build setting is not a dependency table');
+    assert.deepEqual(out.unresolved.map((r) => r.ref), []);
+    assert.deepEqual((out.resolvedOnlyByDependencyManifest ?? []).map((r) => r.ref), [],
+      'a declared symbol and an exact package.json entry are both stronger than a manifest token');
   });
 });

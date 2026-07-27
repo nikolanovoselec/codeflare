@@ -78,10 +78,12 @@ const clip = (line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}...`
 function summarise(rows, inputTruncated = false, passes) {
   const failed = rows.filter((row) => !row.resolved);
   const weak = rows.filter((row) => row.resolved && row.as === 'literal');
+  const weakManifest = rows.filter((row) => row.resolved && row.as === 'manifest');
   // Both emitted lists are bounded, so both have to be able to raise the flag.
   // Marking only the failure list reintroduced the exact false clean this
   // function documents, in the field added to prevent one.
-  const truncated = inputTruncated || failed.length > MAX_UNRESOLVED || weak.length > MAX_UNRESOLVED;
+  const truncated = inputTruncated || failed.length > MAX_UNRESOLVED
+    || weak.length > MAX_UNRESOLVED || weakManifest.length > MAX_UNRESOLVED;
   return {
     checked: rows.length,
     unresolved: failed.slice(0, MAX_UNRESOLVED),
@@ -92,6 +94,9 @@ function summarise(rows, inputTruncated = false, passes) {
     // as an ordinary clean. Surfaced separately so the lane can weigh it --
     // these resolved, but on the weakest evidence this module accepts.
     ...(weak.length ? { resolvedOnlyByStringLiteral: weak.slice(0, MAX_UNRESOLVED) } : {}),
+    // Same reason, weaker evidence: this name is a token in a dependency
+    // manifest and nothing stronger. It is a resolution, not a clean.
+    ...(weakManifest.length ? { resolvedOnlyByDependencyManifest: weakManifest.slice(0, MAX_UNRESOLVED) } : {}),
     // How many passes over the tree the answers cost. Constant against the
     // number of names asked about -- which is the contract, and is otherwise
     // only checkable with a stopwatch.
@@ -377,20 +382,6 @@ const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|
 // as stale. Filtering nowhere let a Cargo metadata key resolve as a dependency.
 // Both are one-line fixes to the wrong question: what the token means depends
 // on the grammar it sits in.
-const DIRECTIVE_MANIFEST = /(^|\/)(go\.mod|Gemfile|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
-const SECTIONED_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|Pipfile)$/;
-// A heading admits when its FIRST or LAST dotted segment NAMES a dependency
-// table, rather than merely containing the word anywhere.
-//
-// Last covers `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`,
-// `[tool.poetry.dependencies]`, `[target.'cfg(unix)'.dependencies]` and
-// Pipfile's `[packages]` / `[dev-packages]`. First covers Cargo's per-package
-// sub-table `[dependencies.serde]`, where the trailing segment is the package.
-// Neither position matches `[tool.setuptools.packages.find]` -- a build setting
-// whose keys are paths, not packages -- which a bare substring test admits, and
-// admitting it resolves `where` and `namespaces` as though they were published
-// names. That is a false clean, the one direction this module must not fail in.
-const DEPENDENCY_SEGMENT = /(^|-)(dependencies|packages)$/i;
 
 // The first token on a manifest line is a dependency in `Cargo.toml` and
 // `requirements.txt` and a directive in `Gemfile`, `go.mod` and a Gradle build.
@@ -403,16 +394,12 @@ const DEPENDENCY_SEGMENT = /(^|-)(dependencies|packages)$/i;
 // real published packages, so filtering them everywhere turned a documented
 // reference to one into a stale-doc finding -- trading a false clean for a
 // false positive rather than removing either.
-const NOT_A_DEPENDENCY = new Set([
-  'gem', 'source', 'require', 'module', 'go', 'toolchain', 'replace', 'exclude',
-  'retract', 'plugins', 'dependencies', 'implementation', 'api', 'testImplementation',
-  'compileOnly', 'runtimeOnly', 'classpath', 'group', 'name', 'version', 'ruby',
-  'gemspec', 'git', 'path', 'platforms', 'targets', 'products', 'defp', 'def',
-  'deps', 'application', 'project', 'build', 'extras', 'include', 'python',
-]);
 
 function declaredDependencies(repo, listing) {
-  const names = new Set();
+  // package.json is JSON, so its dependency fields are read exactly and stay an
+  // exact answer. Nothing below it is.
+  const exact = new Set();
+  const tokens = new Set();
   const tracked = listing.filter(live);
 
   for (const path of tracked.filter((entry) => /(^|\/)package\.json$/.test(entry))) {
@@ -423,65 +410,33 @@ function declaredDependencies(repo, listing) {
       continue;
     }
     for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
-      for (const name of Object.keys(manifest?.[field] ?? {})) names.add(name);
+      for (const name of Object.keys(manifest?.[field] ?? {})) exact.add(name);
     }
-    if (typeof manifest?.name === 'string') names.add(manifest.name);
+    if (typeof manifest?.name === 'string') exact.add(manifest.name);
   }
 
+  // Every other manifest was parsed by its grammar, and the grammar was wrong
+  // seven times running -- always in the same direction. `[tool.setuptools.
+  // packages.find]` admitted `where`; `requires-python` and `independent`
+  // matched the key test; `[dependencies.serde]` offered `version` as a crate;
+  // a continuation line carrying `uvicorn[standard]` closed the array early.
+  // Every one was a FALSE CLEAN, which the header of this module says it must
+  // never produce, and every one was found only after shipping. Each fix was
+  // correct and each exposed the next, because a heuristic over ten ecosystems'
+  // file formats has no state in which it is finished.
+  //
+  // So the grammar is gone rather than corrected an eighth time. Every token in
+  // a dependency manifest is offered as the WEAKEST resolution this module has,
+  // alongside the string-literal class. That is exactly what a heuristic ever
+  // honestly established -- the name appears in a file that declares
+  // dependencies -- and saying so is what stops it being a false clean: the
+  // lane is told the evidence, instead of being told it is a declared package.
   for (const path of tracked.filter((entry) => DEP_MANIFEST.test(entry))) {
-    const directives = DIRECTIVE_MANIFEST.test(path);
-    const sectioned = SECTIONED_MANIFEST.test(path);
-    let inDependencies = !sectioned;
-    let inArray = false;
-    for (const raw of (read(repo, path) ?? '').split('\n')) {
-      const line = raw.trim();
-      if (sectioned && line.startsWith('[') && !inArray) {
-        const segments = line.replace(/^\[+|\]+$/g, '').split('.');
-        const last = segments[segments.length - 1];
-        // Two heading shapes, and they are read in OPPOSITE directions.
-        // `[dependencies.serde]` names the package in the heading and fills its
-        // body with that package's own metadata -- `version`, `features`,
-        // `optional` -- so the name is taken from the heading and the body is
-        // NOT admitted. Reading it as a dependency section instead resolves
-        // `version` as though it were a published package, which is a false
-        // clean. Every other shape (`[dependencies]`, `[dev-dependencies]`,
-        // `[tool.poetry.dependencies]`, `[packages]`) names the table and puts
-        // the packages inside it.
-        if (segments.length > 1 && DEPENDENCY_SEGMENT.test(segments[0])) {
-          if (LITERAL_SHAPE.test(last)) names.add(last);
-          inDependencies = false;
-        } else {
-          inDependencies = DEPENDENCY_SEGMENT.test(last);
-        }
-        continue;
-      }
-      if (!line || line.startsWith('#') || line.startsWith('//')) continue;
-      // Admitted by SECTION, by an open ARRAY, or by the line's own key.
-      //
-      // All three are needed and each was learned from a defect. Section alone
-      // drops PEP-621, which writes `dependencies = [...]` under `[project]`.
-      // Admitting `[project]` wholesale re-admits the `name = "thing"` two
-      // lines above it. And the key alone drops the canonical multi-line form,
-      // where `dependencies = [` carries no name and every name sits on a
-      // continuation line that matches nothing -- silently emptying the
-      // dependency set of any normally-formatted pyproject.toml.
-      const opensArray = /=\s*\[/.test(line) && !line.includes(']');
-      const admit = inDependencies || inArray || /^[A-Za-z0-9_.-]*depend|^requires\b/i.test(line);
-      if (admit && opensArray) inArray = true;
-      else if (inArray && line.includes(']')) inArray = false;
-      if (!admit) continue;
-      // No closing quote required: `"httpx>=0.27"` must yield `httpx`, and a
-      // version specifier is exactly what stops the name.
-      for (const hit of line.match(/["'][A-Za-z0-9_@][\w./@-]{0,120}/g) ?? []) {
-        const value = hit.slice(1);
-        if (LITERAL_SHAPE.test(value)) names.add(value);
-      }
-      const bare = line.match(/^[A-Za-z0-9_@][\w./@-]{1,120}/);
-      if (bare && LITERAL_SHAPE.test(bare[0])
-        && !(directives && NOT_A_DEPENDENCY.has(bare[0]))) names.add(bare[0]);
+    for (const token of (read(repo, path) ?? '').match(/[A-Za-z0-9_@][\w./@-]{1,120}/g) ?? []) {
+      if (LITERAL_SHAPE.test(token)) tokens.add(token);
     }
   }
-  return names;
+  return { exact, tokens };
 }
 
 function resolveDocReferences(repo, files) {
@@ -556,7 +511,7 @@ function resolveDocReferences(repo, files) {
         rows.push({ ref: candidate, resolved: true, as: 'path' });
         continue;
       }
-      if (dependencies.has(candidate)) {
+      if (dependencies.exact.has(candidate)) {
         rows.push({ ref: candidate, resolved: true, as: 'package' });
         continue;
       }
@@ -572,7 +527,18 @@ function resolveDocReferences(repo, files) {
       // declaration: it can also be an unrelated key that happens to match. It
       // is labelled so the lane can weigh it rather than being told the two are
       // the same kind of answer.
-      rows.push({ ref: candidate, resolved: literals.has(candidate), as: literals.has(candidate) ? 'literal' : 'symbol' });
+      if (literals.has(candidate)) {
+        rows.push({ ref: candidate, resolved: true, as: 'literal' });
+        continue;
+      }
+      // Weaker still, and last: the name appears somewhere in a file that
+      // declares dependencies. Checked after every stronger form so a real
+      // declaration is never demoted to this class by a coincidental token.
+      if (dependencies.tokens.has(candidate)) {
+        rows.push({ ref: candidate, resolved: true, as: 'manifest' });
+        continue;
+      }
+      rows.push({ ref: candidate, resolved: false, as: 'symbol' });
     }
   }
   return done();
