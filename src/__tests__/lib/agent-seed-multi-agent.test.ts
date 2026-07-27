@@ -369,6 +369,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/local-statusline.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
       '.pi/agent/extensions/memory-vault.ts',
+      '.pi/agent/extensions/post-compaction-recall-helpers.ts',
+      '.pi/agent/extensions/post-compaction-recall.ts',
       '.pi/agent/extensions/review-command.ts',
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
@@ -783,6 +785,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       'memory-capture.sh',
       'memory-context-inject.sh',
       'plugin.json',
+      'post-compaction-recall.sh',
       'prefilter-transcript.sh',
     ]);
     for (const doc of pluginDocs) {

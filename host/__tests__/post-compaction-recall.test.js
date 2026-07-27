@@ -1,8 +1,10 @@
 // Verifies REQ-MEM-019: Post-compaction recall of recent session extracts.
 //   AC1: injects the N most recent extracts, newest first, as additionalContext
-//   AC2: ordering is by filename, not mtime (the vault round-trips through rclone)
+//   AC2: ordering is by the instant an extract was captured, not by its mtime
+//        (the vault round-trips through rclone) nor by its name read as text
 //   AC3: fires only when the session started from compaction
-//   AC4: each extract is capped, and the cap is visible as a truncation marker
+//   AC4: each extract is capped, in bytes rather than characters
+//   AC5: the cap is visible as a truncation marker that keeps the source path
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
@@ -162,6 +164,28 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     assert.ok(!context.includes(marker));
   });
 
+  it('AC4: caps on encoded bytes rather than characters', () => {
+    const dir = join(baseTmp, 'ac4-multibyte');
+    seed(dir, {
+      // Two bytes per character: a cap counting code points keeps ~1000 bytes
+      // for a 500-byte budget, and a naive byte slice splits the last sequence.
+      '2026-07-03T10-00-00+0200-eee.md': extract('multibyte session', {
+        decisions: `- ${'é'.repeat(4000)}`,
+      }),
+    });
+
+    const { context } = runHook({ sessionsDir: dir, perFileBytes: 500 });
+
+    const carried = /é+/.exec(context)?.[0] ?? '';
+    assert.ok(carried.length > 0, 'the multibyte body must survive at all');
+    assert.ok(
+      Buffer.byteLength(carried, 'utf-8') <= 500,
+      `carried ${Buffer.byteLength(carried, 'utf-8')} bytes for a 500-byte cap`,
+    );
+    // A split sequence would decode to U+FFFD instead of being dropped.
+    assert.ok(!context.includes('�'));
+  });
+
   it('AC5: marks the truncation and keeps the source path', () => {
     const dir = join(baseTmp, 'ac5');
     const name = '2026-07-03T10-00-00+0200-ddd.md';
@@ -204,6 +228,26 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     // Content past the fence stays in Context instead of being cut off there.
     assert.ok(context.includes('after'));
     // And the real next section is still excluded.
+    assert.ok(!context.includes('must NOT be injected'));
+  });
+
+  it('keeps later sections when an inner fence sits inside a longer one', () => {
+    const dir = join(baseTmp, 'fence-nested');
+    seed(dir, {
+      // The inner ``` must not close the outer ```` run. Toggling on any
+      // backtick line leaves the parser inside a fence for the rest of the
+      // file, so Decisions — the content this hook exists to carry — vanishes.
+      '2026-07-03T10-00-00+0200-g.md': extract('nested fence session', {
+        context: 'before\n````md\n```\n## not a heading\n```\n````\nafter',
+        decisions: '- a decision after the nested fence',
+      }),
+    });
+
+    const { context } = runHook({ sessionsDir: dir });
+
+    assert.ok(context.includes('## Decisions'));
+    assert.ok(context.includes('a decision after the nested fence'));
+    assert.ok(context.includes('after'));
     assert.ok(!context.includes('must NOT be injected'));
   });
 

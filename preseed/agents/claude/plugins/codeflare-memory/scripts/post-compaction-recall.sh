@@ -84,21 +84,36 @@ if not names:
 WANTED = ("## Context", "## Decisions")
 
 
+FENCE = re.compile(r"^(`{3,})(.*)$")
+
+
 def sections(text):
     """Return {heading: body} for the level-2 headings we care about."""
     out, current, buf = {}, None, []
-    in_fence = False
+    fence = 0
     for line in text.splitlines():
         # A "## " inside a fenced block is code, not a heading. Without this an
         # extract quoting markdown ends its own section early and drags the
         # following section in behind it.
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-        if not in_fence and line.startswith("## "):
+        #
+        # Track the delimiter run length rather than toggling on any backticks:
+        # an opening delimiter may carry an info string, a closing one may not
+        # and must be at least as long as the run that opened it. Toggling would
+        # let the inner ``` of a ```` block close the outer fence, leaving every
+        # later heading unrecognised and silently dropping ## Decisions.
+        delimiter = FENCE.match(line.strip())
+        if delimiter:
+            run = len(delimiter.group(1))
+            if fence == 0:
+                fence = run
+            elif run >= fence and not delimiter.group(2).strip():
+                fence = 0
+        elif fence == 0 and line.startswith("## "):
             if current:
                 out[current] = "\n".join(buf).strip()
             current, buf = line.strip(), []
-        elif current:
+            continue
+        if current:
             buf.append(line)
     if current:
         out[current] = "\n".join(buf).strip()

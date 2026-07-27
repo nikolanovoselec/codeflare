@@ -546,6 +546,8 @@ Generated agents and emitted requests use provider-neutral medium reasoning, Bas
 
 `memory-vault.ts` owns delivery and high-water state. `/tmp/.memory-counter/<sessionId>.vars` and `vault-extract.pi.vars` are active request-ID pointers for reload discovery.
 
+`post-compaction-recall.ts` covers the compaction boundary that first-prompt injection cannot reach, the Pi counterpart of the Claude `post-compaction-recall.sh` hook described above. It listens on `session_compact` and sends the digest as a custom message with `display` off, delivered as a follow-up without triggering a turn, so the recall persists in the session rather than surviving a single request. Child sessions are skipped on the same header check `memory-vault.ts` uses: a subagent's narrow context must not receive whole-session history. Selection, bounds and injected wording are held identical to the Claude hook; the two runtimes carry separate implementations only because their injection surfaces differ. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall -->
+
 Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. The [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) owns the child-visible location and legacy migration details.
 
 Root-session JSONL determines exact public-call attempts, native completion, reminders `0..5`, and GIVEUP. An emitted request with no matching call remains one pending delivery, so repeated settlements and reloads emit neither duplicates nor GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
@@ -795,9 +797,12 @@ session extracts from `~/Vault/Raw/Sessions/`
 It exists because compaction keeps the session id, so the first-prompt sentinel
 in `memory-context-inject.sh` is already claimed and that hook cannot fire again
 — leaving the agent resuming from a summary with prior decisions and identifiers
-gone. Recency is read from the extract filename rather than mtime, because the
-vault round-trips through rclone bisync, which rewrites mtimes. `PostCompact` is
-not used: it carries no decision control and cannot return `additionalContext`.
+gone. Recency is the instant an extract was captured, parsed out of the ISO-8601
+timestamp and UTC offset its filename carries: mtime is unusable because the
+vault round-trips through rclone bisync, which rewrites it, and the name read as
+text is unusable because a UTC-offset change puts a later capture behind an
+earlier one. `PostCompact` is not used: it carries no decision control and
+cannot return `additionalContext`.
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 

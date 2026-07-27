@@ -385,6 +385,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. No context is injected for a session that did not resume from compaction, so sessions that never lost context pay nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::SOURCE --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC3: stays silent unless the session started from compaction) -->
 4. Each extract contributes a bounded number of bytes to the injected context. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: caps each extract) -->
 5. Content dropped by that bound is marked as truncated, with the extract's source path retained so the remainder stays reachable. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC5: marks the truncation and keeps the source path) -->
+6. The Pi runtime covers the same boundary at its own compaction event, selecting and bounding the same extracts and delivering them as a message persisted in the session, and never inside a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) -->
 
 **Constraints:**
 
@@ -392,12 +393,16 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - The injected text is framed as a record of what happened, not as instructions, so a prior session cannot issue directives to a later one.
 - The hook plugin is advanced-session-only by manifest declaration; standard sessions never receive it.
 - The hook is fail-safe: any error exits silently with no output and never blocks a session.
+- A `## ` line inside a fenced block is content, not a heading. Fence delimiters are matched by run length rather than toggled on any backtick line, so an inner fence cannot close an outer one and leave every later heading unrecognised.
+- The per-extract bound is spent in encoded bytes and cut on a character boundary, because that is what the context actually costs.
+- Claude and Pi carry separate implementations because their injection surfaces differ — a SessionStart hook returning `additionalContext` against a compaction event delivering a session message — while the selection, bounds and injected wording are the same in both.
+- The Pi extension is fail-safe on the same terms: an unreadable extract store leaves the session untouched.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-013](#req-mem-013-proactive-memory-injection-on-first-prompt)
 
-**Verification:** Automated test ([post-compaction-recall](../../host/__tests__/post-compaction-recall.test.js))
+**Verification:** Automated tests ([post-compaction-recall](../../host/__tests__/post-compaction-recall.test.js), [pi-post-compaction-recall](../../src/__tests__/lib/pi-post-compaction-recall.test.ts))
 
 **Status:** Implemented
 

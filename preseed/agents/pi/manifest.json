@@ -152,6 +152,16 @@
       "advanced"
     ]
   },
+  "extensions/post-compaction-recall.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/post-compaction-recall-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/graphify/SKILL.md": {
     "modes": [
       "advanced"
