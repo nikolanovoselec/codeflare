@@ -371,29 +371,9 @@ function quotedLiterals(repo, paths) {
 const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|Pipfile|go\.mod|Gemfile|composer\.json|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
 // Three manifest grammars, three rules for what a leading token means.
 //
-// Directive manifests: the first token is syntax (`gem`, `require`, `module`),
-// so the deny-list applies. Sectioned manifests: the first token is a key, and
-// only under a dependencies heading is that key a package name -- `name`,
-// `version` and `build` above the heading are metadata. Everything else
-// (`requirements.txt`, `Pipfile`) is one dependency per line.
-//
-// Filtering the deny-list everywhere ate `build`, `api`, `path` and `version`,
-// which are real published packages, and reported documented references to them
-// as stale. Filtering nowhere let a Cargo metadata key resolve as a dependency.
-// Both are one-line fixes to the wrong question: what the token means depends
-// on the grammar it sits in.
-
-// The first token on a manifest line is a dependency in `Cargo.toml` and
-// `requirements.txt` and a directive in `Gemfile`, `go.mod` and a Gradle build.
-// Without this, `gem`, `source`, `module` and `require` become resolvable names
-// -- a false clean in the one check whose job is spotting what no longer
-// resolves. Same role as NOT_A_DECLARATION, for manifests.
-//
-// Applied ONLY to the manifests whose first token is a directive. `build`,
-// `api`, `path`, `version`, `include`, `group`, `project` and `name` are all
-// real published packages, so filtering them everywhere turned a documented
-// reference to one into a stale-doc finding -- trading a false clean for a
-// false positive rather than removing either.
+// A documented name is also resolvable as a dependency. How that is read is
+// stated at the loop below, not here: outside `package.json` the manifest is
+// no longer parsed by its grammar at all.
 
 function declaredDependencies(repo, listing) {
   // package.json is JSON, so its dependency fields are read exactly and stay an
