@@ -5,7 +5,7 @@
 //   AC4: each extract is capped, and the cap is visible as a truncation marker
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -71,7 +71,6 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
   before(() => {
     baseTmp = mkdtempSync(join(tmpdir(), 'post-compact-'));
     assert.ok(existsSync(HOOK), `hook script missing at ${HOOK}`);
-    chmodSync(HOOK, 0o755);
   });
 
   it('AC1: injects the N most recent extracts newest-first as SessionStart context', () => {
@@ -132,7 +131,7 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     assert.notEqual(runHook({ sessionsDir: dir, source: 'compact' }).stdout, '');
   });
 
-  it('AC4: caps each extract and marks the truncation', () => {
+  it('AC4: caps each extract', () => {
     const dir = join(baseTmp, 'ac4');
     const marker = 'TAILEND';
     seed(dir, {
@@ -144,9 +143,53 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     const { context } = runHook({ sessionsDir: dir, perFileBytes: 500 });
 
     assert.ok(context.includes('big session'));
-    assert.ok(context.includes('truncated'));
     // The cap actually dropped content rather than only appending a notice.
     assert.ok(!context.includes(marker));
+  });
+
+  it('AC5: marks the truncation and keeps the source path', () => {
+    const dir = join(baseTmp, 'ac5');
+    const name = '2026-07-03T10-00-00+0200-ddd.md';
+    seed(dir, {
+      [name]: extract('capped session', { decisions: `- ${'y'.repeat(4000)}` }),
+    });
+
+    const { context } = runHook({ sessionsDir: dir, perFileBytes: 500 });
+
+    assert.ok(context.includes('truncated'));
+    // The path is what makes the dropped content recoverable.
+    assert.ok(context.includes(join(dir, name)));
+  });
+
+  it('counts blocks actually emitted, not files selected', () => {
+    const dir = join(baseTmp, 'count');
+    seed(dir, {
+      '2026-07-03T10-00-00+0200-a.md': extract('has sections'),
+      // Selected by the filename window, but contributes no block.
+      '2026-07-02T10-00-00+0200-b.md': '# no wanted sections\n\n## Observations\n- x\n',
+      '2026-07-01T10-00-00+0200-c.md': extract('also has sections'),
+    });
+
+    const { context } = runHook({ sessionsDir: dir, count: 3 });
+
+    assert.ok(context.includes('the 2 most recent session extracts'));
+    assert.ok(!context.includes('the 3 most recent session extracts'));
+  });
+
+  it('does not end a section at a "## " line inside a fenced block', () => {
+    const dir = join(baseTmp, 'fence');
+    seed(dir, {
+      '2026-07-03T10-00-00+0200-f.md': extract('fenced session', {
+        context: 'before\n```\n## not a heading\n```\nafter',
+      }),
+    });
+
+    const { context } = runHook({ sessionsDir: dir });
+
+    // Content past the fence stays in Context instead of being cut off there.
+    assert.ok(context.includes('after'));
+    // And the real next section is still excluded.
+    assert.ok(!context.includes('must NOT be injected'));
   });
 
   it('emits nothing when the extracts directory is absent', () => {

@@ -41,7 +41,7 @@ SOURCE=$(echo "$INPUT" | jq -r '.source // empty' 2>/dev/null) || true
 FILES=$(ls -1 "$SESSIONS_DIR" 2>/dev/null | grep -E '\.md$' | LC_ALL=C sort -r | head -n "$EXTRACT_COUNT")
 [ -z "$FILES" ] && exit 0
 
-DIGEST=$(SESSIONS_DIR="$SESSIONS_DIR" FILE_LIST="$FILES" PER_FILE_BYTES="$PER_FILE_BYTES" \
+RAW=$(SESSIONS_DIR="$SESSIONS_DIR" FILE_LIST="$FILES" PER_FILE_BYTES="$PER_FILE_BYTES" \
   timeout 8 python3 -c '
 import os, sys
 
@@ -55,8 +55,14 @@ WANTED = ("## Context", "## Decisions")
 def sections(text):
     """Return {heading: body} for the level-2 headings we care about."""
     out, current, buf = {}, None, []
+    in_fence = False
     for line in text.splitlines():
-        if line.startswith("## "):
+        # A "## " inside a fenced block is code, not a heading. Without this an
+        # extract quoting markdown ends its own section early and drags the
+        # following section in behind it.
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+        if not in_fence and line.startswith("## "):
             if current:
                 out[current] = "\n".join(buf).strip()
             current, buf = line.strip(), []
@@ -87,20 +93,33 @@ for name in names:
     joined = "\n\n".join(body).strip()
     if not joined:
         continue
-    if len(joined) > cap:
-        joined = joined[:cap].rstrip() + "\n... (truncated - read the file for the rest)"
+    # Cap on encoded bytes, not characters: len() on a str counts code points, so
+    # multibyte content would overrun the declared budget several times over.
+    encoded = joined.encode("utf-8")
+    if len(encoded) > cap:
+        joined = encoded[:cap].decode("utf-8", "ignore").rstrip()
+        joined += "\n... (truncated - read the file for the rest)"
 
     blocks.append("### " + title.lstrip("# ").strip() + "\nSource: " + path + "\n\n" + joined)
 
 if not blocks:
     sys.exit(0)
 
+# The count leads, because files that were unreadable or carried none of the
+# wanted sections are skipped above - counting selected filenames instead would
+# let the injected prose overstate what it actually contains.
+print(len(blocks))
 print("\n\n---\n\n".join(blocks))
 ' 2>/dev/null)
 
-[ -z "$DIGEST" ] && exit 0
+[ -z "$RAW" ] && exit 0
 
-COUNT=$(printf '%s\n' "$FILES" | grep -c .)
+# The stage that skipped files is the one that knows how many blocks survived.
+COUNT=$(printf '%s' "$RAW" | head -n 1)
+DIGEST=$(printf '%s' "$RAW" | tail -n +2)
+case "$COUNT" in ''|*[!0-9]*) exit 0 ;; esac
+[ "$COUNT" -gt 0 ] 2>/dev/null || exit 0
+[ -z "$DIGEST" ] && exit 0
 
 CONTEXT="Context was just compacted. Below are the Context and Decisions sections of the ${COUNT} most recent session extracts, newest first.
 
