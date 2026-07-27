@@ -939,9 +939,17 @@ async function generate() {
     }
   }
 
-  const retired = JSON.parse(await fs.readFile(path.join(rootDir, 'preseed/retired-keys.json'), 'utf8'));
-  if (!Array.isArray(retired.keys)) {
-    throw new Error('preseed/retired-keys.json: expected a "keys" array');
+  const retiredPath = path.join(rootDir, 'preseed/retired-keys.json');
+  let retired;
+  try {
+    retired = JSON.parse(await fs.readFile(retiredPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`preseed/retired-keys.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // Every entry reaches both the preseed hash and the generated module, so a
+  // non-string here ships a key nothing can ever match.
+  if (!Array.isArray(retired.keys) || !retired.keys.every((key) => typeof key === 'string')) {
+    throw new Error('preseed/retired-keys.json: expected "keys" to be an array of strings');
   }
   const liveKeys = new Set(documents.map((doc) => doc.key));
   const resurrected = retired.keys.filter((key) => liveKeys.has(key));

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
-import { RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
+import { AGENTS_SEEDED_CONFIGS, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';

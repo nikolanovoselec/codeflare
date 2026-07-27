@@ -550,7 +550,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Listing is confined to the two-segment prefixes the seed writes, keeping both the getting-started documents and the large runtime trees outside the sweep's reach. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (lists only inside the seed two-segment prefixes) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never HEADs a key under a runtime tree outside those prefixes) -->
 5. A prefix that cannot be listed, or a candidate set past the fan-out cap, produces a warning and no deletion. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (warns and deletes nothing when a prefix cannot be listed) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep and warns when the candidate set is implausibly large) -->
 6. Keys shipped before the marker existed are enumerated once in the generated seed, recovered by walking the seed module's history, and deleted by name in every cleanup. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (sweeps the pre-marker list even when no key is out of mode) -->
-7. A key the current build still seeds is never deleted by either path, and the generator refuses to emit a pre-marker list naming one. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (never lists a key the current build still seeds) -->
+7. A key the current build still seeds is never deleted, by the by-name path or by the sweep. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (never lists a key the current build still seeds) -->
 
 **Constraints:**
 
@@ -558,6 +558,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - The pre-marker list is frozen; keys retired after the marker shipped are identified by the marker they carry, never by being appended here.
 - Deletion always requires positive evidence — a marker or membership of the frozen list — and anything unproven is kept.
 - The preseed content hash covers the pre-marker list, so shipping the list triggers the upgrade that applies it.
+- The generator refuses to emit a pre-marker list naming a key the current build still seeds.
+- Paths the agent runtime writes and owns are excluded from the sweep before the candidate cap is counted, so accumulated runtime state cannot disable retirement.
 
 **Priority:** P1
 

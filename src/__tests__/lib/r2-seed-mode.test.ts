@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env } from '../../types';
 
 const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(() => {
@@ -270,6 +270,11 @@ const listedPrefixes = (): string[] =>
     .filter((call) => ((call[1] as { method?: string })?.method ?? 'GET') === 'GET')
     .map((call) => new URL(String(call[0])).searchParams.get('prefix') ?? '');
 
+const headRequests = (): string[] =>
+  mockFetch.mock.calls
+    .filter((call) => (call[1] as { method?: string })?.method === 'HEAD')
+    .map((call) => String(call[0]).replace(`${endpoint}/${bucket}/`, ''));
+
 const deleteRequests = (): string[] =>
   mockFetch.mock.calls
     .filter((call) => (call[1] as { method?: string })?.method === 'DELETE')
@@ -278,10 +283,6 @@ const deleteRequests = (): string[] =>
 describe('deleteNonModeConfigs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    testState.retiredKeys = ['.claude/rules/karpathy.md'];
-  });
-
-  afterEach(() => {
     testState.retiredKeys = ['.claude/rules/karpathy.md'];
   });
 
@@ -411,12 +412,29 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
   it('never HEADs a key under a runtime tree outside those prefixes', async () => {
     // A session transcript is not reachable by the sweep at all: it is not under
     // any listed prefix, so it never becomes a candidate.
-    mockR2({ listed: ['.claude/projects/abc/transcript.jsonl'] });
+    const transcript = '.claude/projects/abc/transcript.jsonl';
+    mockR2({ listed: [transcript], markers: { [transcript]: 'an-older-build' } });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
+    // Marked as ours on purpose: if it were ever listed it would be deleted, so
+    // asserting no HEAD is what proves it is out of listing scope rather than
+    // merely surviving the marker check.
+    expect(headRequests()).not.toContain(transcript);
     expect(result.deleted).toEqual([]);
     expect(deleteRequests()).toEqual([]);
+  });
+
+  it('never probes the runtime-managed plugin cache', async () => {
+    // Excluded before the candidate count, so a large cache cannot trip the cap
+    // and silently disable the sweep on the buckets that accumulated the most.
+    const cached = '.claude/plugins/cache/some-plugin/1.0.0/plugin.json';
+    mockR2({ listed: [cached], markers: { [cached]: 'an-older-build' } });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(headRequests()).not.toContain(cached);
+    expect(result.deleted).toEqual([]);
   });
 
   it('keeps an object carrying the current build marker', async () => {
@@ -432,6 +450,77 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     expect(deleteRequests()).toEqual([]);
   });
 
+  it('follows the continuation token across pages', async () => {
+    // Page one is truncated; the orphan only appears on page two, so a sweep
+    // that stopped at the first page would silently never see it.
+    const orphan = '.claude/skills/page-two/SKILL.md';
+    let page = 0;
+    mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
+        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        page += 1;
+        return Promise.resolve(
+          new Response(
+            page === 1
+              ? `<?xml version="1.0"?><ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>tok</NextContinuationToken></ListBucketResult>`
+              : listXml(orphan),
+            { status: 200 },
+          ),
+        );
+      }
+      if (method === 'HEAD') {
+        return Promise.resolve(
+          new Response(null, { status: 200, headers: { 'x-amz-meta-codeflare-preseed': 'an-older-build' } }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(page).toBeGreaterThan(1);
+    expect(result.deleted).toContain(orphan);
+  });
+
+  it('deletes nothing from a prefix whose listing failed part-way', async () => {
+    // Page one succeeded and named a marked orphan, page two failed. Acting on
+    // that is deleting on the strength of not having looked, so the whole
+    // prefix is discarded.
+    const partial = '.claude/skills/seen-on-page-one/SKILL.md';
+    let page = 0;
+    mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
+        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        page += 1;
+        if (page === 1) {
+          return Promise.resolve(
+            new Response(
+              `<?xml version="1.0"?><ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>tok</NextContinuationToken><Contents><Key>${partial}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified><ETag>"x"</ETag></Contents></ListBucketResult>`,
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(new Response('denied', { status: 403 }));
+      }
+      if (method === 'HEAD') {
+        return Promise.resolve(
+          new Response(null, { status: 200, headers: { 'x-amz-meta-codeflare-preseed': 'an-older-build' } }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).not.toContain(partial);
+    expect(deleteRequests()).not.toContain(partial);
+    expect(result.warnings.some((w) => w.includes('HTTP 403'))).toBe(true);
+  });
+
   it('skips the sweep and warns when the candidate set is implausibly large', async () => {
     // The caller has already spent a PUT per live key in this request, so an
     // unbounded fan-out is what would hit the subrequest ceiling.
@@ -442,7 +531,7 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
 
     expect(result.deleted).toEqual([]);
     expect(deleteRequests()).toEqual([]);
-    expect(result.warnings.some((w) => w.includes('exceeds'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('stale-marker sweep skipped'))).toBe(true);
   });
 
   it('warns and deletes nothing when a prefix cannot be listed', async () => {

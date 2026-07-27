@@ -2912,3 +2912,27 @@ The same measurement settles what to embed. Inlining beats fetching only when th
 **Related:** [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses), [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane).
 
 ---
+
+### AD118: Seed provenance is carried in R2 custom metadata, verified before it was relied on
+
+**Status:** Accepted (2026-07-27). Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
+
+**Context:** Files a release stopped shipping were never removed from existing buckets, so retired policy kept loading beside whatever replaced it. Cleanup derived its delete list from the generated seed, so a key dropped from the seed also vanished from the delete list; the escape hatch was a hand-maintained enumeration carrying three entries against a real backlog of 165.
+
+Removing them by name alone is not safe, because a key is a filename and not proof of ownership — a user may have their own file at a retired path. The distinguishing fact has to be recorded when the file is written, not guessed when it is deleted.
+
+**Decision:** Every seed write stamps `x-amz-meta-codeflare-preseed` with the writing build's preseed hash. A reconcile rewrites every live key before cleaning, so an object still carrying an older build's marker is one the product has dropped — which removes the bookkeeping rather than automating it, since the object already records what a list would have had to remember. <!-- @impl: src/lib/r2-seed.ts::seedDocuments -->
+
+**Verification (empirical, 2026-07-27).** The mechanism rests on three claims about systems we do not control, so they were probed against a real R2 bucket before anything was built on them, with a throwaway key deleted afterwards:
+
+- a PUT carrying `x-amz-meta-*` round-trips: HEAD returned `x-amz-meta-codeflare-preseed` verbatim;
+- a rewrite without the header drops it — S3 replaces object metadata wholesale, so an edit through the file browser or by rclone (which does not send custom metadata unless asked) silently transfers ownership to the user at no cost;
+- **a listing does not expose custom metadata.** The key appeared in `ListObjectsV2`; the marker did not.
+
+The third result is why the sweep is shaped as it is: the marker can only be read with a HEAD, so candidates are narrowed to keys the current build did not just write, listing is issued per two-segment prefix rather than per runtime root, runtime-owned paths are excluded before counting, and a candidate count past the cap skips the sweep rather than spending the requests. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs -->
+
+**Consequences:** Deletion always requires positive evidence, so the failure direction is a leak and never lost user data. Files already in buckets predate the marker and carry none, so they are enumerated once from the seed module's history and deleted by name in a single clean-slate pass; that list is frozen, and nothing is appended to it. Two guards were rejected on evidence: an age cutoff, because rclone rewrites object timestamps on sync and would have made the backlog immortal, and a content-hash match, because the clean slate is one-time and the marker takes over after it.
+
+**Related:** [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) supplies the upgrade that runs it.
+
+---

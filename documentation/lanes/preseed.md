@@ -132,7 +132,9 @@ retirements need no bookkeeping. An S3 PUT replaces metadata wholesale and
 rclone does not send custom metadata, so editing a seeded file through the
 browser or inside the container drops the marker and the file becomes the
 user's own. Deletion always requires positive evidence: a marker, or
-membership of the frozen list.
+membership of the frozen list. All three behaviours were probed against a
+real R2 bucket before the mechanism was built on them; see
+[AD118](../decisions/README.md#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on).
 
 Listing is issued per two-segment prefix (`.claude/skills/`, `.pi/agent/`
 and twelve others) rather than per runtime root. That keeps the

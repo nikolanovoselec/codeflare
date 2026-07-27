@@ -15,7 +15,9 @@ const sleep = (ms: number): Promise<void> =>
  * the only thing that distinguishes a file codeflare seeded from one the user
  * created: an S3 PUT replaces metadata wholesale, and rclone does not copy custom
  * metadata, so any edit through the file browser or inside the container drops
- * the marker and the file silently becomes the user's own.
+ * the marker and the file silently becomes the user's own. Those semantics were
+ * probed against a real bucket rather than assumed -- see AD118 in
+ * documentation/decisions/README.md.
  *
  * The value is the build that wrote it. Cleanup uses it to find objects this
  * build did NOT write: a reconcile overwrites every key the current build owns
@@ -29,6 +31,21 @@ const markerHeaders = (): Record<string, string> => ({ [PRESEED_MARKER_HEADER]: 
 /** Ceiling and fan-out width for the stale-marker sweep; see deleteStaleMarkedConfigs. */
 const MAX_STALE_MARKER_CANDIDATES = 200;
 const STALE_MARKER_BATCH = 25;
+
+/**
+ * Paths under a seeded prefix that the agent runtime writes and owns.
+ *
+ * They can never be a retirement: nothing here was ever in the seed, so no
+ * object carries our marker and the sweep would keep every one of them anyway.
+ * Excluding them before the count is what stops a large plugin cache from
+ * tripping the candidate cap and disabling the sweep on exactly the buckets
+ * that have accumulated the most. The same two paths were reviewed out of the
+ * frozen pre-marker list for the same reason.
+ */
+const RUNTIME_MANAGED_KEYS = ['.claude/plugins/cache/', '.claude/plugins/installed_plugins.json'];
+
+const isRuntimeManagedKey = (key: string): boolean =>
+  RUNTIME_MANAGED_KEYS.some((path) => (path.endsWith('/') ? key.startsWith(path) : key === path));
 
 /**
  * CF-013: the only env bindings the seed helpers touch are the R2 credentials
@@ -289,36 +306,46 @@ async function deleteStaleMarkedConfigs(
 
   const candidates: string[] = [];
   for (const prefix of prefixes) {
+    // Collected per prefix and merged only when the prefix listed completely. A
+    // failure on page two leaves a partial view, and deleting from a partial
+    // view is deleting on the strength of not having looked.
+    const found: string[] = [];
     let continuationToken: string | undefined;
+    let complete = false;
     do {
       const params = new URLSearchParams({ 'list-type': '2', prefix });
       if (continuationToken) params.set('continuation-token', continuationToken);
       const res = await r2Client.fetch(`${getR2Url(endpoint, bucketName)}?${params}`);
       if (!res.ok) {
-        // A prefix we could not list is a prefix we do not clean; never a delete.
+        // A prefix we could not list completely is a prefix we do not clean.
         warnings.push(`LIST ${prefix}: HTTP ${res.status}`);
         break;
       }
       const parsed = parseListObjectsXml(await res.text());
       for (const object of parsed.objects) {
-        if (!seededKeys.has(object.key)) candidates.push(object.key);
+        if (seededKeys.has(object.key)) continue;
+        if (isRuntimeManagedKey(object.key)) continue;
+        found.push(object.key);
       }
       continuationToken = parsed.isTruncated ? parsed.nextContinuationToken : undefined;
+      complete = continuationToken === undefined;
+
+      // Checked while paging, not after. The caller has already spent one PUT
+      // per live key in this same request, so continuing to page a large tree
+      // would exhaust the subrequest budget before the guard could refuse to
+      // spend it.
+      if (candidates.length + found.length > MAX_STALE_MARKER_CANDIDATES) {
+        warnings.push(
+          `stale-marker sweep skipped: more than ${MAX_STALE_MARKER_CANDIDATES} candidates under ${prefix}`
+        );
+        return { deleted, warnings };
+      }
     } while (continuationToken);
+
+    if (complete) candidates.push(...found);
   }
 
   if (candidates.length === 0) return { deleted, warnings };
-
-  // The caller has already spent one PUT per live key in this same request, so
-  // an unbounded fan-out here is what would hit the subrequest ceiling. A
-  // candidate list this long means the narrowing above stopped matching
-  // reality; say so rather than issuing the requests.
-  if (candidates.length > MAX_STALE_MARKER_CANDIDATES) {
-    warnings.push(
-      `stale-marker sweep skipped: ${candidates.length} candidates exceeds the ${MAX_STALE_MARKER_CANDIDATES} cap`
-    );
-    return { deleted, warnings };
-  }
 
   for (let i = 0; i < candidates.length; i += STALE_MARKER_BATCH) {
     const results = await Promise.allSettled(
