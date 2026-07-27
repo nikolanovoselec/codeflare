@@ -146,10 +146,17 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const imageCommands = imageSteps.flatMap((step) => step.run ?? []).join('\n');
     expect(imageCommands).toContain('docker build --tag "$IMAGE" .');
     expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
-    expect(imageSteps.flatMap((step) => step.uses ?? [])).toEqual([
-      'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0',
-      'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+    // Identity and pinning shape, not the digest itself: what AC7 protects is
+    // which actions this job may run -- adding a login or push action has to
+    // fail here -- and that each is pinned to an immutable digest rather than a
+    // floating tag. Asserting the digest value instead made every routine bump
+    // of either action fail for a reason the AC does not care about.
+    const imageUses = imageSteps.flatMap((step) => step.uses ?? []);
+    expect(imageUses.map((use) => use.split('@')[0])).toEqual([
+      'actions/checkout',
+      'actions/upload-artifact',
     ]);
+    expect(imageUses.every((use) => /@[0-9a-f]{40}$/.test(use))).toBe(true);
     expect(imageCommands).not.toMatch(
       /\b(?:docker|podman)\s+(?:(?:image|manifest)\s+)?(?:login|push)\b|\bdocker\s+(?:buildx\s+build|build)\b[^;&]*--push\b|\b(?:npm\s+publish|oras\s+push|skopeo\s+copy)\b/i,
     );
