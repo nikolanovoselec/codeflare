@@ -40,9 +40,12 @@ export function captureInstant(name: string): number | null {
 /**
  * Newest capture first. Names carrying no parseable instant sort last.
  *
- * The tie-break compares code points rather than collating, so it matches the
- * shell runtime's ordering: two extracts sharing an instant must not land in a
- * different order depending on which runtime - or which locale - read them.
+ * The tie-break compares UTF-16 code units rather than collating, so it matches
+ * the shell runtime's ordering for the timestamped ASCII names this reads: two
+ * extracts sharing an instant must not land in a different order depending on
+ * which runtime - or which locale - read them. Astral names would still order
+ * differently from the shell's true code-point comparison; the extract naming
+ * scheme cannot produce one.
  */
 export function orderByCaptureInstant(names: readonly string[]): string[] {
   return [...names].sort((left, right) => {
@@ -102,15 +105,18 @@ export function sections(text: string): Map<string, string> {
  * budget several times over. A sequence the slice cut in half decodes to the
  * replacement character, which is dropped rather than carried - the source
  * never held it. The marker is spent from the same budget, not added on top of
- * it, so a capped block never exceeds the bound it advertises.
+ * it, so a capped block never exceeds the bound it advertises. A cap too small
+ * to hold the marker drops the marker rather than the content: the bound is the
+ * guarantee, the notice is not.
  */
 export function capBytes(text: string, cap: number): string {
   const encoded = Buffer.from(text, "utf-8");
   if (encoded.length <= cap) return text;
-  const budget = Math.max(0, cap - Buffer.byteLength(RECALL_TRUNCATION_MARKER, "utf-8") - 1);
-  const decoded = new TextDecoder("utf-8").decode(encoded.subarray(0, budget));
+  const markerBytes = Buffer.byteLength(RECALL_TRUNCATION_MARKER, "utf-8") + 1;
+  const marked = cap > markerBytes;
+  const decoded = new TextDecoder("utf-8").decode(encoded.subarray(0, marked ? cap - markerBytes : cap));
   const kept = decoded.endsWith(REPLACEMENT_CHARACTER) ? decoded.slice(0, -1) : decoded;
-  return `${kept.trimEnd()}\n${RECALL_TRUNCATION_MARKER}`;
+  return marked ? `${kept.trimEnd()}\n${RECALL_TRUNCATION_MARKER}` : kept;
 }
 
 /**

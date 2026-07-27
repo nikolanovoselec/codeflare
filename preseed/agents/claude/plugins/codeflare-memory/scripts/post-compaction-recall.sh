@@ -144,12 +144,17 @@ for name in names:
     # Cap on encoded bytes, not characters: len() on a str counts code points, so
     # multibyte content would overrun the declared budget several times over.
     # The marker is spent from the same budget rather than added on top of it, so
-    # a capped block never exceeds the bound it advertises.
+    # a capped block never exceeds the bound it advertises. A cap too small to
+    # hold the marker drops the marker rather than the content: the bound is the
+    # guarantee, the notice is not.
     encoded = joined.encode("utf-8")
     if len(encoded) > cap:
-        budget = max(0, cap - len(MARKER.encode("utf-8")) - 1)
+        marker_bytes = len(MARKER.encode("utf-8")) + 1
+        marked = cap > marker_bytes
+        budget = cap - marker_bytes if marked else cap
         joined = encoded[:budget].decode("utf-8", "ignore").rstrip()
-        joined += "\n" + MARKER
+        if marked:
+            joined += "\n" + MARKER
 
     blocks.append("### " + title.lstrip("# ").strip() + "\nSource: " + path + "\n\n" + joined)
 

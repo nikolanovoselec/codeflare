@@ -67,14 +67,20 @@ fi
 
 # Skip a graph too large to hold in memory. The ceiling is a memory guard, not a
 # latency one: the `timeout 8` below already bounds the parse. Measured on this
-# container, a 42MB unified graph parses in 0.56s at 136MB RSS - well inside both
-# budgets - yet the previous 30MB ceiling silently disabled injection entirely
-# once the graph outgrew it, with no signal that anything had stopped working.
-# Both checks are deterministic per session, so safe before sentinel: a graph
-# skipped here leaves the sentinel unclaimed, so a later prompt can still inject.
-MAX_GRAPH_BYTES="${MEMORY_INJECT_MAX_GRAPH_BYTES:-134217728}"
+# container, a 42MB unified graph parses in 0.56s at 136MB RSS (~3.2x file size)
+# - well inside both budgets - yet the previous 30MB ceiling silently disabled
+# injection entirely once the graph outgrew it, with no signal that anything had
+# stopped working. 100MB is the operator-chosen ceiling: ~320MB resident by that
+# ratio, which the container carries, against a graph that grows with the vault
+# and every indexed repo. A non-numeric override falls back to the default rather
+# than through the comparison, which under `set +e` would exit 2 and carry on - a
+# memory guard that vanishes on a typo while still reading as present. Both
+# checks are deterministic per session, so safe before sentinel: a graph skipped
+# here leaves the sentinel unclaimed, so a later prompt can still inject.
+MAX_GRAPH_BYTES="${MEMORY_INJECT_MAX_GRAPH_BYTES:-104857600}"
+case "$MAX_GRAPH_BYTES" in ''|*[!0-9]*) MAX_GRAPH_BYTES=104857600 ;; esac
 GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || GRAPH_SIZE=0
-[ "$GRAPH_SIZE" -gt "$MAX_GRAPH_BYTES" ] && exit 0
+[ "$GRAPH_SIZE" -gt "$MAX_GRAPH_BYTES" ] 2>/dev/null && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "

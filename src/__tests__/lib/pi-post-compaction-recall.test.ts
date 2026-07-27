@@ -92,6 +92,17 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(orderByCaptureInstant([earlier, later])).toEqual([later, earlier]);
   });
 
+  it('AC2: breaks a shared instant on the name, descending', () => {
+    // Same wall clock, same offset: only the tie-break decides, and it must
+    // decide the same way the shell runtime does.
+    const first = '2026-07-01T10-00-00+0200-aaa.md';
+    const second = '2026-07-01T10-00-00+0200-bbb.md';
+
+    expect(captureInstant(first)).toBe(captureInstant(second));
+    expect(orderByCaptureInstant([first, second])).toEqual([second, first]);
+    expect(orderByCaptureInstant([second, first])).toEqual([second, first]);
+  });
+
   it('AC2: sorts names carrying no parseable instant last', () => {
     const dated = '2026-07-01T10-00-00+0200-a.md';
 
@@ -142,6 +153,15 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     // The marker is part of the bound, not an addition to it: appending it
     // after a full-budget slice would put every capped block over its cap.
     expect(Buffer.byteLength(capped, 'utf-8')).toBeLessThanOrEqual(500);
+  });
+
+  it('AC4: holds the bound even when the cap cannot fit the marker', () => {
+    // perFileBytes is caller-supplied, so a cap below the marker length is
+    // reachable. The bound is the guarantee; the notice is what gives way.
+    const tiny = capBytes('x'.repeat(600), 10);
+
+    expect(Buffer.byteLength(tiny, 'utf-8')).toBeLessThanOrEqual(10);
+    expect(tiny).not.toBe('');
   });
 
   it('AC1: builds the digest newest-first, bounded by the extract count', () => {
@@ -200,6 +220,27 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     fire('session_compact', { sessionManager: { getHeader: () => ({ parentSession: 'parent-1' }) } });
 
     expect(sent).toHaveLength(0);
+  });
+
+  it('swallows a delivery failure instead of throwing into the compaction dispatch', () => {
+    const dir = extractsDir({ '2026-07-03T10-00-00+0200-a.md': extract('a session') });
+    const handlers = new Map<string, (event: any, ctx: any) => void>();
+    let attempted = 0;
+    const pi: PostCompactionRecallPi = {
+      on(event, handler) {
+        handlers.set(event, handler as (event: any, ctx: any) => void);
+      },
+      sendMessage() {
+        attempted += 1;
+        throw new Error('delivery refused');
+      },
+    };
+    registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 5, perFileBytes: 2600 });
+
+    // This runs inside Pi's dispatch at the compaction boundary; a throw here
+    // would surface in the session for a feature that is a convenience.
+    expect(() => handlers.get('session_compact')!({ type: 'session_compact' }, {})).not.toThrow();
+    expect(attempted).toBe(1);
   });
 
   it('sends nothing when no extract survives', () => {
