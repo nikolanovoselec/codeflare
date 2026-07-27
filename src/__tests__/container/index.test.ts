@@ -719,6 +719,40 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
     });
 
+    // REQ-TERM-022 / REQ-SESSION-020: the ordering is the contract, not the write.
+    // onStop() runs AFTER the clear below and its updateKvStatus reads
+    // host._bucketName, which the clear has nulled - so it hits the
+    // missing-identifiers guard and records nothing, leaving a torn-down session
+    // as 'running'. The terminal upgrade's authoritative 4503 gate reads exactly
+    // that field, so 'running' is what sends reconnects to the forward path
+    // instead of telling the client to stop. Recording the stop before the clear
+    // is what survives a teardown that is killed partway, which is the case that
+    // produced a 20-minute reconnect storm in prod.
+    it('records the session stopped BEFORE clearing the identifiers that write needs', async () => {
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({ id: 'sess123', status: 'running', name: 'Test' });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await instance.destroy();
+
+      expect(mockKvPut).toHaveBeenCalled();
+      const written = mockKvPut.mock.calls[0][1];
+      const record = typeof written === 'string' ? JSON.parse(written) : written;
+      expect(record.status).toBe('stopped');
+
+      // Ordering: if the write moved after the clear it would silently no-op, and
+      // an assertion on the value alone would still pass.
+      expect(mockKvPut.mock.invocationCallOrder[0])
+        .toBeLessThan(mockStorage.delete.mock.invocationCallOrder[0]);
+    });
+
     // REQ-SESSION-018 AC4: destroy() persists the deliberate-stop marker (and
     // drops the metrics alarm) BEFORE clearing identifiers, so a DO eviction
     // mid-shutdown cannot let a surviving collectMetrics alarm self-heal a

@@ -172,6 +172,23 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // persisted marker, so the surviving collectMetrics alarm cannot self-heal a
   // session the user is deliberately stopping back to running (REQ-SESSION-018
   // AC4). onStart() clears the marker on the next fresh start.
+  // Record the stop while the identifiers that write still needs are in hand.
+  // onStop() cannot: the clear below nulls _bucketName, so its updateKvStatus
+  // hits the missing-identifiers guard and writes nothing, leaving a torn-down
+  // session recorded as running. That is not cosmetic -- the terminal upgrade's
+  // authoritative 4503 gate reads exactly this field, so the record staying
+  // 'running' is what drops reconnects onto the forward path instead of telling
+  // the client to stop. Observed in prod 2026-07-27: a teardown that overran its
+  // budget and was SIGKILLed left the session 'running' and the tab retried it
+  // about once a second for 20+ minutes.
+  //
+  // Safe on both callers: the delete route deletes the record after destroy()
+  // returns, so this write is superseded rather than resurrecting anything
+  // (REQ-SESSION-009), and the stop route already wrote the same value before
+  // calling in. Best-effort, like every other step of teardown.
+  try {
+    await updateKvStatus(host.ctx, host.env, host._bucketName, 'stopped', 'lastActiveAt');
+  } catch { /* teardown proceeds regardless */ }
   try { await host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now()); } catch { /* storage racing teardown */ }
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   try {

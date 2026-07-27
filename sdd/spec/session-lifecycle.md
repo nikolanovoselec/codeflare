@@ -587,6 +587,7 @@ None.
 
 1. Every request the metrics alarm awaits on an external party is bounded, so a peer that accepts the connection and never answers ends that request rather than the tick. <!-- @impl: src/container/container-metrics.ts::pollContainer --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (re-arms the alarm when an in-container poll never answers) -->
 2. A poll that does not answer leaves the alarm armed, so idle detection and health reporting continue on the next tick. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (re-arms the alarm when an in-container poll never answers) -->
+3. Teardown records the session stopped while the identifiers that write requires are still in hand, so a teardown that does not run to completion still leaves the session recorded as stopped rather than running. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (records the session stopped BEFORE clearing the identifiers that write needs) -->
 
 **Constraints:** The bound applies to the poll, not to the tick: the exits that deliberately stop the loop (a confirmed exit, an idle stop, a zombie DO, a stop already issued) must keep ending it.
 
