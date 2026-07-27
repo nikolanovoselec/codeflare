@@ -36,9 +36,10 @@ The enterprise-only binding procedure, Gateway policy preparation, verification 
 
 **Prerequisites:** Run from the repository root with the production `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` exported, then confirm `npx wrangler whoami` names the production account. In the incident record, capture the failed user-flow step and its expected result before rollback.
 
-**Command:** List successful production workflow runs and Worker deployments. Choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, then pass its exact ID to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/):
+**Command:** Record the version currently serving traffic first — it is both the version the incident is about and the baseline the post-rollback check compares against. Then list successful production workflow runs and Worker deployments, choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, and pass it to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/). The Worker is named `codeflare` (`wrangler.toml`), and `rollback` takes the **version** ID that `versions view` confirms, not a deployment ID:
 
 ```sh
+npx wrangler deployments status
 gh run list --workflow deploy.yml --branch main --status success --limit 10
 npx wrangler deployments list
 npx wrangler versions view <CANDIDATE_VERSION_ID>

@@ -101,7 +101,7 @@ Stale `setup:auth_domain` (JWT mismatch), stale `setup:access_aud`, or email cas
 
 ### HTTP 500 After Login
 
-Start with the response request ID and correlate it with Worker authentication logs. Then verify the active OAuth callback configuration and the deployed `OAUTH_JWT_SECRET` before retrying; these checks distinguish request handling failures, provider mismatch, and invalid session issuance without rotating credentials blindly.
+Take the `X-Request-ID` value off the 500 response and match it to the `requestId` field on the `Unexpected error` line in `wrangler tail codeflare --status error`. <!-- @impl: src/index.ts::requestId --> Then check the callback the deployment actually redirects to (the `redirect_uri` test under [Onboarding GitHub Sign-in Bounces to the Landing](#onboarding-github-sign-in-bounces-to-the-landing--app-shows-authentication-required)), and confirm `OAUTH_JWT_SECRET` is listed by `wrangler secret list`. The three checks separate a request-handling failure, a provider mismatch, and invalid session issuance without rotating credentials blindly.
 
 ### "Unable to find your Access application!"
 
@@ -115,7 +115,7 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 **App-owned session not trusted in onboarding (code).** The onboarding GitHub callback issues a `codeflare_session` cookie. The access layer (`getUserFromRequest` / `validateSessionOidc`), the session-refresh in `src/index.ts`, and the `requireActiveUser` tier gate honour that cookie only in an *app-owned OIDC mode* (`isSessionOidcMode` = `SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active; [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) AC4).
 
-If a deployment somehow runs the callback without onboarding/SaaS being active at the access layer, `/app` rejects the session and the SPA bounces to the landing.
+If a deployment somehow runs the callback without onboarding/SaaS being active at the access layer, `/app` rejects the session and the SPA bounces to the landing. <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
 
 **GitHub OAuth App callback domain mismatch (config).** The OAuth App's authorization callback URL must equal `https://<this-domain>/auth/github/callback`. If it points at a different domain (e.g. a production App's credentials reused on a non-production deployment domain), GitHub bounces sign-in back to the *registered* domain.
 

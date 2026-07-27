@@ -172,7 +172,7 @@ This closes the gap the L7-only interception left open, so the strict-egress bou
 
 ## View-Only Storage (Enterprise Anti-Exfil)
 
-An enterprise admin can flip a Setup-wizard toggle (`setup:downloads_disabled`, default OFF) that makes the R2 Storage Panel view-only: `GET /api/storage/download` then **rejects downloads (attachment) with 403** and allows only **inline view of viewable types** — text/Markdown/HTML-as-text/images/PDF, via the `isInlineViewable` deny-by-default allowlist in `src/routes/storage/download.ts`. A non-viewable blob (zip/tar/binary/unknown) is 403 even with `?disposition=inline`, so its bytes cannot leak through the `text/plain` fallback. This blocks bulk exfiltration (e.g. an agent or user zipping a repo and downloading it).
+An enterprise admin can flip a Setup-wizard toggle (`setup:downloads_disabled`, default OFF) that makes the R2 Storage Panel view-only: the download route then refuses attachment downloads and allows only **inline view of viewable types** — text/Markdown/HTML-as-text/images/PDF, via the `isInlineViewable` deny-by-default allowlist in `src/routes/storage/download.ts`. A non-viewable blob (zip/tar/binary/unknown) is refused even with `?disposition=inline`, so its bytes cannot leak through the `text/plain` fallback. This blocks bulk exfiltration (e.g. an agent or user zipping a repo and downloading it). Status contract in [api-reference.md](./api-reference.md#storage-r2-file-browser).
 
 Enforcement is **server-side** (`isDownloadsDisabled` in `src/lib/downloads-policy.ts`, resolved before any R2 fetch); the Storage Panel additionally renders its download controls as blocked (disabled-looking but still tappable) and shows a notice that downloads are disabled by the administrator — proactively, and as a server-truth backstop when a download does reach the `403` (the response carries a distinct `DOWNLOADS_DISABLED` code so the client shows the notice instead of a raw failure, even if its cached flag is stale) — but that is UX only and not the control. Upload and delete are unaffected (not exfiltration vectors).
 
@@ -382,7 +382,7 @@ Implementation: `src/lib/kv-crypto.ts`
 
 **AAD (Additional Authenticated Data):** The KV key name (e.g., `llm-keys:codeflare-user-example-com`) is bound to the ciphertext as AAD. This prevents ciphertext from being copied between KV keys - decryption fails if the key name doesn't match.
 
-**Key caching:** The CryptoKey is imported once per Worker isolate lifetime and cached in module-level state. Subsequent requests reuse the cached key without re-importing.
+**Key caching:** The CryptoKey is imported once per Worker isolate lifetime and cached in module-level state, keyed on the `ENCRYPTION_KEY` it was derived from so a rotated key re-imports. Subsequent requests reuse the cached key without re-importing. <!-- @impl: src/lib/kv-crypto.ts::getOrImportKey -->
 
 **API responses** always return masked values (`****` + last 4 chars), never plaintext keys - regardless of whether encryption is enabled.
 
@@ -396,7 +396,7 @@ When `ENCRYPTION_KEY` is enabled on an existing deployment with plaintext KV ent
 4. Fire-and-forget: re-encrypt the plaintext value and write back to KV (`kv.put` runs asynchronously, never blocks the response)
 5. Subsequent reads hit the fast decrypt path (step 2)
 
-The write-back is fire-and-forget - if the KV write fails (transient error, rate limit), the caller still gets the correct data. Migration retries automatically on the next read. No data loss, no downtime.
+The write-back is fire-and-forget - if the KV write fails (transient error, rate limit), the caller still gets the correct data. Migration retries automatically on the next read. No data loss, no downtime. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
 
 **Race condition safety:** Two concurrent requests can both read the same plaintext entry and both write encrypted copies. This is safe because both workers encrypt the same plaintext - whichever write wins is equally valid. Real updates go through `encryptAndStore()` which always encrypts directly.
 
@@ -529,7 +529,7 @@ Surface: [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-bro
 
 ### Session Limits ([REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits))
 
-Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSIONS_USER` (default: 3) and `MAX_SESSIONS_ADMIN` (default: 10) in `wrangler.toml`.
+Per-user cap on concurrent running sessions, configurable by role. The two variables and their defaults are in [configuration.md](./configuration.md#worker-environment).
 
 **Frontend-first enforcement:** The dashboard disables the start button when `isAtSessionLimit()` returns true (running + initializing sessions >= maxSessions). A popup explains the limit and which sessions to stop.
 
