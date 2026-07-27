@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -125,12 +125,18 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD112](#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) | CI runs as parallel path-filtered lanes and deploys reuse content-addressed container images | Architecture, Operations |
 | [AD113](#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty) | One owned Browser IDE extension uses Pi RPC and a Claude PTY (superseded by AD114) | Architecture, Security |
 | [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) | Native Pi Chat and the official Claude extension own editor integration | Architecture, Security, Supply Chain |
+| [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses) | Claude PR-boundary review lanes run as headless `claude -p` subprocesses | Architecture, Cost |
+| [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane) | Review-lane Phase 0 is computed deterministically and handed to the lane | Architecture, Cost |
+| [AD117](#ad117-review-lane-cost-is-governed-by-turn-count-so-evidence-gathering-is-structured-in-waves) | Review-lane cost is governed by turn count, so evidence gathering is structured in waves | Architecture, Cost |
+| [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Seed provenance is carried in R2 custom metadata, verified before it was relied on | Storage, Agents |
 
 ---
 
 ## Decisions
 
 ### AD1: One container per session
+
+**Category:** Architecture
 
 **Decision:** CPU isolation -- each tab gets full 1 vCPU instead of sharing.
 
@@ -140,6 +146,8 @@ Alternative was one container per user with multiplexed PTYs. Per-session contai
 
 ### AD2: Container ID format
 
+**Category:** Architecture
+
 **Decision:** `{bucketName}-{sessionId}`
 
 Example: `codeflare-user-example-com-abc12345`. Deterministic from user email + session ID. Enables DO lookup without KV round-trip. `getContainerId()` must NEVER fallback on invalid sessionId -- that was root cause of orphaned containers.
@@ -147,6 +155,8 @@ Example: `codeflare-user-example-com-abc12345`. Deterministic from user email + 
 ---
 
 ### AD3: Per-user R2 buckets
+
+**Category:** Architecture
 
 **Decision:** Bucket name derived from email, auto-created on first login.
 
@@ -167,6 +177,8 @@ Local disk for all file operations (fast I/O). Bisync daemon runs in background,
 
 ### AD5: Login shell autostart
 
+**Category:** Architecture
+
 **Decision:** `.bashrc` auto-starts the configured agent in workspace.
 
 PTY spawns `bash -l` (login shell). `.bashrc` reads `TAB_CONFIG` env var and launches the configured agent. `MANUAL_TAB=1` env var skips autostart for user-created tabs.
@@ -174,6 +186,8 @@ PTY spawns `bash -l` (login shell). `.bashrc` reads `TAB_CONFIG` env var and lau
 ---
 
 ### AD6: KV read-modify-write races and `collectMetrics` atomicity
+
+**Category:** Architecture
 
 **Decision:** Last-writer-wins is acceptable for KV state; `collectMetrics` keeps activity, health, and KV updates inside a single `alarm()` callback for natural atomicity.
 
@@ -189,11 +203,15 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 ### AD7: Merged into AD10
 
+**Category:** Security
+
 **Status:** Merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) on 2026-05-03. Pre-setup public-endpoint risk acceptance is now consolidated under the bootstrap-window ADR alongside the related CSRF trade-off. Inbound `AD7` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD8: Root container, no internal auth
+
+**Category:** Architecture
 
 **Decision:** Network isolation via DO proxy is sufficient.
 
@@ -203,11 +221,15 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 ### AD9: RESSOURCE_TIER spelling
 
+**Category:** (redirect)
+
 **Status:** Reclassified on 2026-05-09. Naming/spelling preserved for backward compatibility is not an architectural decision; documentation lives at [configuration.md "Container Specs"](../lanes/configuration.md#container-specs) with a do-not-rename note. Inbound `AD9` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD10: Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation
+
+**Category:** Security
 
 **Decision:** A narrow pre-setup window (seconds to minutes) is the unavoidable shape of a self-hosted bootstrap; auth and CSRF protections are intentionally relaxed during it, mitigated by short exposure, rate limiting, and the `setup:complete` KV flag.
 
@@ -227,6 +249,8 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 ### AD11: Suffix-pattern CORS with credentials
 
+**Category:** Security
+
 **Decision:** `matchesPattern()` with domain-boundary enforcement.
 
 Default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, with `Access-Control-Allow-Credentials: true` on matching responses.
@@ -241,6 +265,8 @@ Default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, with `Acc
 
 ### AD12: KV-based setup lock (non-atomic)
 
+**Category:** Security
+
 **Decision:** Read-then-write pattern, acceptable for one-time setup.
 
 Read `setup:complete`, check if false, perform setup, write true. Not atomic -- two simultaneous requests could both proceed.
@@ -252,6 +278,8 @@ Read `setup:complete`, check if false, perform setup, write true. Not atomic -- 
 ---
 
 ### AD13: Per-user scoped R2 tokens
+
+**Category:** Security
 
 **Decision:** Each container gets an R2 token scoped to its user's bucket only.
 
@@ -269,6 +297,8 @@ Replaces previous shared credential model. Token lifecycle:
 
 ### AD14: Never auto-`--resync` on bisync failure
 
+**Category:** Storage
+
 **Decision:** `--resilient` + `--recover` for self-healing instead.
 
 `--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses pending deletions -- if side A deleted a file and bisync fails before propagating, `--resync` resurrects it from side B.
@@ -281,6 +311,8 @@ Replaces previous shared credential model. Token lifecycle:
 
 ### AD15: TabConfigSchema allows arbitrary command strings
 
+**Category:** UI/Frontend
+
 **Decision:** `z.string().max(200)` -- no additional security risk.
 
 Users already have full root shell access inside their own ephemeral container. Restricting tab commands provides no additional security benefit since the container is their sandbox.
@@ -288,6 +320,8 @@ Users already have full root shell access inside their own ephemeral container. 
 ---
 
 ### AD16: entrypoint.sh ~1090 lines complexity
+
+**Category:** Architecture
 
 **Decision:** Battle-tested, rewrite risk > benefit.
 
@@ -297,11 +331,15 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 ### AD17: Merged into AD6
 
+**Category:** Architecture
+
 **Status:** Merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) on 2026-05-03. The `collectMetrics` `alarm()`-context atomicity rationale is now part of the consolidated KV-races ADR. Inbound `AD17` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD18: Vendored creative/WebGL code uses untyped patterns
+
+**Category:** UI/Frontend
 
 **Decision:** Both isolated WebGL utilities and adapted creative-coding modules use `any` types where upstream TS definitions don't exist; refactoring offers no runtime benefit and risks regressing battle-tested visual code.
 
@@ -317,11 +355,15 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 ### AD19: Merged into AD18
 
+**Category:** UI/Frontend
+
 **Status:** Merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) on 2026-05-03. The `splash-cursor-logic.ts` `as any` rationale is now part of the consolidated vendored-creative-code ADR. Inbound `AD19` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD20: TOCTOU in container/lifecycle.ts
+
+**Category:** Architecture
 
 **Decision:** Durable Objects are single-threaded per ID -- false positive.
 
@@ -331,6 +373,8 @@ Static analysis flags time-of-check-time-of-use patterns between KV reads and su
 
 ### AD21: Inconsistent function signatures
 
+**Category:** Architecture
+
 **Decision:** Old helpers use positional args, new ones use options objects.
 
 Legacy helper functions accept positional parameters while newer ones use destructured options objects. Normalizing all signatures risks caller regressions across the codebase. The inconsistency is cosmetic -- both styles are well-typed and documented.
@@ -338,6 +382,8 @@ Legacy helper functions accept positional parameters while newer ones use destru
 ---
 
 ### AD22: JWKS 30s cache staleness
+
+**Category:** Security
 
 **Decision:** Industry-standard tradeoff for key rotation.
 
@@ -347,11 +393,15 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD23: CORS origin pattern validation
 
+**Category:** (redirect)
+
 **Status:** Reclassified on 2026-05-09. Static-analyzer false positive accepted with admin-trust rationale; documented inline at `src/lib/cors-cache.ts` (the `isAllowedOrigin` docstring) and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD23` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD24: Predictable session IDs
+
+**Category:** (redirect)
 
 **Status:** Reclassified on 2026-05-09. Static-analyzer false positive (analyzer treats session IDs as auth tokens, but they are KV namespace keys; JWT is the auth gate); documented inline at `src/lib/constants.ts:6` and summarized in [security.md "Session ID Validation"](../lanes/security.md#session-id-validation). Inbound `AD24` references in the codebase remain valid; this entry preserves the anchor.
 
@@ -359,11 +409,15 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD25: E2E service email hardcoded
 
+**Category:** (redirect)
+
 **Status:** Reclassified on 2026-05-09. Static-analyzer false positive (test fixture flagged as hardcoded credential); documented inline at `src/lib/access.ts:166` and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD25` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD26: Stress test rate-limit bypass (integration-only)
+
+**Category:** Security
 
 **Decision:** `STRESS_TEST_MODE=active` skips all rate limiting; the variable is scoped to the GitHub Actions `integration` environment only.
 
@@ -375,6 +429,8 @@ k6 stress tests share a single CF Access service token (single identity), so per
 
 ### AD27: Server-side prefix delete
 
+**Category:** Storage
+
 **Decision:** Server-side list+batch delete via R2 S3 API instead of frontend recursive browse+delete.
 
 Frontend folder deletion was subject to API rate limits (30/min browse, 20/min delete), causing failures for large folders. R2 has no native "delete prefix" API, and lifecycle rules (Days=0) take up to 24h. Server-side ListObjectsV2 + batch DeleteObjects (1000 keys/call) using `emptyR2Bucket()` is the fastest approach. No `[[r2_buckets]]` binding needed -- per-user dynamic buckets use account-level S3 credentials directly.
@@ -383,11 +439,15 @@ Frontend folder deletion was subject to API rate limits (30/min browse, 20/min d
 
 ### AD28: Merged into AD26
 
+**Category:** Security
+
 **Status:** Merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) on 2026-05-03. The integration-only environment-scoping rationale is now part of the consolidated `STRESS_TEST_MODE` ADR. Inbound `AD28` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD29: Container secrets as env vars
+
+**Category:** Security
 
 **Decision:** Plaintext env vars acceptable for single-tenant containers.
 
@@ -397,6 +457,8 @@ Container DO injects R2 credentials, LLM API keys, and auth tokens as plaintext 
 
 ### AD30: Worker name from Host header
 
+**Category:** Security
+
 **Decision:** Host header parsing for `.workers.dev` domains during setup only.
 
 Worker name derived from Host header for `.workers.dev` subdomains during first-time setup. Custom domains use `CLOUDFLARE_WORKER_NAME` env var instead. Exposure window: only during setup (minutes), requires CF Access JWT, setup is idempotent. Spoofed Host could theoretically direct to wrong worker name but requires authenticated access and extremely narrow window.
@@ -405,11 +467,15 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 ### AD31: Root container is intentional
 
+**Category:** (redirect)
+
 **Status:** Reclassified on 2026-05-09. Static-analyzer false positive (missing `USER` directive flagged as privilege issue) accepted with network-isolation rationale; documented inline in `Dockerfile` (search `SAST-false-positive`) and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD31` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD32: ENCRYPTION_KEY is optional
+
+**Category:** Security
 
 **Decision:** Optional encryption eases onboarding; operators accept plaintext KV storage as trade-off.
 
@@ -419,11 +485,15 @@ When ENCRYPTION_KEY is absent, LLM API keys, GitHub tokens, and Cloudflare API t
 
 ### AD33: Merged into AD10
 
+**Category:** Security
+
 **Status:** Merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) on 2026-05-03. Pre-setup CSRF risk acceptance is now consolidated under the bootstrap-window ADR. Inbound `AD33` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD34: WebSocket auth bypass of Hono middleware
+
+**Category:** Security
 
 **Decision:** workerd constraint -- WS upgrades cannot use Hono middleware; parallel auth path is manually synchronized.
 
@@ -433,11 +503,15 @@ WebSocket upgrades must be intercepted before the Hono middleware chain (documen
 
 ### AD35: Merged into AD18
 
+**Category:** UI/Frontend
+
 **Status:** Merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) on 2026-05-03. The old-style-constructor `this: any` rationale is now part of the consolidated vendored-creative-code ADR. Inbound `AD35` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD36: WebSocket Origin check is optional for non-browser clients
+
+**Category:** Security
 
 **Decision:** JWT auth is the security gate, not Origin -- CLI tools need originless connections.
 
@@ -447,6 +521,8 @@ The WebSocket upgrade handler in `terminal.ts` only requires the `Origin` header
 
 ### AD37: KV as billing read cache -- Signal and Sync (CF-015)
 
+**Category:** Billing
+
 **Decision:** Webhooks signal; `syncSubscriptionState()` fetches latest from Stripe API and writes complete snapshot to KV.
 
 Previous design had 6 webhook handlers incrementally patching KV fields, causing race conditions, silent tier update failures, and wrong emails. "Signal and Sync" pattern: Stripe is source of truth, KV is read cache. `lastSyncedAt` timestamp guard prevents stale overwrites. Concurrent webhooks are idempotent (both fetch same latest state). Price metadata on Stripe Price objects carries tier/mode, eliminating reverse lookups. `getEffectiveTier()` provides read-time enforcement with safe defaults. `past_due` grace period keeps paid tier while `billingPeriodEnd` is in the future.
@@ -454,6 +530,8 @@ Previous design had 6 webhook handlers incrementally patching KV fields, causing
 ---
 
 ### AD38: GitHub OIDC replaces CF Access in SaaS mode
+
+**Category:** Billing
 
 **Status:** Superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) (2026-05-09) - oauth_state mechanism replaced
 
@@ -465,6 +543,8 @@ When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentica
 
 ### AD39: Max users capacity cap counts paid slots only
 
+**Category:** Billing
+
 **Decision:** `countPaidSlots()` excludes free/pending/blocked users from the cap.
 
 The `setup:max_users` KV key limits subscribing users. Free tier users (4h/month, 1 session) use minimal resources and shouldn't block paid customers. `countPaidSlots()` counts admins + users with paid tiers (standard/advanced/max/unlimited) whose billing is active or trialing. Canceled users count until `billingPeriodEnd` expires. Unlimited free users allowed without hitting cap.
@@ -472,6 +552,8 @@ The `setup:max_users` KV key limits subscribing users. Free tier users (4h/month
 ---
 
 ### AD40: Webhook route order (`/public/stripe` before `/public`)
+
+**Category:** Billing
 
 **Decision:** Hono catch-all ordering is load-bearing.
 
@@ -481,6 +563,8 @@ Hono's `app.route('/public', publicRoutes)` catches all `/public/*` paths. The S
 
 ### AD41: Custom tier uses contact flow (not self-service checkout)
 
+**Category:** Billing
+
 **Decision:** Enterprise tier -- "Let's talk" button sends admin email via Resend.
 
 The Custom tier (unlimited compute, 5 sessions, custom SLA) is enterprise-grade. Renamed from "Team" to "Custom" -- `getTierConfig()` auto-migrates legacy `displayName: 'Team'` to `'Custom'` on read. `POST /api/auth/contact-team` (rate-limited 1/hour) sends inquiry email. Button changes to "We'll get in touch" (disabled) after click. No Stripe checkout for Custom tier.
@@ -488,6 +572,8 @@ The Custom tier (unlimited compute, 5 sessions, custom SLA) is enterprise-grade.
 ---
 
 ### AD42: Unauthenticated first setBucketName call (CF-010)
+
+**Category:** Security
 
 **Decision:** Worker-only access is the effective security boundary -- DO binding is not externally reachable.
 
@@ -589,11 +675,15 @@ spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read 
 
 ### AD45: User overrides recorded as ADRs, not skip-list
 
+**Category:** (superseded)
+
 **Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The override-via-ADR mechanism was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ. Body removed on trim-to-tombstone; this anchor is retained for inbound references. See [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) for the rip-out rationale.
 
 ---
 
 ### AD46: `/review` Reality Filter as Phase 5
+
+**Category:** Architecture
 
 **Status:** Accepted (2026-05-05)
 
@@ -684,6 +774,8 @@ First run in the new pipeline starts the persistent log fresh; cycle 1 will prod
 
 ### AD47: PTY keepalive as safety net only, not the idle policy
 
+**Category:** Architecture
+
 **Status:** Accepted (2026-05-09)
 
 **Context:** The host process inside each container ran a per-PTY reaper at `PTY_KEEPALIVE_MS = 2700000` (45 min). When a session's WebSocket clients all disconnected (dashboard navigation 60s grace, backgrounded mobile tab dropping WS, network blip, laptop sleep), `Session.detach()` armed a 45-min `setTimeout`; on expiry the PTY was SIGTERMed, killing the `bash -l` and the child `claude` process. On reconnect, `Session.start()` re-spawned `bash -l` which re-launched `claude` from `.bashrc` (a fresh process with empty in-memory state, forcing the user to `/resume` from the on-disk JSONL transcript). Users with `sleepAfter` set to 2h experienced what felt like "Claude Code restarted" after roughly an hour of idle, even though the container itself was nowhere near the configured timeout.
@@ -741,6 +833,8 @@ The container would also be stuck (because `collectMetrics` is the trigger for b
 
 ### AD48: OAuth state replaced by HMAC-signed stateless token
 
+**Category:** Security
+
 **Status:** Accepted (2026-05-09)
 
 **Supersedes:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) (oauth_state mechanism only; the broader GitHub OIDC-over-CF-Access decision in [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) remains valid)
@@ -778,6 +872,8 @@ Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly c
 ---
 
 ### AD49: context-mode delivered as preseed plugin, not runtime install
+
+**Category:** Architecture
 
 **Status:** Accepted (2026-05-10); MCP registration wiring superseded by [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). The Custom-tier hook decision remains active.
 
@@ -854,6 +950,8 @@ without the shim, `ctx_execute` and `ctx_batch_execute` fail on every dynamic `r
 - Tests: `src/__tests__/lib/r2-seed-context-mode.test.ts`, `host/__tests__/entrypoint-context-mode.test.js`, `host/__tests__/context-mode-version-pin.test.js`
 
 ### AD50: Unified ADR file with structural doc-allow-large exemption
+
+**Category:** (superseded)
 
 **Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
 
@@ -1925,6 +2023,8 @@ On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backst
 
 ### AD81: Reuse the container egress-injection layer for per-user GitHub tokens
 
+**Category:** Architecture, Security
+
 **Decision:** In enterprise mode, authenticate the agent's GitHub traffic by injecting the user's token at the container egress boundary — reusing the existing AI-Gateway `interceptOutboundHttps` layer — rather than placing the token in the container. `github.com` and `api.github.com` are registered for outbound interception; a `GitHubInterceptor` WorkerEntrypoint resolves and decrypts the per-user token (`DeployKeys.githubToken`, keyed by the bound session's `bucket`), strips the container's placeholder credential, and stamps the real one. The container holds only a non-secret placeholder `GH_TOKEN`.
 
 **Context:** The agent must act with the user's full GitHub permissions (clone/push/PR/merge), but a prompt-injected agent or a malicious dependency could exfiltrate a raw token from the container environment. Codeflare already runs the platform egress-injection pattern for AI keys (placeholder in container → real secret stamped at the Worker boundary, with the Cloudflare containers CA trusted container-wide). Extending it to the GitHub hosts is ~90% reuse and covers git-over-HTTPS and the REST API uniformly — both are HTTPS to github hosts — which dissolves the "token in the container / `gh` has no per-call broker" problem.
@@ -1943,6 +2043,8 @@ Short-lived GitHub App tokens cap the exfiltration value there.
 ---
 
 ### AD82: Visible terminal panes own WebSockets, and MultiView is virtual
+
+**Category:** Architecture, UI/Frontend
 
 **Status:** Accepted (2026-06-18)
 
@@ -1964,6 +2066,8 @@ Short-lived GitHub App tokens cap the exfiltration value there.
 ---
 
 ### AD83: Vault IndexedDB cannot be persisted across sessions by keying the encryption key to the R2 bucket
+
+**Category:** Architecture
 
 **Status:** Superseded by [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) (2026-06-25). Option A below (bucket-stable vault URL) was implemented — the editor is now served under `/api/vault/<token>/` with the session id carried in the `cf_vault_sid` cookie, and the encryption key is HKDF-derived per bucket — so the SB IndexedDB persists across sessions. The "do NOT key to the bucket / reject persistence" decision below no longer holds; this record is retained for its DB-id analysis (which correctly identified that BOTH `Ie` and the key had to become bucket-stable — the reason Option B's key-only approach was insufficient).
 
@@ -2003,6 +2107,8 @@ Persistence is deferred. The actual drivers of the per-session terminal/keyboard
 ---
 
 ### AD84: Retain the vault SW encryption key in memory (neuter the proactive flush) and open a green Vault button directly
+
+**Category:** Architecture
 
 **Status:** Accepted (2026-06-26). Implemented on `fix/vault-keyflush-and-direct-open`.
 
@@ -2766,16 +2872,6 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 ---
 
-## Related Documentation
-
-- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
-- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
-- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
-- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
-- [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
-- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
----
-
 ### AD112: CI runs as parallel path-filtered lanes and deploys reuse content-addressed container images
 
 **Category:** Architecture, Operations
@@ -2872,12 +2968,14 @@ One lost lane therefore widened every subsequent review permanently: measured on
 
 Acknowledgement itself was also making the wrong claim. Advancing the checkpoint on lane exit records that three processes ran, not that anything was read, so a round returning into a session that never triaged it moved the checkpoint past its own unacted findings. The gate now requires the triage verdict — recognised structurally, by the table header and divider in a message carrying no tool call, after the last lane returned — and then issues the fix directive itself rather than trusting the session to remember. The Pi enforcement path already worked this way, so both runtimes key on one table shape. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::triage_published_after_line -->
 
-The subprocess is also time-bounded, and the bound is validated rather than merely defaulted: `timeout 0` means *no* timeout, so an empty, zero, or non-numeric override resolves to the default instead of silently removing the bound, and expiry escalates past `SIGTERM` so a lane wedged in an auth prompt or a retry loop is actually reaped. Guard settings are built programmatically and verified non-empty before use for the same fail-closed reason: a missing dependency, a missing guard script, or a config path containing a space must stop the lane rather than yield a settings file whose hooks never fire. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+The subprocess is also time-bounded, and the bound is validated rather than merely defaulted: `timeout 0` means *no* timeout, so an empty, zero, or non-numeric override resolves to the default instead of silently removing the bound, and expiry escalates past `SIGTERM` so a lane wedged in an auth prompt or a retry loop is actually reaped. Guard settings are built programmatically and verified non-empty before use for the same fail-closed reason: a missing dependency, a missing guard script, or a config path containing a space must stop the lane rather than yield a settings file whose hooks never fire. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::bounded_cap -->
 
 **Related:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
 ---
 ### AD116: Review-lane Phase 0 is computed deterministically and handed to the lane
+
+**Category:** Architecture, Cost
 
 **Status:** Accepted (2026-07-26). Implements [REQ-AGENT-103](../../sdd/spec/agents.md#req-agent-103-deterministic-lane-triage).
 
@@ -2915,6 +3013,8 @@ The same measurement settles what to embed. Inlining beats fetching only when th
 
 ### AD118: Seed provenance is carried in R2 custom metadata, verified before it was relied on
 
+**Category:** Storage, Agents
+
 **Status:** Accepted (2026-07-27). Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
 
 **Context:** Files a release stopped shipping were never removed from existing buckets, so retired policy kept loading beside whatever replaced it. Cleanup derived its delete list from the generated seed, so a key dropped from the seed also vanished from the delete list; the escape hatch was a hand-maintained enumeration carrying three entries against a real backlog of 165.
@@ -2936,3 +3036,12 @@ The third result is why the sweep is shaped as it is: the marker can only be rea
 **Related:** [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) supplies the upgrade that runs it.
 
 ---
+
+## Related Documentation
+
+- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
+- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
+- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
+- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
+- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders

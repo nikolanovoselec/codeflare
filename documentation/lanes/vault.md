@@ -9,8 +9,6 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 ## Contents
 
 - [Overview](#overview-req-vault-001)
-  - [Uploads and Temporary folders](#uploads-and-temporary-folders)
-  - [Storage panel special folders](#storage-panel-special-folders-req-vault-001)
 - [Directory Layout](#directory-layout)
 - [Capture Path](#capture-path-req-vault-002)
 - [User-edit Path](#user-edit-path-req-vault-003)
@@ -19,10 +17,6 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 - [Vault encryption and IDB lifecycle](#vault-encryption-and-idb-lifecycle-req-vault-008-req-vault-024-req-vault-015-req-vault-021-req-vault-023)
 - [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
 - [Preseed Integration](#preseed-integration-req-vault-007)
-  - [Vault initialization tiers](#vault-initialization-tiers-req-vault-001-ac3--req-vault-010-ac1ac4ac5)
-  - [CONFIG.md and Library/Std (base_fs)](#configmd-and-librarystd-base_fs)
-  - [STYLES.md and codeflare theming](#stylesmd-and-codeflare-theming-req-vault-007)
-  - [SilverBullet plug preinstall](#silverbullet-plug-preinstall-req-vault-007)
 - [First-session Expectations](#first-session-expectations)
 - [Attachment Cost Caveat](#attachment-cost-caveat-req-vault-011-ac1)
 - [PDF-Ingestion E2E Plan](#pdf-ingestion-e2e-plan-req-vault-011)
