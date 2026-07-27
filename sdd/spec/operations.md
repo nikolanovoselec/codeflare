@@ -95,7 +95,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The PR-check workflow triggers on every pull request to the main or develop branch, on push to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
-3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml --> <!-- @manual -->
+3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml::runs --> <!-- @manual -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
@@ -626,9 +626,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Every suite is gated on its machine-readable vitest JSON report: zero failures, no zero-test files, and a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-vitest-report.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC1: vitest report gate) -->
-2. A non-zero exit is accepted only for the suite that opts into Workers-pool teardown-crash tolerance, and only with the exact fingerprint. <!-- @impl: scripts/ci/check-vitest-report.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC2: teardown-crash tolerance) -->
-3. The aggregate job reconciles every suite's reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs --> <!-- @impl: scripts/ci/suites.mjs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC3: cross-suite completeness gate) -->
+1. Every suite is gated on its machine-readable vitest JSON report: zero failures, no zero-test files, and a missing or corrupt report fails closed. <!-- @impl: scripts/ci/check-vitest-report.mjs::failedTests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC1: vitest report gate) -->
+2. A non-zero exit is accepted only for the suite that opts into Workers-pool teardown-crash tolerance, and only with the exact fingerprint. <!-- @impl: scripts/ci/check-vitest-report.mjs::tolerantOfPoolCrash --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC2: teardown-crash tolerance) -->
+3. The aggregate job reconciles every suite's reports against that suite's test files in the tree, failing when a file ran nowhere or when a lane succeeded without uploading reports. <!-- @impl: scripts/ci/check-suite-completeness.mjs::SUITES --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-023 AC3: cross-suite completeness gate) -->
 
 **Constraints:**
 
@@ -653,10 +653,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The measured size comes from wrangler's own dry-run output — the same figure the platform applies — rather than an independently computed estimate that can drift from it. <!-- @impl: scripts/ci/check-bundle-size.mjs --> <!-- @manual -->
-2. A gzipped bundle over the configured budget fails the check. <!-- @impl: scripts/ci/check-bundle-size.mjs --> <!-- @manual -->
-3. Zero or more than one size measurement in the log fails the check rather than gating on whichever was printed first. <!-- @impl: scripts/ci/check-bundle-size.mjs --> <!-- @manual -->
-4. A budget that is missing, non-numeric or not positive fails the check; only an explicit opt-out sentinel skips enforcement. <!-- @impl: scripts/ci/check-bundle-size.mjs --> <!-- @manual -->
+1. The measured size comes from wrangler's own dry-run output — the same figure the platform applies — rather than an independently computed estimate that can drift from it. <!-- @impl: scripts/ci/check-bundle-size.mjs::matches --> <!-- @manual -->
+2. A gzipped bundle over the configured budget fails the check. <!-- @impl: scripts/ci/check-bundle-size.mjs::gzipKiB --> <!-- @manual -->
+3. Zero or more than one size measurement in the log fails the check rather than gating on whichever was printed first. <!-- @impl: scripts/ci/check-bundle-size.mjs::matches --> <!-- @manual -->
+4. A budget that is missing, non-numeric or not positive fails the check; only an explicit opt-out sentinel skips enforcement. <!-- @impl: scripts/ci/check-bundle-size.mjs::budgetKiB --> <!-- @manual -->
 
 **Constraints:**
 

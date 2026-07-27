@@ -280,7 +280,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. Setup wizard inputs (domain, emails, origins) are validated with shape-specific patterns. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @manual -->
 3. Session IDs are validated against the canonical format (8-24 lowercase alphanumeric characters) on every entry point. Invalid IDs are rejected with 400 before any session-side interaction. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> <!-- @test: src/__tests__/routes/terminal.test.ts (returns 400 errorResponse for invalid session ID format) -->
 4. Malformed base64 inputs are rejected with 400 immediately. <!-- @manual -->
-5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads). <!-- @impl: src/index.ts --> <!-- @manual -->
+5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads). <!-- @impl: src/index.ts::bodyLimit --> <!-- @manual -->
 6. Email addresses are normalized before any lookup, comparison, or derivation operation. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (normalizes authenticated email before allowlist lookup) -->
 
 **Constraints:**
