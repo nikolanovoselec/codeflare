@@ -1173,6 +1173,25 @@ describe('lane-evidence.mjs — a manifest token is the weakest resolution, not 
       'a manifest token resolves into the weak class, never into a silent clean');
   });
 
+  it('retries the last segment for a package but never for a version fragment', () => {
+    const { cwd, base } = makeRepo();
+    // The retry exists so `[dependencies.serde]`, which matches as ONE token,
+    // still yields `serde`. A dotted version literal has the same shape and must
+    // not yield its tail: `34` is not a name anything can be documented under,
+    // and admitting it would put a bare number in the resolvable set.
+    write(cwd, 'Cargo.toml', '[dependencies.serde]\nversion = "1.2.34"\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: cargo');
+
+    write(cwd, 'documentation/x.md', 'Uses `serde` at `34`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref), ['34'],
+      'the package tail is retried, the version tail is not');
+    assert.deepEqual((out.resolvedOnlyByDependencyManifest ?? []).map((r) => r.ref), ['serde'],
+      'and the tail it does retry lands in the weak class');
+  });
+
   it('does not demote a real declaration that a manifest happens to also mention', () => {
     const { cwd, base } = makeRepo();
     // The weak class is checked last precisely so a coincidental token cannot
