@@ -940,6 +940,9 @@ async function generate() {
   }
 
   const retired = JSON.parse(await fs.readFile(path.join(rootDir, 'preseed/retired-keys.json'), 'utf8'));
+  if (!Array.isArray(retired.keys)) {
+    throw new Error('preseed/retired-keys.json: expected a "keys" array');
+  }
   const liveKeys = new Set(documents.map((doc) => doc.key));
   const resurrected = retired.keys.filter((key) => liveKeys.has(key));
   if (resurrected.length > 0) {

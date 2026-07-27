@@ -312,7 +312,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
-- Mode takes effect on an explicit re-seed, a mode-change reconcile, or the release-upgrade reconcile ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)); currently-seeded keys are build-authoritative and are overwritten by those reconciles. Only files the build never seeded are preserved as the user's own ([REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- Mode takes effect on an explicit re-seed, a mode-change reconcile, or the release-upgrade reconcile ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)), and currently-seeded keys are build-authoritative and overwritten by those reconciles.
+- Only files the build never seeded are preserved as the user's own ([REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
 - No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as the single source of truth.
 - Preseed configuration must validate that no two entries within a single mode share the same key.
 
@@ -543,19 +544,20 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Every seed write stamps a provenance marker in the object's R2 custom metadata whose value is the writing build's preseed content hash. <!-- @impl: src/lib/r2-seed.ts::seedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (seedAgentConfigs provenance marker / stamps the marker on every overwrite write / stamps the marker on writes issued by the non-overwrite path) -->
-2. Reconcile cleanup deletes any object under the seed's own key prefixes that carries a provenance marker other than the current build's, because the reconcile rewrites every live key before cleaning. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deleteNonModeConfigs stale-marker sweep / deletes an object carrying a different build marker / does not touch a key the current build just seeded) -->
-3. An object with no provenance marker is never deleted by the sweep, which is what makes a user-created file and a user-edited seed file equally safe. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deleteNonModeConfigs stale-marker sweep / keeps an unmarked object, because that is the user's file) -->
-4. Listing is confined to the top-level prefixes the seed writes, so getting-started documents stamped by the same helper are out of scope, and a prefix that cannot be listed produces a warning and no deletion. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deleteNonModeConfigs stale-marker sweep / never lists outside the prefixes the seed writes / warns and deletes nothing when a prefix cannot be listed) -->
-5. Keys shipped before the marker existed are enumerated once in the generated seed, recovered by walking the seed module's history, and deleted by name in every cleanup. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deleteNonModeConfigs / sweeps the pre-marker list even when no key is out of mode) -->
-6. A key on the pre-marker list that the current build still seeds is never deleted, and the generator refuses to emit such a list. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Retired preseed keys / never lists a key the current build still seeds) -->
-7. The pre-marker list contributes to the preseed content hash, so shipping it triggers the upgrade that applies it. <!-- @impl: scripts/generate-agent-seed.mjs::computePreseedHash --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Retired preseed keys / lists the rules absorbed into the engineering constitution) -->
+1. Every seed write stamps a provenance marker in the object's R2 custom metadata whose value is the writing build's preseed content hash. <!-- @impl: src/lib/r2-seed.ts::seedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (stamps the marker on every overwrite write) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (stamps the marker on writes issued by the non-overwrite path) -->
+2. Reconcile cleanup deletes an object under the seed's own prefixes that carries a provenance marker other than the current build's. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deletes an object carrying a different build marker) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (keeps an object carrying the current build marker) -->
+3. An object with no provenance marker is never deleted by the sweep, which is what makes a user-created file and a user-edited seed file equally safe. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (keeps an unmarked object as the user file) -->
+4. Listing is confined to the two-segment prefixes the seed writes, keeping both the getting-started documents and the large runtime trees outside the sweep's reach. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (lists only inside the seed two-segment prefixes) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never HEADs a key under a runtime tree outside those prefixes) -->
+5. A prefix that cannot be listed, or a candidate set past the fan-out cap, produces a warning and no deletion. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (warns and deletes nothing when a prefix cannot be listed) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep and warns when the candidate set is implausibly large) -->
+6. Keys shipped before the marker existed are enumerated once in the generated seed, recovered by walking the seed module's history, and deleted by name in every cleanup. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (sweeps the pre-marker list even when no key is out of mode) -->
+7. A key the current build still seeds is never deleted by either path, and the generator refuses to emit a pre-marker list naming one. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (never lists a key the current build still seeds) -->
 
 **Constraints:**
 
 - The marker value identifies the writing build and is never used to infer staleness on its own; only an object outside the current build's key set is a candidate.
-- The pre-marker list is frozen. Keys retired after the marker shipped are identified by the marker they carry, never by being appended here.
-- Deletion always requires positive evidence — a marker, or membership of the frozen list. Anything unproven is kept.
+- The pre-marker list is frozen; keys retired after the marker shipped are identified by the marker they carry, never by being appended here.
+- Deletion always requires positive evidence — a marker or membership of the frozen list — and anything unproven is kept.
+- The preseed content hash covers the pre-marker list, so shipping the list triggers the upgrade that applies it.
 
 **Priority:** P1
 

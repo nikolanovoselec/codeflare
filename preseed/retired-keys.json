@@ -1,6 +1,5 @@
 {
-  "_comment": "One-time historical backlog: keys AGENTS_SEEDED_CONFIGS shipped before provenance markers existed, so no marker can prove ownership. Compiled once by walking all 181 revisions of src/lib/agent-seed.generated.ts. FROZEN - never append. Keys retired after the marker shipped are reclaimed by the old-marker sweep instead. Runtime-managed paths (.claude/plugins/cache/**, installed_plugins.json) were reviewed out.",
-  "cutoff": "2026-07-27T00:00:00Z",
+  "_comment": "One-time historical backlog: keys AGENTS_SEEDED_CONFIGS shipped before provenance markers existed, so no marker can prove ownership. Compiled once by walking all 181 revisions of src/lib/agent-seed.generated.ts. FROZEN - never append. Keys retired after the marker shipped are reclaimed by the stale-marker sweep instead. Runtime-managed paths (.claude/plugins/cache/**, installed_plugins.json) were reviewed out.",
   "keys": [
     ".agents/skills/api-design/SKILL.md",
     ".agents/skills/backend-patterns/SKILL.md",

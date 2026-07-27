@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../../types';
 
 const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(() => {
@@ -243,7 +243,14 @@ const mockR2 = (opts: {
   const { listed = [], markers = {}, deleteStatus = 204 } = opts;
   mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
     const method = init?.method ?? 'GET';
-    if (method === 'GET') return Promise.resolve(new Response(listXml(...listed), { status: 200 }));
+    if (method === 'GET') {
+      // Filter by prefix the way R2 does, so a test that asserts something is
+      // out of listing scope actually exercises that.
+      const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
+      return Promise.resolve(
+        new Response(listXml(...listed.filter((k) => k.startsWith(prefix))), { status: 200 }),
+      );
+    }
     const key = String(url).replace(`${endpoint}/${bucket}/`, '');
     if (method === 'HEAD') {
       const marker = markers[key];
@@ -258,9 +265,24 @@ const mockR2 = (opts: {
   });
 };
 
+const listedPrefixes = (): string[] =>
+  mockFetch.mock.calls
+    .filter((call) => ((call[1] as { method?: string })?.method ?? 'GET') === 'GET')
+    .map((call) => new URL(String(call[0])).searchParams.get('prefix') ?? '');
+
+const deleteRequests = (): string[] =>
+  mockFetch.mock.calls
+    .filter((call) => (call[1] as { method?: string })?.method === 'DELETE')
+    .map((call) => String(call[0]).replace(`${endpoint}/${bucket}/`, ''));
+
 describe('deleteNonModeConfigs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    testState.retiredKeys = ['.claude/rules/karpathy.md'];
+  });
+
+  afterEach(() => {
+    testState.retiredKeys = ['.claude/rules/karpathy.md'];
   });
 
   it('deletes advanced-only keys for "default" mode', async () => {
@@ -287,17 +309,19 @@ describe('deleteNonModeConfigs', () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it('never deletes a listed key the current build still seeds', async () => {
+  it('never deletes a key the current build still seeds, by name or by sweep', async () => {
     // Seeding and deleting the same key in one reconcile would leave the bucket
     // missing a live file. The generator rejects such a list; this is the
-    // runtime backstop.
-    testState.retiredKeys = ['.claude/rules/common.md'];
-    mockR2();
+    // runtime backstop, exercised through both paths at once -- the key is on
+    // the frozen list AND listed carrying a foreign marker.
+    const live = '.claude/rules/common.md';
+    testState.retiredKeys = [live];
+    mockR2({ listed: [live], markers: { [live]: 'an-older-build' } });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
     expect(result.deleted).toEqual([]);
-    testState.retiredKeys = ['.claude/rules/karpathy.md'];
+    expect(deleteRequests()).toEqual([]);
   });
 
   it('treats 404 as successful delete (idempotent)', async () => {
@@ -333,11 +357,6 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     testState.retiredKeys = [];
   });
 
-  const deletedKeys = (): string[] =>
-    mockFetch.mock.calls
-      .filter((call) => (call[1] as { method?: string })?.method === 'DELETE')
-      .map((call) => String(call[0]).replace(`${endpoint}/${bucket}/`, ''));
-
   it('deletes an object carrying a different build marker', async () => {
     const orphan = '.claude/skills/retired-later/SKILL.md';
     mockR2({ listed: [orphan], markers: { [orphan]: 'an-older-build' } });
@@ -345,10 +364,10 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
     expect(result.deleted).toContain(orphan);
-    expect(deletedKeys()).toContain(orphan);
+    expect(deleteRequests()).toContain(orphan);
   });
 
-  it('keeps an unmarked object, because that is the user\'s file', async () => {
+  it('keeps an unmarked object as the user file', async () => {
     // Both cases land here: a file they created, and one of ours they edited
     // (the rewrite drops the metadata).
     const theirs = '.claude/skills/my-own/SKILL.md';
@@ -357,7 +376,7 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
     expect(result.deleted).toEqual([]);
-    expect(deletedKeys()).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
   });
 
   it('does not touch a key the current build just seeded', async () => {
@@ -366,22 +385,64 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
 
     await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
-    expect(deletedKeys()).not.toContain(live);
+    expect(deleteRequests()).not.toContain(live);
   });
 
-  it('never lists outside the prefixes the seed writes', async () => {
-    // The getting-started docs (REQ-STOR-009) are stamped by the same helper but
-    // live at top-level paths; listing them would put them in scope for deletion.
+  it('lists only inside the seed two-segment prefixes', async () => {
+    // Two things ride on this. The getting-started docs (REQ-STOR-009) are
+    // stamped by the same helper but live at top-level paths, so a broader
+    // listing would put them in scope for deletion; and a runtime root such as
+    // `.claude/projects/` holds a session transcript per session, so listing at
+    // one segment would page the whole bucket on every reconcile.
     mockR2();
 
     await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
-    const listed = mockFetch.mock.calls
-      .filter((call) => ((call[1] as { method?: string })?.method ?? 'GET') === 'GET')
-      .map((call) => new URL(String(call[0])).searchParams.get('prefix'));
+    const listed = listedPrefixes();
     expect(listed.length).toBeGreaterThan(0);
-    for (const prefix of listed) expect(prefix).toMatch(/^\.[a-z]+\/$/);
+    expect(listed).toContain('.claude/rules/');
+    expect(listed).toContain('.claude/skills/');
+    // Never a bare runtime root, and never an unbounded listing.
+    expect(listed).not.toContain('.claude/');
     expect(listed).not.toContain('');
+    for (const prefix of listed) expect(prefix).not.toMatch(/^\.[a-z]+\/$/);
+  });
+
+  it('never HEADs a key under a runtime tree outside those prefixes', async () => {
+    // A session transcript is not reachable by the sweep at all: it is not under
+    // any listed prefix, so it never becomes a candidate.
+    mockR2({ listed: ['.claude/projects/abc/transcript.jsonl'] });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+  });
+
+  it('keeps an object carrying the current build marker', async () => {
+    // Written by this very reconcile under a key the mode does not list. The
+    // by-name paths own that case; deleting on marker presence alone would make
+    // any future key stamped by the shared writer disappear.
+    const current = '.claude/skills/other/SKILL.md';
+    mockR2({ listed: [current], markers: { [current]: 'testhash00000000' } });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+  });
+
+  it('skips the sweep and warns when the candidate set is implausibly large', async () => {
+    // The caller has already spent a PUT per live key in this request, so an
+    // unbounded fan-out is what would hit the subrequest ceiling.
+    const many = Array.from({ length: 250 }, (_, i) => `.claude/skills/x${i}/SKILL.md`);
+    mockR2({ listed: many, markers: Object.fromEntries(many.map((k) => [k, 'an-older-build'])) });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+    expect(result.warnings.some((w) => w.includes('exceeds'))).toBe(true);
   });
 
   it('warns and deletes nothing when a prefix cannot be listed', async () => {
@@ -408,6 +469,10 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
 describe('reconcileAgentConfigs / REQ-MEM-011 AC4', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Pinned rather than inherited: this suite's delete counts are about mode
+    // scoping, and leaving the frozen list to whatever ran before makes them
+    // depend on suite order.
+    testState.retiredKeys = [];
   });
 
   it('seeds and cleans up for "default" mode with cleanup=true', async () => {
@@ -419,8 +484,7 @@ describe('reconcileAgentConfigs / REQ-MEM-011 AC4', () => {
     });
 
     expect(result.written).toHaveLength(3);
-    // Out-of-mode keys only: this mock answers HEAD without a last-modified, so
-    // the backlog key cannot be placed against the cutoff and is kept.
+    // Out-of-mode keys only; the frozen list is empty for this suite.
     expect(result.deleted).toHaveLength(2);
     expect(result.warnings).toEqual([]);
   });

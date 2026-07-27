@@ -132,9 +132,16 @@ retirements need no bookkeeping. An S3 PUT replaces metadata wholesale and
 rclone does not send custom metadata, so editing a seeded file through the
 browser or inside the container drops the marker and the file becomes the
 user's own. Deletion always requires positive evidence: a marker, or
-membership of the frozen list. Listing stays inside the seed's top-level
-prefixes, which keeps the getting-started documents out of scope even
-though the same helper stamps them.
+membership of the frozen list.
+
+Listing is issued per two-segment prefix (`.claude/skills/`, `.pi/agent/`
+and twelve others) rather than per runtime root. That keeps the
+getting-started documents out of scope even though the same helper stamps
+them, and keeps the large runtime trees -- `.claude/projects/` session
+transcripts, `.claude/todos/` -- out of the pages entirely, which matters
+because the same request has already issued one PUT per live key. The HEAD
+fan-out is batched, and a candidate count past the cap skips the sweep with
+a warning rather than issuing the requests.
 
 **Upgrade semantics**: currently-seeded keys are build-authoritative. A
 release that changes preseed content changes `PRESEED_CONTENT_HASH`, which

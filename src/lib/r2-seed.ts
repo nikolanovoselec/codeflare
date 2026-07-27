@@ -26,6 +26,10 @@ const PRESEED_MARKER_HEADER = 'x-amz-meta-codeflare-preseed';
 
 const markerHeaders = (): Record<string, string> => ({ [PRESEED_MARKER_HEADER]: PRESEED_CONTENT_HASH });
 
+/** Ceiling and fan-out width for the stale-marker sweep; see deleteStaleMarkedConfigs. */
+const MAX_STALE_MARKER_CANDIDATES = 200;
+const STALE_MARKER_BATCH = 25;
+
 /**
  * CF-013: the only env bindings the seed helpers touch are the R2 credentials
  * (forwarded to createR2Client) and ENCRYPTION_KEY (forwarded to getSseHeaders
@@ -244,9 +248,23 @@ export function getConfigsForMode(
  * so a user's file is untouchable whether or not it sits under those prefixes.
  *
  * A listing does NOT return custom metadata -- verified against R2 -- so the
- * marker can only be read with a HEAD. Candidates are therefore narrowed to keys
- * the current build did not just write, which on a bucket with nothing retired
- * is the empty set: one list per prefix and no HEADs at all.
+ * marker can only be read with a HEAD, and the reconcile that calls this has
+ * already spent a PUT on every live key. Both bounds below therefore exist to
+ * keep the HEAD count near zero rather than near the size of the bucket:
+ *
+ *   - listing is issued per two-segment prefix (`.claude/skills/`, `.pi/agent/`,
+ *     14 of them) rather than per runtime root, which keeps the large runtime
+ *     trees -- `.claude/projects/` session transcripts, `.claude/todos/` -- out
+ *     of the pages entirely;
+ *   - the fan-out is batched, and a candidate count past the cap skips the sweep
+ *     with a warning instead of issuing the requests.
+ *
+ * Narrowing stops there deliberately. A retired skill is a whole DIRECTORY, so
+ * any filter keyed to "a directory the seed still populates" would discard the
+ * common case. What remains inside those prefixes is the user's own files plus
+ * `.claude/plugins/cache/**`; they are HEADed once per upgrade, return no marker
+ * and are kept. On a bucket with nothing retired the candidate set is whatever
+ * the user added, and no DELETE is ever issued for it.
  */
 async function deleteStaleMarkedConfigs(
   env: SeedEnv,
@@ -260,9 +278,14 @@ async function deleteStaleMarkedConfigs(
   const deleted: string[] = [];
   const warnings: string[] = [];
 
-  // Derived from the seed itself so a new runtime directory is covered without
-  // anyone remembering to add it here.
-  const prefixes = new Set([...seededKeys].map((key) => `${key.split('/')[0]}/`));
+  // Derived from the seed itself, so a new runtime directory is covered without
+  // anyone remembering to add it here. A key shallower than three segments has
+  // no directory to group by and lists as itself.
+  const prefixes = new Set<string>();
+  for (const key of seededKeys) {
+    const segments = key.split('/');
+    prefixes.add(segments.length > 2 ? `${segments[0]}/${segments[1]}/` : key);
+  }
 
   const candidates: string[] = [];
   for (const prefix of prefixes) {
@@ -286,29 +309,44 @@ async function deleteStaleMarkedConfigs(
 
   if (candidates.length === 0) return { deleted, warnings };
 
-  const results = await Promise.allSettled(
-    candidates.map(async (key) => {
-      const url = getR2Url(endpoint, bucketName, key);
-      const head = await r2Client.fetch(url, { method: 'HEAD', headers: sseHeaders });
-      if (head.status === 404) return null;
-      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+  // The caller has already spent one PUT per live key in this same request, so
+  // an unbounded fan-out here is what would hit the subrequest ceiling. A
+  // candidate list this long means the narrowing above stopped matching
+  // reality; say so rather than issuing the requests.
+  if (candidates.length > MAX_STALE_MARKER_CANDIDATES) {
+    warnings.push(
+      `stale-marker sweep skipped: ${candidates.length} candidates exceeds the ${MAX_STALE_MARKER_CANDIDATES} cap`
+    );
+    return { deleted, warnings };
+  }
 
-      // No marker means the user owns it -- either they created it, or they
-      // edited ours and the rewrite dropped the metadata.
-      const marker = head.headers.get(PRESEED_MARKER_HEADER);
-      if (!marker) return null;
+  for (let i = 0; i < candidates.length; i += STALE_MARKER_BATCH) {
+    const results = await Promise.allSettled(
+      candidates.slice(i, i + STALE_MARKER_BATCH).map(async (key) => {
+        const url = getR2Url(endpoint, bucketName, key);
+        const head = await r2Client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+        if (head.status === 404) return null;
+        if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
 
-      const res = await r2Client.fetch(url, { method: 'DELETE' });
-      if (res.ok || res.status === 404) return key;
-      throw new Error(`DELETE ${key}: HTTP ${res.status}`);
-    })
-  );
+        // No marker means the user owns it -- either they created it, or they
+        // edited ours and the rewrite dropped the metadata. This build's own
+        // marker means we just wrote it under a key this mode does not list,
+        // which is the by-name path's business, not this one's.
+        const marker = head.headers.get(PRESEED_MARKER_HEADER);
+        if (!marker || marker === PRESEED_CONTENT_HASH) return null;
 
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      if (result.value !== null) deleted.push(result.value);
-    } else {
-      warnings.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+        const res = await r2Client.fetch(url, { method: 'DELETE' });
+        if (res.ok || res.status === 404) return key;
+        throw new Error(`DELETE ${key}: HTTP ${res.status}`);
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        if (result.value !== null) deleted.push(result.value);
+      } else {
+        warnings.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+      }
     }
   }
 
