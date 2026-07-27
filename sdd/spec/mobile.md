@@ -440,22 +440,45 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 1. Batched output delegates every output-driven scrollback shift to xterm and performs no write-side correction. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: writes batched output without viewport correction when $name) -->
 2. Opening the touch keyboard performs the established fit-and-bottom transition. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should scroll to bottom when keyboard opens (closed→open transition)) -->
 3. Generic viewport correction remains inactive while the touch keyboard is open. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC3: freezes correction-owned viewport movement while the touch keyboard is open) -->
-4. Vertical swipes remain terminal input while the touch keyboard is open. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should call preventDefault and send up arrow) -->
-5. After the touch keyboard closes, vertical swipes scroll through terminal history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (scrolls the buffer on vertical swipe when keyboard is closed) -->
-6. Closing the touch keyboard hands viewport correction back to bottom-following mode. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC6: keyboard close hands viewport ownership back to bottom following) -->
-7. After keyboard control ends, manual scroll ownership persists until the viewport returns to bottom. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC7: keyboard transition preserves later manual viewport ownership) -->
+4. Closing the touch keyboard hands viewport correction back to bottom-following mode. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC4: keyboard close hands viewport ownership back to bottom following) -->
+5. After keyboard control ends, manual scroll ownership persists until the viewport returns to bottom. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC5: keyboard transition preserves later manual viewport ownership) -->
 
 **Constraints:**
 
 - Keyboard-open bottom anchoring is intentional and has priority over manual scrollback.
 - The touch-keyboard exception applies only when both touch capability and virtual-keyboard-open state are present.
-- The existing tap-to-focus keyboard opening remains unchanged; fullscreen wheel routing applies only while the keyboard is closed ([REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling)).
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)
 
 **Verification:** Automated test ([Scroll-event tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts); [full-buffer batched-write test](../../web-ui/src/__tests__/stores/terminal.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-019: Keyboard-mode swipe semantics
+
+**Intent:** Vertical terminal swipes remain typing input while the touch keyboard is open and return to scrollback navigation once keyboard mode ends.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Vertical swipes remain terminal input while the touch keyboard is open. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should call preventDefault and send up arrow) -->
+2. After the touch keyboard closes, vertical swipes scroll through terminal history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (scrolls the buffer on vertical swipe when keyboard is closed) -->
+
+**Constraints:**
+
+- The established tap-to-focus keyboard opening remains unchanged.
+- Fullscreen wheel routing applies only while the keyboard is closed ([REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling)).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions), [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling)
+
+**Verification:** Automated test ([Touch gesture tests](../../web-ui/src/__tests__/lib/touch-gestures.test.ts))
 
 **Status:** Implemented
 

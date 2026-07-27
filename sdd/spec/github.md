@@ -241,11 +241,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. The Setup wizard offers a provider chooser (GitHub App vs OAuth App); selecting one reveals that provider's Client ID + Client Secret inputs. Each provider's credentials are stored under their own KV keys so switching providers preserves the other's. <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx::GitHubProviderChooser --> <!-- @test: web-ui/src/__tests__/components/GitHubProviderChooser.test.tsx (GitHubProviderChooser) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)) -->
-2. On save (admin, any mode) the provider type + client ids are stored plain and each client secret is encrypted at rest (AES-256-GCM via the existing KV crypto); the active provider is resolved from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)) -->
-3. A blank secret on save keeps the stored secret (no clobber); a secret submitted while no `ENCRYPTION_KEY` is configured is rejected with a validation error, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-4. `GET /api/setup/prefill` echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill returns provider type + client ids + secret-set flags, never the secrets) -->
-5. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind the `ENTERPRISE_MODE` gate; the active provider resolves from KV first ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC4), and the prefill echoes the provider type + client ids + `…ClientSecretSet` in non-enterprise too. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)) -->
+1. The Setup wizard offers a GitHub App or OAuth App chooser, and selecting a provider reveals its Client ID and Client Secret inputs. <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx::GitHubProviderChooser --> <!-- @test: web-ui/src/__tests__/components/GitHubProviderChooser.test.tsx (GitHubProviderChooser) -->
+2. Each provider's credentials use distinct KV keys, so switching providers preserves the inactive provider's values. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @manual: Configure both provider types, switch between them, and confirm each provider's saved values remain available. -->
+3. On save (admin, any mode) the provider type + client ids are stored plain and each client secret is encrypted at rest (AES-256-GCM via the existing KV crypto); the active provider is resolved from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)) -->
+4. A blank secret on save keeps the stored secret (no clobber); a secret submitted while no `ENCRYPTION_KEY` is configured is rejected with a validation error, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
+5. `GET /api/setup/prefill` echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill returns provider type + client ids + secret-set flags, never the secrets) -->
+6. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind the `ENTERPRISE_MODE` gate; the active provider resolves from KV first ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC4), and the prefill echoes the provider type + client ids + `…ClientSecretSet` in non-enterprise too. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)) -->
 
 **Constraints:**
 
@@ -298,12 +299,9 @@ None.
 **Acceptance Criteria:**
 
 1. On mobile, GitHub is the default right-column face and the header flip control swaps to the R2 storage browser (and back) in place whenever GitHub is enabled. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
-2. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-3. The single-panel flip control is hidden while the column is in split mode and appears only when the column collapses to one panel. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
-4. If GitHub is disabled, R2 storage is the sole right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
-5. When GitHub is enabled, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
-6. The column collapses to a single panel with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
-7. Single-panel mobile/flip mode content-sizes and vertically centers the panel; both faces share a viewport cap with internal list scrolling, so flipping never resizes it and short content stays compact. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+2. The single-panel flip control is hidden while the column is in split mode and appears only when the column collapses to one panel. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+3. If GitHub is disabled, R2 storage is the sole right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
+4. When GitHub is enabled, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
 
 **Constraints:**
 
@@ -314,6 +312,30 @@ None.
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
 **Verification:** Automated test ([Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-012: Responsive GitHub and storage panel allocation
+
+**Intent:** GitHub and storage share the dashboard's right column as an anchored split when space permits and collapse to one stable, content-sized face when the viewport is narrow or short.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+2. The column collapses to a single panel with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
+3. Single-panel mobile/flip mode content-sizes and vertically centers the panel; both faces share a viewport cap with internal list scrolling, so flipping never resizes it and short content stays compact. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-010](#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
+
+**Verification:** Automated test ([Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [panel-allocation test](../../web-ui/src/__tests__/lib/panel-allocation.test.ts))
 
 **Status:** Implemented
 

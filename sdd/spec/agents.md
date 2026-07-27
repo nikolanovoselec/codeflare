@@ -1385,7 +1385,7 @@ None.
 4. code-reviewer flags tests whose name claims behavior the assertions don't actually verify (the test-name-lies antipattern from `tdd-discipline`). <!-- @manual -->
 5. Auto-fixes derive concrete content from source or REQ when possible; load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose, or the trim is reverted with a finding. <!-- @manual -->
 6. A resolved source anchor is checked for whether the body contradicts what the criterion or documented fact asserts, never for whether their words overlap. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/SKILL.md::CQ-SOURCE --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-truth/SKILL.md::Pass 15 --> <!-- @manual -->
-7. What a reviewer is told to look for is shared policy, so every runtime's lane of the same kind applies the same categories. <!-- @impl: preseed/agents/claude/skills/code-review-checklist/SKILL.md::Review checklist --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+7. Reviewer lanes of a given kind use one shared category policy across runtimes. <!-- @impl: preseed/agents/claude/skills/code-review-checklist/SKILL.md::Review checklist --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 
 **Constraints:**
 
@@ -1847,7 +1847,7 @@ None.
 1. `CloudflareOAuthProvider` supports authorize, exchange, refresh, and revoke; encrypted OAuth credentials reuse the bucket deploy-key fields without a new key. Exchanges use `client_secret_post` and surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 2. `GET /api/cloudflare/connect`, its callback, and `POST /api/cloudflare/disconnect` are gated by authentication only (any authenticated user) — reachable from Guided Setup and the Settings accordion, never tier-gated — and the token never reaches the browser. <!-- @impl: src/routes/cloudflare.ts::app --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
 3. The callback binds an HMAC-signed, single-use state to the initiating user's bucket, rejecting forged, expired, or replayed states without exchanging the code; success stores the token and auto-selects a sole accessible account, else redirects to an account picker. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
-4. A currently-valid token is returned, refreshed within the skew window and failing closed (never stale). PAT tokens are injected into the container env at session start; OAuth uses a non-secret placeholder, with the real short-lived token stamped at the api.cloudflare.com request boundary (per REQ-AGENT-078). <!-- @impl: src/lib/cloudflare-token.ts::getValidCloudflareToken --> <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (getValidCloudflareToken) -->
+4. A currently valid token is returned, refreshed within the skew window, and fails closed rather than returning a stale token. <!-- @impl: src/lib/cloudflare-token.ts::getValidCloudflareToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (getValidCloudflareToken) -->
 5. The connect URL carries a scope `tier`; the server maps it to the OAuth `scope`, always including `offline_access` so a refresh token is issued. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (feeds the scope tier into the OAuth authorize scope param (always incl. offline_access)) -->
 6. The operator's Cloudflare OAuth client id + secret are configured in the admin-gated Setup wizard (KV; id plain, secret encrypted at rest, fail-closed without `ENCRYPTION_KEY`), mirroring the GitHub provider config ([REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 7. Enterprise is unchanged: the OAuth provider resolves to none in enterprise, so every Cloudflare-OAuth route fails closed there; enterprise keeps the admin-global Browser Rendering token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). <!-- @impl: src/lib/cloudflare-token.ts::getCloudflareProvider --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)) -->
@@ -2225,9 +2225,6 @@ None.
 2. An eligible non-SDD boundary emits a CI-only plan. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068: emits a CI-only launch plan outside SDD mode) -->
 3. An eligible default-mode boundary emits a CI-only plan from its effective repository context. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewEnabled --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
 4. Transcript correlation recognizes a matching exact-head `ci-monitor` call independently from reviewer state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-068: recognizes one matching CI launch independently of reviewer completion) -->
-5. Settled follow-up requests only missing reviewer lanes while unmatched calls remain in flight. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071/REQ-AGENT-074: requests missing reviewers together without duplicating unmatched public calls) -->
-6. Settled follow-up requests a missing CI wave without duplicating in-flight reviewers. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068/REQ-AGENT-074: requests a missing CI launch without duplicating in-flight reviewers) -->
-7. Required successful reviewer completion plus post-notification triage proof is the only reviewer-bearing acknowledgement condition. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage) -->
 
 **Constraints:**
 
@@ -2237,13 +2234,40 @@ None.
 - Git commands create no second CI trigger.
 - All launches use isolated public background subagents.
 - The dispatcher stores no durable job or result state.
-- Follow-up presentation labels missing launch work separately from the post-acknowledgement FIX phase and explicitly warns against duplicating unmatched calls.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
 **Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts), [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi CI monitor tests](../../host/__tests__/pi-ci-monitor.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-110: Pi PR-boundary missing-launch follow-up
+
+**Intent:** Settled enforcement requests only the reviewer or CI launch work still missing for the current head and acknowledges reviewer-bearing work only after complete triage proof.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Settled follow-up requests only missing reviewer lanes while unmatched calls remain in flight. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071/REQ-AGENT-074: requests missing reviewers together without duplicating unmatched public calls) -->
+2. Settled follow-up requests a missing CI wave without duplicating in-flight reviewers. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068/REQ-AGENT-074: requests a missing CI launch without duplicating in-flight reviewers) -->
+3. Required successful reviewer completion plus post-notification triage proof is the only reviewer-bearing acknowledgement condition. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage) -->
+
+**Constraints:**
+
+- Reviewer and CI lifecycles remain independent.
+- Unmatched calls remain in flight and are never duplicated.
+- Follow-up presentation distinguishes missing launch work from the post-acknowledgement FIX phase.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-074](#req-agent-074-pi-settled-review-handoff)
+
+**Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
 **Status:** Implemented
 

@@ -268,7 +268,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         });
       }
 
-      // Resolve the strict Gateway egress toggle once (REQ-ENTERPRISE-016 AC2) so buildEnvVars
+      // Resolve the strict Gateway egress toggle once (REQ-ENTERPRISE-016 AC3) so buildEnvVars
       // emits placeholder R2 creds and the interception registry wires the catch-all — both
       // without a per-request KV read. hasStrictGatewayEgress fails closed (false) on error.
       this._strictEgress = await hasStrictGatewayEgress(this.env);

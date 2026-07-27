@@ -39,7 +39,7 @@ export interface InterceptionHost {
   _userGroups: string[];
   _cloudflareApiToken: string | null;
   _r2AccountId: string | null;
-  /** REQ-ENTERPRISE-016 AC2: resolved once in the DO constructor — never re-read per start. */
+  /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
   _strictEgress: boolean;
 }
 

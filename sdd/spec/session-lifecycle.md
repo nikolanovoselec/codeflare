@@ -392,9 +392,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. Clock icon on session cards and header toolbar shows countdown. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (Sleep timer icon) -->
 2. Visible when < 10 min remaining. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows warning timer when remaining < 10 min) -->
-3. Orange pulse at < 10 min, red at < 5 min. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows warning timer when remaining < 10 min) -->
-4. Hidden for stopped sessions. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (hides timer for stopped sessions) -->
-5. Computed from the configured idle timeout minus elapsed idle time. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/lib/sleep-timer.test.ts (getSleepTimerInfo / REQ-SESSION-013 (sleep timer countdown UI)) -->
+3. The countdown uses the warning treatment below 10 minutes remaining. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows warning timer when remaining < 10 min) -->
+4. The countdown uses the critical treatment below 5 minutes remaining. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows critical timer when remaining < 5 min) -->
+5. The countdown is hidden for stopped sessions. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (hides timer for stopped sessions) -->
+6. The countdown is computed from the configured idle timeout minus elapsed idle time. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @test: web-ui/src/__tests__/lib/sleep-timer.test.ts (getSleepTimerInfo / REQ-SESSION-013 (sleep timer countdown UI)) -->
 
 **Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md).
 
