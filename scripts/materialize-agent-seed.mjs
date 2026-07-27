@@ -45,11 +45,15 @@ export function parseGeneratedSeed(source) {
   const marker = source.indexOf('AGENTS_SEEDED_CONFIGS');
   if (marker === -1) throw new Error('materialize-agent-seed: AGENTS_SEEDED_CONFIGS not found in seed source');
   const start = source.indexOf('[', source.indexOf('=', marker));
-  const end = source.lastIndexOf(']');
-  if (start === -1 || end === -1 || end < start) {
+  // Terminate on this array's own closing bracket, not the file's last one: the
+  // module exports a second array after this one, and reaching to the end of the
+  // file swallowed it. A real newline before `];` cannot occur inside the
+  // literal, because every newline in a document's content is JSON-escaped.
+  const end = source.indexOf('\n];', start);
+  if (start === -1 || end === -1) {
     throw new Error('materialize-agent-seed: could not locate the AGENTS_SEEDED_CONFIGS array literal');
   }
-  return JSON.parse(source.slice(start, end + 1));
+  return JSON.parse(source.slice(start, end + 2));
 }
 
 async function main() {

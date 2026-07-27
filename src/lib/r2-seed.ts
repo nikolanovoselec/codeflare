@@ -1,7 +1,7 @@
 import type { Env, SessionMode } from '../types';
-import { createR2Client, getR2Url } from './r2-client';
+import { createR2Client, getR2Url, parseListObjectsXml } from './r2-client';
 import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
-import { AGENTS_SEEDED_CONFIGS } from './agent-seed.generated';
+import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
 import { createLogger } from './logger';
 import { getSseHeaders } from './r2-sse';
 
@@ -9,6 +9,22 @@ const logger = createLogger('r2-seed');
 
 const sleep = (ms: number): Promise<void> =>
   ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+
+/**
+ * Provenance marker stamped on every object this module writes. Its presence is
+ * the only thing that distinguishes a file codeflare seeded from one the user
+ * created: an S3 PUT replaces metadata wholesale, and rclone does not copy custom
+ * metadata, so any edit through the file browser or inside the container drops
+ * the marker and the file silently becomes the user's own.
+ *
+ * The value is the build that wrote it. Cleanup uses it to find objects this
+ * build did NOT write: a reconcile overwrites every key the current build owns
+ * before cleaning, so after that pass a marker from an older build means the key
+ * is no longer part of the product.
+ */
+const PRESEED_MARKER_HEADER = 'x-amz-meta-codeflare-preseed';
+
+const markerHeaders = (): Record<string, string> => ({ [PRESEED_MARKER_HEADER]: PRESEED_CONTENT_HASH });
 
 /**
  * CF-013: the only env bindings the seed helpers touch are the R2 credentials
@@ -74,7 +90,7 @@ async function seedDocuments(
         const url = getR2Url(endpoint, bucketName, doc.key);
         const res = await r2Client.fetch(url, {
           method: 'PUT',
-          headers: { 'Content-Type': doc.contentType, ...sseHeaders },
+          headers: { 'Content-Type': doc.contentType, ...markerHeaders(), ...sseHeaders },
           body: doc.content,
         });
         if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
@@ -92,7 +108,7 @@ async function seedDocuments(
         const url = getR2Url(endpoint, bucketName, doc.key);
         const res = await r2Client.fetch(url, {
           method: 'PUT',
-          headers: { 'Content-Type': doc.contentType, ...sseHeaders },
+          headers: { 'Content-Type': doc.contentType, ...markerHeaders(), ...sseHeaders },
           body: doc.content,
         });
         if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
@@ -214,29 +230,103 @@ export function getConfigsForMode(
 }
 
 /**
- * Keys an earlier build seeded that the current build no longer produces.
+ * Delete objects a previous build seeded that this build no longer ships.
  *
- * Cleanup derives its delete list FROM AGENTS_SEEDED_CONFIGS, so a file dropped
- * from the manifest also disappears from that list and would otherwise survive
- * in the bucket forever. That is harmless for a file whose content moved
- * nowhere, and actively wrong for one whose content was folded into another
- * file: the retired copy keeps loading beside its replacement and the same
- * policy is delivered twice.
+ * A reconcile rewrites every key the current build owns before cleaning, so by
+ * the time this runs, anything of ours still carrying a different build's marker
+ * is a file the product has dropped. That marker is the entire record -- nothing
+ * has to be enumerated at build time and no list has to be maintained.
  *
- * Listing the bucket would find these, but this module deliberately never
- * scans it, so retirements are enumerated instead. They are applied where the
- * deletes are issued rather than inside getPreseedKeysNotInMode, whose contract
- * (REQ-AGENT-014 AC7) is exactly the keys of THIS build that this mode does not
- * want. An entry may be removed once every environment has run a deploy that
- * processed it.
+ * Two bounds keep it safe. Listing is confined to the prefixes the seed actually
+ * writes, which is what keeps the getting-started docs (REQ-STOR-009, at
+ * `Getting Started.md`, `Documentation/`, `Examples/`) out of scope even though
+ * they are stamped by the same helper; and deletion still requires our marker,
+ * so a user's file is untouchable whether or not it sits under those prefixes.
+ *
+ * A listing does NOT return custom metadata -- verified against R2 -- so the
+ * marker can only be read with a HEAD. Candidates are therefore narrowed to keys
+ * the current build did not just write, which on a bucket with nothing retired
+ * is the empty set: one list per prefix and no HEADs at all.
  */
-export const RETIRED_PRESEED_KEYS: readonly string[] = [
-  // Absorbed into .claude/rules/engineering-constitution.md (2026-07-25):
-  // working principles, coding concretes, and the graph-first discipline.
-  '.claude/rules/karpathy.md',
-  '.claude/rules/common/coding-style.md',
-  '.claude/rules/graph-first.md',
-];
+async function deleteStaleMarkedConfigs(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  seededKeys: ReadonlySet<string>,
+  r2SseDisabled?: boolean
+): Promise<{ deleted: string[]; warnings: string[] }> {
+  const r2Client = createR2Client(env);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const deleted: string[] = [];
+  const warnings: string[] = [];
+
+  // Derived from the seed itself so a new runtime directory is covered without
+  // anyone remembering to add it here.
+  const prefixes = new Set([...seededKeys].map((key) => `${key.split('/')[0]}/`));
+
+  const candidates: string[] = [];
+  for (const prefix of prefixes) {
+    let continuationToken: string | undefined;
+    do {
+      const params = new URLSearchParams({ 'list-type': '2', prefix });
+      if (continuationToken) params.set('continuation-token', continuationToken);
+      const res = await r2Client.fetch(`${getR2Url(endpoint, bucketName)}?${params}`);
+      if (!res.ok) {
+        // A prefix we could not list is a prefix we do not clean; never a delete.
+        warnings.push(`LIST ${prefix}: HTTP ${res.status}`);
+        break;
+      }
+      const parsed = parseListObjectsXml(await res.text());
+      for (const object of parsed.objects) {
+        if (!seededKeys.has(object.key)) candidates.push(object.key);
+      }
+      continuationToken = parsed.isTruncated ? parsed.nextContinuationToken : undefined;
+    } while (continuationToken);
+  }
+
+  if (candidates.length === 0) return { deleted, warnings };
+
+  const results = await Promise.allSettled(
+    candidates.map(async (key) => {
+      const url = getR2Url(endpoint, bucketName, key);
+      const head = await r2Client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.status === 404) return null;
+      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+
+      // No marker means the user owns it -- either they created it, or they
+      // edited ours and the rewrite dropped the metadata.
+      const marker = head.headers.get(PRESEED_MARKER_HEADER);
+      if (!marker) return null;
+
+      const res = await r2Client.fetch(url, { method: 'DELETE' });
+      if (res.ok || res.status === 404) return key;
+      throw new Error(`DELETE ${key}: HTTP ${res.status}`);
+    })
+  );
+
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      if (result.value !== null) deleted.push(result.value);
+    } else {
+      warnings.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+    }
+  }
+
+  return { deleted, warnings };
+}
+
+/**
+ * Keys earlier builds seeded that no build produces any more, recovered by
+ * walking every revision of the generated seed.
+ *
+ * They predate the provenance marker, so nothing stored in R2 identifies them
+ * and no per-object check can. They are deleted unconditionally: a one-time
+ * clean slate that clears the accumulated history in one pass. From then on the
+ * marker carries provenance, and this list is inert.
+ *
+ * Frozen. Nothing is ever appended -- a key retired from here on is identified
+ * by the stale marker it carries, not by being enumerated here.
+ */
 
 /**
  * Return the R2 keys of preseed-managed files that are NOT in the given mode
@@ -268,10 +358,14 @@ export function getPreseedKeysNotInMode(
 }
 
 /**
- * Delete preseed-managed files that don't belong to the current mode (or
- * are tier-gated context-mode files when contextModeEnabled is false), plus
- * the enumerated retirements. Only deletes keys this module names - never
- * lists or scans the bucket.
+ * Delete preseed-managed files that don't belong in the bucket any more, from
+ * three sources: keys outside the current mode (or tier-gated context-mode files
+ * when contextModeEnabled is false), the frozen pre-marker list, and finally any
+ * object still carrying an older build's provenance marker.
+ *
+ * Only the last one looks at the bucket, and only within the seed's own prefixes.
+ * A user's file is never deleted by any of the three: the first two name keys the
+ * product itself shipped, and the third requires our marker.
  */
 export async function deleteNonModeConfigs(
   env: SeedEnv,
@@ -279,17 +373,15 @@ export async function deleteNonModeConfigs(
   endpoint: string,
   mode: SessionMode,
   contextModeEnabled = false,
+  r2SseDisabled?: boolean,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
-  // A retired key that is somehow still seeded must never be deleted right
-  // after being written; the generated set is the authority on what is live.
+  // The generated set is the authority on what is live; nothing it seeds may be
+  // deleted right after being written.
   const seededKeys = new Set(getConfigsForMode(mode, contextModeEnabled).map((doc) => doc.key));
   const keysToDelete = [
     ...getPreseedKeysNotInMode(mode, contextModeEnabled),
     ...RETIRED_PRESEED_KEYS.filter((key) => !seededKeys.has(key)),
   ];
-  if (keysToDelete.length === 0) {
-    return { deleted: [], warnings: [] };
-  }
 
   const r2Client = createR2Client(env);
   const deleted: string[] = [];
@@ -315,6 +407,12 @@ export async function deleteNonModeConfigs(
     }
   }
 
+  // Last, so a key already removed by name above simply HEADs 404 here and is
+  // not counted twice.
+  const stale = await deleteStaleMarkedConfigs(env, bucketName, endpoint, seededKeys, r2SseDisabled);
+  deleted.push(...stale.deleted);
+  warnings.push(...stale.warnings);
+
   return { deleted, warnings };
 }
 
@@ -338,7 +436,14 @@ export async function reconcileAgentConfigs(
   let warnings: string[] = [];
 
   if (options.cleanup) {
-    const cleanupResult = await deleteNonModeConfigs(env, bucketName, endpoint, mode, contextModeEnabled);
+    const cleanupResult = await deleteNonModeConfigs(
+      env,
+      bucketName,
+      endpoint,
+      mode,
+      contextModeEnabled,
+      options.r2SseDisabled,
+    );
     deleted = cleanupResult.deleted;
     warnings = cleanupResult.warnings;
   }

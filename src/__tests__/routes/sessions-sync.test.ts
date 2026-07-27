@@ -31,7 +31,10 @@ vi.mock('../../middleware/rate-limit', () => ({
   createRateLimiter: vi.fn(() => async (_c: any, next: any) => next()),
 }));
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => false) }));
-vi.mock('../../lib/agent-seed.generated', () => ({ PRESEED_CONTENT_HASH: 'abc1234567890def' }));
+vi.mock('../../lib/agent-seed.generated', () => ({
+  PRESEED_CONTENT_HASH: 'abc1234567890def',
+  RETIRED_PRESEED_KEYS: [] as readonly string[],
+}));
 
 // Per-containerId fetch dispatch. Tests register a Response (or throw) per
 // containerId; the getContainer mock routes container.fetch() accordingly.

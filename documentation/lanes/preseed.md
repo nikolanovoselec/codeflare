@@ -117,15 +117,31 @@ was just seeded. Partial delete failures return `warnings` without
 failing the overall operation. `getConfigsForMode()` validates no
 duplicate keys within a single mode.
 
-Two sources feed the delete list: `getPreseedKeysNotInMode()` for keys
-in `AGENTS_SEEDED_CONFIGS` that the target mode does not want, and the
-enumerated `RETIRED_PRESEED_KEYS` for keys the current build no longer
-produces at all, which are invisible to the derived list and would
-otherwise survive in the bucket forever. A retired key still present in
-the target mode is never deleted.
+Three sources feed the delete list. `getPreseedKeysNotInMode()` gives keys
+in `AGENTS_SEEDED_CONFIGS` that the target mode does not want. The frozen
+`RETIRED_PRESEED_KEYS` gives keys shipped before provenance markers
+existed, recovered once by walking the seed module's history; a key on it
+that the target mode still seeds is never deleted, and the generator
+refuses to emit such a list. Last, a stale-marker sweep deletes anything
+under the seed's own prefixes carrying a marker other than this build's.
 
-**No migration**: Existing users are unaffected. Changes only happen
-on explicit action.
+Every seed write stamps `x-amz-meta-codeflare-preseed` with the writing
+build's preseed hash. Because a reconcile rewrites every live key before
+cleaning, an older marker means the product has dropped that key -- so
+retirements need no bookkeeping. An S3 PUT replaces metadata wholesale and
+rclone does not send custom metadata, so editing a seeded file through the
+browser or inside the container drops the marker and the file becomes the
+user's own. Deletion always requires positive evidence: a marker, or
+membership of the frozen list. Listing stays inside the seed's top-level
+prefixes, which keeps the getting-started documents out of scope even
+though the same helper stamps them.
+
+**Upgrade semantics**: currently-seeded keys are build-authoritative. A
+release that changes preseed content changes `PRESEED_CONTENT_HASH`, which
+triggers the upgrade reconcile (REQ-AGENT-049) on next dashboard load; that
+reconcile overwrites live keys and removes retired ones. Files the build
+never seeded are never touched. Implements
+[REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
 
 ## Preseed Components
 
