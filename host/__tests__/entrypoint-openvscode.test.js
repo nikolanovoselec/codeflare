@@ -748,24 +748,33 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
 // exposes. openvscode-server ships well behind upstream VS Code (1.109.5 is the
 // newest gitpod release), so npm always offers a newer @types/vscode than any
 // server we can run. Taking it types the extension against APIs the runtime
-// lacks and moves the failure from build time to activation time. Same for
-// @types/node against the pinned engines.node. These assert the pins the image
-// actually ships, so bumping one without the other fails here.
-describe('agent-sidebar type pins track the runtime they describe', () => {
-  const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
-  const pkg = JSON.parse(
-    readFileSync(resolve(__dirname, '../../openvscode/agent-sidebar/package.json'), 'utf8')
-  );
-  const minor = (version) => version.replace(/^[^\d]*/, '').split('.').slice(0, 2).join('.');
+// lacks and moves the failure from build time to activation time.
+//
+// The two pins are guarded to different depths, because they drift for
+// different reasons. @types/vscode tracks a VS Code release exactly, so it is
+// held to the server's minor. @types/node is published on DefinitelyTyped's own
+// cadence and its minor moves independently of any Node release, so only the
+// major is an invariant worth asserting -- holding it to engines.node's minor
+// would fail on bumps that carry no risk.
+const sidebarPkg = () =>
+  JSON.parse(readFileSync(resolve(__dirname, '../../openvscode/agent-sidebar/package.json'), 'utf8'));
+const versionMinor = (version) => version.replace(/^[^\d]*/, '').split('.').slice(0, 2).join('.');
 
+describe('agent-sidebar type pins track the runtime they describe', () => {
   it('pins @types/vscode to the openvscode-server release baked into the image', () => {
+    const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
+    const pkg = sidebarPkg();
     const server = dockerfile.match(/OPENVSCODE_VERSION="([\d.]+)"/);
     assert.ok(server, 'Dockerfile must pin an explicit OPENVSCODE_VERSION');
-    assert.equal(minor(pkg.devDependencies['@types/vscode']), minor(server[1]));
-    assert.equal(minor(pkg.engines.vscode), minor(server[1]));
+    assert.equal(versionMinor(pkg.devDependencies['@types/vscode']), versionMinor(server[1]));
+    assert.equal(versionMinor(pkg.engines.vscode), versionMinor(server[1]));
   });
 
   it('pins @types/node to the Node major the extension declares it runs on', () => {
-    assert.equal(minor(pkg.devDependencies['@types/node']).split('.')[0], pkg.engines.node.split('.')[0]);
+    const pkg = sidebarPkg();
+    assert.equal(
+      versionMinor(pkg.devDependencies['@types/node']).split('.')[0],
+      versionMinor(pkg.engines.node).split('.')[0]
+    );
   });
 });
