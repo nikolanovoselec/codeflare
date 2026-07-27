@@ -584,17 +584,15 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
           `${reviewer} does not embed ${skillName}, so it must carry the command that fetches it`,
         );
       }
-      // Whatever IS embedded must not also be advertised as a runtime fetch --
-      // that is the contradiction the spec lane shipped, telling a reviewer in
-      // one paragraph never to re-fetch what the next told it to read.
-      if (!claudeDocument.content.includes('skills/<name>/SKILL.md')) continue;
-      for (const skillName of claudeEmbedded.filter((name) => name !== 'review-scope')) {
-        assert.doesNotMatch(
-          claudeDocument.content,
-          new RegExp(`not embedded[^\\n]*\`${skillName}\``),
-          `${reviewer} embeds ${skillName} and must not also list it as unembedded`,
-        );
-      }
+      // No prose-contradiction guard here, deliberately. One was written to
+      // catch a document that both embeds a policy and lists it as fetched --
+      // a real defect the spec lane shipped -- and two attempts produced a
+      // regex matching a literal the generator never emits (vacuous) and then
+      // one spanning a whole markdown paragraph, which fired on a sentence
+      // saying the opposite. That is prose matching, and it fails in both
+      // directions. What has teeth is above: the embedded list is pinned per
+      // reviewer, and anything not embedded must be seeded at the path the
+      // fetch command builds AND the document must carry that command.
     }
   });
 
