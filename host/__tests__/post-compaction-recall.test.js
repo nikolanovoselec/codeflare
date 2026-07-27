@@ -118,6 +118,21 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     assert.ok(!context.includes('lexically oldest'));
   });
 
+  it('AC2: orders by captured instant across a UTC-offset change', () => {
+    const dir = join(baseTmp, 'ac2-dst');
+    seed(dir, {
+      // 02:30+0100 is 01:30Z — the LATER instant, but the lower name as text.
+      '2026-10-25T02-30-00+0100-a.md': extract('later instant'),
+      // 02:45+0200 is 00:45Z — earlier, yet sorts above it lexically.
+      '2026-10-25T02-45-00+0200-b.md': extract('earlier instant'),
+    });
+
+    const { context } = runHook({ sessionsDir: dir, count: 1 });
+
+    assert.ok(context.includes('later instant'));
+    assert.ok(!context.includes('earlier instant'));
+  });
+
   it('AC3: stays silent unless the session started from compaction', () => {
     const dir = join(baseTmp, 'ac3');
     seed(dir, { '2026-07-03T10-00-00+0200-ccc.md': extract('a session') });

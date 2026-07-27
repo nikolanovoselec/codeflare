@@ -26,6 +26,7 @@ PER_FILE_BYTES="${POST_COMPACT_PER_FILE_BYTES:-2600}"
 [ -d "$SESSIONS_DIR" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
+command -v timeout >/dev/null 2>&1 || exit 0
 
 INPUT=$(cat 2>/dev/null) || true
 
@@ -35,19 +36,50 @@ INPUT=$(cat 2>/dev/null) || true
 SOURCE=$(echo "$INPUT" | jq -r '.source // empty' 2>/dev/null) || true
 [ "$SOURCE" = "compact" ] || exit 0
 
-# Newest-first by FILENAME, not mtime: extract names are ISO-8601 prefixed, and
-# the vault round-trips through rclone bisync, which rewrites mtimes and would
-# otherwise reorder or starve this list.
-FILES=$(ls -1 "$SESSIONS_DIR" 2>/dev/null | grep -E '\.md$' | LC_ALL=C sort -r | head -n "$EXTRACT_COUNT")
-[ -z "$FILES" ] && exit 0
-
-RAW=$(SESSIONS_DIR="$SESSIONS_DIR" FILE_LIST="$FILES" PER_FILE_BYTES="$PER_FILE_BYTES" \
+RAW=$(SESSIONS_DIR="$SESSIONS_DIR" EXTRACT_COUNT="$EXTRACT_COUNT" PER_FILE_BYTES="$PER_FILE_BYTES" \
   timeout 8 python3 -c '
-import os, sys
+import os, re, sys
+from datetime import datetime
 
 sessions_dir = os.environ["SESSIONS_DIR"]
-names = [n for n in os.environ["FILE_LIST"].splitlines() if n.strip()]
 cap = int(os.environ["PER_FILE_BYTES"])
+want = int(os.environ["EXTRACT_COUNT"])
+
+STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})([+-]\d{4}|Z)")
+
+
+def sort_key(name):
+    """Order by the instant an extract was captured.
+
+    Names are ISO-8601 prefixed and carry a LOCAL offset, so comparing them as
+    text orders by wall-clock. Across a DST change that puts a later extract
+    behind an earlier one and can drop the newest from the window entirely.
+    Selecting on the name rather than the mtime is still deliberate: the store
+    round-trips through rclone bisync, which rewrites mtimes.
+    """
+    m = STAMP.match(name)
+    if not m:
+        return (0, 0.0, name)
+    day, hh, mm, ss, off = m.groups()
+    offset = "+00:00" if off == "Z" else off[:3] + ":" + off[3:]
+    try:
+        moment = datetime.fromisoformat(f"{day}T{hh}:{mm}:{ss}{offset}")
+    except ValueError:
+        return (0, 0.0, name)
+    # The POSIX timestamp, not a formatted string: any rendering keeps its own
+    # offset, so comparing renderings is the wall-clock comparison this exists
+    # to avoid.
+    return (1, moment.timestamp(), name)
+
+
+try:
+    entries = [n for n in os.listdir(sessions_dir) if n.endswith(".md")]
+except OSError:
+    sys.exit(0)
+
+names = sorted(entries, key=sort_key, reverse=True)[:want]
+if not names:
+    sys.exit(0)
 
 WANTED = ("## Context", "## Decisions")
 
