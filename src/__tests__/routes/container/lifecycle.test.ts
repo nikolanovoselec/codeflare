@@ -421,6 +421,11 @@ describe('Container Lifecycle - restart after a bucket change', () => {
   it('starts the container even when the bucket forward fails after destroy', async () => {
     const waitUntil = vi.fn();
     const kv = createMockKV();
+    // What destroy() left behind: stopped, with lastActiveAt refreshed on its way
+    // out. The caller's snapshot predates that write.
+    kv._set('session:codeflare-test-example-com:sess123', {
+      id: 'sess123', status: 'stopped', lastActiveAt: 'REFRESHED-BY-DESTROY',
+    });
     const container = {
       fetch: vi.fn().mockRejectedValue(new Error('Network connection lost.')),
       destroy: vi.fn().mockResolvedValue(undefined),
@@ -433,7 +438,7 @@ describe('Container Lifecycle - restart after a bucket change', () => {
       needsBucketUpdate: true,
       setBucketBody: JSON.stringify({ bucketName: 'codeflare-test-example-com' }),
       containerId: 'container-abc',
-      sessionData: { id: 'sess123', status: 'running' } as unknown as Session,
+      sessionData: { id: 'sess123', status: 'running', lastActiveAt: 'STALE' } as unknown as Session,
       sessionKey: 'session:codeflare-test-example-com:sess123',
       env: { KV: kv } as unknown as Env,
       shortContainerId: 'cont-abc',
@@ -448,7 +453,10 @@ describe('Container Lifecycle - restart after a bucket change', () => {
     // destroy() left the record 'stopped'. The pre-destroy snapshot still reads
     // 'running', so trusting it would leave the record stopped for the whole boot
     // and the non-retryable 4503 gate would end the tab's reconnects.
-    const written = kv.put.mock.calls.at(-1)?.[1];
-    expect(JSON.parse(written as string).status).toBe('running');
+    const written = JSON.parse(kv.put.mock.calls.at(-1)?.[1] as string);
+    expect(written.status).toBe('running');
+    // Re-read rather than spread the snapshot: spreading would revert the field
+    // destroy() had just refreshed.
+    expect(written.lastActiveAt).toBe('REFRESHED-BY-DESTROY');
   });
 });

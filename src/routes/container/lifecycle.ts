@@ -107,7 +107,14 @@ export async function startOrRestartContainer(params: {
   // 4503 gate is non-retryable — the tab would give up rather than back off
   // (REQ-SESSION-020 AC5).
   if (sessionData.status !== 'running' || destroyedForRestart) {
-    const updated = { ...sessionData, status: 'running' as const };
+    // On the restart path the snapshot is also stale in the other direction:
+    // destroy() refreshed lastActiveAt on its way out, and a tick may have written
+    // metrics, both of which spreading the snapshot would revert. Re-read there,
+    // as the start-failure rollback below already does.
+    const base = destroyedForRestart
+      ? (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData
+      : sessionData;
+    const updated = { ...base, status: 'running' as const };
     await putSessionWithMetadata(env.KV, sessionKey, updated);
   }
 
