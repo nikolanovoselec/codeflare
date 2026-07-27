@@ -89,6 +89,12 @@ describe('handleWebSocketUpgrade', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks resets call history but NOT implementations, and no config
+    // sets mockReset/restoreMocks. Several cases here install a per-URL fetch —
+    // one of them throwing — so without this a later test silently inherits the
+    // previous one's behaviour and fails by declaration order.
+    mockContainerFetch.mockReset().mockResolvedValue(new Response('ws upgrade', { status: 200 }));
+    mockContainerGetState.mockReset().mockResolvedValue({ status: 'running' });
   });
 
   function createRequest(headers: Record<string, string> = {}): Request {

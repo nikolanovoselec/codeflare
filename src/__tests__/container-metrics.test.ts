@@ -600,8 +600,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       // raceBudget's bound is a plain setTimeout so it is faked, while the
       // retained AbortSignal.timeout is native and is not. That asymmetry is the
       // point: the race is the only thing that can end this await, and faking it
-      // proves that in milliseconds instead of ten real seconds. The first
-      // advance drains the awaits ahead of the ping so its timer is armed.
+      // proves that in milliseconds instead of ten real seconds.
       vi.useFakeTimers();
       try {
         const pending = instance.collectMetrics();
