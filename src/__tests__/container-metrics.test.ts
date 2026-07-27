@@ -605,8 +605,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       vi.useFakeTimers();
       try {
         const pending = instance.collectMetrics();
-        await vi.advanceTimersByTimeAsync(0);
-        await vi.advanceTimersByTimeAsync(CONTAINER_POLL_BUDGET_MS);
+        // Advance repeatedly rather than once: each call drains microtasks before
+        // moving the clock, so a timer armed behind one more await than expected
+        // is still caught instead of failing on the default test timeout. The
+        // budget timer is the only one faked here, so extra passes are inert.
+        for (let i = 0; i < 3; i++) await vi.advanceTimersByTimeAsync(CONTAINER_POLL_BUDGET_MS);
         await pending;
       } finally {
         vi.useRealTimers();
