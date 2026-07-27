@@ -55,32 +55,42 @@ KEYWORDS=$(printf '%s' "$PROMPT_TEXT" | head -c 200 \
 [ -z "$KEYWORDS" ] && exit 0
 
 # Check if the unified global graph exists.
-GLOBAL_GRAPH="$USER_HOME/.graphify/global-graph.json"
-if [ ! -f "$GLOBAL_GRAPH" ]; then
-  # Fall back to per-repo graph in cwd.
-  CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
-  [ -z "$CWD" ] && CWD=$(pwd 2>/dev/null)
-  case "$CWD" in *..* ) exit 0 ;; esac
-  GLOBAL_GRAPH="$CWD/graphify-out/graph.json"
-  [ ! -f "$GLOBAL_GRAPH" ] && exit 0
-fi
-
-# Skip a graph too large to hold in memory. The ceiling is a memory guard, not a
-# latency one: the `timeout 8` below already bounds the parse. Measured on this
-# container, a 42MB unified graph parses in 0.56s at 136MB RSS (~3.2x file size)
-# - well inside both budgets - yet the previous 30MB ceiling silently disabled
-# injection entirely once the graph outgrew it, with no signal that anything had
-# stopped working. 100MB is the operator-chosen ceiling: ~320MB resident by that
-# ratio, which the container carries, against a graph that grows with the vault
-# and every indexed repo. A non-numeric override falls back to the default rather
-# than through the comparison, which under `set +e` would exit 2 and carry on - a
-# memory guard that vanishes on a typo while still reading as present. Both
-# checks are deterministic per session, so safe before sentinel: a graph skipped
-# here leaves the sentinel unclaimed, so a later prompt can still inject.
+# The ceiling is a memory guard, not a latency one: the `timeout 8` below already
+# bounds the parse. Measured on this container, a 40MB unified graph parses in
+# 0.56s at 136MB RSS (~3.2x file size) - well inside both budgets - yet the
+# previous 30MB ceiling silently disabled injection entirely once the graph
+# outgrew it, with no signal that anything had stopped working. 100MB is the
+# operator-chosen ceiling: ~320MB resident by that ratio, which the container
+# carries, against a graph that grows with the vault and every indexed repo.
+#
+# An override is rejected unless it is a plausible byte count. A non-numeric one
+# would make the comparison exit 2 and, under `set +e`, carry on; an all-digit
+# but out-of-range one fails the same way with the error swallowed. Both leave a
+# guard that reads as present and does nothing.
 MAX_GRAPH_BYTES="${MEMORY_INJECT_MAX_GRAPH_BYTES:-104857600}"
-case "$MAX_GRAPH_BYTES" in ''|*[!0-9]*) MAX_GRAPH_BYTES=104857600 ;; esac
-GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || GRAPH_SIZE=0
-[ "$GRAPH_SIZE" -gt "$MAX_GRAPH_BYTES" ] 2>/dev/null && exit 0
+case "$MAX_GRAPH_BYTES" in
+  ''|*[!0-9]*) MAX_GRAPH_BYTES=104857600 ;;
+  ??????????????????*) MAX_GRAPH_BYTES=104857600 ;;
+esac
+
+# The unified graph first, the active repo's as fallback. A candidate past the
+# ceiling is skipped rather than fatal: a unified graph too large to parse must
+# not disable injection while a smaller repo graph sits there ready. Both checks
+# are deterministic per session, so safe before sentinel - a graph skipped here
+# leaves the sentinel unclaimed, so a later prompt can still inject.
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+[ -z "$CWD" ] && CWD=$(pwd 2>/dev/null)
+case "$CWD" in *..* ) CWD="" ;; esac
+
+GLOBAL_GRAPH=""
+for CANDIDATE in "$USER_HOME/.graphify/global-graph.json" ${CWD:+"$CWD/graphify-out/graph.json"}; do
+  [ -f "$CANDIDATE" ] || continue
+  CANDIDATE_SIZE=$(stat -c%s "$CANDIDATE" 2>/dev/null) || continue
+  [ "$CANDIDATE_SIZE" -gt "$MAX_GRAPH_BYTES" ] && continue
+  GLOBAL_GRAPH="$CANDIDATE"
+  break
+done
+[ -z "$GLOBAL_GRAPH" ] && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "

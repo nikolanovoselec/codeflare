@@ -8,6 +8,14 @@
 
 export const MEMORY_INJECT_MIN_PROMPT_CHARS = 20;
 export const MEMORY_INJECT_MAX_NODES = 10;
+/**
+ * Shared with the Claude hook, and measured on both runtimes rather than
+ * inherited: the same 40MB graph costs 148MB RSS / 469ms under Node's
+ * JSON.parse and 136MB / 560ms under CPython's json, so one ceiling is honest
+ * for both. Unlike the hook's bounded subprocess, this parse runs in-process
+ * and blocks the turn while it happens - about 1.2s at the ceiling - which is
+ * why it is spent once per session rather than per prompt.
+ */
 export const MEMORY_INJECT_MAX_GRAPH_BYTES = 104857600;
 
 const KEYWORD_MIN_CHARS = 4;

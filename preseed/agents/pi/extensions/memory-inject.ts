@@ -43,10 +43,22 @@ export interface MemoryInjectDependencies {
   maxGraphBytes: number;
 }
 
+/**
+ * The ceiling is resolved from the environment once, here, rather than read
+ * inside the resolver: a caller that supplies a ceiling in the dependency
+ * struct must not have it silently outranked by an ambient variable. A
+ * non-numeric or non-positive override falls back to the default, so the guard
+ * fails closed rather than disappearing.
+ */
+function configuredCeiling(): number {
+  const override = Number(process.env.MEMORY_INJECT_MAX_GRAPH_BYTES);
+  return Number.isInteger(override) && override > 0 ? override : MEMORY_INJECT_MAX_GRAPH_BYTES;
+}
+
 const defaultDependencies: MemoryInjectDependencies = {
   globalGraph: join(USER_HOME, ".graphify", "global-graph.json"),
   sentinelDir: "/tmp/.memory-counter",
-  maxGraphBytes: MEMORY_INJECT_MAX_GRAPH_BYTES,
+  maxGraphBytes: configuredCeiling(),
 };
 
 // Same shape memory-vault.ts uses: the live header when the runtime has one,
@@ -66,25 +78,24 @@ function isChildSession(ctx: any): boolean {
 }
 
 /**
- * The graph to query: the unified one, or the active repo's when it is absent.
- * Null when neither exists or the file is past the ceiling.
+ * The graph to query: the unified one, or the active repo's when the unified
+ * one is absent or itself past the ceiling. Null when no candidate fits.
  *
- * The ceiling is a memory guard - the graph is parsed whole - and a graph that
- * outgrows it must not silently disable injection, so it is a lever rather than
- * a constant, and a non-numeric override falls back to the default.
+ * An over-ceiling candidate is skipped rather than returned as a refusal: a
+ * unified graph too large to parse must not disable injection while a smaller
+ * repo graph sits there ready - that is the silent disable this exists to end.
+ * The ceiling is a memory guard, since the graph is parsed whole, and it is a
+ * lever rather than a constant so a graph that outgrows the default cannot
+ * quietly turn the feature off.
  */
 export function resolveGraphPath(
   dependencies: MemoryInjectDependencies,
   cwd: string,
 ): string | null {
   const candidates = [dependencies.globalGraph, join(cwd, "graphify-out", "graph.json")];
-  const override = Number(process.env.MEMORY_INJECT_MAX_GRAPH_BYTES);
-  const ceiling = Number.isInteger(override) && override > 0 ? override : dependencies.maxGraphBytes;
   for (const candidate of candidates) {
     try {
-      const size = statSync(candidate).size;
-      if (size > ceiling) return null;
-      return candidate;
+      if (statSync(candidate).size <= dependencies.maxGraphBytes) return candidate;
     } catch { /* try the next candidate */ }
   }
   return null;

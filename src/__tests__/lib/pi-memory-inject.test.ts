@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -122,6 +122,36 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
     const resolved = resolveGraphPath({ ...deps, globalGraph: join(deps.root, 'missing.json') }, repo);
 
     expect(resolved).toBe(join(repo, 'graphify-out', 'graph.json'));
+  });
+
+  it('AC5: falls back to the repo graph when the unified one is past the ceiling', () => {
+    const deps = workspace();
+    const repo = mkdtempSync(join(tmpdir(), 'pi-mem-repo-small-'));
+    roots.push(repo);
+    mkdirSync(join(repo, 'graphify-out'), { recursive: true });
+    const small = join(repo, 'graphify-out', 'graph.json');
+    writeFileSync(small, JSON.stringify({ nodes: [NODES[0]] }));
+    // A ceiling between the two: the unified graph is out, the repo graph is in.
+    const ceiling = statSync(small).size + 1;
+    expect(statSync(deps.globalGraph).size).toBeGreaterThan(ceiling);
+
+    // An over-ceiling unified graph must not disable injection while a usable
+    // one is present — that is the silent disable this work removed.
+    expect(resolveGraphPath({ ...deps, maxGraphBytes: ceiling }, repo)).toBe(small);
+  });
+
+  it('AC5: an injected ceiling is not outranked by the ambient environment', () => {
+    const deps = workspace();
+    const previous = process.env.MEMORY_INJECT_MAX_GRAPH_BYTES;
+    process.env.MEMORY_INJECT_MAX_GRAPH_BYTES = '1';
+    try {
+      // The dependency struct is the contract; the variable configures the
+      // default, not every caller.
+      expect(resolveGraphPath(deps, '/nowhere')).toBe(deps.globalGraph);
+    } finally {
+      if (previous === undefined) delete process.env.MEMORY_INJECT_MAX_GRAPH_BYTES;
+      else process.env.MEMORY_INJECT_MAX_GRAPH_BYTES = previous;
+    }
   });
 
   it('AC1: injects matched nodes into the turn as a message', () => {
