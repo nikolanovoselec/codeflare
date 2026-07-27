@@ -121,6 +121,7 @@ const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
 ]);
 
 const PI_MODEL_HIDDEN_SKILLS = new Set([
+  'code-review-checklist',
   'doc-enforce',
   'doc-enforce-lanes',
   'doc-enforce-shape',

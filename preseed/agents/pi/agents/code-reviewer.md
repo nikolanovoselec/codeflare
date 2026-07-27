@@ -19,6 +19,8 @@ Apply these generated, canonical skill documents directly; do not retrieve them 
 
 <!-- @include-skill tdd-enforce -->
 
+<!-- @include-skill code-review-checklist -->
+
 ## 1. Resolve scope before reading
 
 Apply the embedded `review-scope` policy and treat its result as a hard boundary:

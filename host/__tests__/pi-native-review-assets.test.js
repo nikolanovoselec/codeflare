@@ -532,7 +532,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
 
   it('REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt', () => {
     const requiredSkills = {
-      'code-reviewer': ['review-scope', 'tdd-enforce'],
+      'code-reviewer': ['review-scope', 'tdd-enforce', 'code-review-checklist'],
       'spec-reviewer': ['review-scope', 'spec-enforce', 'spec-enforce-ac', 'spec-enforce-truth'],
       'doc-updater': ['review-scope', 'doc-enforce', 'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth'],
     };
