@@ -628,7 +628,10 @@ describe('reconcileAgentConfigs / REQ-MEM-011 AC4', () => {
   });
 
   it('seeds and cleans up for "default" mode with cleanup=true', async () => {
-    mockFetch.mockResolvedValue(new Response('', { status: 200 }));
+    // A fresh Response per call, not one shared instance: the sweep reads the
+    // body of every listing, and this mode derives two prefixes, so a shared
+    // instance is already consumed by the second LIST.
+    mockFetch.mockImplementation(() => new Response('', { status: 200 }));
 
     const result = await reconcileAgentConfigs(env, bucket, endpoint, 'default', {
       overwrite: true,
