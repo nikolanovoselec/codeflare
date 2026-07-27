@@ -130,7 +130,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The pentest workflow runs weekly and on manual dispatch against the configured target URL in the production environment. <!-- @impl: .github/workflows/pentest.yml::tls --> <!-- @manual -->
 2. The workflow runs six parallel probes using lightweight external tools (no active scanners) to minimize CI resource consumption. <!-- @manual -->
 3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/pentest.md](../../documentation/lanes/pentest.md#test-results). <!-- @manual -->
-4. A legacy-TLS verdict is derived from the server's own answer to a handshake the probe issues itself, and a probe that cannot obtain one reports inconclusive rather than a pass. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (passes when the server refuses the version with an alert) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (fails when the server accepts the version and returns a ServerHello) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, when nothing is listening) -->
+4. A legacy-TLS verdict is derived from the server's own answer to a handshake the probe issues itself. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (passes when the server refuses the version with an alert) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (fails when the server accepts the version and returns a ServerHello) -->
+5. An answer that does not establish whether the version is supported reports inconclusive rather than a pass. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, on an alert that is not about the version) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, when nothing is listening) -->
 
 **Constraints:**
 
@@ -679,8 +680,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The run title resolves and displays the environment being deployed, so dispatches are distinguishable in the run list without opening them. <!-- @impl: .github/workflows/deploy.yml::run-name --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests > names each run after the environment it resolved) -->
-2. Each dispatch verifies in its own concurrency group, keyed by that run's id, so a later dispatch cannot cancel an earlier one's verification and turn a verified commit into a failed gate. <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @impl: .github/workflows/test.yml::concurrency --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests > gives each dispatch its own verify concurrency group) -->
+1. The run title resolves and displays the environment being deployed, so dispatches are distinguishable in the run list without opening them. <!-- @impl: .github/workflows/deploy.yml::run-name --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (names each run after the environment it resolved) -->
+2. Each dispatch verifies in its own concurrency group, keyed by that run's id, so a later dispatch cannot cancel an earlier one's verification and turn a verified commit into a failed gate. <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @impl: .github/workflows/test.yml::concurrency --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (gives each dispatch its own verify concurrency group) -->
 
 **Constraints:**
 
