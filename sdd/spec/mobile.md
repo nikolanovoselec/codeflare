@@ -30,13 +30,15 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. The terminal renders correctly on mobile viewports (phones and tablets). <!-- @impl: web-ui/src/lib/mobile.ts::isMobile --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001: Terminal fully usable on mobile devices) -->
+1. The terminal renders correctly on mobile viewports (phones and tablets). <!-- @impl: web-ui/src/lib/mobile.ts::isMobile --> <!-- @manual: Open the deployed terminal at phone and tablet viewport widths and confirm xterm renders without clipping or overflow. -->
 2. Text input, command execution, and output display work identically to desktop except where touch interaction necessarily differs. <!-- @manual -->
-3. The mobile E2E test suite passes against the deployed worker. <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001: Terminal fully usable on mobile devices) --> <!-- @manual -->
+3. The mobile E2E test suite passes against the deployed worker. <!-- @manual -->
 4. Terminal dimensions are recalculated on every viewport change (virtual keyboard open/close, orientation change, resize), keeping the layout free of visual corruption. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001 AC5: visualViewport resize event triggers keyboard state update (fallback path)) -->
 5. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-001 AC6: skips the keyboard refit (no fit, no PTY resize) when the container has zero visible height) -->
 6. Floating page controls navigate normal terminal scrollback through xterm's buffer scroll pipeline with buffer-derived deltas. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC6: navigates normal-buffer pages through the buffer scroll pipeline) -->
 7. Floating page controls send PageUp/PageDown input to navigate alternate-screen application history. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application) -->
+
+**Notes:** The deployed mobile E2E suite in AC3 is not present; mobile rendering and interaction remain manually verified.
 
 **Constraints:**
 
@@ -49,7 +51,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
