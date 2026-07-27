@@ -564,6 +564,23 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     expect(result.warnings.some((w) => w.includes('HTTP 403'))).toBe(true);
   });
 
+  it('skips the sweep when two prefixes are each under the cap but over it combined', async () => {
+    // The per-prefix page guard cannot see this: neither prefix trips it. The
+    // cross-prefix check after the merge is the only remaining bound on total
+    // HEAD and DELETE subrequests.
+    const skills = Array.from({ length: 150 }, (_, i) => `.claude/skills/s${i}/SKILL.md`);
+    const rules = Array.from({ length: 150 }, (_, i) => `.claude/rules/r${i}.md`);
+    const all = [...skills, ...rules];
+    mockR2({ listed: all, markers: Object.fromEntries(all.map((k) => [k, 'an-older-build'])) });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(headRequests()).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+    expect(result.warnings.some((w) => w.includes('across the seed prefixes'))).toBe(true);
+  });
+
   it('skips the sweep and warns when the candidate set is implausibly large', async () => {
     // The caller has already spent a PUT per live key in this request, so an
     // unbounded fan-out is what would hit the subrequest ceiling.
