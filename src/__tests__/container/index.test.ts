@@ -729,7 +729,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     // is what survives a teardown that is killed partway, which is the case that
     // produced a 20-minute reconnect storm in prod.
     it('records the session stopped BEFORE clearing the identifiers that write needs', async () => {
-      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      // Snapshot what a concurrent collectMetrics tick would observe at the exact
+      // moment the 'stopped' record lands: it reads the persisted marker to tell a
+      // deliberate stop from a false one, so the marker must already be durable.
+      let markerDurableAtKvWrite = false;
+      const mockKvPut = vi.fn().mockImplementation(async () => {
+        markerDurableAtKvWrite = mockStorage.put.mock.calls
+          .some((c: unknown[]) => c[0] === 'shutdownRequested');
+      });
       const mockKvGet = vi.fn().mockResolvedValue({ id: 'sess123', status: 'running', name: 'Test' });
       mockEnv.KV = { get: mockKvGet, put: mockKvPut };
 
@@ -751,6 +758,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // an assertion on the value alone would still pass.
       expect(mockKvPut.mock.invocationCallOrder[0])
         .toBeLessThan(mockStorage.delete.mock.invocationCallOrder[0]);
+
+      // ...and not so early that the window between it and the marker lets a
+      // concurrent tick self-heal the record back to 'running'.
+      expect(markerDurableAtKvWrite).toBe(true);
     });
 
     // REQ-SESSION-018 AC4: destroy() persists the deliberate-stop marker (and

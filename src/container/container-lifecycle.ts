@@ -172,6 +172,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // persisted marker, so the surviving collectMetrics alarm cannot self-heal a
   // session the user is deliberately stopping back to running (REQ-SESSION-018
   // AC4). onStart() clears the marker on the next fresh start.
+  try { await host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now()); } catch { /* storage racing teardown */ }
   // Record the stop while the identifiers that write still needs are in hand.
   // onStop() cannot: the clear below nulls _bucketName, so its updateKvStatus
   // hits the missing-identifiers guard and writes nothing, leaving a torn-down
@@ -182,6 +183,12 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // budget and was SIGKILLed left the session 'running' and the tab retried it
   // about once a second for 20+ minutes.
   //
+  // Ordered AFTER the marker put above, not before it: a KV await is not a DO
+  // storage op, so the input gate does not hold off alarm delivery across it. A
+  // collectMetrics tick landing in that window would read KV 'stopped' with no
+  // marker yet persisted, take the self-heal branch, and re-assert 'running' --
+  // undoing exactly what this write exists to do.
+  //
   // Safe on both callers: the delete route deletes the record after destroy()
   // returns, so this write is superseded rather than resurrecting anything
   // (REQ-SESSION-009), and the stop route already wrote the same value before
@@ -189,7 +196,6 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   try {
     await updateKvStatus(host.ctx, host.env, host._bucketName, 'stopped', 'lastActiveAt');
   } catch { /* teardown proceeds regardless */ }
-  try { await host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now()); } catch { /* storage racing teardown */ }
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   try {
     await host.ctx.storage.delete(SESSION_ID_KEY);
