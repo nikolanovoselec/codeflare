@@ -557,7 +557,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 
 - The marker value identifies the writing build and is never used to infer staleness on its own; only an object outside the current build's key set is a candidate.
-- A key the seed once shipped is never appended to the by-name list; the marker identifies it instead. The list grows only for a product-generated file that was never a seeded key at all.
+- A key the seed once shipped is never appended to the by-name list; the marker identifies it instead.
+- The list grows only for a product-generated file that was never a seeded key at all.
 - Deletion always requires positive evidence — a marker, or membership of the by-name list, whose entries are each shown to be product-generated rather than user-authored before being added — and anything unproven is kept.
 - The preseed content hash covers the by-name list, so shipping the list triggers the upgrade that applies it.
 - The generator refuses to emit a by-name list naming a key the current build still seeds.
