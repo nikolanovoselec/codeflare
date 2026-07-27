@@ -78,39 +78,34 @@ function isChildSession(ctx: any): boolean {
 }
 
 /**
- * The graph to query: the unified one, or the active repo's when the unified
- * one is absent or itself past the ceiling. Null when no candidate fits.
+ * The unified graph, or null when it is missing or past the ceiling.
  *
- * An over-ceiling candidate is skipped rather than returned as a refusal: a
- * unified graph too large to parse must not disable injection while a smaller
- * repo graph sits there ready - that is the silent disable this exists to end.
- * The ceiling is a memory guard, since the graph is parsed whole, and it is a
- * lever rather than a constant so a graph that outgrows the default cannot
- * quietly turn the feature off.
+ * There is deliberately no per-repo fallback: at the start of a session no repo
+ * graph exists yet, and once one does the merger folds it into the unified
+ * graph, so a repo graph is never a substitute - only a subset that happens to
+ * be smaller. The ceiling is a memory guard, since the graph is parsed whole,
+ * and it is a lever rather than a constant so a graph that outgrows the default
+ * cannot quietly turn the feature off.
  */
-export function resolveGraphPath(
-  dependencies: MemoryInjectDependencies,
-  cwd: string,
-): string | null {
-  const candidates = [dependencies.globalGraph, join(cwd, "graphify-out", "graph.json")];
-  for (const candidate of candidates) {
-    try {
-      if (statSync(candidate).size <= dependencies.maxGraphBytes) return candidate;
-    } catch { /* try the next candidate */ }
+export function resolveGraphPath(dependencies: MemoryInjectDependencies): string | null {
+  try {
+    return statSync(dependencies.globalGraph).size <= dependencies.maxGraphBytes
+      ? dependencies.globalGraph
+      : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export function buildInjection(
   dependencies: MemoryInjectDependencies,
   prompt: string,
-  cwd: string,
 ): string | null {
   if (prompt.trim().length < MEMORY_INJECT_MIN_PROMPT_CHARS) return null;
   const keywords = extractKeywords(prompt);
   if (keywords.length === 0) return null;
 
-  const graphPath = resolveGraphPath(dependencies, cwd);
+  const graphPath = resolveGraphPath(dependencies);
   if (!graphPath) return null;
 
   let nodes: GraphNode[];
@@ -137,7 +132,7 @@ export function registerMemoryInject(pi: MemoryInjectPi, dependencies: MemoryInj
       const prompt = String(event?.prompt ?? "");
       if (isSyntheticPrompt(prompt)) return undefined;
 
-      const content = buildInjection(dependencies, prompt, String(ctx?.cwd ?? process.cwd()));
+      const content = buildInjection(dependencies, prompt);
       if (!content) return undefined;
 
       // Claimed only after a query that matched, and atomically: a miss must not
@@ -152,7 +147,14 @@ export function registerMemoryInject(pi: MemoryInjectPi, dependencies: MemoryInj
         return undefined;
       }
 
-      return { message: { customType: MEMORY_INJECT_TYPE, content, display: false, details: { graph: dependencies.globalGraph } } };
+      return {
+        message: {
+          customType: MEMORY_INJECT_TYPE,
+          content,
+          display: false,
+          details: { graph: dependencies.globalGraph },
+        },
+      };
     } catch {
       return undefined;
     }

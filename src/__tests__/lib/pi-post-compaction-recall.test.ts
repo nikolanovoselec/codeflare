@@ -164,6 +164,14 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(tiny).not.toBe('');
   });
 
+  it('AC4: a nonsensical cap carries nothing rather than everything', () => {
+    // A negative slice bound counts from the far end, so an unfloored budget
+    // returns almost the whole text — the inverse of a bound, from the one
+    // input a caller is most likely to get wrong.
+    expect(capBytes('x'.repeat(600), -5)).toBe('');
+    expect(capBytes('x'.repeat(600), 0)).toBe('');
+  });
+
   it('AC1: builds the digest newest-first, bounded by the extract count', () => {
     const dir = extractsDir({
       '2026-07-01T10-00-00+0200-a.md': extract('oldest session'),

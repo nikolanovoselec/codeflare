@@ -6,7 +6,7 @@
 //   AC5: a graph past the size ceiling is skipped without spending the sentinel
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -24,12 +24,11 @@ function makeGraph(dir, nodes) {
 }
 
 function runHook(opts) {
-  const { counterDir, sessionId, prompt, home, maxGraphBytes, cwd } = opts;
+  const { counterDir, sessionId, prompt, home, maxGraphBytes } = opts;
   const input = JSON.stringify({
     hook_event_name: 'UserPromptSubmit',
     session_id: sessionId || 'test-sess',
     prompt: prompt || '',
-    ...(cwd ? { cwd } : {}),
   });
   const result = spawnSync('bash', [HOOK], {
     encoding: 'utf-8',
@@ -244,37 +243,6 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
 
     assert.equal(status, 0);
     assert.ok(json?.hookSpecificOutput?.additionalContext?.includes('handleVaultRequest'));
-  });
-
-  it('AC5: falls back to the repo graph when the unified one is past the ceiling', () => {
-    const counterDir = mkdtempSync(join(baseTmp, 'fallback-counter-'));
-    const homeDir = mkdtempSync(join(baseTmp, 'fallback-home-'));
-    // Deliberately larger than the repo graph, and both above the ceiling set below.
-    makeGraph(join(homeDir, '.graphify'), Array.from({ length: 40 }, (_, i) => ({
-      id: String(i), label: `unifiedNode${i}`, source: 'src/unified.ts', description: 'x'.repeat(200),
-    })));
-    const repoGraphDir = join(homeDir, 'repo', 'graphify-out');
-    mkdirSync(repoGraphDir, { recursive: true });
-    writeFileSync(join(repoGraphDir, 'graph.json'), JSON.stringify({
-      nodes: [{ id: '1', label: 'handleVaultRequest', source: 'src/routes/vault.ts', description: 'repo graph node' }],
-      edges: [],
-    }));
-
-    const unifiedSize = statSync(join(homeDir, '.graphify', 'global-graph.json')).size;
-    const repoSize = statSync(join(repoGraphDir, 'graph.json')).size;
-    assert.ok(repoSize < unifiedSize, 'fixture must put the repo graph under the unified one');
-
-    const { json } = runHook({
-      counterDir,
-      home: homeDir,
-      cwd: join(homeDir, 'repo'),
-      maxGraphBytes: repoSize + 1,
-      prompt: 'check the vault route handler and fix the container proxy issue',
-    });
-
-    // The oversized unified graph must not disable injection outright.
-    assert.ok(json?.hookSpecificOutput?.additionalContext?.includes('handleVaultRequest'));
-    assert.ok(!json.hookSpecificOutput.additionalContext.includes('unifiedNode'));
   });
 
   it('creates counter directory if missing', () => {

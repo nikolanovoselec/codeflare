@@ -114,7 +114,11 @@ export function capBytes(text: string, cap: number): string {
   if (encoded.length <= cap) return text;
   const markerBytes = Buffer.byteLength(RECALL_TRUNCATION_MARKER, "utf-8") + 1;
   const marked = cap > markerBytes;
-  const decoded = new TextDecoder("utf-8").decode(encoded.subarray(0, marked ? cap - markerBytes : cap));
+  // Floored, because subarray counts a negative end from the far end of the
+  // buffer: a negative cap would return nearly the whole text - the inverse of
+  // the bound - and the cap is caller-supplied.
+  const budget = Math.max(0, marked ? cap - markerBytes : cap);
+  const decoded = new TextDecoder("utf-8").decode(encoded.subarray(0, budget));
   const kept = decoded.endsWith(REPLACEMENT_CHARACTER) ? decoded.slice(0, -1) : decoded;
   return marked ? `${kept.trimEnd()}\n${RECALL_TRUNCATION_MARKER}` : kept;
 }

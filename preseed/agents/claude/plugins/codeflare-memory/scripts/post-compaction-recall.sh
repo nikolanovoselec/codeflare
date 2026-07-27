@@ -151,7 +151,10 @@ for name in names:
     if len(encoded) > cap:
         marker_bytes = len(MARKER.encode("utf-8")) + 1
         marked = cap > marker_bytes
-        budget = cap - marker_bytes if marked else cap
+        # Floored: a negative slice bound counts from the end of the buffer and
+        # would return nearly the whole text - the inverse of the bound - and
+        # the cap comes from the environment.
+        budget = max(0, cap - marker_bytes if marked else cap)
         joined = encoded[:budget].decode("utf-8", "ignore").rstrip()
         if marked:
             joined += "\n" + MARKER

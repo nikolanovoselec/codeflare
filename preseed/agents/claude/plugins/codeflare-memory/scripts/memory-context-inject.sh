@@ -73,24 +73,16 @@ case "$MAX_GRAPH_BYTES" in
   ??????????????????*) MAX_GRAPH_BYTES=104857600 ;;
 esac
 
-# The unified graph first, the active repo's as fallback. A candidate past the
-# ceiling is skipped rather than fatal: a unified graph too large to parse must
-# not disable injection while a smaller repo graph sits there ready. Both checks
-# are deterministic per session, so safe before sentinel - a graph skipped here
+# The unified graph is the only source. There is deliberately no per-repo
+# fallback: at the start of a session - the only moment this runs - no repo graph
+# exists yet, and once one does the merger folds it into the unified graph, so a
+# repo graph is never a substitute, only a smaller subset. Both checks are
+# deterministic per session, so safe before sentinel - a graph skipped here
 # leaves the sentinel unclaimed, so a later prompt can still inject.
-CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
-[ -z "$CWD" ] && CWD=$(pwd 2>/dev/null)
-case "$CWD" in *..* ) CWD="" ;; esac
-
-GLOBAL_GRAPH=""
-for CANDIDATE in "$USER_HOME/.graphify/global-graph.json" ${CWD:+"$CWD/graphify-out/graph.json"}; do
-  [ -f "$CANDIDATE" ] || continue
-  CANDIDATE_SIZE=$(stat -c%s "$CANDIDATE" 2>/dev/null) || continue
-  [ "$CANDIDATE_SIZE" -gt "$MAX_GRAPH_BYTES" ] && continue
-  GLOBAL_GRAPH="$CANDIDATE"
-  break
-done
-[ -z "$GLOBAL_GRAPH" ] && exit 0
+GLOBAL_GRAPH="$USER_HOME/.graphify/global-graph.json"
+[ -f "$GLOBAL_GRAPH" ] || exit 0
+GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || exit 0
+[ "$GRAPH_SIZE" -gt "$MAX_GRAPH_BYTES" ] && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "

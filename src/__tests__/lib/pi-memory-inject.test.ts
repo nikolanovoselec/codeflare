@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -102,42 +102,21 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
   it('AC4: a prompt below the character floor is skipped before the graph is read', () => {
     const deps = workspace();
 
-    expect(buildInjection(deps, 'too short', '/nowhere')).toBeNull();
+    expect(buildInjection(deps, 'too short')).toBeNull();
   });
 
-  it('AC5: a graph past the ceiling resolves to nothing', () => {
-    const deps = workspace();
-
-    expect(resolveGraphPath({ ...deps, maxGraphBytes: 1 }, '/nowhere')).toBeNull();
-    expect(resolveGraphPath(deps, '/nowhere')).toBe(deps.globalGraph);
-  });
-
-  it('AC5: falls back to the active repo graph when the unified one is absent', () => {
+  it('AC5: reads the unified graph only, and only within the ceiling', () => {
     const deps = workspace();
     const repo = mkdtempSync(join(tmpdir(), 'pi-mem-repo-'));
     roots.push(repo);
     mkdirSync(join(repo, 'graphify-out'), { recursive: true });
     writeFileSync(join(repo, 'graphify-out', 'graph.json'), JSON.stringify({ nodes: NODES }));
 
-    const resolved = resolveGraphPath({ ...deps, globalGraph: join(deps.root, 'missing.json') }, repo);
-
-    expect(resolved).toBe(join(repo, 'graphify-out', 'graph.json'));
-  });
-
-  it('AC5: falls back to the repo graph when the unified one is past the ceiling', () => {
-    const deps = workspace();
-    const repo = mkdtempSync(join(tmpdir(), 'pi-mem-repo-small-'));
-    roots.push(repo);
-    mkdirSync(join(repo, 'graphify-out'), { recursive: true });
-    const small = join(repo, 'graphify-out', 'graph.json');
-    writeFileSync(small, JSON.stringify({ nodes: [NODES[0]] }));
-    // A ceiling between the two: the unified graph is out, the repo graph is in.
-    const ceiling = statSync(small).size + 1;
-    expect(statSync(deps.globalGraph).size).toBeGreaterThan(ceiling);
-
-    // An over-ceiling unified graph must not disable injection while a usable
-    // one is present — that is the silent disable this work removed.
-    expect(resolveGraphPath({ ...deps, maxGraphBytes: ceiling }, repo)).toBe(small);
+    expect(resolveGraphPath(deps)).toBe(deps.globalGraph);
+    expect(resolveGraphPath({ ...deps, maxGraphBytes: 1 })).toBeNull();
+    // A repo graph is a subset the merger already folded into the unified one,
+    // and at session start it does not exist at all — never a substitute.
+    expect(resolveGraphPath({ ...deps, globalGraph: join(deps.root, 'missing.json') })).toBeNull();
   });
 
   it('AC5: an injected ceiling is not outranked by the ambient environment', () => {
@@ -147,7 +126,7 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
     try {
       // The dependency struct is the contract; the variable configures the
       // default, not every caller.
-      expect(resolveGraphPath(deps, '/nowhere')).toBe(deps.globalGraph);
+      expect(resolveGraphPath(deps)).toBe(deps.globalGraph);
     } finally {
       if (previous === undefined) delete process.env.MEMORY_INJECT_MAX_GRAPH_BYTES;
       else process.env.MEMORY_INJECT_MAX_GRAPH_BYTES = previous;
@@ -165,7 +144,9 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
     expect(result?.message?.content).toContain('handleVaultRequest');
     expect(result?.message?.content).toContain('Container');
     expect(result?.message?.content).not.toContain('Unrelated Widget');
+    expect(result?.message?.details).toEqual({ graph: deps.globalGraph });
   });
+
 
   it('AC3: fires at most once per session', () => {
     const deps = workspace();
