@@ -420,6 +420,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
 describe('Container Lifecycle - restart after a bucket change', () => {
   it('starts the container even when the bucket forward fails after destroy', async () => {
     const waitUntil = vi.fn();
+    const kv = createMockKV();
     const container = {
       fetch: vi.fn().mockRejectedValue(new Error('Network connection lost.')),
       destroy: vi.fn().mockResolvedValue(undefined),
@@ -434,7 +435,7 @@ describe('Container Lifecycle - restart after a bucket change', () => {
       containerId: 'container-abc',
       sessionData: { id: 'sess123', status: 'running' } as unknown as Session,
       sessionKey: 'session:codeflare-test-example-com:sess123',
-      env: { KV: createMockKV() } as unknown as Env,
+      env: { KV: kv } as unknown as Env,
       shortContainerId: 'cont-abc',
       logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any,
       waitUntil,
@@ -443,5 +444,11 @@ describe('Container Lifecycle - restart after a bucket change', () => {
     expect(container.destroy).toHaveBeenCalled();
     expect(result.status).toBe('starting');
     expect(waitUntil).toHaveBeenCalled();
+
+    // destroy() left the record 'stopped'. The pre-destroy snapshot still reads
+    // 'running', so trusting it would leave the record stopped for the whole boot
+    // and the non-retryable 4503 gate would end the tab's reconnects.
+    const written = kv.put.mock.calls.at(-1)?.[1];
+    expect(JSON.parse(written as string).status).toBe('running');
   });
 });

@@ -134,6 +134,26 @@ function pollContainer(
 }
 
 /**
+ * Resolve to null if `work` has not settled within the budget.
+ *
+ * For callees whose transport is not established to honour an abort signal, a
+ * timer is the only bound that certainly holds. The abandoned work keeps running;
+ * what matters is that the alarm stops waiting on it and reaches its re-arm.
+ */
+function raceBudget<T>(work: Promise<T>, budgetMs: number): Promise<T | null> {
+  // A rejection arriving after the timer already won is not a failure of this
+  // tick — mark it handled so it cannot surface as an unhandled rejection.
+  work.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), budgetMs);
+  });
+  return Promise.race([work, budget]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+/**
  * Open the not-running confirmation window without writing 'stopped'.
  *
  * Called by onError (container-lifecycle.ts) on a not-running reading so the
@@ -516,7 +536,15 @@ export async function collectMetrics(
       // Bounded for the same reason as the container polls above: this await sits
       // before the re-arm, so a Timekeeper DO that does not answer would take the
       // alarm loop with it just as surely as a wedged container did.
-      const pingRes = await tk.fetch(new Request('http://timekeeper/ping', {
+      //
+      // Unlike those polls, the bound here does NOT rest on the signal alone. The
+      // container polls go through getTcpPort().fetch, where drainFinalSync already
+      // depends on AbortSignal.timeout in production; a Durable Object stub is a
+      // different transport and its abort support is not established here. So the
+      // ping is raced against a timer, which holds whether or not the stub honours
+      // the signal. The signal stays because it genuinely cancels the request where
+      // it IS honoured, rather than leaving it running behind the race.
+      const pingRes = await raceBudget(tk.fetch(new Request('http://timekeeper/ping', {
         method: 'POST',
         body: JSON.stringify({
           bucketName: state._bucketName,
@@ -526,9 +554,9 @@ export async function collectMetrics(
         }),
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(CONTAINER_POLL_BUDGET_MS),
-      }));
+      })), CONTAINER_POLL_BUDGET_MS);
 
-      if (pingRes.ok) {
+      if (pingRes?.ok) {
         const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
         if (quotaExceeded) {
           logger.warn('Quota exceeded — stopping container', { bucketName: state._bucketName });

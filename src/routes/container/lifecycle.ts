@@ -62,6 +62,7 @@ export async function startOrRestartContainer(params: {
   const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
 
   // Check current state
+  let destroyedForRestart = false;
   let currentState;
   try {
     currentState = await container.getState();
@@ -84,6 +85,7 @@ export async function startOrRestartContainer(params: {
       // declines by design, and the 4503 gate then refuses every terminal upgrade
       // until the user starts the session by hand (REQ-SESSION-020 AC3).
       currentState = { status: 'stopped' };
+      destroyedForRestart = true;
       await getContainerInternalCB(containerId).execute(() =>
         container.fetch(
           new Request('http://container/_internal/setBucketName', {
@@ -98,8 +100,13 @@ export async function startOrRestartContainer(params: {
     }
   }
 
-  // Mark session as running in KV
-  if (sessionData.status !== 'running') {
+  // Mark session as running in KV. sessionData is a pre-destroy snapshot, so
+  // after a destroy-driven restart it still reads 'running' while the record
+  // itself now reads 'stopped' (destroy() writes it). Trusting the snapshot there
+  // would leave the record stopped for the whole boot, and the terminal upgrade's
+  // 4503 gate is non-retryable — the tab would give up rather than back off
+  // (REQ-SESSION-020 AC5).
+  if (sessionData.status !== 'running' || destroyedForRestart) {
     const updated = { ...sessionData, status: 'running' as const };
     await putSessionWithMetadata(env.KV, sessionKey, updated);
   }

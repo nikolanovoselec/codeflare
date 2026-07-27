@@ -553,6 +553,55 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
+    // REQ-SESSION-020 AC1: the Timekeeper ping is awaited before the re-arm, and a
+    // Durable Object stub is a different transport from the container port, so its
+    // abort support is not established. This stub ignores the signal entirely and
+    // never answers — exactly the unproven case — and the alarm must still re-arm.
+    // Deleting the race in raceBudget hangs this test until its own timeout.
+    it('re-arms the alarm when the Timekeeper ping never answers', async () => {
+      testState.storedBucketName = 'test-bucket';
+      testState.storedSessionId = 'testsession123456';
+      testState.storedUserEmail = 'quota@example.com';
+
+      const timekeeperStub = {
+        fetch: vi.fn(() => new Promise<Response>(() => { /* never settles, signal ignored */ })),
+      };
+      const TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+      );
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
+
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      await vi.waitFor(
+        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
+
+      testState.scheduleCalls = [];
+      await instance.collectMetrics();
+
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    }, 25_000);
+
     it('REQ-SESSION-011 AC6: quota-stop drains the final sync BEFORE stop (same order as idle-stop)', async () => {
       // The quota-eviction path must drain through /internal/final-sync before
       // signalling stop, identically to idle-stop. Mirror the quotaExceeded=true
