@@ -112,11 +112,11 @@
 }
 
 .init-progress-bar--complete {
-  box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+  box-shadow: 0 0 12px rgb(var(--color-success-rgb) / 0.3);
 }
 
 .init-progress-bar--error {
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 12px rgb(var(--color-error-rgb) / 0.3);
 }
 
 .init-progress-bar-fill {
@@ -130,11 +130,11 @@
 }
 
 .init-progress-bar-fill--complete {
-  background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+  background: linear-gradient(90deg, var(--color-success-hover) 0%, var(--color-success) 100%);
 }
 
 .init-progress-bar-fill--error {
-  background: linear-gradient(90deg, #dc2626 0%, #ef4444 100%);
+  background: linear-gradient(90deg, var(--color-error-hover) 0%, var(--color-error) 100%);
 }
 
 .init-progress-bar-text {
@@ -301,7 +301,7 @@
   font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   color: #ffffff;
-  background: linear-gradient(135deg, #16a34a 0%, var(--color-success) 100%);
+  background: linear-gradient(135deg, var(--color-success-hover) 0%, var(--color-success) 100%);
   border: none;
   border-radius: var(--radius-lg);
   cursor: pointer;
@@ -310,7 +310,7 @@
 }
 
 .init-progress-open-btn:hover {
-  background: linear-gradient(135deg, #15803d 0%, #16a34a 100%);
+  background: linear-gradient(135deg, var(--color-success-strong) 0%, var(--color-success-hover) 100%);
   box-shadow: 0 6px 16px var(--color-success-muted);
   transform: translateY(-2px);
 }
@@ -323,7 +323,7 @@
   text-align: center;
   padding: var(--space-3) var(--space-4);
   background: var(--color-error-muted);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid rgb(var(--color-error-rgb) / 0.3);
   border-radius: var(--radius-lg);
   color: var(--color-error);
   font-size: var(--text-sm);

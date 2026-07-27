@@ -155,10 +155,67 @@ const AGENT_LINE = (subagentType, ts, toolUseId = 'toolu_x') =>
     timestamp: ts,
   });
 
-const DONE_LINE = (toolUseId) =>
-  `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>completed</status></task-notification>`;
+const STATUS_LINE = (toolUseId, status) =>
+  `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>${status}</status></task-notification>`;
+
+const DONE_LINE = (toolUseId) => STATUS_LINE(toolUseId, 'completed');
 
 const SPEC_DONE_LINE = (toolUseId = 'toolu_sr1') => DONE_LINE(toolUseId);
+
+// Headless transport: the lane runs as a Bash call to run-review-lane.sh rather
+// than an Agent subagent, so it emits no subagent_type, and completes with the
+// same background task notification a backgrounded Agent emits. The immediate
+// tool_result is a launch receipt, not completion -- see START_RECEIPT_LINE.
+const LANE_BASH_LINE = (lane, ts, toolUseId = 'toolu_b') =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'Bash',
+          id: toolUseId,
+          input: {
+            command: `bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane ${lane} --range aaa..bbb`,
+          },
+        },
+      ],
+    },
+    timestamp: ts,
+  });
+
+// A backgrounded Bash lane completes with the SAME notification shape a
+// backgrounded Agent uses, so one completion contract covers both transports.
+const LANE_BASH_DONE_LINE = (toolUseId) => DONE_LINE(toolUseId);
+
+// The triage verdict: an assistant message carrying the table and NO tool call.
+// The header/divider are contract values the gate matches on, the same two
+// constants Pi pins -- not prose, and not assertable copy.
+const TRIAGE_HEADER = '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |';
+const TRIAGE_LINE = () =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'text',
+          text: `${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a finding | valid | a fix | proportionate | fix |`,
+        },
+      ],
+    },
+  });
+
+// A background call that exits non-zero. Same envelope, terminal status
+// `failed`: the lane ENDED, but produced nothing the gate may credit.
+const FAILED_LINE = (toolUseId) => STATUS_LINE(toolUseId, 'failed');
+
+// The start receipt the harness returns the instant a background call is
+// launched. It carries the tool_use_id but means "launched", not "finished".
+const START_RECEIPT_LINE = (toolUseId) =>
+  JSON.stringify({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: toolUseId }] },
+  });
 
 // REQ-AGENT-036: PR-Boundary Review Trigger Conditions
 // REQ-AGENT-040: PR-Boundary Lane Classification and Agent Dispatch
@@ -577,16 +634,424 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
       SPEC_DONE_LINE('toolu_sr1'),
       AGENT_LINE('doc-updater', '2026-05-03T12:00:10.000Z', 'toolu_du1'),
       DONE_LINE('toolu_du1'),
+      // The verdict contract is transport-independent: an Agent round is read
+      // or unread on the same terms a headless one is.
+      TRIAGE_LINE(),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
     const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
     const ackFile = join(cwd, gitCommonDir, 'sdd-last-ack-pr-head');
     assert.equal(readFileSync(ackFile, 'utf-8').trim(), headSha,
       'checkpoint must advance to the just-acked PR HEAD SHA');
+  });
+});
+
+// REQ-AGENT-102: reviewer lanes run as headless subprocesses. The gate accepts
+// either transport, so migrating a lane cannot narrow what counts as reviewed.
+describe('enforce-review-spawn.sh — headless lane transport', () => {
+  const ackOf = (cwd) => {
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const ackFile = join(cwd, gitCommonDir, 'sdd-last-ack-pr-head');
+    return existsSync(ackFile) ? readFileSync(ackFile, 'utf-8').trim() : '';
+  };
+
+  it('acks when every lane ran as a run-review-lane.sh Bash call', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = 'headlesspipelinesha';
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+      TRIAGE_LINE(),
+    ]);
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), headSha,
+      'a fully headless round must advance the checkpoint exactly like a subagent round');
+  });
+
+  it('acks a round that mixes both transports', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = 'mixedtransportsha';
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      AGENT_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_sr1'),
+      DONE_LINE('toolu_sr1'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+      TRIAGE_LINE(),
+    ]);
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), headSha);
+  });
+
+  it('still blocks when a headless lane started but never returned', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'incompletesha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      // doc-updater spawned, no tool_result -> lane never completed.
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+    ]);
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'incompletesha',
+      'an unreturned lane must not advance the checkpoint');
+  });
+
+  // REQ-AGENT-102 AC6. The status set is OPEN: whitelisting end states is wrong
+  // in the direction that wedges the checkpoint, because an end state the hook
+  // has never heard of reads as "still running" forever. So the rule is
+  // inverted -- a status is terminal unless it is a known RUNNING state. Both
+  // directions are asserted, because either alone passes with a constant.
+  it('treats an unrecognised end status as terminal and a running status as not', () => {
+    const lanes = (codeStatus) => [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      STATUS_LINE('toolu_b1', codeStatus),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+      TRIAGE_LINE(),
+    ];
+    const drive = (status, headSha) => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, {
+        transcriptPath: writeTranscript(cwd, lanes(status)),
+        binDir: fakeGh(cwd, ghReturning('OPEN', headSha)),
+      });
+      return { cwd, r };
+    };
+
+    const running = drive('in_progress', 'runningsha');
+    assert.doesNotMatch(running.r.stdout, /run code-reviewer/,
+      'a lane still in_progress has not ended; re-demanding it duplicates a run that is still going');
+    assert.notEqual(ackOf(running.cwd), 'runningsha',
+      'and it cannot be credited either, so the checkpoint must not advance');
+
+    const ended = drive('cancelled', 'cancelledsha');
+    assert.match(ended.r.stdout, /run code-reviewer/,
+      'an end status outside any known list must count as ended and be re-demanded, or a new harness status wedges the gate forever');
+    assert.notEqual(ackOf(ended.cwd), 'cancelledsha',
+      'ended-without-success is not coverage; the checkpoint may not advance over it');
+  });
+
+  // Acknowledgement is a claim about CONSUMPTION, not exit status. Lanes that
+  // returned into a session that never read them leave findings unacted while
+  // the checkpoint advances past them -- so the verdict, not the exit, is what
+  // the gate keys on.
+  it('withholds the ack until the triage verdict is published', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'notriagesha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+      // every lane returned, nothing published
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'notriagesha',
+      'three exits are not a review; the checkpoint may not advance past unread findings');
+    assert.match(r.stdout, /MINIMAL DECISION/,
+      'the block must demand the verdict in the shape the gate matches');
+  });
+
+  it('drives the FIX phase once the verdict is published', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'fixphasesha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+      TRIAGE_LINE(),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), 'fixphasesha');
+    assert.match(r.stdout, /FIX phase/,
+      'the ack alone does not apply anything; the fix phase must be driven, not remembered');
+  });
+
+  // A table from the PREVIOUS round sits earlier in the transcript. Accepting it
+  // would acknowledge this head on the strength of a verdict about another one.
+  it('ignores a verdict published before the lanes returned', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'staleverdictsha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      TRIAGE_LINE(),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'staleverdictsha',
+      'a verdict predating the evidence cannot be a verdict about it');
+  });
+
+  // REQ-AGENT-102 AC3 / REQ-AGENT-105. Without a scope the runner falls through
+  // to "Review the full PR diff", and both the inlined packet and the ownership
+  // short-circuit are gated on having a range -- so a scopeless demand spends a
+  // full unscoped lane and skips every cost control at once. The nudge has
+  // always carried a scope; this path is what every re-demand goes through.
+  it('scopes the lanes it demands to the range under review', () => {
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'src/thing.ts'), 'changed\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE('2026-05-18T12:00:00.000Z')]);
+
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.match(r.stdout, new RegExp(`--range ${baseSha}\\.\\.${tip}`),
+      'the demand must carry the incremental range, or the lane reviews the whole PR with no packet');
+  });
+
+  // REQ-AGENT-104 AC6, the regression that made the first fix inert. The two
+  // counters must be genuinely separate: a head that spent its LANE-demand
+  // budget merely getting the lanes launched arrives at the verdict check with
+  // that counter already exhausted, and if the escape hatch reads it, the head
+  // is acknowledged before a single verdict demand was ever shown -- with a
+  // stderr line claiming five went unanswered. Seeding one counter and
+  // asserting on the other is the only shape that catches it; driving both from
+  // zero moves them in lockstep and passes either way.
+  it('does not spend the lane-demand budget on the verdict escape hatch', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'exhaustedsha'));
+    const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf-8' })
+      .stdout.trim();
+    // This head already cost four Stop events to get its lanes running.
+    writeFileSync(join(cwd, gcd, 'sdd-review-block-count'), 'exhaustedsha:4\n');
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+
+    for (let i = 0; i < 3; i += 1) {
+      const r = runHook(cwd, { transcriptPath: t, binDir });
+      assert.match(r.stdout, /no triage verdict was published/,
+        'the verdict demand must keep being shown; a demand silenced by the lane breaker can never be answered');
+      assert.notEqual(ackOf(cwd), 'exhaustedsha',
+        'the lane-demand budget is not payment for the verdict hatch: these findings have still never been triaged');
+    }
+  });
+
+  // REQ-AGENT-104 AC6. The escape hatch exists so a head is never wedged, but it
+  // must be bought with VERDICT demands. Sharing the lane-demand counter meant a
+  // head that took five Stops to launch its lanes was acknowledged on the first
+  // pass, with its findings never triaged and a stderr line claiming otherwise.
+  it('acknowledges after repeated unanswered demands instead of staying wedged', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'wedgedsha'));
+    const lanes = [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ];
+    const t = writeTranscript(cwd, lanes);
+
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'wedgedsha',
+      'the very first unanswered demand must not acknowledge: no verdict has been asked for yet');
+
+    let acked = false;
+    for (let i = 0; i < 6 && !acked; i += 1) {
+      runHook(cwd, { transcriptPath: t, binDir });
+      acked = ackOf(cwd) === 'wedgedsha';
+    }
+    assert.equal(acked, true,
+      'repeated unanswered demands must acknowledge; a permanently wedged checkpoint is the failure being removed');
+  });
+
+  // REQ-AGENT-104 AC5.
+  it('applies the verdict requirement on the retroactive scan path, not just the live path', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'retroactivesha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /no triage verdict was published/,
+      'the requirement must be APPLIED here, not merely un-met: a crashed hook also leaves the ack alone');
+    assert.notEqual(ackOf(cwd), 'retroactivesha',
+      'the retroactive scan is a second acknowledgement path and must not bypass the verdict requirement');
+  });
+
+  // A background lane that exits non-zero terminates as `failed`, not
+  // `completed`. It is just as ENDED as a successful one, and the difference
+  // between "ended badly" and "still running" is what the checkpoint depends
+  // on: treated as in-flight, the gate waits on a dead process, the head stays
+  // un-acked, and every later range is measured from a stale checkpoint.
+  it('re-demands a lane whose background run terminated as failed', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'failedlanesha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      FAILED_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.notEqual(ackOf(cwd), 'failedlanesha',
+      'a failed lane produced no findings, so it must never advance the checkpoint');
+    assert.match(r.stdout, /code-reviewer/,
+      'the failed lane must be re-demanded immediately, not waited on as if it were still running');
+    assert.match(r.stdout, /WITHOUT success/,
+      'the demand must say the lane already ran and was not credited, or the round is silently lost');
+    assert.doesNotMatch(r.stdout, /run spec-reviewer|run doc-updater/,
+      'lanes that did complete must not be re-demanded');
+  });
+
+  // Both imposter shapes quote the runner path. The second also puts a shell
+  // separator INSIDE the quotes, which satisfies a command-position anchor
+  // applied to the raw string -- the more dangerous variant, and the one that
+  // bypassed the gate for all three lanes at once.
+  const IMPOSTERS = {
+    'quotes the runner path':
+      'echo "next: bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane code-reviewer --lane spec-reviewer --lane doc-updater"',
+    'hides a shell separator inside the quotes':
+      'echo "step1; bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane code-reviewer --lane spec-reviewer --lane doc-updater (planned)"',
+  };
+  for (const [label, command] of Object.entries(IMPOSTERS)) {
+    it(`does not credit any lane from a command that ${label}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const binDir = fakeGh(cwd, ghReturning('OPEN', 'impostersha'));
+      const imposter = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', name: 'Bash', id: 'toolu_i1', input: { command } }],
+        },
+      });
+      const t = writeTranscript(cwd, [
+        PUSH_LINE('2026-05-03T12:00:00.000Z'),
+        imposter,
+        LANE_BASH_DONE_LINE('toolu_i1'),
+      ]);
+      const r = runHook(cwd, { transcriptPath: t, binDir });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+        'the runner must be in command position, not quoted inside another command');
+      assert.notEqual(ackOf(cwd), 'impostersha');
+    });
+  }
+
+  // Lanes are dispatched with run_in_background, so the harness returns a
+  // tool_result immediately holding a background shell id. Crediting that would
+  // ack the head the instant the lanes launch, while they are still running.
+  for (const [label, spawn] of [
+    ['headless Bash', LANE_BASH_LINE],
+    ['Agent subagent', AGENT_LINE],
+  ]) {
+    it(`does not treat a background ${label} start receipt as completion`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const sha = 'inflightsha';
+      const binDir = fakeGh(cwd, ghReturning('OPEN', sha));
+      const t = writeTranscript(cwd, [
+        PUSH_LINE('2026-05-03T12:00:00.000Z'),
+        spawn('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_1'),
+        START_RECEIPT_LINE('toolu_1'),
+        spawn('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_2'),
+        START_RECEIPT_LINE('toolu_2'),
+        spawn('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_3'),
+        START_RECEIPT_LINE('toolu_3'),
+      ]);
+      runHook(cwd, { transcriptPath: t, binDir });
+      assert.notEqual(ackOf(cwd), sha,
+        'a launch receipt must never advance the checkpoint');
+    });
+  }
+
+  // Quoting the path is the normal defensive habit and $HOME invites it.
+  it('credits a lane whose runner path is quoted', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const sha = 'quotedpathsha';
+    const binDir = fakeGh(cwd, ghReturning('OPEN', sha));
+    const quoted = (lane, id) =>
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'Bash',
+              id,
+              input: {
+                command: `bash "$HOME/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh" --lane ${lane} --range aaa..bbb`,
+              },
+            },
+          ],
+        },
+      });
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      quoted('code-reviewer', 'toolu_q1'), DONE_LINE('toolu_q1'),
+      quoted('spec-reviewer', 'toolu_q2'), DONE_LINE('toolu_q2'),
+      quoted('doc-updater', 'toolu_q3'), DONE_LINE('toolu_q3'),
+      TRIAGE_LINE(),
+    ]);
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), sha,
+      'a quoted runner path is still a real lane invocation');
   });
 });
 
@@ -1455,11 +1920,15 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
       PUSH_LINE('2026-05-18T12:00:00.000Z'),
       AGENT_LINE('doc-updater', '2026-05-18T12:00:05.000Z', 'toolu_du1'),
       DONE_LINE('toolu_du1'),
+      // A one-lane round is still a round: its findings are read or they are not.
+      TRIAGE_LINE(),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'docs-only push with doc-updater completed must NOT block (no code/spec demanded)');
+    assert.match(r.stdout, /FIX phase/,
+      'a docs-only round with its verdict published is complete, so the fix phase drives');
+    assert.doesNotMatch(r.stdout, /run code-reviewer|run spec-reviewer/,
+      'docs-only push must not demand the lanes it does not own');
     const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();

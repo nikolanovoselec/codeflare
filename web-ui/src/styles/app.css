@@ -6,7 +6,7 @@
   justify-content: center;
   gap: 16px;
   color: var(--color-text-secondary);
-  background: var(--color-bg-primary);
+  background: var(--color-bg-base);
 }
 
 .app-loading-spinner {
@@ -27,7 +27,7 @@
   gap: 16px;
   padding: 32px;
   text-align: center;
-  background: var(--color-bg-primary);
+  background: var(--color-bg-base);
 }
 
 .app-auth-error h1 {
@@ -45,7 +45,7 @@
   padding: 12px 24px;
   font-size: 14px;
   font-weight: 500;
-  color: var(--color-bg-primary);
+  color: var(--color-accent-contrast);
   background: var(--color-accent);
   border-radius: 6px;
   transition: background var(--transition-fast);

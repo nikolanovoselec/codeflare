@@ -36,8 +36,8 @@
 }
 
 .floating-terminal-btn--active {
-  background: var(--color-accent, #3b82f6);
-  border-color: var(--color-accent, #3b82f6);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
   color: white;
 }
 

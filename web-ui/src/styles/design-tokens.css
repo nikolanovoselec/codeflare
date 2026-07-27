@@ -44,9 +44,14 @@
   --accent-s: 100%;
   --accent-l: 62%;
 
-  --color-accent: hsl(var(--accent-hue), var(--accent-s), var(--accent-l));
+  /* The three channels as one substitution, so an alpha variant reads
+     `hsla(var(--accent-hsl), 0.3)` instead of repeating all three at every
+     call site. applyAccentColor sets the channels above; this follows. */
+  --accent-hsl: var(--accent-hue), var(--accent-s), var(--accent-l);
+
+  --color-accent: hsl(var(--accent-hsl));
   --color-accent-hover: hsl(var(--accent-hue), var(--accent-s), 53%);
-  --color-accent-muted: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
+  --color-accent-muted: hsla(var(--accent-hsl), 0.15);
 
   /* Foreground to place ON the accent (e.g. the New Session button). Bright
      accents (the coral default, yellows, light greens) need a near-black
@@ -59,31 +64,63 @@
      Colors - Semantic
      ========================================================================== */
 
+  /* Semantic channel triplets. Every alpha variant of a semantic colour is
+     derived from these via `rgb(var(--…-rgb) / α)`, so retuning the base colour
+     propagates to the glows, borders and tinted backgrounds built on it instead
+     of leaving hardcoded rgba() copies behind. */
+  --color-success-rgb: 34 197 94;
+  --color-warning-rgb: 245 158 11;
+  --color-error-rgb: 239 68 68;
+
   /* Success */
   --color-success: #22c55e;        /* Green 500 */
-  --color-success-muted: rgba(34, 197, 94, 0.15);
-  --color-success-bg: rgba(34, 197, 94, 0.1);
+  --color-success-hover: #16a34a;  /* Green 600 */
+  --color-success-strong: #15803d; /* Green 700 */
+  --color-success-muted: rgb(var(--color-success-rgb) / 0.15);
+  --color-success-bg: rgb(var(--color-success-rgb) / 0.1);
 
   /* Warning */
   --color-warning: #f59e0b;        /* Amber 500 */
-  --color-warning-muted: rgba(245, 158, 11, 0.15);
+  --color-warning-muted: rgb(var(--color-warning-rgb) / 0.15);
 
   /* Error */
   --color-error: #ef4444;          /* Red 500 */
   --color-error-hover: #dc2626;    /* Red 600 */
-  --color-error-muted: rgba(239, 68, 68, 0.15);
-  --color-error-bg: rgba(239, 68, 68, 0.1);
-  --color-error-border: rgba(239, 68, 68, 0.3);
+  --color-error-muted: rgb(var(--color-error-rgb) / 0.15);
+  --color-error-bg: rgb(var(--color-error-rgb) / 0.1);
+  --color-error-border: rgb(var(--color-error-rgb) / 0.3);
+
+  /* Brand — third-party marks. Semantic tokens above must not be reused for
+     these: the values coincide today, but "GitHub blue" and "warning amber"
+     are free to drift apart. */
+  --color-brand-github: #3b82f6;
+  --color-brand-cloud: #f38020;
+  --color-brand-cloud-rgb: 243 128 32;  /* alpha variants: rgb(var(--…-rgb) / α) */
+  --color-brand-cloud-hover: #ff9633;
+  --color-brand-openai: #10a37f;
+  --color-brand-google: #4285f4;
+  --color-brand-anthropic: #d4a27f;
+  --color-brand-copilot: #6e5494;
+  --color-brand-opencode: #e5e5e5;
+
+  /* Admin actions — each full-width settings action carries its own identity
+     colour so the destinations stay distinguishable at a glance. */
+  --color-action-setup: #2563eb;
+  --color-action-users: #7c3aed;
+  --color-action-subscriptions: #059669;
+  --color-action-docs: #0891b2;
+  --color-action-agents: #e11d48;
 
   /* Info */
   --color-info: #3b82f6;           /* Blue 500 */
+  --color-info-rgb: 59 130 246;
 
   /* ==========================================================================
      Colors - Special
      ========================================================================== */
 
   --color-terminal-bg: #0a0a0c;    /* Even darker for terminal */
-  --color-glow-accent: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.4);
+  --color-glow-accent: hsla(var(--accent-hsl), 0.4);
   --color-bg-overlay: rgba(24, 24, 27, 0.8);
   --color-bg-elevated-hover: rgba(39, 39, 42, 0.9);
   --color-bg-gradient: linear-gradient(135deg,
@@ -109,7 +146,7 @@
      ========================================================================== */
 
   /* Terminal tab type colors */
-  --color-tab-claude: hsl(var(--accent-hue), var(--accent-s), var(--accent-l));
+  --color-tab-claude: hsl(var(--accent-hsl));
   --color-tab-htop: #22c55e;      /* Green - htop */
   --color-tab-yazi: #3b82f6;      /* Blue - yazi */
   --color-tab-terminal: #f59e0b;  /* Amber - generic terminal */

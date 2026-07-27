@@ -62,6 +62,7 @@ export async function startOrRestartContainer(params: {
   const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
 
   // Check current state
+  let destroyedForRestart = false;
   let currentState;
   try {
     currentState = await container.getState();
@@ -75,6 +76,16 @@ export async function startOrRestartContainer(params: {
     logger.info('Bucket name changed, destroying container to restart with correct bucket');
     try {
       await container.destroy();
+      // The container is stopped the moment destroy() returns, whether or not the
+      // bucket forward below succeeds. Recording that here rather than after the
+      // forward is load-bearing: destroy() persists the deliberate-stop marker and
+      // writes KV 'stopped', so leaving this reading at 'running' on a forward
+      // failure returns already_running without kicking off a start -- onStart()
+      // never runs, so nothing clears the marker or restores 'running', self-heal
+      // declines by design, and the 4503 gate then refuses every terminal upgrade
+      // until the user starts the session by hand (REQ-SESSION-020 AC3).
+      currentState = { status: 'stopped' };
+      destroyedForRestart = true;
       await getContainerInternalCB(containerId).execute(() =>
         container.fetch(
           new Request('http://container/_internal/setBucketName', {
@@ -84,15 +95,26 @@ export async function startOrRestartContainer(params: {
           })
         )
       );
-      currentState = { status: 'stopped' };
     } catch (error) {
       logger.error('Failed to destroy container', toError(error));
     }
   }
 
-  // Mark session as running in KV
-  if (sessionData.status !== 'running') {
-    const updated = { ...sessionData, status: 'running' as const };
+  // Mark session as running in KV. sessionData is a pre-destroy snapshot, so
+  // after a destroy-driven restart it still reads 'running' while the record
+  // itself now reads 'stopped' (destroy() writes it). Trusting the snapshot there
+  // would leave the record stopped for the whole boot, and the terminal upgrade's
+  // 4503 gate is non-retryable — the tab would give up rather than back off
+  // (REQ-SESSION-020 AC5).
+  if (sessionData.status !== 'running' || destroyedForRestart) {
+    // On the restart path the snapshot is also stale in the other direction:
+    // destroy() refreshed lastActiveAt on its way out, and a tick may have written
+    // metrics, both of which spreading the snapshot would revert. Re-read there,
+    // as the start-failure rollback below already does.
+    const base = destroyedForRestart
+      ? (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData
+      : sessionData;
+    const updated = { ...base, status: 'running' as const };
     await putSessionWithMetadata(env.KV, sessionKey, updated);
   }
 

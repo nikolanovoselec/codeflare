@@ -12,6 +12,15 @@ import {
   type NativePiTurnObserver,
 } from '../src/pi/native-chat.ts';
 
+/** The serialized editor-context object carried between the prompt's delimiters. */
+function editorContext(prompt: string): Record<string, unknown> {
+  const open = '<codeflare_editor_context>\n';
+  const start = prompt.indexOf(open);
+  const end = prompt.lastIndexOf('\n</codeflare_editor_context>');
+  assert.ok(start !== -1 && end > start, 'the prompt must carry a delimited context block');
+  return JSON.parse(prompt.slice(start + open.length, end)) as Record<string, unknown>;
+}
+
 function promptInput(overrides: Partial<NativePiPromptInput> = {}): NativePiPromptInput {
   return {
     prompt: 'Fix the selected code and explain the diagnostic.',
@@ -209,4 +218,85 @@ test('REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi 
   });
 
   assert.deepEqual(events, ['listen', 'prompt', 'abort', 'dispose-listener', 'stop']);
+});
+
+test('REQ-IDE-006 AC5: an over-budget history replay keeps the newest turns and drops the oldest', () => {
+  // Each entry is large enough that only a handful fit the history budget, so
+  // the boundary is crossed well inside the list rather than at its edge.
+  const entries = Array.from({ length: 40 }, (_, index) => ({
+    role: (index % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+    text: `turn-${index} ${'x'.repeat(32 * 1024)}`,
+  }));
+
+  const prompt = buildNativePiPrompt(promptInput({ history: entries }));
+
+  // The replay must be a suffix of the conversation: the last turn is present,
+  // the first is not. Asserting both directions is what makes this fail if the
+  // budget is ever spent front-first again.
+  assert.ok(prompt.includes('turn-39'), 'the newest turn must survive truncation');
+  assert.ok(!prompt.includes('turn-0 '), 'the oldest turn must be dropped first');
+
+  // And what survives stays in conversation order — walking newest-first to
+  // decide what fits must not leave the replay reversed.
+  const positions = entries
+    .map((entry, index) => ({ index, at: prompt.indexOf(`turn-${index} `) }))
+    .filter((entry) => entry.at !== -1);
+  assert.ok(positions.length >= 2, 'expected several turns to survive the budget');
+  for (let i = 1; i < positions.length; i += 1) {
+    assert.ok(
+      (positions[i]?.at ?? 0) > (positions[i - 1]?.at ?? 0),
+      'surviving turns must appear oldest-first in the replay',
+    );
+  }
+
+  // A suffix, not an arbitrary subset: nothing may be dropped out of the middle.
+  // (`positions` is derived in entry order, so comparing indices pairwise would
+  // hold no matter what survived — this comparison against the expected run is
+  // what actually constrains the shape.)
+  const kept = positions.map((entry) => entry.index);
+  const oldestKept = kept[0] ?? 0;
+  assert.deepEqual(
+    kept,
+    entries.map((_, index) => index).filter((index) => index >= oldestKept),
+    'surviving turns must be a contiguous suffix of the conversation',
+  );
+
+  assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
+});
+
+test('REQ-IDE-006 AC5: a context over the envelope drops whole sections and stays parseable', () => {
+  // Every per-section budget is respected here, yet the rendered envelope still
+  // overflows: the active editor's content is measured raw, and each control
+  // character costs six bytes once JSON-escaped. Clamping the rendered string
+  // would cut the serialized context mid-object, so whole units go instead --
+  // and the file the user is looking at outlives the replay of older turns.
+  const conversation = [
+    { role: 'user' as const, text: 'first turn' },
+    { role: 'assistant' as const, text: 'h'.repeat(400 * 1000) },
+  ];
+  const prompt = buildNativePiPrompt(promptInput({
+    prompt: 'x'.repeat(200 * 1000),
+    history: conversation,
+    activeEditor: {
+      path: '/home/user/workspace/src/parser.ts',
+      languageId: 'typescript',
+      dirty: true,
+      content: '\u0001'.repeat(200 * 1000),
+    },
+  }));
+
+  const context = editorContext(prompt);
+  // Parsing at all is half the contract: the old clamp emitted a truncated object.
+  assert.equal((context.activeEditor as { path?: string } | undefined)?.path, 'src/parser.ts');
+  assert.equal(context.openFiles, undefined);
+  assert.equal(context.diagnostics, undefined);
+  assert.equal(context.references, undefined);
+  // The replay is what gives way, and it gives way by shrinking rather than by
+  // being cut mid-value: what remains is still a well-formed list of turns.
+  assert.ok(Array.isArray(context.history), 'the replay survives in reduced form');
+  assert.ok(
+    JSON.stringify(context.history).length < JSON.stringify(conversation).length,
+    'the replay must be the section that shrinks, not the editor state',
+  );
+  assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
 });

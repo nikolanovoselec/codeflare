@@ -115,7 +115,7 @@ vi.mock('../../../lib/container-helpers', () => ({
   getContainerId: vi.fn((bucket: string, sessionId: string) => `${bucket}-${sessionId}`),
 }));
 
-import lifecycleRoutes from '../../../routes/container/lifecycle';
+import lifecycleRoutes, { startOrRestartContainer } from '../../../routes/container/lifecycle';
 import { AppError } from '../../../lib/error-types';
 
 describe('Container Lifecycle - Scoped R2 Tokens', () => {
@@ -409,5 +409,54 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
   it('encryptionKey absent when ENCRYPTION_KEY not set', async () => {
     const body = await startSessionAndGetBody();
     expect(body.encryptionKey).toBeUndefined();
+  });
+});
+
+// REQ-SESSION-020 AC3: destroy() records the session stopped and persists the
+// deliberate-stop marker. A restart path that destroys the container must
+// therefore always go on to start it -- reporting already_running instead would
+// leave nothing to clear the marker or restore 'running', so self-heal declines
+// by design and the authoritative 4503 gate refuses every terminal upgrade.
+describe('Container Lifecycle - restart after a bucket change', () => {
+  it('REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy', async () => {
+    const waitUntil = vi.fn();
+    const kv = createMockKV();
+    // What destroy() left behind: stopped, with lastActiveAt refreshed on its way
+    // out. The caller's snapshot predates that write.
+    kv._set('session:codeflare-test-example-com:sess123', {
+      id: 'sess123', status: 'stopped', lastActiveAt: 'REFRESHED-BY-DESTROY',
+    });
+    const container = {
+      fetch: vi.fn().mockRejectedValue(new Error('Network connection lost.')),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      getState: vi.fn().mockResolvedValue({ status: 'running' }),
+      startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await startOrRestartContainer({
+      container,
+      needsBucketUpdate: true,
+      setBucketBody: JSON.stringify({ bucketName: 'codeflare-test-example-com' }),
+      containerId: 'container-abc',
+      sessionData: { id: 'sess123', status: 'running', lastActiveAt: 'STALE' } as unknown as Session,
+      sessionKey: 'session:codeflare-test-example-com:sess123',
+      env: { KV: kv } as unknown as Env,
+      shortContainerId: 'cont-abc',
+      logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any,
+      waitUntil,
+    });
+
+    expect(container.destroy).toHaveBeenCalled();
+    expect(result.status).toBe('starting');
+    expect(waitUntil).toHaveBeenCalled();
+
+    // destroy() left the record 'stopped'. The pre-destroy snapshot still reads
+    // 'running', so trusting it would leave the record stopped for the whole boot
+    // and the non-retryable 4503 gate would end the tab's reconnects.
+    const written = JSON.parse(kv.put.mock.calls.at(-1)?.[1] as string);
+    expect(written.status).toBe('running');
+    // Re-read rather than spread the snapshot: spreading would revert the field
+    // destroy() had just refreshed.
+    expect(written.lastActiveAt).toBe('REFRESHED-BY-DESTROY');
   });
 });

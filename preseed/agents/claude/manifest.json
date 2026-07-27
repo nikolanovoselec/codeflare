@@ -114,12 +114,22 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/run-review-lane.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
     "modes": [
       "advanced"
     ]
   },
   "plugins/codeflare-hooks/scripts/lib/lane-classifier.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/scripts/lib/lane-triage.mjs": {
     "modes": [
       "advanced"
     ]
@@ -155,6 +165,11 @@
     ]
   },
   "plugins/codeflare-memory/scripts/memory-context-inject.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/scripts/post-compaction-recall.sh": {
     "modes": [
       "advanced"
     ]
@@ -254,11 +269,6 @@
       "advanced"
     ]
   },
-  "rules/common/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/documentation-discipline.md": {
     "modes": [
       "advanced"
@@ -296,16 +306,6 @@
     ]
   },
   "rules/golang/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/graph-first.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/karpathy.md": {
     "modes": [
       "advanced"
     ]
@@ -648,12 +648,37 @@
       "advanced"
     ]
   },
+  "skills/review-scope/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/lane-evidence.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/build-review-packet.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/inert-source-delta.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/spec-enforce/scripts/round-limit.mjs": {
     "modes": [
       "advanced"
     ]
   },
   "skills/tdd-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/code-review-checklist/SKILL.md": {
     "modes": [
       "advanced"
     ]

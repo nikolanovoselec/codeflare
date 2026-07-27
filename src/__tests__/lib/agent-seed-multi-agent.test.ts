@@ -221,6 +221,27 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
+  it('REQ-AGENT-101: transformed reviewers get a retrieval pointer, never a dangling embed claim', () => {
+    // The strip removes policy the transformed runtimes do not carry. If it
+    // removed the payload but left the prose, the prompt would promise embedded
+    // policy, deliver none, and forbid retrieving it -- worse than either
+    // choice. Assert the pointer resolves to that runtime's real skills path
+    // and that no raw directive survives anywhere in the seed.
+    const gem = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.gemini/agents/doc-updater.md');
+    expect(gem).toBeTruthy();
+    expect(gem!.content).toContain('cat ~/.gemini/skills/<name>/SKILL.md');
+    expect(gem!.content).not.toContain('@include-skill');
+    expect(gem!.content).not.toContain('nothing further to retrieve');
+
+    // copilot receives no skill files, so it must name no skills path at all.
+    const cop = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.copilot/agents/doc-updater.agent.md');
+    expect(cop).toBeTruthy();
+    expect(cop!.content).not.toContain('SKILL.md');
+    expect(cop!.content).not.toContain('@include-skill');
+
+    expect(AGENTS_SEEDED_CONFIGS.filter((d) => d.content.includes('@include-skill'))).toHaveLength(0);
+  });
+
   it('Antigravity (agy) has both skills and agent definitions under the .gemini global config dir', () => {
     const docs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.gemini/'));
     const skills = docs.filter((d) => d.key.startsWith('.gemini/skills/'));
@@ -237,13 +258,41 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     );
     const codeReviewer = agents.find((d) => d.key === '.gemini/agents/code-reviewer.md');
     expect(codeReviewer, '.gemini/agents/code-reviewer.md should exist').toBeTruthy();
-    const toolsLine = codeReviewer!.content.match(/^tools:.*$/m)?.[0] ?? '';
-    // Gemini CLI tool vocabulary: Read->read_file, Bash->run_shell_command, Glob->glob, etc.
-    expect(toolsLine).toContain('read_file');
-    expect(toolsLine).toContain('run_shell_command');
-    expect(toolsLine).toContain('glob');
+    // Derive the expectation from the Claude source rather than pinning a
+    // literal list: the mapping is the contract, so this keeps holding when the
+    // Claude toolset changes and still fails if the transform stops mapping.
+    const GEMINI_TOOL_MAP: Record<string, string> = {
+      Read: 'read_file',
+      Write: 'write_file',
+      Edit: 'replace',
+      Bash: 'run_shell_command',
+      Grep: 'search_file_content',
+      Glob: 'glob',
+    };
+    const claudeSource = AGENTS_SEEDED_CONFIGS.find(
+      (d) => d.key === '.claude/agents/code-reviewer.md'
+    );
+    const claudeTools = JSON.parse(
+      claudeSource!.content.match(/^tools:\s*(\[.*\])$/m)![1]
+    ) as string[];
+    const geminiTools = JSON.parse(
+      codeReviewer!.content.match(/^tools:\s*(\[.*\])$/m)![1]
+    ) as string[];
+    expect(geminiTools).toEqual([
+      ...new Set(
+        claudeTools
+          .filter((t) => t !== 'Skill' && !t.startsWith('mcp__'))
+          .map((t) => GEMINI_TOOL_MAP[t] ?? t)
+      ),
+    ]);
+    // Capability anchors, so a degenerate or empty mapping cannot pass the
+    // differential above: the evidence transport must survive the transform,
+    // and no Claude-side name may leak through unmapped.
+    expect(geminiTools).toContain('run_shell_command');
+    expect(geminiTools).not.toContain('Bash');
+    expect(geminiTools).not.toContain('Skill');
     // mcp__ tool names are dropped from the frontmatter tools list (no Gemini equivalent).
-    expect(toolsLine).not.toContain('mcp__');
+    expect(geminiTools.filter((t) => t.startsWith('mcp__'))).toHaveLength(0);
     // Model pin stripped so agy defaults to the active runtime model.
     expect(codeReviewer!.content).not.toContain('\nmodel:');
     // Paths rewritten from ~/.claude/ to ~/.gemini/.
@@ -318,8 +367,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/graphify-native.ts',
       '.pi/agent/extensions/guard-helpers.ts',
       '.pi/agent/extensions/local-statusline.ts',
+      '.pi/agent/extensions/memory-inject-helpers.ts',
+      '.pi/agent/extensions/memory-inject.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
       '.pi/agent/extensions/memory-vault.ts',
+      '.pi/agent/extensions/post-compaction-recall-helpers.ts',
+      '.pi/agent/extensions/post-compaction-recall.ts',
       '.pi/agent/extensions/review-command.ts',
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
@@ -734,6 +787,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       'memory-capture.sh',
       'memory-context-inject.sh',
       'plugin.json',
+      'post-compaction-recall.sh',
       'prefilter-transcript.sh',
     ]);
     for (const doc of pluginDocs) {

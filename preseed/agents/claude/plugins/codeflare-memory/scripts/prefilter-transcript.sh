@@ -18,6 +18,7 @@
 #
 # Outputs in OUT_DIR:
 #   slice.jsonl          - raw transcript slice (for debugging only)
+#   turns.ndjson         - every filtered turn, before the budget is applied
 #   clean.ndjson         - filtered NDJSON: {role, text, ts} per line
 #   chunk-aa, chunk-ab.. - clean.ndjson split CHUNK_SIZE entries per chunk
 #   chunk-aa.md, ...     - human-readable Markdown rendering of each chunk
@@ -44,6 +45,27 @@ START="${2:?start line required}"
 END="${3:?end line required}"
 OUT="${4:?out dir required}"
 CHUNK_SIZE="${5:-20}"
+
+# Payload ceilings, mirroring Pi's MEMORY_CAPTURE_MAX_TOTAL_CHARS and
+# MEMORY_CAPTURE_MAX_TURN_CHARS. Measured over 1,546 real turns: the median
+# turn is 196 characters and p90 is 2,557, so the per-turn cap only ever
+# touches the tail -- at 10,000 it cuts 2.1% of turns and keeps 88% of all
+# content. Without a ceiling the slice grows with session length: a resumed
+# session produced 50 chunks and cost 220k tokens to summarise. Capping here
+# also collapses the chunk count, which is what keeps the per-chunk pass short.
+#
+# The total is budgeted in characters rather than turns because the capture
+# trigger counts prompts, not messages, and the conversion between them swings
+# by an order of magnitude with how agentic the window was. See selectTurns in
+# Pi's memory-vault-helpers.ts for the full reasoning; the selection below is
+# the same algorithm.
+MAX_TOTAL_CHARS=200000
+MAX_TURN_CHARS=10000
+# The rescue list below is appended after the per-turn cap, so it is bounded or
+# the cap means nothing: one turn holding a pasted list of commit hashes would
+# otherwise carry a rescue line larger than the whole payload budget. Mirrors
+# Pi's MEMORY_CAPTURE_MAX_RESCUED_REFS.
+MAX_RESCUED_REFS=50
 
 # Fail-loud integer validation of START/END/CHUNK_SIZE. Empty captures
 # (START=END=0) or non-numeric args previously silently slid through
@@ -75,6 +97,21 @@ sed -n "${START},${END}p" "$TRANSCRIPT" > "$OUT/slice.jsonl"
 # 2. Prefilter to NDJSON of {role, text, ts}. Single-quoted to keep
 #    jq variables ($c, $t) out of shell expansion.
 jq -c '
+# Truncation drops whatever sat past the cap, and what sits there is often the
+# turn conclusion: the REQ the change closed, the ADR it cited, the SHA it
+# landed as. Those are the tokens AD58 requires be verbatim and are exactly
+# what a later graph query searches for. Rescue them into a short trailing
+# line so the cap costs prose, never a citation. Only fires when a turn is
+# actually cut, so an ordinary turn is byte-identical to an uncapped run.
+def cites: [scan("REQ-[A-Z]+-[0-9]+|AD[0-9]+|#[0-9]{2,}|\\b[0-9a-f]{7,40}\\b")];
+def capped($text):
+  ($text[0:$maxchars]) as $kept
+  | if ($text | length) <= $maxchars then $kept
+    else (($text | cites | unique) - ($kept | cites)) as $lost
+      | if ($lost | length) > 0
+        then $kept + "\n[refs dropped in truncation: " + ($lost[0:$maxrefs] | join(", ")) + "]"
+        else $kept end
+    end;
 def is_synthetic_marker(s):
   (s | startswith("<"))
   or (s | startswith("Stop hook"))
@@ -86,16 +123,41 @@ select(.type == "user" or .type == "assistant") |
 if .type == "user" and (.message.content | type) == "string" then
   .message.content as $c |
   if ($c | length) > 0 and (is_synthetic_marker($c) | not) then
-    {role:"user", text:$c, ts:(.timestamp // null)}
+    {role:"user", text:capped($c), ts:(.timestamp // null)}
   else empty end
 elif .type == "assistant" and (.message.content | type) == "array" then
   ([.message.content[] | select(.type == "text") | .text]
    | map(select(length > 0)) | join("\n\n")) as $t |
   if ($t | length) > 0 then
-    {role:"assistant", text:$t, ts:(.timestamp // null)}
+    {role:"assistant", text:capped($t), ts:(.timestamp // null)}
   else empty end
 else empty end
-' < "$OUT/slice.jsonl" > "$OUT/clean.ndjson"
+' --argjson maxchars "$MAX_TURN_CHARS" --argjson maxrefs "$MAX_RESCUED_REFS" \
+  < "$OUT/slice.jsonl" > "$OUT/turns.ndjson"
+
+# 2b. Spend the character budget newest-first, user prompts before assistant
+#     turns, then re-emit chronologically. paste supplies awk with each turn's
+#     role and length beside its own line; a prefiltered turn is one line of
+#     compact JSON, so it carries no literal tab or newline to confuse -F'\t'.
+#     jq counts codepoints where Pi's selectTurns counts UTF-16 units, which
+#     can differ by one turn at the budget boundary on astral characters.
+paste <(jq -r '[.role, (.text | length)] | @tsv' < "$OUT/turns.ndjson") "$OUT/turns.ndjson" \
+  | awk -F '\t' -v budget="$MAX_TOTAL_CHARS" '
+      { role[NR] = $1; len[NR] = $2; line[NR] = $3; n = NR }
+      END {
+        spent = 0
+        for (pass = 1; pass <= 2; pass++) {
+          want = (pass == 1) ? "user" : "assistant"
+          for (i = n; i >= 1; i--) {
+            if (role[i] != want) continue
+            if (spent + len[i] > budget) break
+            spent += len[i]
+            keep[i] = 1
+          }
+        }
+        for (i = 1; i <= n; i++) if (i in keep) print line[i]
+      }
+  ' > "$OUT/clean.ndjson"
 
 # 3. Chunk and render. split -a 2 gives chunk-aa, chunk-ab, ... chunk-zz
 #    (676 chunks max - more than any sane 15-prompt window will produce).

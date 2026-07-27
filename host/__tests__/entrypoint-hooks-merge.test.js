@@ -20,70 +20,163 @@ function extractMainExecution() {
 // ============================================================================
 // Test: settings.json configuration in entrypoint.sh
 // ============================================================================
-// REQ-AGENT-008: Preseed Deployed to Container on Start
+// REQ-AGENT-099: Agent Settings and Plugins Assembled at Container Start
 // REQ-MEM-008: Memory prompt files preseeded via manifest pipeline
+
+// Both SETTINGS_CONFIG literals, parsed. Asserting against the parsed objects
+// rather than substring-matching the whole script means a hook that moves to the
+// wrong event, loses its matcher, or lands in the wrong session mode fails here —
+// none of which a file-wide `includes()` can see.
+function settingsConfigs() {
+  const literals = [...entrypoint.matchAll(/^\s*SETTINGS_CONFIG='(\{.*\})'$/gm)].map((m) =>
+    JSON.parse(m[1].replaceAll(`'"$PLUGIN_DIR"'`, '/plugins'))
+  );
+  assert.equal(literals.length, 2, 'expected exactly two SETTINGS_CONFIG literals (advanced + default)');
+  const advanced = literals.find((c) => c.hooks);
+  const standard = literals.find((c) => !c.hooks);
+  assert.ok(advanced, 'one literal must carry hook registrations (advanced mode)');
+  assert.ok(standard, 'one literal must be hook-free (default mode)');
+  return { advanced, standard };
+}
+
+// A command path the merge classifies as managed (its regex anchors on the
+// literal `plugins/` segment), so pruning applies to it.
+const MANAGED = '/home/user/.claude/plugins/codeflare-hooks/scripts';
+
+// The settings-merge block, lifted verbatim out of entrypoint.sh. Every `fi`
+// inside it is indented, so the first column-0 `fi` closes it.
+function settingsMergeBlock() {
+  // Anchor on the SETTINGS_FILE assignment, which is unique: the `if [ -f
+  // "$SETTINGS_FILE" ]` line itself also opens the later Read(/**) permission
+  // seeder, so matching that alone would silently exercise the wrong block if
+  // the two were ever reordered.
+  const assignment = entrypoint.indexOf('SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"');
+  assert.notEqual(assignment, -1, 'entrypoint.sh no longer assigns SETTINGS_FILE');
+  const start = entrypoint.indexOf('if [ -f "$SETTINGS_FILE" ]; then', assignment);
+  assert.notEqual(start, -1, 'entrypoint.sh no longer has a settings-merge block');
+  const end = entrypoint.indexOf('\nfi\n', start);
+  assert.notEqual(end, -1, 'the settings-merge block is unterminated');
+  return entrypoint.slice(start, end + '\nfi\n'.length);
+}
+
+// Runs that block for real against a throwaway settings.json. `existing` seeds
+// the file (omit it to exercise the no-file branch) and may be an object or a
+// raw string; `config` is the managed SETTINGS_CONFIG. Executing the shell is
+// the point: a merge that silently stops merging cannot pass these.
+function runSettingsMerge({ existing, config }) {
+  const file = join(mkdtempSync(join(tmpdir(), 'settings-merge-')), 'settings.json');
+  if (existing !== undefined) {
+    writeFileSync(file, typeof existing === 'string' ? existing : JSON.stringify(existing));
+  }
+
+  // bash + `set -euo pipefail` to match entrypoint.sh's own shebang and options.
+  // Under plain `sh` a command that starts failing inside the block would let
+  // the harness sail past it while production aborts the container start —
+  // failing open on exactly the regression class this test exists to catch.
+  const result = spawnSync('bash', ['-c', `set -euo pipefail\n${settingsMergeBlock()}`], {
+    env: { ...process.env, SETTINGS_FILE: file, SETTINGS_CONFIG: JSON.stringify(config) },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, `settings-merge block exited ${result.status}: ${result.stderr}`);
+
+  const raw = readFileSync(file, 'utf8');
+  let settings = null;
+  try {
+    settings = JSON.parse(raw);
+  } catch {
+    settings = null;
+  }
+  return { settings, raw, stdout: result.stdout };
+}
+
+// Every hook entry registered for one event type, flattened across matchers.
+function hookEntries(config, event) {
+  return (config.hooks?.[event] ?? []).flatMap((entry) =>
+    (entry.hooks ?? []).map((hook) => ({ matcher: entry.matcher ?? '', ...hook }))
+  );
+}
 
 describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => {
   it('configures settings.json with skipDangerousModePermissionPrompt', () => {
-    assert.ok(
-      entrypoint.includes('skipDangerousModePermissionPrompt'),
-      'entrypoint should configure skipDangerousModePermissionPrompt in settings.json'
-    );
+    const { advanced, standard } = settingsConfigs();
+
+    assert.equal(advanced.skipDangerousModePermissionPrompt, true);
+    assert.equal(standard.skipDangerousModePermissionPrompt, true);
   });
 
-  it('advanced mode SETTINGS_CONFIG includes hooks', () => {
-    // Advanced mode should merge PreToolUse, PostToolUse, and UserPromptSubmit hooks
-    assert.ok(
-      entrypoint.includes('PreToolUse'),
-      'entrypoint should configure PreToolUse hook for advanced mode'
-    );
-    assert.ok(
-      entrypoint.includes('PostToolUse'),
-      'entrypoint should configure PostToolUse hook for review-reminder'
-    );
-    assert.ok(
-      entrypoint.includes('UserPromptSubmit'),
-      'entrypoint should configure UserPromptSubmit hook for advanced mode'
-    );
-    assert.ok(
-      entrypoint.includes('block-attributed-commits.sh'),
-      'PreToolUse hook should point to codeflare-hooks plugin script'
-    );
-    assert.ok(
-      entrypoint.includes('memory-capture.sh'),
-      'UserPromptSubmit hook should point to codeflare-memory plugin script'
-    );
+  it('advanced mode registers each managed hook on its own event type', () => {
+    const { advanced } = settingsConfigs();
+
+    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop']) {
+      assert.ok(hookEntries(advanced, event).length > 0, `${event} should carry at least one hook`);
+    }
+
+    const commandFor = (event, script) =>
+      hookEntries(advanced, event).find((h) => (h.command ?? '').includes(script));
+
+    // Each script must be registered on the event that can actually act on it —
+    // e.g. a commit blocker is useless after the tool has already run.
+    assert.ok(commandFor('PreToolUse', 'block-attributed-commits.sh'), 'commit blocker belongs on PreToolUse');
+    assert.ok(commandFor('PreToolUse', 'block-local-builds.sh'), 'local-build blocker belongs on PreToolUse');
+    assert.ok(commandFor('PostToolUse', 'git-push-review-reminder.sh'), 'push reminder belongs on PostToolUse');
+    assert.ok(commandFor('UserPromptSubmit', 'memory-capture.sh'), 'memory capture belongs on UserPromptSubmit');
+    assert.ok(commandFor('Stop', 'enforce-review-spawn.sh'), 'review-spawn enforcement belongs on Stop');
   });
 
   it('hooks use if-gates to filter by command pattern', () => {
-    // PreToolUse: block-attributed-commits gated on git * and gh *.
+    const { advanced } = settingsConfigs();
+
     // PreToolUse block-attributed-commits keeps its `if:` gates because
     // commit/PR-create commands always lead with `git`/`gh`.
-    assert.ok(
-      entrypoint.includes('"if":"Bash(git *)"'),
-      'block-attributed-commits should be if-gated on Bash(git *)'
+    const commitBlockers = hookEntries(advanced, 'PreToolUse').filter((h) =>
+      (h.command ?? '').includes('block-attributed-commits.sh')
     );
-    assert.ok(
-      entrypoint.includes('"if":"Bash(gh *)"'),
-      'block-attributed-commits should also be if-gated on Bash(gh *)'
+    const gates = commitBlockers.map((h) => h.if).filter(Boolean);
+    assert.ok(gates.includes('Bash(git *)'), 'block-attributed-commits should be if-gated on Bash(git *)');
+    assert.ok(gates.includes('Bash(gh *)'), 'block-attributed-commits should also be if-gated on Bash(gh *)');
+
+    // The push reminder must NOT carry a prefix `if:` gate — it would silently
+    // skip chained pipelines (`git add . && git push`), see #243. The script's
+    // in-process case statement is the canonical filter.
+    const pushReminders = hookEntries(advanced, 'PostToolUse').filter((h) =>
+      (h.command ?? '').includes('git-push-review-reminder.sh')
     );
-    // PostToolUse git-push-review-reminder must NOT carry a prefix `if:` gate —
-    // it would silently skip chained pipelines (`git add . && git push`),
-    // see #243. The script's in-process case statement is the canonical filter.
-    assert.ok(
-      !entrypoint.includes('"if":"Bash(git push*)"'),
-      'git-push-review-reminder must NOT be if-gated on Bash(git push*) — chained pushes would be silently bypassed (#243)'
-    );
+    assert.ok(pushReminders.length > 0, 'push reminder should be registered');
+    for (const hook of pushReminders) {
+      assert.equal(
+        hook.if,
+        undefined,
+        'git-push-review-reminder must NOT be if-gated — chained pushes would be silently bypassed (#243)'
+      );
+    }
+  });
+
+  // REQ-AGENT-099 AC5: every session mode disables agent view. Parsed from the
+  // literal rather than string-matched, so the test still fails if the key is
+  // present but false, or if only one of the two modes carries it.
+  it('both SETTINGS_CONFIG literals disable agent view', () => {
+    const { advanced, standard } = settingsConfigs();
+
+    for (const [mode, config] of [['advanced', advanced], ['default', standard]]) {
+      assert.equal(
+        config.disableAgentView,
+        true,
+        `${mode} mode must set disableAgentView:true (agent view is unusable on mobile)`
+      );
+    }
   });
 
   // REQ-MEM-011 AC1: hooks (PreToolUse and UserPromptSubmit) are merged into
   // settings.json ONLY in advanced mode. Default mode gets only
   // skipDangerousModePermissionPrompt -- no hook registrations.
   it('SESSION_MODE gates hook registration', () => {
-    assert.ok(
-      entrypoint.includes('SESSION_MODE:-default') && entrypoint.includes('"hooks"'),
-      'hook registration should be gated on SESSION_MODE'
-    );
+    const { advanced, standard } = settingsConfigs();
+
+    // Exactly one of the two mode literals carries hooks, and the gate that
+    // chooses between them reads SESSION_MODE.
+    assert.ok(Object.keys(advanced.hooks).length > 0, 'advanced literal should register hooks');
+    assert.equal(standard.hooks, undefined, 'default literal should register no hooks');
+    assert.ok(entrypoint.includes('SESSION_MODE:-default'), 'mode selection should read SESSION_MODE');
   });
 
   // REQ-MEM-011 AC1: default mode must not inject the hooks block.
@@ -91,55 +184,95 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
   // inside the advanced-mode branch only -- the SETTINGS_CONFIG variable
   // containing "hooks" must be defined inside the advanced conditional, NOT
   // at the top level that runs regardless of mode.
-  it('default mode emits only skipDangerousModePermissionPrompt, not hook registrations', () => {
-    // Locate the else/default-mode branch of the SESSION_MODE conditional.
-    // The advanced branch assigns SETTINGS_CONFIG with hooks; the default
-    // branch must produce a config with ONLY skipDangerousModePermissionPrompt.
-    // Strategy: find the block that sets skipDangerousModePermissionPrompt
-    // and verify it is not co-located with "PreToolUse" or "UserPromptSubmit"
-    // on the same conditional line / assignment.
-    const skipIdx = entrypoint.indexOf('skipDangerousModePermissionPrompt');
-    assert.notEqual(skipIdx, -1, 'skipDangerousModePermissionPrompt must exist');
+  it('default mode emits only non-hook settings, not hook registrations', () => {
+    const { standard } = settingsConfigs();
 
-    // Extract ~200 chars around the first occurrence to inspect context.
-    const context = entrypoint.slice(Math.max(0, skipIdx - 50), skipIdx + 200);
-
-    // The default-mode SETTINGS_CONFIG must not embed hook registrations.
-    // If PreToolUse appears within the same assignment block it means hooks
-    // are being merged unconditionally -- that violates AC1.
-    assert.ok(
-      !context.includes('PreToolUse'),
-      'skipDangerousModePermissionPrompt assignment must not include PreToolUse (default mode must be hook-free)'
-    );
-    assert.ok(
-      !context.includes('UserPromptSubmit'),
-      'skipDangerousModePermissionPrompt assignment must not include UserPromptSubmit (default mode must be hook-free)'
+    // Assert the whole key set, so a hook block (or any other key) added to the
+    // default-mode literal fails here rather than shipping to Standard sessions.
+    assert.deepEqual(
+      Object.keys(standard).sort(),
+      ['disableAgentView', 'skipDangerousModePermissionPrompt']
     );
   });
 
-  it('uses jq recursive merge to preserve existing settings', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    assert.ok(
-      entrypoint.includes('. * $'),
-      'should use jq recursive merge (. * $var) for settings.json'
+  it('merges managed settings into an existing file without discarding user keys', () => {
+    const { settings } = runSettingsMerge({
+      existing: {
+        theme: 'dark',
+        disableAgentView: false,
+        hooks: {
+          PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '/home/user/my-own-hook.sh' }] }],
+        },
+      },
+      config: {
+        skipDangerousModePermissionPrompt: true,
+        disableAgentView: true,
+        hooks: {
+          PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `${MANAGED}/block.sh` }] }],
+        },
+      },
+    });
+
+    assert.equal(settings.theme, 'dark', 'a setting the managed config never mentions must survive the merge');
+    assert.equal(settings.skipDangerousModePermissionPrompt, true, 'managed keys must be applied');
+    // Managed keys are the right operand of jq's `*`, so they win a conflict.
+    // This is deliberate: the mobile default cannot be sticky-overridden by a
+    // stale settings.json synced in from an older session.
+    assert.equal(settings.disableAgentView, true, 'the managed value must win over the existing one');
+
+    const commands = settings.hooks.PreToolUse.flatMap((entry) => entry.hooks.map((hook) => hook.command));
+    assert.ok(commands.includes('/home/user/my-own-hook.sh'), 'a user-added hook must survive the rebuild');
+    assert.ok(commands.includes(`${MANAGED}/block.sh`), 'the managed hook must be registered');
+  });
+
+  it('prunes managed hooks the current config no longer registers', () => {
+    const { settings } = runSettingsMerge({
+      existing: {
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [
+                { type: 'command', command: `${MANAGED}/removed-upstream.sh` },
+                { type: 'command', command: '/home/user/my-own-hook.sh' },
+              ],
+            },
+          ],
+        },
+      },
+      config: { skipDangerousModePermissionPrompt: true },
+    });
+
+    const commands = (settings.hooks?.PreToolUse ?? []).flatMap((entry) =>
+      entry.hooks.map((hook) => hook.command)
     );
+    // Without pruning, a hook deleted from the image keeps firing forever in any
+    // container whose settings.json was synced from before the deletion.
+    assert.ok(
+      !commands.some((command) => command.includes('removed-upstream.sh')),
+      'a managed hook absent from the current config must not survive'
+    );
+    assert.ok(commands.includes('/home/user/my-own-hook.sh'), 'pruning must not take user hooks with it');
   });
 
   it('creates settings.json when it does not exist', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    assert.ok(
-      main.includes('settings.json') && main.includes('else'),
-      'should have else branch for creating settings.json when missing'
-    );
+    // Without the no-file branch a fresh container starts with no managed
+    // settings at all — no hooks, no mobile agent-view default.
+    const config = { skipDangerousModePermissionPrompt: true, disableAgentView: true };
+    const { settings } = runSettingsMerge({ config });
+
+    assert.deepEqual(settings, config, 'the no-file branch must write the managed config verbatim');
   });
 
   it('handles malformed settings.json gracefully (skip with warning)', () => {
-    assert.ok(
-      entrypoint.includes('WARNING') && entrypoint.includes('settings.json'),
-      'should warn about malformed settings.json without overwriting'
-    );
+    const malformed = '{ not json';
+    const { raw, stdout } = runSettingsMerge({
+      existing: malformed,
+      config: { skipDangerousModePermissionPrompt: true },
+    });
+
+    assert.equal(raw, malformed, 'a failed merge must leave the existing file untouched, not truncate it');
+    assert.match(stdout, /WARNING/, 'a failed merge must be reported, not swallowed');
   });
 
   it('settings merge runs before bisync baseline', () => {
@@ -175,18 +308,19 @@ describe('plugin enablement', () => {
     );
   });
 
-  it('enables codeflare-hooks plugin alongside codeflare-memory', () => {
-    const pluginsMatch = entrypoint.match(/PLUGINS_CONFIG='(\{.*?\})'/);
-    assert.ok(pluginsMatch, 'PLUGINS_CONFIG assignment should exist');
-    const pluginsConfig = JSON.parse(pluginsMatch[1]);
-    assert.ok(
-      pluginsConfig.enabledPlugins['codeflare-memory'] === true,
-      'codeflare-memory should be enabled'
+  it('enables codeflare-hooks plugin alongside codeflare-memory in every branch', () => {
+    // Both literals matter: one for the context-mode-manifest-present branch and
+    // one for its else. Checking only the first would let the second ship a
+    // session with the managed plugins missing.
+    const configs = [...entrypoint.matchAll(/PLUGINS_CONFIG='(\{.*?\})'/g)].map((m) =>
+      JSON.parse(m[1])
     );
-    assert.ok(
-      pluginsConfig.enabledPlugins['codeflare-hooks'] === true,
-      'codeflare-hooks should be enabled'
-    );
+    assert.equal(configs.length, 2, 'expected both PLUGINS_CONFIG literals');
+
+    for (const config of configs) {
+      assert.equal(config.enabledPlugins['codeflare-memory'], true);
+      assert.equal(config.enabledPlugins['codeflare-hooks'], true);
+    }
   });
 
   it('plugin enablement uses jq merge into .claude.json', () => {
@@ -199,10 +333,20 @@ describe('plugin enablement', () => {
   });
 
   it('plugin enablement is NOT mode-gated (permanent)', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    const pluginIdx = main.indexOf('"codeflare-memory"');
-    assert.ok(pluginIdx > -1, 'should have codeflare-memory plugin reference');
+    // Slice the whole plugin-enablement section and assert it never consults
+    // SESSION_MODE — wrapping it in an advanced-only branch is the regression
+    // this test exists to catch, and a mere reference check cannot see that.
+    // Anchor at the section header, not the first literal: a mode gate would be
+    // written ABOVE the literals, so a slice starting there cannot see it.
+    const start = entrypoint.indexOf('# Enable plugins');
+    const end = entrypoint.indexOf('plugins enabled in .claude.json', start);
+    assert.ok(start > -1 && end > start, 'plugin enablement section should exist');
+
+    const section = entrypoint.slice(start, end);
+    assert.ok(
+      !section.includes('SESSION_MODE'),
+      'plugin enablement must not be gated on SESSION_MODE'
+    );
   });
 });
 

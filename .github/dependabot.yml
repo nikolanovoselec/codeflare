@@ -65,6 +65,23 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
+    # Both type packages describe a runtime this repo pins, so npm's newest is
+    # the wrong answer for them. @types/vscode must match the openvscode-server
+    # release baked into the Dockerfile, and gitpod ships well behind upstream
+    # (1.109.5 is its newest), so npm always offers a version no server we can
+    # run actually implements. @types/node must match engines.node. Taking
+    # either ahead of its runtime types the extension against APIs that are not
+    # there and moves the failure from build time to activation time. They are
+    # bumped by hand together with the thing they describe. The lockstep test in
+    # host/__tests__/entrypoint-openvscode.test.js anchors both to the Dockerfile
+    # -- @types/vscode to OPENVSCODE_VERSION's minor, @types/node to the major of
+    # the Node the sidebar builder stage runs. Node type minors move on
+    # DefinitelyTyped's cadence rather than Node's, so they are left free here and
+    # only majors are ignored below.
+    ignore:
+      - dependency-name: "@types/vscode"
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Pi agent preseed (@gotgenes/pi-subagents, context-mode)
   # is intentionally NOT managed by Dependabot. Although it has a real

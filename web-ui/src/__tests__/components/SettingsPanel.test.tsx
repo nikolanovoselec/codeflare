@@ -758,12 +758,15 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.getByTestId('llm-keys-explanation')).toBeInTheDocument();
     });
 
-    it('shows hint about next session start', () => {
+    it('renders the LLM keys hint', () => {
+      // Assert the element, not its wording — copy is free to change. Matches
+      // the sibling llm-keys-explanation assertion above.
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
-      const hint = screen.getByTestId('llm-keys-hint');
-      expect(hint.textContent).toContain('next session start');
+      // Content, not wording: getByTestId already throws on absence, so
+      // asserting presence alone would pass on an empty hint.
+      expect(screen.getByTestId('llm-keys-hint').textContent?.trim().length).toBeGreaterThan(0);
     });
   });
 

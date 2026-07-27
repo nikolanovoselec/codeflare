@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
+import { AGENTS_SEEDED_CONFIGS, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
@@ -433,43 +433,177 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
 
 });
 
-describe('Reviewer agents can access their enforce policy', () => {
-  // Claude invokes enforce skills through its Skill tool. Pi has no equivalent tool;
-  // its generated reviewer system prompts embed the canonical policy documents.
-  const CLAUDE_REVIEWERS = ['spec-reviewer', 'doc-updater', 'code-reviewer', 'tdd-guide'];
-
-  it('every Claude reviewer/guide agent grants the Skill tool so its enforce skill is invocable', () => {
-    for (const name of CLAUDE_REVIEWERS) {
-      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
-      expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
-      const toolsLine = doc!.content.match(/^tools:.*$/m)?.[0] ?? '';
-      expect(toolsLine, `${name} must list the Skill tool`).toContain('"Skill"');
+describe('Retired preseed keys', () => {
+  it('never lists a key the current build still seeds', () => {
+    // Seed cleanup derives its delete list from the generated set, so a file
+    // dropped from the manifest is never queued for deletion and survives in
+    // the bucket beside whatever replaced it. RETIRED_PRESEED_KEYS closes that
+    // gap, which makes the inverse the dangerous mistake: a path listed as
+    // retired while still live would be deleted immediately after being
+    // written. This is the assertion that catches it.
+    const live = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
+    for (const key of RETIRED_PRESEED_KEYS) {
+      expect(live.has(key), `${key} is retired but still in the generated seed`).toBe(false);
     }
   });
 
-  it('REQ-AGENT-086: Claude PR reviewers expose research and indexed-retrieval toolsets', () => {
-    // Indexed retrieval (ctx_search/ctx_batch_execute) is the transport that
-    // keeps raw scan output out of reviewer context; stripping it regressed
-    // review cost by an order of magnitude. Capability inclusion, not exact
-    // equality, so adding tools never breaks this contract.
-    const required = [
-      'Skill',
-      'Bash',
-      'Read',
-      'Grep',
-      'mcp__context-mode__ctx_search',
-      'mcp__context-mode__ctx_batch_execute',
-      'mcp__context-mode__ctx_execute',
-      'mcp__graphify__query_graph',
-    ];
+  it('lists the rules absorbed into the engineering constitution', () => {
+    // Their content now ships inside the constitution; leaving the standalone
+    // copies in the bucket would deliver the same policy twice.
+    for (const key of [
+      '.claude/rules/karpathy.md',
+      '.claude/rules/common/coding-style.md',
+      '.claude/rules/graph-first.md',
+    ]) {
+      expect(RETIRED_PRESEED_KEYS).toContain(key);
+    }
+    const constitution = AGENTS_SEEDED_CONFIGS.find(
+      (doc) => doc.key === '.claude/rules/engineering-constitution.md',
+    );
+    // Assert a load-bearing sentence from each absorbed rule, not the heading:
+    // emptying a section to a bare heading while the standalone rule keeps
+    // being deleted from every bucket is exactly the policy loss this guards.
+    expect(constitution!.content).toMatch(/^## Working principles$/m);
+    expect(constitution!.content).toMatch(/Don't assume and don't hide confusion/);
+    expect(constitution!.content).toMatch(/^## Coding concretes$/m);
+    expect(constitution!.content).toMatch(/Never set a field to `undefined`/);
+    expect(constitution!.content).toMatch(/^## Graph first$/m);
+    expect(constitution!.content).toMatch(/graphify-out\/graph\.json/);
+  });
+});
+
+describe('Reviewer agents can access their enforce policy', () => {
+  // The PR reviewers carry their policy instead of fetching it. An agent holding
+  // the Skill tool is handed a listing of every installed skill before it starts
+  // and spends a turn fetching what it already needed, which is what made a lane
+  // cost as much on a diff it owned nothing in as on one it did. tdd-guide is a
+  // working agent, not a PR lane, and still discovers skills at runtime.
+  // Spine only for the lanes whose conditional policy is large: spec-reviewer and
+  // doc-updater `cat` theirs when the condition fires, so carrying 20 KB inline
+  // would charge every run for the rare case. code-reviewer is the exception --
+  // tdd-enforce is its ONLY conditional policy, and its document states the lane
+  // has none to fetch, so a `cat` there would be a bug rather than a capability.
+  const LANE_SKILLS: Record<string, string[]> = {
+    'code-reviewer': ['review-scope', 'tdd-enforce', 'code-review-checklist'],
+    'spec-reviewer': ['review-scope', 'spec-enforce', 'spec-enforce-ac', 'spec-enforce-truth'],
+    'doc-updater': ['review-scope', 'doc-enforce', 'doc-enforce-lanes'],
+  };
+
+  it('every Claude PR reviewer embeds its lane policy instead of discovering it', () => {
+    for (const [name, skills] of Object.entries(LANE_SKILLS)) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
+      const embedded = [...doc!.content.matchAll(/<embedded-skill name="([^"]+)">/g)].map((m) => m[1]);
+      expect(embedded, `${name} must embed exactly its lane policy`).toEqual(skills);
+      // Body identity, not a delimiter probe: embedding is now the sole
+      // policy-delivery path for these lanes, so a truncated or stale body is
+      // exactly the regression that matters. Same check the Pi tree already has.
+      for (const skill of skills) {
+        const source = AGENTS_SEEDED_CONFIGS.find(
+          (d) => d.key === `.claude/skills/${skill}/SKILL.md`,
+        );
+        expect(source, `${skill} must be seeded for Claude`).toBeTruthy();
+        const body = doc!.content.match(
+          new RegExp(`<embedded-skill name="${skill}">\\n([\\s\\S]*?)</embedded-skill>`),
+        )?.[1];
+        expect(body, `${name} embedded ${skill} must match the seeded skill byte-for-byte`).toBe(
+          source!.content,
+        );
+      }
+    }
+  });
+
+  it('tdd-guide still reaches its enforce skill through the Skill tool', () => {
+    const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/agents/tdd-guide.md');
+    expect(doc).toBeTruthy();
+    expect(JSON.parse(frontmatter(doc!.content).tools) as string[]).toContain('Skill');
+  });
+
+  // Carry what fires on almost every run; fetch what usually does not. The
+  // split is by FIRE RATE, not by whether a policy is nominally conditional:
+  // spec-enforce-ac is conditional on ACs being touched, and a spec diff
+  // touches ACs nearly every time, so it is carried.
+  //
+  // This reverses an earlier measurement recorded here, and the reversal is the
+  // point. On 2026-07-26 (8d9635a) embedding spec-enforce-ac + -truth took the
+  // spec lane 10 turns -> 16. Post-eac3d97 it takes 6 -> 1, reproduced on two
+  // different fresh ranges. Both numbers were honest; eac3d97 landed in between
+  // and fixed a reference resolver that ran 283s against a 60s bound on one
+  // transport, so the lane had been dripping to rebuild evidence it never
+  // received. Re-measure after any change to what a lane is handed -- a policy
+  // sizing rule is only valid against the evidence pipeline it was measured on.
+  //
+  // Both halves are asserted, because the fetch is the half that fails silently:
+  // a policy that is neither embedded nor reachable is enforcement quietly lost.
+  it('REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded', () => {
+    // What is still fetched: inert unless a canonical-shape file is in scope,
+    // and only when an Implemented REQ's docs are touched. doc-enforce-lanes
+    // left this list because it runs per file in the diff -- it always fires.
+    const CONDITIONAL = ['doc-enforce-shape', 'doc-enforce-truth'];
+    for (const name of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
+      for (const conditional of CONDITIONAL) {
+        expect(
+          doc!.content.includes(`# ${conditional}`) || doc!.content.includes(`name: ${conditional}`),
+          `${name} must not embed the large conditional policy ${conditional}`,
+        ).toBe(false);
+      }
+    }
+    for (const conditional of CONDITIONAL) {
+      expect(
+        AGENTS_SEEDED_CONFIGS.some((d) => d.key === `.claude/skills/${conditional}/SKILL.md`),
+        `${conditional} is fetched at runtime, so it must be seeded at the path the prompt names`,
+      ).toBe(true);
+    }
+    // The prompts resolve the config dir rather than hardcoding ~/.claude: under
+    // CLAUDE_CONFIG_DIR a hardcoded cat fails and the lane runs with no
+    // enforcement layer at all, which is silent rather than loud.
+    // Only a lane that still fetches something needs the fetch form, and it
+    // must resolve the config dir rather than hardcoding ~/.claude.
+    for (const name of ['doc-updater']) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc!.content, `${name} must resolve the config dir when fetching policy`)
+        .toContain('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/');
+    }
+  });
+
+  it('REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools', () => {
+    // Something has to keep raw scan output out of reviewer context. It used to
+    // be indexed retrieval; stripping that without a replacement regressed
+    // review cost by an order of magnitude. It is now the review-scope packet
+    // CLI, which returns lane-owned hunks and exact changed-input ranges. This
+    // asserts the replacement in both directions: the transport must be
+    // reachable, and the unbounded-scan tools it replaces must be absent. A
+    // regression either way fails here.
     for (const name of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
       const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
       expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
       const tools = JSON.parse(frontmatter(doc!.content).tools) as string[];
-      for (const tool of required) {
-        expect(tools, `${name} must expose ${tool}`).toContain(tool);
-      }
+
+      // Bash and nothing else. Every other grant is a way to go looking for
+      // evidence the packet already carries or policy the agent already holds,
+      // and each one costs a tool schema in the prompt before the first turn.
+      expect(tools, `${name} must be bash-only`).toEqual(['Bash']);
+
+      expect(
+        doc!.content,
+        `${name} must invoke the seeded packet CLI`,
+      ).toContain('skills/review-scope/scripts/build-review-packet.mjs');
+      expect(doc!.content, `${name} must carry the packet section`).toMatch(
+        /^## Your lane packet$/m,
+      );
     }
+
+    const skill = AGENTS_SEEDED_CONFIGS.find(
+      (d) => d.key === '.claude/skills/review-scope/SKILL.md',
+    );
+    expect(skill, 'review-scope SKILL.md must be seeded for Claude').toBeTruthy();
+    expect(skill!.content).toContain('~/.claude/skills/review-scope/scripts/build-review-packet.mjs');
+    const script = AGENTS_SEEDED_CONFIGS.find(
+      (d) => d.key === '.claude/skills/review-scope/scripts/build-review-packet.mjs',
+    );
+    expect(script, 'the packet CLI the reviewers invoke must be seeded alongside it').toBeTruthy();
   });
 
   it('REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract', () => {
@@ -496,7 +630,7 @@ describe('Reviewer agents can access their enforce policy', () => {
 
   it('REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms', () => {
     const expectedEffort: Record<string, string> = {
-      'code-reviewer': 'high',
+      'code-reviewer': 'medium',
       'spec-reviewer': 'medium',
       'doc-updater': 'medium',
     };

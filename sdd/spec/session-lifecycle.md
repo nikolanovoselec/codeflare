@@ -574,3 +574,30 @@ None.
 **Verification:** Automated test ([Drain auth on the delete path](../../src/__tests__/container/index.test.ts), [idle/quota-stop drain auth](../../src/__tests__/container/container-metrics-drain.test.ts))
 
 **Status:** Implemented
+
+---
+
+### REQ-SESSION-020: The metrics alarm outlives a container that stops answering
+
+**Intent:** The metrics alarm is the only detector of a container that has stopped serving, so it must not be killable by that same condition. Its re-arm is the last statement of the tick and the schedule is one-shot, which means a poll that never returns takes the loop with it, and no other path restores it: a start hook only runs on a fresh container start, and an error hook only fires when the platform monitor sees the container exit, neither of which happens to a container that is wedged but still reported running.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every request the metrics alarm awaits on an external party is bounded, so a peer that accepts the connection and never answers ends that request rather than the tick. <!-- @impl: src/container/container-metrics.ts::pollContainer --> <!-- @impl: src/container/container-metrics.ts::raceBudget --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1: re-arms the alarm when the Timekeeper ping never answers) -->
+2. A poll that does not answer leaves the alarm armed, so idle detection and health reporting continue on the next tick. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers) -->
+3. Teardown records the session stopped while the identifiers that write requires are still in hand, so a teardown that does not run to completion still leaves the session recorded as stopped rather than running. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (records the session stopped BEFORE clearing the identifiers that write needs) -->
+4. The deliberate-stop marker is durable before that write, so a concurrent metrics tick reading a stopped record with no marker present cannot mistake it for a false stop and re-assert running. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (records the session stopped BEFORE clearing the identifiers that write needs) -->
+5. A restart path that tears the container down goes on to start it, so the marker that teardown persisted is always cleared by a fresh start rather than left to hold the session stopped. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy) -->
+6. A restart path that tears the container down records the session running again, so the authoritative stopped gate does not end the client's reconnects while the container is coming back up. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy) -->
+
+**Constraints:** The bound applies to the poll, not to the tick: the exits that deliberately stop the loop (a confirmed exit, an idle stop, a zombie DO, a stop already issued) must keep ending it.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit)
+
+**Verification:** Automated test ([metrics alarm survives an unanswered poll](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented

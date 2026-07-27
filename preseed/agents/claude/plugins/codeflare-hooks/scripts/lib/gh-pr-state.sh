@@ -30,3 +30,31 @@ gh_pr_state() {
   local branch="$1"
   gh pr view "$branch" --json state,headRefOid,baseRefName 2>/dev/null
 }
+
+# resolve_review_head <ghHead> -- the SHA the review RANGE should end at.
+#
+# GitHub's PR metadata lags its own ref update: a `gh pr view` issued
+# milliseconds after a successful push can still report the PREVIOUS head, so a
+# range built on it ends one commit before the push that triggered it.
+#
+# Prefer local HEAD only when it provably CONTAINS what gh reported
+# (--is-ancestor is true for equal SHAs). Every other relationship keeps gh's
+# value: a push of a non-current refspec, a rejected push, or a concurrent push
+# from elsewhere must not be reviewed against a narrower range than the PR has.
+#
+# Both the PostToolUse nudge and the Stop gate classify through this, so the two
+# consumers of lane-classifier.sh cannot feed it different right-hand SHAs and
+# disagree about which lanes a range needs. Callers that ACK a head must still
+# ack the gh head, never this one -- acking a local commit the PR does not yet
+# carry would skip its review once it is pushed.
+resolve_review_head() {
+  local gh_head="$1" local_head
+  local_head=$(git rev-parse HEAD 2>/dev/null)
+  if [ -n "$local_head" ] \
+     && { [ -z "$gh_head" ] \
+          || git merge-base --is-ancestor "$gh_head" "$local_head" 2>/dev/null; }; then
+    printf '%s\n' "$local_head"
+    return
+  fi
+  printf '%s\n' "$gh_head"
+}

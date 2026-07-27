@@ -104,7 +104,13 @@
 
 .session-dropdown__multiview--disabled,
 .session-dropdown__multiview:disabled {
-  color: var(--color-text-tertiary);
+  /* No colour override: the undefined token this used to name made the
+     declaration invalid at computed-value time, so the element inherited body's
+     --color-text-primary rather than falling back to the base rule below it in
+     the cascade. With the declaration gone the base rule's own
+     --color-text-primary applies — the same colour — and `opacity` below is what
+     dims it. Naming a dim token here instead would darken a control that has
+     shipped light. */
   cursor: not-allowed;
   opacity: 0.65;
 }
@@ -114,7 +120,11 @@
   align-items: center;
   justify-content: center;
   padding: 0 var(--space-3);
-  color: var(--color-text-tertiary);
+  /* No colour override, same as the disabled rule above: this named an undefined
+     token, so nothing on the chain set `color` and body's --color-text-primary is
+     what actually rendered. Naming a dim token here instead would darken an
+     icon-only control that has shipped light — --color-text-dimmed would put it
+     at 2.3:1, under the 3:1 floor for interactive non-text content. */
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   background: transparent;
@@ -122,14 +132,14 @@
 }
 
 .session-dropdown__multiview-close:hover {
-  color: var(--color-danger, #ef4444);
-  border-color: var(--color-danger, #ef4444);
+  color: var(--color-error);
+  border-color: var(--color-error);
 }
 
 .session-dropdown__multiview-limit {
   display: none;
   margin: calc(var(--space-1) * -1) 0 var(--space-2);
-  color: var(--color-warning, #f59e0b);
+  color: var(--color-warning);
   font-size: var(--text-xs);
 }
 
@@ -142,7 +152,7 @@
 }
 
 .session-dropdown__selectable-card--selected {
-  outline: 2px solid var(--color-success, #22c55e);
+  outline: 2px solid var(--color-success);
   outline-offset: 1px;
 }
 

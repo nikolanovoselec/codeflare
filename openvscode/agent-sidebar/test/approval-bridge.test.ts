@@ -34,10 +34,6 @@ class RecordingApprovalHost implements ApprovalHost {
     return this.manifestContent;
   }
 
-  async openDiff(value: ApprovalManifest): Promise<void> {
-    this.events.push(`diff:${value.previewId}:${value.canonicalTarget}`);
-  }
-
   async confirm(value: ApprovalManifest): Promise<boolean> {
     this.events.push(`confirm:${value.id}`);
     return this.approved;
@@ -59,7 +55,6 @@ test('Pi approval bridge compatibility validates a manifest before confirmation'
 
   assert.deepEqual(host.events, [
     `load:${manifest.id}`,
-    `diff:${manifest.previewId}:${manifest.canonicalTarget}`,
     `confirm:${manifest.id}`,
   ]);
   assert.deepEqual(response, {

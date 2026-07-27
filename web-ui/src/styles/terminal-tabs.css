@@ -37,10 +37,10 @@
 
         .terminal-tab--active {
           color: var(--color-text-primary);
-          background: linear-gradient(135deg, hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15), hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.05));
-          border-color: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.3);
+          background: linear-gradient(135deg, var(--color-accent-muted), hsla(var(--accent-hsl), 0.05));
+          border-color: hsla(var(--accent-hsl), 0.3);
           box-shadow:
-            0 0 20px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.2),
+            0 0 20px hsla(var(--accent-hsl), 0.2),
             inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 

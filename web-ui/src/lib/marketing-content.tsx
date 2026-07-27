@@ -16,7 +16,7 @@ export const AGENTIC_ENGINE_LABEL = 'agentic engineering engine';
 export const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiRobotOutline, content: () => <>Claude Code, Codex, Antigravity & more</> },
   { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready in seconds</> },
-  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>your cloud</span> built in</> },
+  { icon: mdiSourceBranch, content: () => <><span style={{ color: 'var(--color-brand-github)' }}>GitHub</span> & <span style={{ color: 'var(--color-brand-cloud)' }}>your cloud</span> built in</> },
   { icon: mdiConsole, content: () => <>Full Linux terminal, any browser</> },
   { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when done</> },
   { icon: mdiCloudLockOutline, content: () => <>Encrypted in transit and at rest</> },

@@ -72,6 +72,16 @@ describe('LoginPage / REQ-AUTH-013 (branded SaaS login page)', () => {
       const spinner = container.querySelector('.login-spinner');
       expect(spinner).toBeInTheDocument();
     });
+
+    // Caller-side oracle for the PageFooter extraction: deleting <PageFooter />
+    // from this page must fail here, not just in PageFooter's own test.
+    it('renders the shared page footer', () => {
+      mockedGetAuthStatus.mockReturnValue(new Promise(() => {}));
+
+      const { container } = render(() => <LoginPage />);
+
+      expect(container.querySelectorAll('.page-footer').length).toBe(2);
+    });
   });
 
   describe('Provider Rendering', () => {

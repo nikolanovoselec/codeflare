@@ -29,4 +29,4 @@ matching, so every fix was fifteen edits. Never build that again.
    content visible by default (never gated on a JS reveal class), a11y + contrast.
 
 Skipping this when building multi-instance UI is how unmaintainable frontends get
-built. See also [[karpathy]] (simplicity), [[tdd-discipline]] (test antipatterns).
+built. See also [[engineering-constitution]] (simplicity), [[tdd-discipline]] (test antipatterns).

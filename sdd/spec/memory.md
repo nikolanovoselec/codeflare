@@ -354,11 +354,16 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. Matched nodes (up to 10, ~1000 tokens) are injected as additionalContext in the UserPromptSubmit hook response. <!-- @test: host/__tests__/memory-context-inject.test.js (AC2: injects at most 10 nodes even when more match) --> <!-- @manual -->
 3. The hook fires at most once per session (gated by its own atomic mkdir sentinel, claimed only after a successful graph query; independent of the memory-capture counter). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC3: fires at most once per session (sentinel directory prevents re-fire)) -->
 4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction). <!-- @test: host/__tests__/memory-context-inject.test.js (AC4: skips prompts shorter than 20 characters) --> <!-- @manual -->
+5. The unified graph is the only source queried; no per-repo graph is accepted as a substitute for it. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::GLOBAL_GRAPH --> <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::resolveGraphPath --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: reads the unified graph only, and only within the ceiling) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: substitutes no repo graph even when one sits in the working directory) -->
+6. The Pi runtime performs the same query on the first real prompt of a session, with the same keyword rule, ranking, node cap and one-shot sentinel, injecting the result into that turn. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject --> <!-- @impl: preseed/agents/pi/extensions/memory-inject-helpers.ts::selectNodes --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC1: injects matched nodes into the turn as a message) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC3: fires at most once per session) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC2: at most ten nodes are carried) -->
+7. A graph beyond the configured size ceiling is skipped without claiming the session sentinel, so injection resumes on a later prompt once the graph is readable again. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::MAX_GRAPH_BYTES --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: skips a graph past the ceiling without spending the session sentinel) -->
 
 **Constraints:**
 
+- The size ceiling is a memory guard, not a latency one — the query's own timeout bounds the parse — and it is overridable, so a graph that outgrows the default cannot silently disable injection with no signal that it stopped working. The default is justified by measurement on both runtimes rather than inherited by one from the other, and an override that is not a plausible byte count — non-numeric, or numeric but beyond what the comparison can hold — falls back to the default, so the guard cannot end up present and inert. <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
 - The hook reads the graph JSON directly (no MCP round-trip).
+- Claude and Pi carry separate implementations because their injection surfaces differ — a UserPromptSubmit hook returning `additionalContext` against a pre-agent-loop event returning a turn message — while the keyword rule, ranking weights, node cap, rendered shape and sentinel semantics are the same in both. The Pi side skips synthetic prompts, which the hook runtime never delivers.
 - The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.
 - Keyword extraction strips all non-alphanumeric characters and filters to words of 4+ characters to avoid noise.
 
@@ -367,6 +372,44 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-004](vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
 **Verification:** Automated test ([memory-context-inject](../../host/__tests__/memory-context-inject.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-019: Post-compaction recall of recent session extracts
+
+**Intent:** Compaction replaces the conversation with a summary while keeping the same session, so the first-prompt injection has already fired and never runs again. The agent then resumes from a summary of a summary, having lost the concrete decisions, corrections and identifiers of prior work — restating plans that were settled and to-do items that were finished. Recent session extracts are injected when a session resumes from compaction, so what was actually decided survives the boundary.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. When a session resumes from compaction, the most recent session extracts are injected as additionalContext, newest first, bounded by a configurable count. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::EXTRACT_COUNT --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC1: injects the N most recent extracts newest-first as SessionStart context) -->
+2. Recency is decided by the capture instant carried in the extract name rather than by modification time or by that name's text, so neither a file sync that rewrites timestamps nor a change of UTC offset can reorder or starve the selection. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::sort_key --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC2: orders by filename even when mtime disagrees) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC2: orders by captured instant across a UTC-offset change) -->
+3. No context is injected for a session that did not resume from compaction, so sessions that never lost context pay nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::SOURCE --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC3: stays silent unless the session started from compaction) -->
+4. Each extract contributes a bounded number of bytes to the injected context. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: caps each extract) -->
+5. Content dropped by that bound is marked as truncated, with the extract's source path retained so the remainder stays reachable. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC5: marks the truncation and keeps the source path) -->
+6. The Pi runtime covers the same boundary at its own compaction event, selecting and bounding the same extracts and delivering them as a message persisted in the session, and never inside a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) -->
+
+**Constraints:**
+
+- Only the narrative and decision sections of an extract are injected; the remaining sections are reachable through the emitted source path.
+- The injected text is framed as a record of what happened, not as instructions, so a prior session cannot issue directives to a later one.
+- The hook plugin is advanced-session-only by manifest declaration; standard sessions never receive it.
+- The hook is fail-safe: any error exits silently with no output and never blocks a session.
+- A `## ` line inside a fenced block is content, not a heading. Fence delimiters are matched by run length rather than toggled on any backtick line, so an inner fence cannot close an outer one and leave every later heading unrecognised.
+- The per-extract bound is spent in encoded bytes and cut on a character boundary, because that is what the context actually costs. The truncation notice is spent from that same bound, and is dropped rather than carried when the bound is too small to hold it — the bound is the guarantee, the notice is not. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC4: holds the bound even when the cap cannot fit the marker) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: a nonsensical cap carries nothing rather than everything) -->
+- Two extracts sharing a capture instant are ordered by name descending, so the two runtimes agree on a tie. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC2: breaks a shared instant on the name, descending) -->
+- The Pi delivery is fail-silent as a whole, not only in its reads: it runs inside the runtime's compaction dispatch, so a failure anywhere in the handler is swallowed rather than raised into the session. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (swallows a delivery failure instead of throwing into the compaction dispatch) -->
+- Claude and Pi carry separate implementations because their injection surfaces differ — a SessionStart hook returning `additionalContext` against a compaction event delivering a session message — while the selection, bounds and injected wording are the same in both.
+- The Pi extension is fail-safe on the same terms: an unreadable extract store leaves the session untouched.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-013](#req-mem-013-proactive-memory-injection-on-first-prompt)
+
+**Verification:** Automated tests ([post-compaction-recall](../../host/__tests__/post-compaction-recall.test.js), [pi-post-compaction-recall](../../src/__tests__/lib/pi-post-compaction-recall.test.ts))
 
 **Status:** Implemented
 
@@ -384,7 +427,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. The Pi extension points its prompt-file constants at the deployed prompt files under `~/.pi/agent/prompts/` and no longer writes the prompt contracts inline. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::defaultDependencies --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 3. The seed generator maps `prompts/` source files to the deployed `~/.pi/agent/prompts/` location, and both prompt files are delivered advanced-only via the Pi manifest. <!-- @impl: scripts/generate-agent-seed.mjs::piNativeKey --> <!-- @impl: preseed/agents/pi/manifest.json::prompts/memory-agent-prompt.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 4. Capture input contains only uncaptured user/assistant text. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
-5. Capture input contains no more than 40 text turns of 4000 characters each. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
+5. Capture input is bounded by a fixed character budget, spent newest-first on user prompts before assistant turns, with each turn individually capped and its citation rescue bounded to a fixed reference count. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::selectTurns --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::capTurn --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
 6. Each Pi capture/extract request includes the optional model from `CODEFLARE_MEMORY_MODEL` only when non-empty; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) -->
 7. Each Pi memory launch makes its immutable execution snapshot readable to the background child before exposing the public `subagent` request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryExecutionVarsPath --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
 

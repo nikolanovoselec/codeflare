@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
@@ -326,20 +327,120 @@ function fullSha(value: string | undefined): value is string {
   return Boolean(value && /^[0-9a-f]{40}$/.test(value));
 }
 
-function reviewLanesForFiles(files: string[]): ReviewLane[] {
+/**
+ * The comment/whitespace prover, seeded from the canonical Claude tree and
+ * reaching Pi byte-identically through the standard transform. Both runtimes
+ * shell out to this one program rather than carrying a scanner each, because
+ * two hand-kept copies of a JavaScript lexer cannot stay in agreement.
+ */
+const INERT_SOURCE_PROVER = join(homedir(), ".pi", "agent", "skills", "review-scope", "scripts", "inert-source-delta.mjs");
+
+/**
+ * True only when every behavioural path in the range provably differs by
+ * comments and whitespace alone. Every failure is a false: a missing prover, a
+ * missing runtime, an added or deleted or renamed file, an ineligible
+ * extension, an unparseable construct. The reduction is one-directional, so
+ * doubt always costs a lane rather than saving one.
+ */
+export function inertSourceDelta(input: {
+  repo: string;
+  base: string;
+  head: string;
+  files: string[];
+  prover?: string;
+}): boolean {
+  const prover = input.prover ?? INERT_SOURCE_PROVER;
+  if (input.files.length === 0 || !existsSync(prover)) return false;
+  try {
+    // The prover must SAY it proved something; a zero exit alone is not a
+    // proof, because a run that decided nothing also exits zero.
+    const proof = execFileSync("node", [prover, input.base, input.head], {
+      cwd: input.repo,
+      input: input.files.join("\0"),
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    // PROOF_TOKEN in skills/review-scope/scripts/inert-source-delta.mjs is the
+    // source of truth for this literal; review-helpers.test.ts spawns the real
+    // prover, so a rename there fails here rather than silently reading false.
+    return proof.trim() === "INERT";
+  } catch {
+    return false;
+  }
+}
+
+const isGeneratedPath = (file: string) => file.startsWith("graphify-out/");
+const isSpecPath = (file: string) => file.startsWith("sdd/");
+const isDocPath = (file: string) =>
+  file.startsWith("documentation/") || /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$|^LICENSE$/.test(file);
+
+/** The paths whose content decides the code lane -- the prover's input set. */
+function behaviouralPaths(files: string[]): string[] {
+  return files.filter((file) => !isGeneratedPath(file) && !isSpecPath(file) && !isDocPath(file));
+}
+
+// Does any `@impl` anchor under `tree` cite one of these changed files? That is
+// the only route by which a source-only change can invalidate something in the
+// spec or documentation tree, and it is the first check those lanes run. Answer
+// it with grep and the lane costs nothing when the answer is no; answer it by
+// spawning the agent and it costs a full startup to be told the same thing.
+// Mirrors anchor_cites_changed in the Claude lane classifier; REQ-AGENT-040 AC7
+// requires both runtimes to decide a range identically.
+export function anchorCitesChanged(repo: string, tree: string, files: string[]): boolean {
+  if (files.length === 0 || !existsSync(join(repo, tree))) return false;
+  for (const file of files) {
+    if (!file) continue;
+    try {
+      execFileSync("grep", ["-rqlF", "--", `@impl: ${file}`, tree], {
+        cwd: repo,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      return true;
+    } catch {
+      // grep exits non-zero for "no match"; keep scanning the remaining files.
+    }
+  }
+  return false;
+}
+
+function reviewLanesForFiles(
+  files: string[],
+  inertSource = false,
+  anchors: { spec: boolean; docs: boolean } = { spec: false, docs: false },
+): ReviewLane[] {
   let source = false;
   let spec = false;
   let docs = false;
   for (const file of files) {
-    if (file.startsWith("graphify-out/")) continue;
-    if (file.startsWith("sdd/")) spec = true;
-    else if (file.startsWith("documentation/") || /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$/.test(file)) docs = true;
+    if (isGeneratedPath(file)) continue;
+    if (isSpecPath(file)) spec = true;
+    else if (isDocPath(file)) docs = true;
     else source = true;
   }
-  if (source) return [...ALL_REVIEW_LANES];
-  if (spec) return ["spec-reviewer", "doc-updater"];
-  if (docs) return ["doc-updater"];
-  return [];
+  // A proven-inert source delta contributes the code lane alone -- whether the
+  // new comment is TRUE is still a code-review question, and a directive
+  // comment still changes behaviour -- while the spec and documentation
+  // surfaces provably cannot have drifted. Any lane the same diff independently
+  // earns is still added, in canonical order.
+  if (source && !inertSource) {
+    // A behavioural change always owes the code lane, and owes the other two
+    // only where they have something to check: their own surface changed, or
+    // one of their anchors cites a file in this diff. Demanding all three
+    // unconditionally bought two agent startups that found no lane-owned file
+    // and exited.
+    const lanes: ReviewLane[] = ["code-reviewer"];
+    let wantsDocs = docs;
+    if (spec || anchors.spec) {
+      lanes.push("spec-reviewer");
+      if (spec) wantsDocs = true;
+    }
+    if (wantsDocs || anchors.docs) lanes.push("doc-updater");
+    return lanes;
+  }
+  const lanes: ReviewLane[] = source ? ["code-reviewer"] : [];
+  if (spec) lanes.push("spec-reviewer", "doc-updater");
+  else if (docs) lanes.push("doc-updater");
+  return lanes;
 }
 
 export function reviewRange(input: { repo: string; ackHead?: string; head: string }): string | undefined {
@@ -355,7 +456,62 @@ export function reviewRange(input: { repo: string; ackHead?: string; head: strin
   }
 }
 
-export function requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[] {
+// Lane-specific and deliberately not unified: spec-reviewer counts a subject
+// that CONTAINS its tags, doc-updater one that STARTS WITH them. That asymmetry
+// is what each lane document says, and collapsing it here would silently change
+// when a limit fires. Mirrors ROUND_RULES in the Claude lane-triage; REQ-AGENT-040
+// AC7 requires both runtimes to decide a range identically.
+const ROUND_RULES: Record<string, { tags: string[]; match: (subject: string, tag: string) => boolean; tree: string }> = {
+  "spec-reviewer": {
+    tags: ["[autonomous]", "[unleashed]", "[spec-reviewer]"],
+    match: (subject, tag) => subject.includes(tag),
+    tree: "sdd/",
+  },
+  "doc-updater": {
+    tags: ["[doc-updater]", "[autonomous]", "[unleashed]"],
+    match: (subject, tag) => subject.startsWith(tag),
+    tree: "documentation/",
+  },
+};
+const BULK_PREFIXES = ["[sdd-init]", "[sdd-clean]", "[sdd-triage]"];
+const RS = "\x1e";
+
+/**
+ * True when this lane has already been round-tripped five times, which its own
+ * document defines as a no-op. Answering it from git costs nothing; answering it
+ * by spawning the agent buys a full startup to be told the same thing. Every
+ * failure returns false, so doubt costs a lane rather than skipping a review.
+ */
+export function roundLimitReached(repo: string, lane: ReviewLane): boolean {
+  const rule = ROUND_RULES[lane];
+  if (!rule) return false;
+  let raw = "";
+  try {
+    raw = execFileSync("git", ["log", "-6", `--format=${RS}%H %s`, "--name-only"], {
+      cwd: repo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return false;
+  }
+  let counted = 0;
+  for (const record of raw.split(RS)) {
+    if (!record.trim()) continue;
+    const [header, ...fileLines] = record.split("\n");
+    const subject = header.slice(header.indexOf(" ") + 1).trim();
+    if (BULK_PREFIXES.some((prefix) => subject.startsWith(prefix))) continue;
+    if (!rule.tags.some((tag) => rule.match(subject, tag))) continue;
+    if (!fileLines.some((file) => file.trim().startsWith(rule.tree))) continue;
+    counted += 1;
+  }
+  return counted >= 5;
+}
+
+export function requiredReviewLanes(
+  // `prover` overrides the seeded prover path; production passes nothing.
+  input: { repo: string; ackHead?: string; head: string; prover?: string },
+): ReviewLane[] {
   if (input.ackHead === input.head && fullSha(input.head)) return [];
   const range = reviewRange(input);
   if (!range) return [...ALL_REVIEW_LANES];
@@ -366,7 +522,15 @@ export function requiredReviewLanes(input: { repo: string; ackHead?: string; hea
       { cwd: input.repo, encoding: "buffer", stdio: ["ignore", "pipe", "ignore"] },
     );
     const files = output.toString("utf8").split("\0").filter(Boolean);
-    return files.length === 0 ? [...ALL_REVIEW_LANES] : reviewLanesForFiles(files);
+    if (files.length === 0) return [...ALL_REVIEW_LANES];
+    const [base, head] = range.split("..");
+    const behavioural = behaviouralPaths(files);
+    const inertSource = inertSourceDelta({ repo: input.repo, base, head, files: behavioural, prover: input.prover });
+    const lanes = reviewLanesForFiles(files, inertSource, {
+      spec: anchorCitesChanged(input.repo, "sdd", behavioural),
+      docs: anchorCitesChanged(input.repo, "documentation", behavioural),
+    });
+    return lanes.filter((lane) => !roundLimitReached(input.repo, lane));
   } catch {
     return [...ALL_REVIEW_LANES];
   }

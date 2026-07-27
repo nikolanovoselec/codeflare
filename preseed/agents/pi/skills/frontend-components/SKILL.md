@@ -119,7 +119,7 @@ it's theater.
 ## See also
 
 - [[frontend-patterns]] — React/Next component composition, state, data fetching.
-- [[karpathy]] — simplicity first; don't over-abstract a single use.
+- [[engineering-constitution]] — simplicity first; don't over-abstract a single use.
 - `tdd-enforce` / [[tdd-discipline]] — the antipattern catalogue behind §5.
 - `impeccable` / `design-taste-frontend` / `emil-design-eng` — the *visual* design
   layer (this skill is about *architecture + tests*, not aesthetics).

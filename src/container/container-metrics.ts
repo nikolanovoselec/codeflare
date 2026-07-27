@@ -94,6 +94,66 @@ const NOT_RUNNING_CONFIRM_MS = 90_000;
 export const FINAL_SYNC_BUDGET_MS = 120_000;
 
 /**
+ * Ceiling on a single in-container poll (/activity, /health) from the metrics
+ * alarm.
+ *
+ * These awaits used to be unbounded, and that is how a wedged container killed
+ * the watchdog built to notice it. The re-arm is the LAST statement of
+ * doCollectMetrics and schedule() is one-shot, so a poll that never settles
+ * never re-arms, and nothing else does: onStart only runs on a fresh container
+ * start, and onError only fires when the SDK monitor sees the container exit —
+ * neither happens for a container that is wedged but still `running`. Observed
+ * in prod 2026-07-27: the 12:33:53 tick entered and emitted neither its success
+ * log nor the 'activity check failed' warning the catch below produces, proving
+ * it hung rather than threw; the session then ran 28 minutes with no idle
+ * detection and no health loop until the DO was aborted outright.
+ *
+ * A bound converts that hang into a rejection, which the existing catch already
+ * routes to the re-arm at the foot of the function. Well above a healthy
+ * container's sub-second answer, well under the 60s alarm cadence, so a slow
+ * poll costs one skipped reading rather than the loop.
+ */
+export const CONTAINER_POLL_BUDGET_MS = 10_000;
+
+/**
+ * Issue one in-container poll under the budget above.
+ *
+ * Aborting is enough on its own here: drainFinalSync bounds the SAME
+ * getTcpPort(8080).fetch path the same way (AbortController + timer, which is
+ * what AbortSignal.timeout is), and that path is production-proven under
+ * REQ-SESSION-011. So no second racing timer — a backstop against a mechanism
+ * the codebase already depends on would be speculative, and it would also make
+ * the test pass for the wrong reason.
+ */
+function pollContainer(
+  port: { fetch: (url: string, init?: RequestInit) => Promise<Response> },
+  url: string,
+  budgetMs: number,
+): Promise<Response> {
+  return port.fetch(url, { signal: AbortSignal.timeout(budgetMs) });
+}
+
+/**
+ * Resolve to null if `work` has not settled within the budget.
+ *
+ * For callees whose transport is not established to honour an abort signal, a
+ * timer is the only bound that certainly holds. The abandoned work keeps running;
+ * what matters is that the alarm stops waiting on it and reaches its re-arm.
+ */
+function raceBudget<T>(work: Promise<T>, budgetMs: number): Promise<T | null> {
+  // A rejection arriving after the timer already won is not a failure of this
+  // tick — mark it handled so it cannot surface as an unhandled rejection.
+  work.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), budgetMs);
+  });
+  return Promise.race([work, budget]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+/**
  * Open the not-running confirmation window without writing 'stopped'.
  *
  * Called by onError (container-lifecycle.ts) on a not-running reading so the
@@ -345,7 +405,7 @@ export async function collectMetrics(
 
   try {
     const activityPort = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
-    const activityRes = await activityPort.fetch('http://localhost/activity');
+    const activityRes = await pollContainer(activityPort, 'http://localhost/activity', CONTAINER_POLL_BUDGET_MS);
     if (!activityRes.ok) {
       logger.warn('collectMetrics: /activity returned non-OK', { status: activityRes.status });
     } else {
@@ -388,7 +448,7 @@ export async function collectMetrics(
 
   try {
     const tcpPort = ctx.container.getTcpPort(8080);
-    const res = await tcpPort.fetch('http://localhost/health');
+    const res = await pollContainer(tcpPort, 'http://localhost/health', CONTAINER_POLL_BUDGET_MS);
 
     if (!res.ok) {
       // Health endpoint returned non-200 (e.g. container still booting).
@@ -473,7 +533,18 @@ export async function collectMetrics(
 
       const tkId = env.TIMEKEEPER.idFromName(state._bucketName);
       const tk = env.TIMEKEEPER.get(tkId);
-      const pingRes = await tk.fetch(new Request('http://timekeeper/ping', {
+      // Bounded for the same reason as the container polls above: this await sits
+      // before the re-arm, so a Timekeeper DO that does not answer would take the
+      // alarm loop with it just as surely as a wedged container did.
+      //
+      // Unlike those polls, the bound here does NOT rest on the signal alone. The
+      // container polls go through getTcpPort().fetch, where drainFinalSync already
+      // depends on AbortSignal.timeout in production; a Durable Object stub is a
+      // different transport and its abort support is not established here. So the
+      // ping is raced against a timer, which holds whether or not the stub honours
+      // the signal. The signal stays because it genuinely cancels the request where
+      // it IS honoured, rather than leaving it running behind the race.
+      const pingRes = await raceBudget(tk.fetch(new Request('http://timekeeper/ping', {
         method: 'POST',
         body: JSON.stringify({
           bucketName: state._bucketName,
@@ -482,9 +553,10 @@ export async function collectMetrics(
           email: state._userEmail!,
         }),
         headers: { 'Content-Type': 'application/json' },
-      }));
+        signal: AbortSignal.timeout(CONTAINER_POLL_BUDGET_MS),
+      })), CONTAINER_POLL_BUDGET_MS);
 
-      if (pingRes.ok) {
+      if (pingRes?.ok) {
         const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
         if (quotaExceeded) {
           logger.warn('Quota exceeded — stopping container', { bucketName: state._bucketName });

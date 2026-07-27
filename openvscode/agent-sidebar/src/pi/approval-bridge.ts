@@ -24,7 +24,6 @@ export interface ApprovalManifest {
 
 export interface ApprovalHost {
   loadManifest(opaqueId: string): Promise<string>;
-  openDiff(manifest: ApprovalManifest): Promise<void>;
   confirm(manifest: ApprovalManifest): Promise<boolean>;
 }
 
@@ -89,8 +88,6 @@ export class ApprovalBridge {
       if (loaded.cancelled) return this.#consume(approvalId, request.id, false);
       const manifest = loaded.value;
       if (manifest.expiresAt < Date.now()) throw new ApprovalBridgeError('EXPIRED_APPROVAL');
-      const previewed = await raceWithAbort(this.#host.openDiff(manifest), signal);
-      if (previewed.cancelled) return this.#consume(approvalId, request.id, false);
       const decision = await raceWithAbort(this.#host.confirm(manifest), signal);
       return this.#consume(approvalId, request.id, decision.cancelled ? false : decision.value);
     } finally {

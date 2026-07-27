@@ -70,11 +70,11 @@
 
 .csd-agent-btn--last-used {
   background: var(--color-accent-muted);
-  border: 1px solid hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.3);
+  border: 1px solid hsla(var(--accent-hsl), 0.3);
 }
 
 .csd-agent-btn--last-used:hover {
-  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.2);
+  background: hsla(var(--accent-hsl), 0.2);
 }
 
 .csd-agent-icon {
@@ -103,7 +103,7 @@
   letter-spacing: 0.05em;
   padding: var(--space-1) var(--space-2);
   border-radius: 8px;
-  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
+  background: var(--color-accent-muted);
   color: var(--color-accent);
   line-height: 1.3;
 }

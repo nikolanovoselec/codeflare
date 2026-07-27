@@ -101,3 +101,11 @@ req_length:
 # the established norm for complex behavioral fixes; spec-enforce should not flag
 # entries for exceeding the 2-sentence guideline.
 changelog_entry_style: verbose
+
+# A changelog entry records a behavioural change, which is not always an
+# acceptance-criterion delta: a constraint reworded, or a defect fixed under an
+# unchanged AC, is history worth keeping. The drift rule is an AC-delta check,
+# so without this disposition it flags every such entry on every review. Pruning
+# them to satisfy the mechanical rule would delete accurate history; the entries
+# stay and the rule defers here.
+changelog_allows_behavioral_fix_entries: true

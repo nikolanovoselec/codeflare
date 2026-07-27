@@ -54,21 +54,38 @@ KEYWORDS=$(printf '%s' "$PROMPT_TEXT" | head -c 200 \
 
 [ -z "$KEYWORDS" ] && exit 0
 
-# Check if the unified global graph exists.
-GLOBAL_GRAPH="$USER_HOME/.graphify/global-graph.json"
-if [ ! -f "$GLOBAL_GRAPH" ]; then
-  # Fall back to per-repo graph in cwd.
-  CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
-  [ -z "$CWD" ] && CWD=$(pwd 2>/dev/null)
-  case "$CWD" in *..* ) exit 0 ;; esac
-  GLOBAL_GRAPH="$CWD/graphify-out/graph.json"
-  [ ! -f "$GLOBAL_GRAPH" ] && exit 0
-fi
+# The ceiling is a memory guard, not a latency one: the `timeout 8` below already
+# bounds the parse. Measured on this container, a 40MB unified graph parses in
+# 0.56s at 136MB RSS (~3.2x file size) - well inside both budgets - yet the
+# previous 30MB ceiling silently disabled injection entirely once the graph
+# outgrew it, with no signal that anything had stopped working. 100MB is the
+# operator-chosen ceiling: ~320MB resident by that ratio, which the container
+# carries, against a graph that grows with the vault and every indexed repo.
+#
+# An override is rejected unless it is a plausible byte count. A non-numeric one
+# would make the comparison exit 2 and, under `set +e`, carry on; an all-digit
+# but out-of-range one fails the same way with the error swallowed. Both leave a
+# guard that reads as present and does nothing. The second pattern is eighteen
+# `?` and so rejects 18 digits or more. `test -gt` compares 64-bit integers,
+# whose maximum is nineteen digits, so this is deliberately conservative: it
+# rejects on length alone rather than inspecting the leading digit, and no
+# plausible byte count comes near either bound.
+MAX_GRAPH_BYTES="${MEMORY_INJECT_MAX_GRAPH_BYTES:-104857600}"
+case "$MAX_GRAPH_BYTES" in
+  ''|*[!0-9]*) MAX_GRAPH_BYTES=104857600 ;;
+  ??????????????????*) MAX_GRAPH_BYTES=104857600 ;;
+esac
 
-# Skip graphs > 30MB (Python JSON parse too slow on resource-constrained container).
-# Both checks are deterministic per session, so safe before sentinel.
-GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || GRAPH_SIZE=0
-[ "$GRAPH_SIZE" -gt 31457280 ] && exit 0
+# The unified graph is the only source. There is deliberately no per-repo
+# fallback: at the start of a session - the only moment this runs - no repo graph
+# exists yet, and once one does the merger folds it into the unified graph, so a
+# repo graph is never a substitute, only a smaller subset. Both checks are
+# deterministic per session, so safe before sentinel - a graph skipped here
+# leaves the sentinel unclaimed, so a later prompt can still inject.
+GLOBAL_GRAPH="$USER_HOME/.graphify/global-graph.json"
+[ -f "$GLOBAL_GRAPH" ] || exit 0
+GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || exit 0
+[ "$GRAPH_SIZE" -gt "$MAX_GRAPH_BYTES" ] && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "

@@ -395,9 +395,9 @@
 }
 
 .settings-role-badge--admin {
-  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
+  background: var(--color-accent-muted);
   color: hsl(var(--accent-hue), var(--accent-s), 69%);
-  border: 1px solid hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.3);
+  border: 1px solid hsla(var(--accent-hsl), 0.3);
 }
 
 .settings-role-badge--user {
@@ -595,7 +595,7 @@
   font-size: var(--text-xs);
   color: var(--color-info);
   text-decoration: underline;
-  text-decoration-color: rgba(59, 130, 246, 0.4);
+  text-decoration-color: rgb(var(--color-info-rgb) / 0.4);
   text-underline-offset: 2px;
   transition: color var(--transition-fast);
 }
@@ -703,7 +703,7 @@
   border-radius: var(--radius-full);
   background: var(--color-success-bg);
   color: var(--color-success);
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  border: 1px solid rgb(var(--color-success-rgb) / 0.3);
   font-weight: var(--font-medium);
 }
 

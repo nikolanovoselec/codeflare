@@ -363,7 +363,7 @@
         }
 
         .header-vault-button--armed {
-          color: var(--color-success, #22c55e);
+          color: var(--color-success);
           animation: vault-button-breathe 3s ease-in-out infinite;
         }
 
@@ -374,7 +374,7 @@
            went green again once hover cleared (e.g. returning from another tab). This
            override matches that specificity and comes later, so armed stays green. */
         .header-vault-button--armed:hover:not([aria-disabled="true"]) {
-          color: var(--color-success, #22c55e);
+          color: var(--color-success);
         }
 
         @keyframes vault-button-breathe {

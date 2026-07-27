@@ -55,6 +55,8 @@ vi.mock('../../lib/agent-seed.generated', () => ({
   get AGENTS_SEEDED_CONFIGS() {
     return testState.agentDocs;
   },
+  RETIRED_PRESEED_KEYS: [] as readonly string[],
+  PRESEED_CONTENT_HASH: 'testhash00000000',
 }));
 
 import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';

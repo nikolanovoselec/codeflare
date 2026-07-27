@@ -55,6 +55,15 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     });
   });
 
+  // Caller-side oracle for the PageFooter extraction: deleting <PageFooter />
+  // from this page must fail here, not just in PageFooter's own test.
+  it('renders the shared page footer', async () => {
+    const { container } = render(() => <OnboardingPage />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('.page-footer').length).toBe(2);
+    });
+  });
+
   it('shows the GitHub card connected when the status reports a connection', async () => {
     mockGetGithubStatus.mockResolvedValue({ enabled: true, connected: true, login: 'octocat' });
     render(() => <OnboardingPage />);

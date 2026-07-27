@@ -14,6 +14,11 @@ import { NODE_SUITE_FILES } from './vitest.node-suite.mjs';
 export default defineConfig({
   test: {
     environment: 'node',
+    // Pinned, not inherited: suite-gates spawns git and node, pi-memory-inject
+    // calls process.chdir, and both throw ERR_WORKER_UNSUPPORTED_OPERATION
+    // under the threads pool. Forks is vitest's current default, so relying on
+    // it would make a pool switch or a major bump an opaque suite failure.
+    pool: 'forks',
     include: [...NODE_SUITE_FILES],
     slowTestThreshold: 5000,
     testTimeout: 30000,

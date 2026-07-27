@@ -42,6 +42,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration.
 - The CI runner label is configurable to support self-hosted runners.
+- Concurrent dispatches are kept legible and independent by [REQ-OPS-026](#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified).
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
 
 **Priority:** P0
@@ -129,6 +130,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The pentest workflow runs weekly and on manual dispatch against the configured target URL in the production environment. <!-- @impl: .github/workflows/pentest.yml::tls --> <!-- @manual -->
 2. The workflow runs six parallel probes using lightweight external tools (no active scanners) to minimize CI resource consumption. <!-- @manual -->
 3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/pentest.md](../../documentation/lanes/pentest.md#test-results). <!-- @manual -->
+4. A legacy-TLS verdict is derived from the server's own answer to a handshake the probe issues itself. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (passes when the server refuses the version with an alert) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (fails when the server accepts the version and returns a ServerHello) -->
+5. An answer that does not establish whether the version is supported reports inconclusive rather than a pass. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, on an alert that is not about the version) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, when nothing is listening) -->
 
 **Constraints:**
 
@@ -139,7 +142,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Manual check
+**Verification:** Automated test ([host/__tests__/tls-legacy-probe.test.js](../../host/__tests__/tls-legacy-probe.test.js))
 
 **Status:** Implemented
 
@@ -664,5 +667,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
 **Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-026: Concurrent deploy dispatches are legible and independently verified
+
+**Intent:** Several environments are deployed off one branch in the same window. Every run rendered identically in the run list, and every dispatch's inline verification shared one concurrency group, so a second dispatch cancelled the first's verification and its deploy failed a gate the commit had actually passed.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The run title resolves and displays the environment being deployed, so dispatches are distinguishable in the run list without opening them. <!-- @impl: .github/workflows/deploy.yml::run-name --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (names each run after the environment it resolved) -->
+2. Each dispatch verifies in its own concurrency group, keyed by that run's id, so a later dispatch cannot cancel an earlier one's verification and turn a verified commit into a failed gate. <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @impl: .github/workflows/test.yml::concurrency --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (gives each dispatch its own verify concurrency group) -->
+
+**Constraints:**
+
+- A called workflow inherits the caller's concurrency context, so the discriminator has to be supplied by the caller; the reusable workflow's own group cannot separate them.
+- The discriminator defaults to empty, leaving the group unchanged for every other caller of the reusable workflow.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
+
+**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
 
 **Status:** Implemented

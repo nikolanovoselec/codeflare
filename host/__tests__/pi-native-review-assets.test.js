@@ -1,18 +1,28 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { parseGeneratedSeed } from '../../scripts/materialize-agent-seed.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const generatedSource = readFileSync(join(repoRoot, 'src/lib/agent-seed.generated.ts'), 'utf8');
-const assignment = 'export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ';
-const jsonStart = generatedSource.indexOf(assignment) + assignment.length;
-const jsonEnd = generatedSource.lastIndexOf('];') + 1;
-assert.ok(jsonStart >= assignment.length && jsonEnd > jsonStart, 'generated seed document array not found');
-const documents = JSON.parse(generatedSource.slice(jsonStart, jsonEnd));
+const documents = parseGeneratedSeed(generatedSource);
 const piManifest = JSON.parse(readFileSync(join(repoRoot, 'preseed/agents/pi/manifest.json'), 'utf8'));
+// The contract, stated here and nowhere else in this file. It drives the
+// behavioural fixtures, which spawn the real gate: what the gate does with each
+// tag is proven by running it, never by reading its source.
+const CONTRACT_COUNTED = ['[autonomous]', '[code-reviewer]', '[doc-updater]', '[spec-reviewer]', '[unleashed]'];
+const CONTRACT_EXCLUDED = ['[sdd-clean]', '[sdd-init]', '[sdd-triage]'];
+
+// Sorted, de-duplicated tag literals, so policy prose is compared as a set
+// rather than as text. The policy is read by a reviewer rather than executed,
+// so it has no behavioural form -- it IS the artifact under contract.
+const declaredTags = (text) => [...new Set(
+  [...text.matchAll(/(\[[a-z-]+\])/g)].map((match) => match[1]),
+)].sort();
 
 function targetKey(relativePath) {
   if (relativePath === 'package.json' || relativePath === 'package-lock.json') {
@@ -121,7 +131,34 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     }
   });
 
-  it('REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker', () => {
+  it('REQ-AGENT-085/REQ-AGENT-040: the canonical review programs reach Pi byte-identically', () => {
+    // Both are one canonical source in the Claude tree; Pi receives them
+    // through the ordinary transform rather than owning a second copy. Two
+    // things make that worth pinning. Skill adaptation computes the Pi runtime
+    // rewrites BEFORE it decides a file is not a SKILL.md, so an executable
+    // aux file is in scope for those replacements -- a future comment
+    // containing a rewritten runtime name would silently corrupt Pi's copy.
+    // And byte-identity for these files is no longer covered by the
+    // manifest-driven check above, because Pi's manifest deliberately does not
+    // own them.
+    for (const script of ['build-review-packet.mjs', 'inert-source-delta.mjs', 'lane-evidence.mjs']) {
+      const canonical = readFileSync(
+        join(repoRoot, 'preseed/agents/claude/skills/review-scope/scripts', script),
+        'utf8',
+      );
+      const seeded = documents.find(
+        (document) => document.key === `.pi/agent/skills/review-scope/scripts/${script}`,
+      );
+      assert.ok(seeded, `Pi must receive ${script} at the path it is invoked from`);
+      assert.equal(
+        seeded.content,
+        canonical,
+        `Pi runtime-name adaptation must never rewrite ${script}`,
+      );
+    }
+  });
+
+  it('REQ-AGENT-107: enforcement round limit honors only the exact fully autonomous marker', () => {
     const script = join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs');
     const decide = (count, marker) => {
       const result = spawnSync(process.execPath, [script, String(count), ...(marker ? [marker] : [])], {
@@ -137,9 +174,362 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     assert.equal(decide(5, 'FULLY AUTONOMOUS'), 'stop');
   });
 
+  // The threshold was always deterministic; the count feeding it was a reading
+  // of the rule, and two runtimes read the same window as 0 and as 3 when it
+  // was 1. These drive real history through the gate and assert what it counts.
+  describe('REQ-AGENT-084: the gate counts its own rounds', () => {
+    const script = join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs');
+
+    // Commits oldest-first.
+    function repoWith(commits) {
+      const cwd = mkdtempSync(join(tmpdir(), 'round-limit-'));
+      // Hermetic: an ambient `commit.gpgsign` or `core.hooksPath` would fail the
+      // commit and surface as a wrong count rather than as the real cause.
+      const git = (...args) => {
+        const result = spawnSync('git', args, {
+          cwd,
+          encoding: 'utf8',
+          env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+        });
+        assert.equal(result.status, 0, `git ${args[0]} failed: ${result.stderr}`);
+        return result;
+      };
+      git('init', '-q', '-b', 'main', '.');
+      git('config', 'user.email', 'test@users.noreply.github.com');
+      git('config', 'user.name', 'test');
+      commits.forEach(({ subject, files }, index) => {
+        for (const file of files) {
+          mkdirSync(join(cwd, dirname(file)), { recursive: true });
+          writeFileSync(join(cwd, file), `change ${index}\n`);
+        }
+        git('add', '-A');
+        git('commit', '-q', '-m', subject);
+      });
+      return { cwd, git };
+    }
+
+    const count = (cwd, ...extra) => {
+      const result = spawnSync(process.execPath, [script, '--repo', cwd, '--lane', 'sdd/', ...extra], {
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+
+    it('counts any agent tag that touched the lane, and only those', () => {
+      const { cwd } = repoWith([
+        { subject: 'feat: base', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: in lane', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: outside the lane', files: ['src/x.ts'] },
+        { subject: '[sdd-clean] chore: bulk operation', files: ['sdd/spec/x.md'] },
+        { subject: '[doc-updater] fix: another lane', files: ['sdd/spec/x.md'] },
+      ]);
+      // A foreign agent tag counts (the miscount was reading this as own-tag-only);
+      // a counted tag outside the lane does not; an excluded tag is neither.
+      assert.equal(count(cwd), 'counted=2 gate=continue');
+    });
+
+    it('counts every tag the contract declares, and none it excludes', () => {
+      for (const tag of CONTRACT_COUNTED) {
+        const { cwd } = repoWith([
+          { subject: 'feat: base', files: ['README.md'] },
+          { subject: `${tag} fix: lane work`, files: ['sdd/spec/x.md'] },
+        ]);
+        assert.equal(count(cwd), 'counted=1 gate=continue', `${tag} is counted, so it must count`);
+      }
+      for (const tag of CONTRACT_EXCLUDED) {
+        // The counted commit sits BELOW the bulk op on purpose: with only the
+        // bulk op, `counted=0` would also hold if the gate wrongly closed the
+        // window there. A bulk op is neither counted nor closing, and only
+        // surviving to the older round proves the second half.
+        const { cwd } = repoWith([
+          { subject: 'feat: base', files: ['README.md'] },
+          { subject: '[code-reviewer] fix: an earlier round', files: ['sdd/spec/x.md'] },
+          { subject: `${tag} chore: bulk operation`, files: ['sdd/spec/x.md'] },
+        ]);
+        assert.equal(count(cwd), 'counted=1 gate=continue',
+          `${tag} must neither count nor close the window`);
+      }
+    });
+
+    it('treats a tag outside the contract as ordinary user-directed work', () => {
+      const { cwd } = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: an earlier round', files: ['sdd/spec/x.md'] },
+        { subject: '[not-a-real-tag] fix: lane work', files: ['sdd/spec/x.md'] },
+      ]);
+      // An unlisted tag is ordinary user-directed work. Distinguishes all three
+      // ways that can go wrong: counting it gives 2, treating it as a bulk op
+      // gives 1, closing the window gives 0. It covers this tag, not every tag
+      // the gate might have added -- that direction has no fixture, and reading
+      // the gate's source for it is what these tests stopped doing.
+      assert.equal(count(cwd), 'counted=0 gate=continue');
+    });
+
+    it('is not fooled by a commit subject that looks like a record separator', () => {
+      const { cwd } = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: drop --- legacy flag', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: ordinary', files: ['sdd/spec/x.md'] },
+      ]);
+      // A printable delimiter inside a subject used to open a phantom block and
+      // orphan the real commit's files, silently dropping it from the count.
+      assert.equal(count(cwd), 'counted=2 gate=continue');
+    });
+
+    it('closes the window at user-directed work in the lane', () => {
+      const { cwd } = repoWith([
+        { subject: '[code-reviewer] fix: prior cycle', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: also prior', files: ['sdd/spec/x.md'] },
+        { subject: 'fix: user directed', files: ['sdd/spec/x.md'] },
+        { subject: '[code-reviewer] fix: this cycle', files: ['sdd/spec/x.md'] },
+      ]);
+      assert.equal(count(cwd), 'counted=1 gate=continue');
+    });
+
+    // A merge is attributed to its own subject, because the window is walked
+    // first-parent -- without that a merge carries no file list at all and the
+    // lane work it lands is invisible to both the count and the reset. The
+    // commit-prefix contract already requires agent commits to carry a tag, so
+    // an agent landing a round through a merge tags the merge.
+    // The earlier round below the branch point is load-bearing: without it a
+    // gate that ignored merges entirely would also report zero, and the closure
+    // case could not fail for the reason its name gives.
+    function mergeLanding(subject) {
+      const { cwd, git } = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: an earlier round', files: ['sdd/spec/x.md'] },
+      ]);
+      git('checkout', '-q', '-b', 'side');
+      mkdirSync(join(cwd, 'sdd/spec'), { recursive: true });
+      writeFileSync(join(cwd, 'sdd/spec/x.md'), 'side\n');
+      git('add', '-A');
+      git('commit', '-q', '-m', '[code-reviewer] fix: on the side branch');
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--no-ff', 'side', '-m', subject);
+      return cwd;
+    }
+
+    it('refuses to return a verdict when the history cannot be read', () => {
+      const result = spawnSync(process.execPath, [script, '--repo', join(tmpdir(), 'not-a-repo-at-all'), '--lane', 'sdd/'], {
+        encoding: 'utf8',
+      });
+      // An unreadable window must never read as a permissive one.
+      assert.notEqual(result.status, 0, 'an unreadable history must not exit clean');
+      assert.equal(result.stdout, '', 'no verdict may be printed for a window that was never read');
+      assert.match(result.stderr, /cannot read git history/);
+    });
+
+    it('closes the window at lane work landed by a user-directed merge', () => {
+      // Zero only if the merge closed the window: a gate blind to merges would
+      // walk past it and still count the round beneath.
+      assert.equal(count(mergeLanding('fix: merge user work')), 'counted=0 gate=continue');
+    });
+
+    it('counts lane work landed by an agent-tagged merge', () => {
+      // Two: the merge itself plus the round beneath it, which a merge-blind
+      // gate would undercount to one.
+      assert.equal(count(mergeLanding('[code-reviewer] fix: merge the round')), 'counted=2 gate=continue');
+    });
+
+    it('does not treat a sibling directory as the lane', () => {
+      const { cwd } = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: sibling directory', files: ['sdd-notes/x.md'] },
+        { subject: '[code-reviewer] fix: the real lane', files: ['sdd/spec/x.md'] },
+      ]);
+      // The real lane commit is the positive control: one means the sibling was
+      // rejected while the lane was still counted, where an over-matching prefix
+      // reads two and a gate that counts nothing reads zero.
+      const result = spawnSync(process.execPath, [script, '--repo', cwd, '--lane', 'sdd'], {
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), 'counted=1 gate=continue');
+    });
+
+    it('does not close the window on a plain commit outside the lane', () => {
+      const { cwd } = repoWith([
+        { subject: '[code-reviewer] fix: one', files: ['sdd/spec/x.md'] },
+        { subject: 'chore: unrelated', files: ['README.md'] },
+        { subject: '[code-reviewer] fix: two', files: ['sdd/spec/x.md'] },
+      ]);
+      assert.equal(count(cwd), 'counted=2 gate=continue');
+    });
+
+    it('stops at the limit, and only the exact override lifts it', () => {
+      const { cwd } = repoWith([
+        { subject: 'feat: base', files: ['README.md'] },
+        ...Array.from({ length: 5 }, (unused, index) => ({
+          subject: `[code-reviewer] fix: round ${index}`,
+          files: ['sdd/spec/x.md'],
+        })),
+      ]);
+      assert.equal(count(cwd), 'counted=5 gate=stop');
+      assert.equal(count(cwd, 'fully-autonomous'), 'counted=5 gate=continue');
+      assert.equal(count(cwd, 'FULLY AUTONOMOUS'), 'counted=5 gate=stop');
+    });
+  });
+
+  // The gate above is only reached if the manifest row sends a lane to it. That
+  // row is executed inline, so it has to be self-sufficient: a lane that reads
+  // it as an invitation to judge can return `continue` on a window the gate
+  // would stop, and the anti-spiral limit silently stops existing.
+  it('REQ-AGENT-107: the round-limit row routes the verdict to the gate in every runtime', () => {
+    const rowOf = (text) => text
+      .split('\n')
+      .find((line) => line.startsWith('| Commit-prefix + 5-round limit |'));
+
+    const skill = readFileSync(
+      join(repoRoot, 'preseed/agents/claude/skills/spec-enforce/SKILL.md'),
+      'utf8',
+    );
+    const canonical = rowOf(skill);
+    assert.ok(canonical, 'the enforcement manifest must carry the round-limit row');
+
+    // The miscount this row exists to prevent came from reading "in lane" as
+    // *this lane's own tag*, so the row must defer to the closed counted set
+    // rather than restate it -- and that set must still be the whole one. Pinned
+    // structurally: drop the deferral and the reference goes with it.
+    assert.match(canonical, /§ "Commit-prefix contract"[^|]*closed set/,
+      'the row must scope counting to the closed set, not leave the tag scope to be inferred');
+    const countedSet = skill.match(/\*\*Counted as agent-authored\*\*[^\n]*/)?.[0];
+    assert.ok(countedSet, 'the contract the row defers to must declare the counted set');
+    // What the GATE does with these tags is proven by spawning it, below. What
+    // the POLICY declares can only be read, so it is checked here -- a reviewer
+    // acting on a policy that names a tag the gate ignores is the drift that
+    // fails open, and no fixture can catch it.
+    assert.deepEqual(declaredTags(countedSet.split('Example:')[0]), CONTRACT_COUNTED,
+      'the policy must declare exactly the contract counted set');
+    const excludedSet = skill.match(/\*\*Excluded\*\*[^\n]*/)?.[0];
+    assert.ok(excludedSet, 'the contract must declare the excluded set');
+    assert.deepEqual(declaredTags(excludedSet), CONTRACT_EXCLUDED,
+      'the policy must declare exactly the contract bulk-operation set');
+    // Both halves of the evidence contract live in the row's trailing status
+    // template, so parse that cell rather than the whole row: a substring match
+    // would also accept the field appearing loose in the prose beside it.
+    const template = canonical.match(/`(ran \([^`]+\))`/)?.[1].replace(/\\/g, '');
+    assert.ok(template, 'the row must declare a status template');
+    assert.match(template, /\bcounted\b/,
+      'the template must carry the counted total, so a miscount is visible in the report');
+    assert.match(template, /gate\s*=\s*<stop\|continue>/,
+      'the template must carry the gate verdict, so a self-judged one is not reportable');
+
+    // Every runtime that ships the manifest enforces it, so every runtime is
+    // checked. Only the runtime root is adapted, and it must be -- none of them
+    // can execute a `~/.claude` path but Claude.
+    const suffix = '/skills/spec-enforce/SKILL.md';
+    const shipped = documents.filter((document) => document.key.endsWith(suffix));
+    // Every runtime with a non-null `skillsPrefix` in the generator's runtime
+    // table, plus Claude. Named rather than counted so a renamed root fails as
+    // a rename instead of passing on an unchanged total.
+    assert.deepEqual(
+      shipped.map((document) => document.key.slice(0, -suffix.length)).sort(),
+      ['.claude', '.codex', '.config/opencode', '.gemini', '.pi/agent'],
+      'every runtime seeded with the manifest must be covered here',
+    );
+
+    for (const document of shipped) {
+      const root = document.key.slice(0, -suffix.length);
+      const gate = `${root}/skills/spec-enforce/scripts/round-limit.mjs`;
+      assert.equal(
+        rowOf(document.content),
+        canonical.replace('~/.claude/skills/', `~/${root}/skills/`),
+        `apart from the runtime root ${root} enforces the canonical row; a paraphrase is a parity gap`,
+      );
+      // A row naming a gate that does not ship is the same failure as no row.
+      assert.ok(rowOf(document.content).includes(`~/${gate}`), `${root} must be sent to its own gate`);
+      assert.ok(documents.some((seeded) => seeded.key === gate), `${gate} must be seeded`);
+    }
+
+    // Both Claude and Pi inline the manifest into the reviewer prompt rather
+    // than leaving it to a skill load, so each inlined copy is its own drift
+    // surface. Derived from the seed, not listed, so a runtime that starts
+    // inlining is covered the moment it does.
+    const inlined = documents.filter((document) => document.key.endsWith('/agents/spec-reviewer.md')
+      && rowOf(document.content));
+    assert.deepEqual(
+      inlined.map((document) => document.key).sort(),
+      ['.claude/agents/spec-reviewer.md', '.pi/agent/agents/spec-reviewer.md'],
+      'every reviewer prompt carrying an inlined manifest must be covered here',
+    );
+    for (const document of inlined) {
+      const root = document.key.slice(0, -'/agents/spec-reviewer.md'.length);
+      assert.equal(
+        rowOf(document.content),
+        canonical.replace('~/.claude/skills/', `~/${root}/skills/`),
+        `the row inlined into ${root} must not drift from the canonical one`,
+      );
+    }
+  });
+
+  it('REQ-AGENT-107: the user-invoked exemption is wired on both sides in every runtime', () => {
+    // The gate is an agent self-limit. Once its count became deterministic it
+    // could actually reach `stop`, and the manifest row runs under `/sdd clean`
+    // too -- so an unscoped row would block the remediation at exactly the
+    // moment a spiral had happened. The exemption is only real if the rule
+    // declares it AND the caller passes the key it is decided on, so both
+    // halves are checked; either alone fails open.
+    const specEnforce = '/skills/spec-enforce/SKILL.md';
+    const sddClean = '/skills/sdd-clean/SKILL.md';
+    const seeded = (key) => documents.find((document) => document.key === key)?.content;
+
+    // Existence is asserted once, against the canonical Claude source, and as
+    // the manifest's own disposition vocabulary rather than the sentence
+    // carrying it: `inert (<reason>)` is what a row reports when it had no
+    // trigger, so this fails if the row goes back to returning a verdict on a
+    // user-invoked run, and survives a rewording that keeps the disposition.
+    const canonicalRule = readFileSync(join(repoRoot, `preseed/agents/claude${specEnforce}`), 'utf8');
+    const rowOf = (text) => text.split('\n').find((line) => line.startsWith('| Commit-prefix + 5-round limit |'));
+    const canonicalRow = rowOf(canonicalRule);
+    assert.ok(canonicalRow, 'the enforcement manifest must carry the round-limit row');
+    assert.match(canonicalRow, /inert \(purpose=clean/,
+      'the row must dispose a user-invoked run as inert rather than gate it');
+    // Same key, same spelling, on both sides of the contract -- the rule is
+    // decided on what the caller passes, so a drift in spelling is a drift in
+    // the contract.
+    const canonicalCaller = readFileSync(join(repoRoot, `preseed/agents/claude${sddClean}`), 'utf8');
+    const callerLine = canonicalCaller.split('\n').find((line) => line.includes('invoke the `spec-enforce` skill'));
+    assert.ok(callerLine?.includes('`purpose=clean`'), '/sdd clean must pass the key its exemption is decided on');
+    assert.ok(canonicalRow.includes('`purpose=clean`'), 'the rule must name the key in the caller\'s spelling');
+
+    // Everything else is parity: each runtime must carry the canonical text,
+    // not a paraphrase of it. Derived rather than re-matched, so a reworded
+    // rule cannot fail five runtimes at once while a genuine per-runtime
+    // divergence slips through.
+    const rootsOf = (suffix) => documents
+      .filter((document) => document.key.endsWith(suffix))
+      .map((document) => document.key.slice(0, -suffix.length))
+      .sort();
+    // A closed set: an exemption reaching four of five roots re-arms the gate
+    // on the fifth, and an empty derived list would assert nothing.
+    const roots = ['.claude', '.codex', '.config/opencode', '.gemini', '.pi/agent'];
+    assert.deepEqual(rootsOf(specEnforce), roots, 'every runtime seeded with the rule must be covered here');
+    assert.deepEqual(rootsOf(sddClean), roots, 'every runtime seeded with the caller must be covered here');
+
+    // The normative section states the same scoping the row does; it is
+    // compared whole, against canonical, so no runtime can carry a narrower
+    // version of the limit than the one the row advertises.
+    const sectionOf = (text) => text.split('\n## ').find((section) => section.startsWith('The 5-round commit cycle limit'));
+    assert.ok(sectionOf(canonicalRule), 'the rule must carry its normative round-limit section');
+
+    for (const root of roots) {
+      const rule = seeded(`${root}${specEnforce}`);
+      const adapt = (text) => text.replaceAll('~/.claude/skills/', `~/${root}/skills/`);
+      assert.equal(rowOf(rule), adapt(canonicalRow), `${root} must enforce the canonical row, not a paraphrase`);
+      assert.equal(sectionOf(rule), adapt(sectionOf(canonicalRule)),
+        `${root} must carry the canonical scoping of the limit`);
+      assert.equal(
+        seeded(`${root}${sddClean}`).split('\n').find((line) => line.includes('invoke the `spec-enforce` skill')),
+        adapt(callerLine),
+        `${root}'s /sdd clean must pass the same key the canonical caller does`,
+      );
+    }
+  });
+
   it('REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt', () => {
     const requiredSkills = {
-      'code-reviewer': ['review-scope', 'tdd-enforce'],
+      'code-reviewer': ['review-scope', 'tdd-enforce', 'code-review-checklist'],
       'spec-reviewer': ['review-scope', 'spec-enforce', 'spec-enforce-ac', 'spec-enforce-truth'],
       'doc-updater': ['review-scope', 'doc-enforce', 'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth'],
     };
@@ -159,6 +549,77 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
         )?.[1];
         assert.equal(embedded, expectedCanonicalSkill(skillName), `${reviewer} drifted from ${skillName}`);
       }
+
+      // Both runtimes, one policy SET -- but not necessarily one delivery.
+      // Only Pi's list was pinned, and the trees then diverged on which
+      // policies a reviewer even had: Claude's code lane carried a performance
+      // category and reviewer traps Pi had never seen. What must never differ
+      // is the set. HOW it arrives is measured per lane and differs on purpose:
+      // embedding took the spec lane from 6 turns to 1, and the doc lane from
+      // 3 turns to 10, because `doc-enforce-shape` is inert unless a
+      // canonical-shape file is in scope. So each skill must be embedded OR
+      // named as fetchable, and a policy that is neither is the real defect.
+      const claudeDocument = documents.find((document) => document.key === `.claude/agents/${reviewer}.md`);
+      assert.ok(claudeDocument, `.claude/agents/${reviewer}.md not found`);
+      const claudeEmbedded = [...claudeDocument.content.matchAll(/<embedded-skill name="([^"]+)">/g)]
+        .map((match) => match[1]);
+      for (const skillName of skillNames) {
+        if (claudeEmbedded.includes(skillName)) continue;
+        // Reachability has a structural form, and the prose form does not work:
+        // asserting the document merely MENTIONS the name is satisfied by the
+        // report template and the orchestration bullet, and stays green if the
+        // fetch instruction is deleted. Reachable means the policy is seeded at
+        // the path the fetch command builds, and the document carries that
+        // command -- both checkable, neither a sentence.
+        assert.ok(
+          documents.some((document) => document.key === `.claude/skills/${skillName}/SKILL.md`),
+          `${reviewer} does not embed ${skillName}, so it must be seeded for the lane to read`,
+        );
+        assert.match(
+          claudeDocument.content,
+          /skills\/<name>\/SKILL\.md/,
+          `${reviewer} leaves a policy unembedded, so it must carry the fetch command`,
+        );
+      }
+      // No prose-contradiction guard here, deliberately. One was written to
+      // catch a document that both embeds a policy and lists it as fetched --
+      // a real defect the spec lane shipped -- and two attempts produced a
+      // regex matching a literal the generator never emits (vacuous) and then
+      // one spanning a whole markdown paragraph, which fired on a sentence
+      // saying the opposite. That is prose matching, and it fails in both
+      // directions. What has teeth is above: the embedded list is pinned per
+      // reviewer, and anything not embedded must be seeded at the path the
+      // fetch command builds AND the document must carry that command.
+    }
+  });
+
+  it('REQ-AGENT-109: a self-building reviewer is told how to proceed without evidence', () => {
+    // The invariant, not the wording. A reviewer that is told to build its own
+    // packet is the only kind that can be handed `evidenceOmitted` instead of a
+    // block, so every such reviewer must also carry the absent-evidence branch
+    // -- and a FOURTH one added later without it must fail here. Asserting the
+    // sentence instead would pass on any document containing that sentence and
+    // fail on a rewrite that kept the contract, which pins the copy and not the
+    // property.
+    const selfBuilding = documents.filter((document) => (
+      document.key.startsWith('.pi/agent/agents/')
+      && document.content.includes('build-review-packet.mjs')
+    ));
+    assert.ok(selfBuilding.length >= 3,
+      'the Pi reviewers that build their own packet must be discovered, not assumed');
+
+    for (const document of selfBuilding) {
+      assert.match(document.content, /evidenceOmitted/,
+        `${document.key} builds its own packet, so it must name the field carrying why evidence is missing`);
+      // The field alone is not the contract: it has to sit in a branch that
+      // tells the reviewer to perform the lookups itself, which is what an
+      // absent block costs. Same paragraph, so a mention parked elsewhere in
+      // the document does not satisfy it.
+      const branch = document.content
+        .split('\n\n')
+        .find((paragraph) => paragraph.includes('evidenceOmitted'));
+      assert.ok(branch && /lookup/i.test(branch),
+        `${document.key}'s absent-evidence branch must turn the evidence references into lookups it performs`);
     }
   });
 });

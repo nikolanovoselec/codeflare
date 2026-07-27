@@ -49,7 +49,7 @@
 
         .input-wrapper[data-error="true"] .input:focus {
           border-color: var(--color-error);
-          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+          box-shadow: 0 0 0 3px rgb(var(--color-error-rgb) / 0.1);
         }
 
         /* Icon */

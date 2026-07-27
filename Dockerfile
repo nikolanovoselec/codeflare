@@ -221,7 +221,6 @@ COPY --from=openvscode-agent-inventories /out/openvscode /opt/codeflare/openvsco
 # and hooks remain root-owned; terminal history and runtime state are never
 # copied into the projection.
 COPY openvscode/claude/managed-settings.mjs \
-     openvscode/claude/pre-tool-use-permission.mjs \
      openvscode/claude/prepare-sidebar-config.mjs \
      openvscode/claude/prepare-sidebar-config.sh \
      openvscode/claude/sidebar-settings.json \

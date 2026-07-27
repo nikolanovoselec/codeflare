@@ -10,6 +10,7 @@ import {
 import Icon from '../Icon';
 import type { Settings } from '../../lib/settings';
 import { isTouchDevice } from '../../lib/mobile';
+import AdminActionButton from './AdminActionButton';
 
 interface SessionSectionProps {
   enterpriseMode?: Accessor<boolean>;
@@ -153,17 +154,14 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </span>
         </div>
         <div class="settings-admin-actions">
-          <button
-            type="button"
-            class="provider-row-connect-btn"
-            style={{ background: '#0891b2' }}
+          <AdminActionButton
+            tone="--color-action-docs"
+            icon={mdiFileDocumentRefreshOutline}
+            label={props.recreateDocsLoading() ? 'Recreating...' : 'Recreate Docs & Examples'}
             disabled={props.recreateDocsLoading()}
             onClick={props.onRecreateDocs}
-            data-testid="settings-recreate-docs-label"
-          >
-            <Icon path={mdiFileDocumentRefreshOutline} size={24} style={{ color: 'white' }} />
-            <span>{props.recreateDocsLoading() ? 'Recreating...' : 'Recreate Docs & Examples'}</span>
-          </button>
+            testId="settings-recreate-docs-label"
+          />
           <Show when={props.recreateDocsMessage()}>
             {(message) => (
               <span class="settings-hint type-hint" data-testid="settings-recreate-docs-success">{message()}</span>
@@ -174,17 +172,14 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
               <span class="settings-error" data-testid="settings-recreate-docs-error">{error()}</span>
             )}
           </Show>
-          <button
-            type="button"
-            class="provider-row-connect-btn"
-            style={{ background: '#e11d48' }}
+          <AdminActionButton
+            tone="--color-action-agents"
+            icon={mdiRobotOutline}
+            label={props.recreateAgentLoading() ? 'Recreating...' : 'Recreate Agent Skills & Rules'}
             disabled={props.recreateAgentLoading()}
             onClick={props.onRecreateAgentConfigs}
-            data-testid="settings-recreate-agent-label"
-          >
-            <Icon path={mdiRobotOutline} size={24} style={{ color: 'white' }} />
-            <span>{props.recreateAgentLoading() ? 'Recreating...' : 'Recreate Agent Skills & Rules'}</span>
-          </button>
+            testId="settings-recreate-agent-label"
+          />
           <Show when={props.recreateAgentMessage()}>
             {(message) => (
               <span class="settings-hint type-hint" data-testid="settings-recreate-agent-success">{message()}</span>

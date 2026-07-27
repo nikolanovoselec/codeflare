@@ -28,6 +28,13 @@ import {
 import type { SessionManager } from './session-manager.js';
 import type { ActivityTracker, Logger, WsEvent } from './types.js';
 
+/**
+ * When the current OpenVSCode warming episode started, so the warming page can
+ * show elapsed time and eventually give up. Module-level because one container
+ * serves exactly one session; cleared on the first successful upstream response.
+ */
+let vscodeWarmingSince: number | undefined;
+
 /** A localhost upstream the host proxies to (SilverBullet / OpenVSCode). */
 export interface ProxyTarget {
   host: string;
@@ -481,13 +488,18 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         path: upstreamPath + search,
         headers: filterProxyHeaders(req.headers),
       }, (upstreamRes) => {
+        // Reached the server, so this warming episode is over. Clearing it means
+        // a later cold start (supervisor restart) gets its own full clock rather
+        // than inheriting an expired one and giving up immediately.
+        vscodeWarmingSince = undefined;
         res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
         upstreamRes.pipe(res);
       });
       upstreamReq.on('error', (err) => {
         log('warn', 'Vscode proxy upstream error', { error: err.message, path: upstreamPath });
         if (!res.headersSent) {
-          const warming = vscodeWarmingResponse();
+          vscodeWarmingSince ??= Date.now();
+          const warming = vscodeWarmingResponse(Date.now() - vscodeWarmingSince);
           res.writeHead(warming.status, { 'Content-Type': warming.contentType });
           res.end(warming.body);
         } else {

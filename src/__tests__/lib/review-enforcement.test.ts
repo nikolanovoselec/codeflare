@@ -247,8 +247,14 @@ function makeReviewFixture(options: { child?: boolean; changedPath?: string } = 
   git(repo, 'add', 'sdd/README.md', 'README.md');
   git(repo, 'commit', '-m', 'base');
   const base = git(repo, 'rev-parse', 'HEAD');
+  // These tests exercise the launch plan, not lane classification, so the
+  // boundary commit has to genuinely earn all three lanes: a source file for the
+  // code lane and a spec file, which carries the doc lane with it. A source-only
+  // delta now classifies to the code lane alone, and every `missingLanes`
+  // expectation here is a subtraction from the full set.
   write(repo, options.changedPath ?? 'src/review.ts', 'export {};\n');
-  git(repo, 'add', '--', options.changedPath ?? 'src/review.ts');
+  write(repo, 'sdd/spec/boundary.md', '# boundary\n');
+  git(repo, 'add', '--', options.changedPath ?? 'src/review.ts', 'sdd/spec/boundary.md');
   git(repo, 'commit', '-m', 'review boundary');
   const head = git(repo, 'rev-parse', 'HEAD');
   writeFileSync(join(repo, '.git/sdd-last-ack-pr-head'), `${base}\n`, 'utf8');

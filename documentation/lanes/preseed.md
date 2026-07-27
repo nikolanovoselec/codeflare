@@ -37,7 +37,7 @@ deployed on Recreate or new bucket creation.
 | Pi startup header and local statusline | Yes | Yes | Yes |
 | Cloudflare-stack, ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (Claude + Pi) | No | Yes | Yes |
-| CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
+| CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn`, `run-review-lane` | No | Yes | Yes |
 | Language rules (common, TS, Python, Go, Swift) | No | Yes | Yes |
 | Agent definitions (architect, code-reviewer, deep-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
 | Commands (/brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
@@ -109,17 +109,48 @@ files are never deleted. Implements
 
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds
 mode-appropriate files then deletes preseed-managed files not in
-the current mode. Strictly scoped to keys from
-`AGENTS_SEEDED_CONFIGS` -- no bucket listing, no prefix scans,
-never touches user-created files. `getPreseedKeysNotInMode()`
+the current mode. Strictly scoped -- no bucket listing, no prefix
+scans, never touches user-created files. `getPreseedKeysNotInMode()`
 excludes variant-per-mode keys (instruction files that exist in
 both modes with different content) to avoid deleting a file that
 was just seeded. Partial delete failures return `warnings` without
 failing the overall operation. `getConfigsForMode()` validates no
 duplicate keys within a single mode.
 
-**No migration**: Existing users are unaffected. Changes only happen
-on explicit action.
+Three sources feed the delete list. `getPreseedKeysNotInMode()` gives keys
+in `AGENTS_SEEDED_CONFIGS` that the target mode does not want. The frozen
+`RETIRED_PRESEED_KEYS` gives keys shipped before provenance markers
+existed, recovered once by walking the seed module's history; a key on it
+that the target mode still seeds is never deleted, and the generator
+refuses to emit such a list. Last, a stale-marker sweep deletes anything
+under the seed's own prefixes carrying a marker other than this build's.
+
+Every seed write stamps `x-amz-meta-codeflare-preseed` with the writing
+build's preseed hash. Because a reconcile rewrites every live key before
+cleaning, an older marker means the product has dropped that key -- so
+retirements need no bookkeeping. An S3 PUT replaces metadata wholesale and
+rclone does not send custom metadata, so editing a seeded file through the
+browser or inside the container drops the marker and the file becomes the
+user's own. Deletion always requires positive evidence: a marker, or
+membership of the frozen list. All three behaviours were probed against a
+real R2 bucket before the mechanism was built on them; see
+[AD118](../decisions/README.md#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on).
+
+Listing is issued per two-segment prefix (`.claude/skills/`, `.pi/agent/`
+and twelve others) rather than per runtime root. That keeps the
+getting-started documents out of scope even though the same helper stamps
+them, and keeps the large runtime trees -- `.claude/projects/` session
+transcripts, `.claude/todos/` -- out of the pages entirely, which matters
+because the same request has already issued one PUT per live key. The HEAD
+fan-out is batched, and a candidate count past the cap skips the sweep with
+a warning rather than issuing the requests.
+
+**Upgrade semantics**: currently-seeded keys are build-authoritative. A
+release that changes preseed content changes `PRESEED_CONTENT_HASH`, which
+triggers the upgrade reconcile (REQ-AGENT-049) on next dashboard load; that
+reconcile overwrites live keys and removes retired ones. Files the build
+never seeded are never touched. Implements
+[REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
 
 ## Preseed Components
 
@@ -232,9 +263,11 @@ references Claude-specific `mcp__graphify__*` tools and the vault hook system.
 `vault-note-capture` is advanced-only and routes "take a note" phrases to the
 `vault-note-capture` skill.
 
-`graph-first` is advanced-only (graphify discipline,
-[REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)).
-`karpathy` is advanced-only (LLM coding-mistakes principles). `frontend-components`
+The graphify discipline
+([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
+and the LLM coding-mistakes principles were standalone graph-first and
+karpathy rules until 2026-07-25; both are now sections of the advanced-only
+`engineering-constitution`. `frontend-components`
 is advanced-only and covers composable-UI standards: extract repeated structures,
 separate content from components, and write behavioral tests only.
 
@@ -247,9 +280,11 @@ stopping point unless the user says to stop, pause, or reprioritize.
 The stricter PR-boundary review push gate is present in default+advanced
 `git-workflow` and repeated in advanced `engineering-constitution`, so generated
 agent instructions receive it through [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) AC6 and advanced sessions also receive the constitution copy through [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents). Source: `preseed/agents/claude/rules/git-workflow.md::Review push gate` and `preseed/agents/claude/rules/engineering-constitution.md::Review push gate`.
-ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs
-are advanced-only. `common/coding-style.md` covers shared style; per-language
-`security.md` files stand alone after `common/security.md` removal.
+ECC-derived language rules in `{typescript,python,golang,swift}/` subdirs
+are advanced-only. Each `coding-style.md` extends the constitution's "Coding
+concretes" section directly, the common coding-style rule having been absorbed there
+on 2026-07-25; per-language `security.md` files stand alone after
+the common security rule's removal.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds
 the official Anthropic plugin marketplace URL for user discovery.
@@ -302,9 +337,9 @@ retries. Implements
 
 The `rules/` tree includes core rules for both modes: cloudflare-environment,
 no-local-builds, and git-workflow. Advanced mode adds memory, spec-discipline,
-documentation-discipline, tdd-discipline, graph-first, karpathy,
+documentation-discipline, tdd-discipline,
 frontend-components, engineering-constitution, and vault-note-capture. It also
-includes common coding-style rules plus standalone language security rules for
+includes per-language coding-style rules plus standalone language security rules for
 TypeScript, Python, Go, and Swift.
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
@@ -333,7 +368,8 @@ prose-transformed lane.
 The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
 Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,
 memory-capture-block.sh, memory-agent-prompt.md, prefilter-transcript.sh,
-assert-iso-ts.sh, memory-context-inject.sh), codeflare-vault (plugin.json,
+assert-iso-ts.sh, memory-context-inject.sh, post-compaction-recall.sh),
+codeflare-vault (plugin.json,
 vault-monitor-hook.sh, vault-extract-prompt.md, merge-vault-graph.py), and
 codeflare-hooks (plugin.json, block-attributed-commits.sh, block-local-builds.sh,
 git-push-review-reminder.sh, enforce-review-spawn.sh).
@@ -418,7 +454,7 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact Pi planning, TDD/SDD, capability, and review gates |
 | `preseed/agents/pi/extensions/capability.ts` + `capability-helpers.ts` | default, advanced | `~/.pi/agent/extensions/` | Registered-tool search and additive activation through Pi's public API |
 | `preseed/agents/pi/skills/review-scope/SKILL.md` | advanced | `~/.pi/agent/skills/review-scope/SKILL.md` | Shared `diff`/`all` scope resolver |
-| `preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs` | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |
+| `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs` (reaches Pi through the seed transform) | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |
 | `preseed/agents/pi/agents/{code-reviewer,spec-reviewer,doc-updater}.md` | advanced | `~/.pi/agent/agents/` | Native report-only review lanes |
 | `preseed/agents/pi/extensions/review-tool-guard.ts` | advanced | `~/.pi/agent/extensions/review-tool-guard.ts` | Reviewer-only direct-execution intent stripping |
 | `preseed/agents/pi/skills/{spec-enforce*,doc-enforce*}/SKILL.md` | advanced | `~/.pi/agent/skills/` | Native scoped SDD enforcement |
@@ -481,9 +517,10 @@ This implements
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
 [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection),
 [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context),
-[REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract),
-[REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport), and
-[REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier),
+[REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract),
+[REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport),
+[REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), and
+[REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate),
 following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
 At startup, R2 sync excludes the three retired durable-review extension paths. The
@@ -509,13 +546,17 @@ Generated agents and emitted requests use provider-neutral medium reasoning, Bas
 
 `memory-vault.ts` owns delivery and high-water state. `/tmp/.memory-counter/<sessionId>.vars` and `vault-extract.pi.vars` are active request-ID pointers for reload discovery.
 
+`memory-inject.ts` is the Pi counterpart of the Claude `memory-context-inject.sh` hook: on the first real prompt of a session it extracts keywords from that prompt, scores the unified graph's nodes against them, and returns the top matches as a turn message from `before_agent_start` — the event that sits where the hook's `additionalContext` sits. Keyword rule, ranking weights, node cap, rendered shape and the atomic one-shot sentinel under `/tmp/.memory-counter/` are identical to the hook's; a query that matches nothing leaves the sentinel unspent so a later prompt can still inject. It skips child sessions and synthetic prompts, which the hook runtime never delivers. The unified graph is the only source either runtime queries: at the moment this fires no per-repo graph exists yet, and once one does the merger has already folded it into the unified graph, so a repo graph is never a substitute — only a smaller subset. The graph is parsed whole, so a size ceiling guards memory rather than latency, and it is a lever (`MEMORY_INJECT_MAX_GRAPH_BYTES`) so a graph that outgrows the default cannot silently disable injection. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
+
+`post-compaction-recall.ts` covers the compaction boundary that first-prompt injection cannot reach, the Pi counterpart of the Claude `post-compaction-recall.sh` hook described above. It listens on `session_compact` and sends the digest as a custom message with `display` off, delivered as a follow-up without triggering a turn, so the recall persists in the session rather than surviving a single request. Child sessions are skipped on the same header check `memory-vault.ts` uses: a subagent's narrow context must not receive whole-session history. Selection, bounds and injected wording are held identical to the Claude hook; the two runtimes carry separate implementations only because their injection surfaces differ. The whole handler is fail-silent — a failure in the child-session check, the digest build or the delivery is swallowed rather than raised, because it runs inside Pi's dispatch at the compaction boundary, where the session is least able to absorb a throw, for a feature that is a convenience. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall -->
+
 Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. The [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) owns the child-visible location and legacy migration details.
 
 Root-session JSONL determines exact public-call attempts, native completion, reminders `0..5`, and GIVEUP. An emitted request with no matching call remains one pending delivery, so repeated settlements and reloads emit neither duplicates nor GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 
 Each failed exact call advances one reminder. Six failed calls emit a structured GIVEUP summary with unchanged committed state and job-specific re-arm conditions. Background agents never write counters, pointers, or manifests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
 
-Memory capture triggers at the 15-real-prompt cadence and force-captures a resumed durable transcript when no counter exists. Request snapshots contain up to 40 text turns of 4000 characters inline in `VARS_FILE.transcript`; they never reference an `INPUT_FILE` or separate transcript path. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_EVERY_N_PROMPTS --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_CAPTURE_MAX_TURNS --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_CAPTURE_MAX_TURN_CHARS -->
+Memory capture triggers at the 15-real-prompt cadence and force-captures a resumed durable transcript when no counter exists. Request snapshots contain text turns inline in `VARS_FILE.transcript`, bounded by a fixed character budget and a per-turn cap; they never reference an `INPUT_FILE` or separate transcript path. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_EVERY_N_PROMPTS --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_CAPTURE_MAX_TOTAL_CHARS --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_CAPTURE_MAX_TURN_CHARS -->
 
 The public request and generated agent repeat that input boundary. Exact success plus the post-commit note and request chunk lets the root advance the frozen counter and remove only matching state.
 
@@ -670,7 +711,7 @@ correctly by excluding keys that have a variant in the target mode.
 
 ## Settings.json Merge
 
-Implements [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) AC3 - AC5.
+Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC1, AC2, AC4, AC5.
 
 `entrypoint.sh` merges settings into `~/.claude/settings.json`
 using a two-phase strategy. Non-hooks settings (statusLine,
@@ -707,9 +748,32 @@ Handles three cases:
 - **File malformed**: Skips with warning (includes the jq error
   text), does not overwrite
 
+`entrypoint.sh` holds two `SETTINGS_CONFIG` literals, one per session
+mode. Only the Pro (advanced) literal carries a `hooks` key, so the
+codeflare-owned PreToolUse, PostToolUse, Stop, and UserPromptSubmit
+registrations reach Pro sessions only -- default (Standard) mode
+merges a literal with no `hooks` key at all.
+
+Both `SETTINGS_CONFIG` literals also set `"disableAgentView": true`
+(the rationale below is repeated as a comment above the advanced-mode
+literal in `entrypoint.sh`). Claude Code otherwise replaces the
+terminal with a full-screen agent view — a dispatch input plus a
+left/right session switcher — whenever a background agent starts, and
+that switcher is unusable on a mobile terminal (upstream behaviour,
+observed under Claude Code 2.1.219 as pinned by `CLAUDE_CODE_VERSION`
+in the `Dockerfile`, on 2026-07-25).
+
+Background subagents themselves keep running under that setting, so
+the memory and vault capture hooks registered in the `SETTINGS_CONFIG`
+literal above are unaffected. Nothing automated covers that: it was
+checked by hand under the same pinned Claude Code version on
+2026-07-25, by spawning subagents in a session with the setting on.
+The capture hooks depend on it and it would fail silently, so re-check
+it when `CLAUDE_CODE_VERSION` moves.
+
 ## Plugin Enablement
 
-(Implements [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
+(Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC3, [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
 
 `entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json`
 to enable both the `codeflare-memory` and `codeflare-hooks` plugins.
@@ -719,14 +783,28 @@ in default mode, the plugins simply don't load. Plugins are used for
 file organization and delivery via R2 sync only -- hook registration
 is done via `settings.json` (see above).
 
-- **codeflare-memory**: Two UserPromptSubmit hooks registered in
-  settings.json, scripts delivered via plugin.
+- **codeflare-memory**: Two UserPromptSubmit hooks and one SessionStart hook
+  registered in settings.json, scripts delivered via plugin.
 
 `memory-context-inject.sh` fires on the first prompt of each session: extracts
 keywords, queries the unified graphify graph, and injects matched nodes as
 additionalContext before the agent responds
 ([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt)).
 `memory-capture.sh` handles the ongoing 15-prompt capture cadence.
+
+`post-compaction-recall.sh` is registered on SessionStart under matcher
+`compact` and injects the Context and Decisions sections of the five most recent
+session extracts from `~/Vault/Raw/Sessions/`
+([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts)).
+It exists because compaction keeps the session id, so the first-prompt sentinel
+in `memory-context-inject.sh` is already claimed and that hook cannot fire again
+— leaving the agent resuming from a summary with prior decisions and identifiers
+gone. Recency is the instant an extract was captured, parsed out of the ISO-8601
+timestamp and UTC offset its filename carries: mtime is unusable because the
+vault round-trips through rclone bisync, which rewrites it, and the name read as
+text is unusable because a UTC-offset change puts a later capture behind an
+earlier one. `PostCompact` is not used: it carries no decision control and
+cannot return `additionalContext`.
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 
@@ -752,8 +830,12 @@ The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.
 Generated-only `graphify-out/` diffs require no review lanes and are auto-acked
 with a durable audit event; generated artifacts never suppress review for mixed
 diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn
-`spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three; non-SDD
-projects fire no review agents.
+`spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three.
+A source delta the shared `inert-source-delta.mjs` prover proves is comments and
+whitespace only spawns `code-reviewer` alone, plus any `sdd/` or `documentation/`
+lane the same diff independently earns; the code lane is never dropped, and any
+file the prover cannot decide keeps all three. Non-SDD projects fire no review
+agents.
 
 Each tool-gated hook is registered on two matcher entries covering three
 tool names: the `Bash` matcher (with `Bash(git *)` and `Bash(gh *)`
@@ -1054,6 +1136,28 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
+**Lane transport (headless subprocess).** Each required lane runs as a headless `claude -p` subprocess launched via `bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name> [--range <base>..<head> | --base <ref>]`. The lane's own agent document (`~/.claude/agents/<name>.md`) is supplied as `--system-prompt`, with `--tools Bash` as the only granted tool ([REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport)).
+
+An in-session subagent cannot be made cheap. Claude Code injects CLAUDE.md, every `~/.claude/rules/*.md`, MEMORY.md and the SessionStart blocks into every subagent with no per-agent exclusion, measured at a 20,513-token floor before the lane does any work. Replacing the system prompt and pruning tool schemas — both CLI-only controls — brings that to roughly 1,533. Because every turn re-sends the whole prompt, that floor is paid per turn, not once.
+
+`--setting-sources ""` also drops hooks, so the container guards (`block-local-builds.sh`, `block-attributed-commits.sh`) are re-injected via `--settings` and invoked as `bash <script>`, because the seeded hook scripts ship non-executable and a bare path fails silently.
+
+A lane that owns no changed file in the range short-circuits before the model is invoked, costing zero tokens; the same ownership question the classifier already answers is simply asked again for free. Any uncertainty — unreadable range, missing classifier — falls through to a full review rather than silently skipping one.
+
+The round is user-visible and blocking. The directive requires the root session to print an overview before the lanes run — which lanes are about to run, why the others were excluded, and the exact range — then issue the lane calls and **end its turn**, doing nothing else until every lane has returned. Only then does it print the triage result (per-lane severity counts, each surviving finding, and every rejected finding with the reason it was not legitimate) and fix the legitimate findings that survived.
+
+The directive previously required the opposite: `[silent]`, "Do NOT mention these lanes to the user". That contradicted the constitution's review-result handoff gate, which has always required a user-facing summary, and it made an autofix arrive as an unexplained edit. The end-of-turn is what keeps the round legible — a lane result landing in the middle of unrelated work gets interleaved with it, and the reader loses the thread of what was actually reviewed.
+
+A lane's Phase 0 triage and its review packet are both resolved before the subprocess starts and inlined into its opening prompt ([AD116](../decisions/README.md#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane)). Triage covers SDD bootstrap and layout, the config, transition state, the round counter, and the bulk-op audit — six deterministic questions that were previously six sequential Bash calls and therefore six turns.
+
+A triage-proven no-op (no bootstrap, an active transition, a round limit) returns without invoking a model, on the same zero-token contract as the ownership short-circuit. Lane ownership itself is still computed by the shell classifier and passed in, never reimplemented, so one source of truth for it remains. Triage failure is fail-safe in one direction only: an unreadable config, a git error, or a crash resolves to running the full review, never to skipping one.
+
+The subprocess is bounded at `REVIEW_LANE_TIMEOUT` seconds (default 1800), because a lane that never returns holds the review gate open. The bound is validated rather than merely defaulted: `timeout 0` means "no timeout at all", so a zero, empty, or non-numeric override resolves back to the default instead of removing the bound. Expiry escalates to `SIGKILL` 30 seconds after `SIGTERM`, since a process wedged on an auth prompt or a retry loop can ignore `SIGTERM` and survive the bound it was supposed to enforce.
+
+Guard re-injection fails closed on every input class that would otherwise produce a lane running unguarded under `bypassPermissions`: a missing guard script, an absent `jq`, or an empty settings file all abort before the model starts. The guard paths are passed to `jq` as a quoted array — unquoted, a config directory containing a space word-splits into fragments and `jq` emits perfectly valid JSON whose hook commands point at paths that do not exist, which reads as "nothing blocked" instead of failing loudly.
+
+The Stop hook credits *either* transport, a legacy `Agent` subagent envelope or this `Bash` runner invocation, so migrating a lane never narrows what the gate accepts. `--lane <name>` is the gate's match token: renaming it silently disables review enforcement. The runner must appear in command position, so a quoted mention inside another command credits nothing, and a backgrounded subagent's start receipt is not accepted as completion.
+
 Pi uses the supported command grammar in
 [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize protected-base `gh pr create`, explicit single-branch pushes, and implicit bare, remote-only, or `HEAD` pushes.
 
@@ -1073,9 +1177,36 @@ The window lists missing reviewer lanes and, when an acknowledgement exists, the
 
 The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 
-A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract)).
+A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged. The limit binds the autonomous loop only, so a user-invoked `/sdd clean` passes `purpose=clean` and reports row 23 inert without consulting the script at all ([REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate)).
+
+The same script produces the count, not only the verdict. It walks the last six commits first-parent, counts every subject carrying an agent-authored tag that touched the reviewer's lane, treats bulk-operation tags as neither counted nor closing, and closes the window at the most recent user-directed commit in that lane. A reviewer runs it once and reports the printed count beside the printed verdict; deriving either itself is a manifest violation.
+
+Reference resolution ([REQ-AGENT-108](../../sdd/spec/agents.md#req-agent-108-reviewer-evidence-resolution-fidelity)) costs a bounded pass over the tree instead of one search per documented name. One full-tree search per backticked token cost 149 searches on a three-file range and 283 seconds, which is almost the whole resolver: past the bound the packet route applied, inside the bound the lane runner applied, so the documentation lane silently lost its evidence in one runtime and kept it in the other. Both bounds are now the same 300 seconds, and a resolver that breaches one names the reason in `evidenceOmitted` rather than dropping the block.
+
+A documented name resolves when the tree holds it in any form prose can write it: a path tail, a basename, a directory, a name registered as a string such as a command or an event, or a declared dependency. Flags, bare extensions and anchor keywords document an interface rather than naming code and are not candidates. Resolution answers whether the name still names something, never which file, because staleness is the question. The failure list is no longer capped below the block budget, and the [lane evidence tests](../../host/__tests__/lane-evidence.test.js) pin each accepted form against a fixture that omits it.
+
+The resolver is seeded into every repository `/sdd` bootstraps, so it assumes neither the language of that repository nor its package manager. Declarations are recognised across the languages a bootstrapped tree may be written in, and block openers that share the shape of a definition are excluded per language. A stack the index does not recognise is not a degraded check: it indexes nothing, so every symbol the documentation names reads as stale and the lane is handed a page of findings about a tree that is entirely consistent.
+
+Dependencies are read from npm exactly and from every other manifest not at all. `package.json` is JSON, so its dependency fields and its own name are exact answers. Every other manifest used to be parsed by its grammar, and the grammar was wrong seven consecutive times -- an extras bracket closing a list early, a key test that also matched `requires-python`, a per-package sub-table offering `version` as a crate, a heading that merely contained the word `packages`. Every one of them resolved a name that was not a package, which is a false clean, and this module's contract is that it never fails in that direction.
+
+So the grammar was removed rather than corrected an eighth time. Every token in a dependency manifest now resolves, and arrives in `resolvedOnlyByDependencyManifest` rather than as an ordinary pass. That is the weakest evidence the resolver accepts, sitting beside the string-literal class, and it states exactly what a heuristic ever established: the name appears in a file that declares dependencies. It is checked after every stronger form, so a real declaration or an exact npm entry is never demoted into it ([REQ-AGENT-108](../../sdd/spec/agents.md#req-agent-108-reviewer-evidence-resolution-fidelity) AC3 and AC8). 
+
+A dotted or slashed token -- a table header such as `[dependencies.serde]` -- matches as one token, so its last segment is retried alone and `serde` resolves without a per-manifest grammar rule. That retry drops leading table words but not trailing ones, so a name like `dependencies` enters the weak class too. Its one filter is shape rather than vocabulary: a segment holding no letter is a version fragment, so `1.2.34` contributes nothing. The cost is that such a name, and a manifest setting such as `where`, also resolve; the lane is told so, which is what stops it being silence.
+
+A chunked scan that fails reports a partial pass rather than contributing silence, and the resolver reports how many passes over the tree its answers cost, so the cost contract is a count rather than a stopwatch. A name resolved only by a quoted string arrives in `resolvedOnlyByStringLiteral` rather than as an ordinary clean, because that evidence is equally satisfied by a registration, an error message and a dead branch.
+<!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::DECL_SHAPES -->
+<!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declaredDependencies -->
+<!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex -->
+<!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames -->
+<!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::laneEvidence -->
+
+Merge commits are followed with their diffs, because a merge carrying lane work would otherwise be invisible to both the count and the reset; a merge is therefore judged by its own subject, so an agent landing a round through one tags the merge. History the script cannot read is never reported as a permissive window: it exits non-zero with a one-line diagnostic and prints no verdict at all.
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
+<!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::The 5-round commit cycle limit -->
+<!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action -->
+<!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds -->
+<!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount -->
 
 After every required reviewer result arrives, the launch handoff requires an automatic triage summary before mutation. The root separately judges finding validity and proposed-fix proportionality, prefers existing machinery, rejects unsupported or overengineered proposals, and applies legitimate minimal fixes unless the user requested approval.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
@@ -1133,10 +1264,11 @@ Pi CI is not part of review completion or acknowledgement. After either eligible
 - [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) - rpiv-todo Session Isolation
 - [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection) - Pi Review Range Selection
 - [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) - User-Invoked Pi Review Repository Context
-- [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract) - Pi Reviewer Policy Contract
+- [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract) - Reviewer Policy Contract
 - [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) - Pi Reviewer Direct Evidence Transport
 - [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) - CI Monitor Head Correction
 - [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier) - Pi Review Triage Acknowledgement Barrier
+- [REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate) - Deterministic Round-Limit Gate
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 - [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile) - Pi Extraction Request Profile
 - [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile) - Pi Extraction Agent Definition Profile

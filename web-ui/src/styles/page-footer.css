@@ -1,0 +1,19 @@
+/* Shared page footer. Lives beside the component rather than inside
+   login-page.css: the footer renders on login, onboarding and subscribe, so
+   page-scoped rules and login-prefixed class names no longer fit it. */
+
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  margin: var(--space-8) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.page-footer-flag {
+  font-size: var(--text-base);
+  line-height: 1;
+}

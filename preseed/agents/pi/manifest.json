@@ -152,6 +152,26 @@
       "advanced"
     ]
   },
+  "extensions/memory-inject.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/memory-inject-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/post-compaction-recall.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/post-compaction-recall-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/graphify/SKILL.md": {
     "modes": [
       "advanced"
@@ -178,11 +198,6 @@
     ]
   },
   "skills/review-scope/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/review-scope/scripts/build-review-packet.mjs": {
     "modes": [
       "advanced"
     ]

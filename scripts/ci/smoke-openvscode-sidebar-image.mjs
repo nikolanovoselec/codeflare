@@ -63,7 +63,6 @@ async function main() {
 
   await verifyConfigProjection();
   await verifyOpenVscodeSettings();
-  await verifyPermissionHook();
   const claudeVersion = execFileSync('/usr/local/bin/claude', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
   const piVersion = execFileSync('/usr/local/bin/pi', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
 
@@ -225,28 +224,6 @@ async function verifyOpenVscodeSettings() {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-}
-
-async function verifyPermissionHook() {
-  const hook = await import(pathToFileURL(join(ROOT, 'claude', 'pre-tool-use-permission.mjs')).href);
-  const input = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} });
-  const outcome = await hook.runPreToolUse(input);
-  assert.equal(outcome.exitCode, 0);
-  assert.equal(JSON.parse(outcome.stdout).hookSpecificOutput.permissionDecision, 'allow');
-  const guarded = await hook.runPreToolUse(JSON.stringify({
-    hook_event_name: 'PreToolUse',
-    tool_name: 'mcp__ide__executeCode',
-    tool_input: {},
-  }));
-  assert.equal(JSON.parse(guarded.stdout).hookSpecificOutput.permissionDecision, 'allow');
-  const diagnostics = await hook.runPreToolUse(JSON.stringify({
-    hook_event_name: 'PreToolUse',
-    tool_name: 'mcp__ide__getDiagnostics',
-    tool_input: {},
-  }));
-  assert.equal(JSON.parse(diagnostics.stdout).hookSpecificOutput.permissionDecision, 'allow');
-  const failed = await hook.runPreToolUse(input, { evaluate: () => { throw new Error('canary'); } });
-  assert.equal(failed.exitCode, 2);
 }
 
 async function assertImmutable(root) {

@@ -506,6 +506,28 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
+### REQ-TERM-022: An unreachable container ends the upgrade instead of escaping it
+
+**Intent:** A terminal upgrade the container cannot answer must end as a close the client understands, because an escaping error reaches the browser as an abnormal closure on a socket that never opened, and a reconnect that never opens a socket never advances its backoff — so the tab retries at its base delay for as long as the session is unreachable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A forward the container rejects ends the upgrade with a retryable close rather than propagating the error, so the client's reconnect backoff governs the retry rate. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (resolves with a WebSocket close instead of propagating the container reject) -->
+
+**Constraints:** A rejected forward is treated as reachable-again-later, matching the unanswered forward: only the recorded session status may declare a session authoritatively over, so a transient failure cannot strand a user whose container is healthy.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit)
+
+**Verification:** Automated test ([rejected forward closes retryably](../../src/__tests__/routes/terminal-ws.test.ts))
+
+**Status:** Implemented
+
+---
+
 ### REQ-TERM-015: Focused Pane Owns URL Detection
 
 **Intent:** Browser URL detection must belong to the focused connected terminal pane so stale panes cannot clear the active pane's detected URL.

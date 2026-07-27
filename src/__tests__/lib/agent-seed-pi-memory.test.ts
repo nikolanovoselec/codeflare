@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
-import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
+import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_MAX_TOTAL_CHARS, MEMORY_CAPTURE_MAX_TURN_CHARS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, selectTurns, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -162,24 +162,39 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
       expect(result).toContain('new-answer-3');
     });
 
-    it('caps the uncaptured interval to the last 40 text turns', () => {
-      const messages = Array.from({ length: 80 }, (_, i) => ({
-        role: i % 2 === 0 ? 'user' : 'assistant',
-        content: `turn-${i}`,
-      }));
-      const result = compactMessages(messages);
-      const turnCount = result.split('\n\n').length;
-      expect(turnCount).toBe(40);
-      expect(result).not.toContain('turn-39\n');
-      expect(result).toContain('turn-40');
-      expect(result).toContain('turn-79');
+    it('spends the character budget newest-first when the window is long', () => {
+      const turns = Array.from({ length: 120 }, (_, i) => ({ role: 'user', text: `turn-${i} ${'x'.repeat(5000)}` }));
+      const kept = selectTurns(turns);
+      const total = kept.reduce((sum, turn) => sum + turn.text.length, 0);
+      // Both directions: the budget is a ceiling, and it is actually filled.
+      // Keeping one turn would satisfy the ceiling on its own.
+      expect(total).toBeLessThanOrEqual(MEMORY_CAPTURE_MAX_TOTAL_CHARS);
+      expect(total).toBeGreaterThan(MEMORY_CAPTURE_MAX_TOTAL_CHARS - 6000);
+      expect(kept.at(-1)!.text).toMatch(/^turn-119 /);
+      expect(kept.some((turn) => turn.text.startsWith('turn-0 '))).toBe(false);
     });
 
-    it('truncates a single turn longer than 4000 chars to 4000 chars of body', () => {
-      const result = compactMessages([{ role: 'user', content: 'a'.repeat(10000) }]);
+    it('keeps every user prompt when the assistant turns exhaust the budget', () => {
+      // Capture fires on a count of user prompts, so a payload that drops them
+      // summarises a window without the instructions that defined it. The
+      // assistant turns here cost twice the budget on their own.
+      const messages = Array.from({ length: 80 }, (_, i) => (i % 2 === 0
+        ? { role: 'user', content: `turn-${i}` }
+        : { role: 'assistant', content: `turn-${i} ${'x'.repeat(25000)}` }));
+      const result = compactMessages(messages);
+      const count = (marker: string) => result.split(marker).length - 1;
+
+      expect(count('## user\n')).toBe(40);
+      expect(count('## assistant\n')).toBeGreaterThan(0);
+      expect(count('## assistant\n')).toBeLessThan(40);
+      expect(result).toContain('turn-79 ');
+      expect(result).not.toContain('turn-1 ');
+    });
+
+    it('truncates a single turn longer than the per-turn cap', () => {
+      const result = compactMessages([{ role: 'user', content: 'a'.repeat(24000) }]);
       const body = result.slice('## user\n'.length);
-      expect(body.length).toBe(4000);
-      expect(result.length).toBeLessThan(5000);
+      expect(body.length).toBe(MEMORY_CAPTURE_MAX_TURN_CHARS);
     });
   });
 
@@ -326,7 +341,17 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(PRESEED_CONTENT_HASH).toMatch(/^[0-9a-f]{16}$/);
     const { createHash } = require('node:crypto');
     const sorted = [...AGENTS_SEEDED_CONFIGS].sort((a, b) => a.key.localeCompare(b.key));
-    const recomputed = createHash('sha256').update(JSON.stringify(sorted)).digest('hex').slice(0, 16);
+    // Mirrors computePreseedHash in scripts/generate-agent-seed.mjs, which cannot
+    // be imported here: that module invokes generate() at import time and would
+    // rewrite the generated seed mid-suite. Change the formula there and this
+    // recomputation fails until it is changed to match.
+    // The retired list is inside the hash so that shipping it triggers the
+    // upgrade that applies it (REQ-STOR-019); recomputing without it would pass
+    // only while the list stayed empty.
+    const recomputed = createHash('sha256')
+      .update(JSON.stringify({ documents: sorted, retired: RETIRED_PRESEED_KEYS }))
+      .digest('hex')
+      .slice(0, 16);
     expect(PRESEED_CONTENT_HASH).toBe(recomputed);
   });
 });

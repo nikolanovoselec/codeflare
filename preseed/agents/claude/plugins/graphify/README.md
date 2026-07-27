@@ -10,7 +10,7 @@ Unlike `context-mode`, graphify uses a discipline-vs-capability split:
 |---|---|
 | Plugin folder + `plugin.json` (MCP-server sentinel) | All session modes (Standard + Pro) |
 | `~/.claude/skills/graphify/SKILL.md` (the discipline) | Pro session mode only |
-| `~/.claude/rules/graph-first.md` (the discipline) | Pro session mode only |
+| `~/.claude/rules/engineering-constitution.md` § Graph first (the discipline) | Pro session mode only |
 | SessionStart + PostToolUse-on-clone hooks (the discipline) | Pro session mode only |
 
 Rationale: the MCP server is harmless ambient capability that any session benefits from when the user discovers it; the rule + skill + hooks are what teach the agent to use the graph proactively. Standard-mode users have the capability without the proactive discipline. See AD52.

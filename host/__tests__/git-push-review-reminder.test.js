@@ -27,6 +27,10 @@ function makeFixture() {
   return cwd;
 }
 
+// Marks the fixture as SDD-bootstrapped. NOTE: the file is left UNTRACKED --
+// only its presence on disk gates the hook. Any test that later stages with
+// `git add -A` will sweep it into that commit and silently make the reviewed
+// range touch sdd/, which changes the required lane set. Stage by path.
 function withSdd(cwd) {
   mkdirSync(join(cwd, 'sdd'), { recursive: true });
   writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
@@ -322,7 +326,7 @@ exit 99
   });
 });
 
-describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () => {
+describe('git-push-review-reminder.sh — cache behavior (4-line schema)', () => {
   it('uses cached OPEN+main result without calling gh', () => {
     const cwd = makeFixture();
     withSdd(cwd);
@@ -332,7 +336,7 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
     const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
-    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\nmain\n`);
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\nmain\ndeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n`);
     const binDir = fakeGhFails(cwd);  // gh exits 99 — proves cache was used
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
@@ -350,7 +354,7 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
     const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
-    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\ndevelop\n`);
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\ndevelop\ndeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n`);
     const binDir = fakeGhFails(cwd);
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
@@ -388,17 +392,17 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
     const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
-    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\n\n`);
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\n\ndeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n`);
     const binDir = fakeGhFails(cwd);  // gh exits 99 — proves cache was used
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/,
       'OPEN+empty-base cache must fail open and fire review');
     assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/,
-      '3-line cache (even with empty base) must short-circuit gh');
+      '4-line cache (even with empty base) must short-circuit gh');
   });
 
-  it('legacy 2-line OPEN cache (no base) re-queries gh and rewrites in 3-line schema', () => {
+  it('legacy 3-line OPEN cache (no head) re-queries gh and rewrites in 4-line schema', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
@@ -408,15 +412,15 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
       cwd, encoding: 'utf-8',
     }).stdout.trim();
     const cachePath = join(cwd, gitCommonDir, 'sdd-pr-cache');
-    writeFileSync(cachePath, `${branch}\nOPEN\n`);  // legacy 2-line
+    writeFileSync(cachePath, `${branch}\nOPEN\nmain\n`);  // legacy 3-line: no head
     const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/,
-      'legacy 2-line OPEN cache must fall through to gh and re-evaluate');
+      'legacy 3-line OPEN cache must fall through to gh and re-evaluate');
     const rewritten = readFileSync(cachePath, 'utf-8');
-    assert.match(rewritten, /^[^\n]+\nOPEN\nmain\n$/,
-      'cache must be rewritten in 3-line schema');
+    assert.match(rewritten, /^[^\n]+\nOPEN\nmain\nfakehead\n$/,
+      'cache must be rewritten in 4-line schema carrying the head');
   });
 });
 
@@ -703,7 +707,7 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/);
-    assert.match(r.stdout, /Spawn: doc-updater \(docs\/ lane\) only/,
+    assert.match(r.stdout, /Lanes: doc-updater \(docs\/ lane\) only/,
       'doc-only diff must produce the doc-only directive shape');
     assert.doesNotMatch(r.stdout, /code-reviewer/,
       'doc-only directive must NOT mention code-reviewer');
@@ -720,7 +724,7 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Parallel: spec-reviewer.*doc-updater/,
+    assert.match(r.stdout, /Lanes: spec-reviewer.*doc-updater/,
       'sdd-only diff must produce the parallel spec+doc directive');
     assert.doesNotMatch(r.stdout, /code-reviewer/,
       'sdd-only directive must NOT mention code-reviewer (no source touch)');
@@ -728,7 +732,10 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
       'sdd-only directive must explain the code lane exclusion');
   });
 
-  it('emits legacy all-3 directive when ACK->HEAD diff contains source files', () => {
+  it('emits a code-only directive when the ACK->HEAD diff is source-only', () => {
+    // A source-only diff leaves both other surfaces untouched, and no @impl
+    // anchor cites the changed file, so the spec and doc lanes would open,
+    // find nothing they own, and exit -- each still paying a full startup.
     const cwd = makeFixture();
     withSdd(cwd);
     const ackSha = commitAt(cwd, 'documentation/seed.md', '# seed\n', 'docs: seed');
@@ -737,10 +744,26 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Parallel: code-reviewer/);
-    assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
-    assert.match(r.stdout, /Return findings to the root session; reviewers do not write project or triage files/,
+    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) only/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'no sdd/ file changed and no @impl anchor cites the diff');
+    assert.match(r.stdout, /Reviewers do not write project or triage files\. The root evaluates findings/,
       'the boundary directive must preserve root-only write ownership');
+  });
+
+  it('emits the all-3 directive when the diff touches source and sdd/ together', () => {
+    // The all-three branch is now reached by a diff that genuinely gives every
+    // lane something to own, rather than by any source touch whatsoever.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'documentation/seed.md', '# seed\n', 'docs: seed');
+    writeAck(cwd, ackSha);
+    commitAt(cwd, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    const headSha = commitAt(cwd, 'sdd/spec/thing.md', '# REQ-THING-001\n', 'spec: thing');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
   });
 
   it('emits no directive when LAST_ACK equals CURRENT_PR_HEAD (already acked)', () => {
@@ -766,7 +789,137 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Parallel: code-reviewer/);
-    assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
+    assert.match(r.stdout, /Lanes: code-reviewer/);
+    assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
+  });
+});
+
+describe('git-push-review-reminder.sh - inert source delta emission', () => {
+  it('emits a code-reviewer-only directive when the source delta is comments only', () => {
+    // The saving is only realised if the nudge agrees with the classifier: a
+    // code-only lane set must not fall through to the all-three directive,
+    // or the agent spawns three lanes the Stop hook then silently excludes.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // old\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // new\n', 'docs: reword');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) only/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'a comment-only delta cannot have moved the spec surface');
+    assert.doesNotMatch(r.stdout, /doc-updater/,
+      'a comment-only delta cannot have moved the documentation surface');
+  });
+
+  it('emits code-reviewer and doc-updater when an inert source delta ships with a doc change', () => {
+    // This lane pair became reachable when content-based reduction landed.
+    // With no branch of its own it fell through to the all-three directive,
+    // which asks for a spec lane the Stop hook then excludes -- the exact
+    // nudge/gate disagreement the shared classifier exists to prevent.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // old\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 1; // new\n');
+    mkdirSync(join(cwd, 'documentation'), { recursive: true });
+    writeFileSync(join(cwd, 'documentation/architecture.md'), '# arch\n');
+    // Stage by path, never `git add -A`: withSdd() leaves sdd/README.md
+    // UNTRACKED, so -A would sweep it into this commit and the reviewed range
+    // really would touch sdd/ -- the spec lane would then be correctly
+    // required and this test would be asserting against its own fixture.
+    spawnSync('git', ['add', 'src/a.ts', 'documentation/architecture.md'], { cwd });
+    spawnSync('git', ['commit', '-q', '-m', 'docs: reword and document'], { cwd });
+    const headSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /doc-updater/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'nothing under sdd/ changed, so the spec lane must not be requested');
+  });
+
+  // These two are the prover's whole remaining value. Once a lane is spawned
+  // only where its surface has work, a source-only diff that no @impl anchor
+  // cites requires the code lane whether or not the delta is inert -- so the
+  // ONLY place inertness still changes the answer is a cited file. Gut the
+  // prover and the second expectation flips; drop the anchor from both and
+  // neither test can tell the prover from its absence.
+  it('adds the spec lane when a code-token change is cited by an sdd/ @impl anchor', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    commitAt(cwd, 'sdd/spec/x.md', '### AC1\n<!-- @impl: src/a.ts::a -->\n', 'spec: anchor');
+    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // x\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 2; // y\n', 'fix: bump');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) and spec-reviewer \(sdd\/ lane\) - both/);
+    assert.doesNotMatch(r.stdout, /doc-updater/,
+      'nothing under documentation/ changed and no doc anchor cites the diff');
+  });
+
+  it('keeps the spec lane out when the cited file changes only comments', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    commitAt(cwd, 'sdd/spec/x.md', '### AC1\n<!-- @impl: src/a.ts::a -->\n', 'spec: anchor');
+    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // x\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // y\n', 'docs: reword');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) only/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'the cited symbol cannot have drifted when only a comment moved');
+  });
+});
+
+describe('git-push-review-reminder.sh - review range vs. lagging PR metadata', () => {
+  // `gh pr view` issued right after a push can still report the PREVIOUS
+  // head, because GitHub's PR metadata lags its own ref update. That SHA
+  // used to become the right-hand side of the incremental range, so the
+  // directive named a range ending one commit BEFORE the push that fired
+  // it. The hook now prefers local HEAD, but ONLY when local HEAD provably
+  // contains what gh reported - so the range can widen, never narrow.
+
+  it('ranges to local HEAD when gh reports an ancestor of it', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const staleSha = commitAt(cwd, 'src/one.ts', 'export const a = 1;\n', 'feat: one');
+    const headSha = commitAt(cwd, 'src/two.ts', 'export const b = 2;\n', 'feat: two');
+    const binDir = fakeGhWithHead(cwd, { headSha: staleSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, new RegExp(`${ackSha}\\.\\.${headSha}`),
+      'the range must end at the pushed commit, not at the head GitHub has caught up to');
+    assert.doesNotMatch(r.stdout, new RegExp(staleSha),
+      'a stale gh headRefOid must not appear anywhere in the directive');
+  });
+
+  it('keeps the gh-reported head when it is not an ancestor of local HEAD', () => {
+    // A SHA of valid shape that is not an object in this repo stands in for
+    // every case where local HEAD cannot be proven to contain the PR head:
+    // a push of a non-current refspec, a rejected push, or a concurrent
+    // push from elsewhere. Narrowing the range there would silently drop
+    // commits from review, so the hook must fall back to the full PR diff.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    commitAt(cwd, 'src/one.ts', 'export const a = 1;\n', 'feat: one');
+    const binDir = fakeGhWithHead(cwd, { headSha: 'b'.repeat(40) });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /full PR diff against origin\//,
+      'an unprovable PR head must fall back to the full-diff directive');
+    assert.doesNotMatch(r.stdout, new RegExp(`${ackSha}\\.\\.`),
+      'the hook must not substitute local HEAD for a PR head it cannot prove it contains');
   });
 });

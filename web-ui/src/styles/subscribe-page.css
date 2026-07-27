@@ -58,13 +58,13 @@
 
 .subscribe-action-button {
   display: inline-block; padding: var(--space-3) var(--space-8);
-  background: var(--color-accent); border: 1px solid rgba(59, 130, 246, 0.5); border-radius: var(--radius-xl);
+  background: var(--color-accent); border: 1px solid hsla(var(--accent-hsl), 0.5); border-radius: var(--radius-xl);
   color: var(--color-accent-contrast); font-size: var(--text-base); font-weight: var(--font-medium);
   text-decoration: none; cursor: pointer;
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 16px hsla(var(--accent-hsl), 0.3);
   transition: all 150ms ease-out; margin-bottom: var(--space-4);
 }
-.subscribe-action-button:hover:not(:disabled) { background: #2563eb; box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4); transform: translateY(-1px); }
+.subscribe-action-button:hover:not(:disabled) { background: var(--color-accent-hover); box-shadow: 0 6px 24px var(--color-glow-accent); transform: translateY(-1px); }
 .subscribe-action-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .subscribe-logout-button {
@@ -86,9 +86,9 @@
 }
 
 .subscribe-manage-button {
-  color: #f38020; border-color: rgba(243, 128, 32, 0.25);
+  color: var(--color-brand-cloud); border-color: rgb(var(--color-brand-cloud-rgb) / 0.25);
 }
-.subscribe-manage-button:hover { color: #ff9633; border-color: rgba(243, 128, 32, 0.5); }
+.subscribe-manage-button:hover { color: var(--color-brand-cloud-hover); border-color: rgb(var(--color-brand-cloud-rgb) / 0.5); }
 .subscribe-manage-button:disabled { opacity: 0.5; cursor: wait; }
 
 /* ── Mode section: toggle + Pro card + Standard card ── */
@@ -121,7 +121,7 @@
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-mode-toggle-btn--active {
-  background: rgba(59, 130, 246, 0.15); color: var(--color-text-primary);
+  background: var(--color-accent-muted); color: var(--color-text-primary);
 }
 .subscribe-mode-toggle-btn:hover:not(.subscribe-mode-toggle-btn--active):not(:disabled) { color: var(--color-text-secondary); }
 .subscribe-mode-toggle-btn--disabled {
@@ -151,7 +151,7 @@
    must override .subscribe-lifeline-stop--selected specificity */
 .subscribe-lifeline-icon.subscribe-lifeline-icon--current {
   border: 2px solid var(--color-success) !important;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.3) !important;
+  box-shadow: 0 0 8px rgb(var(--color-success-rgb) / 0.3) !important;
 }
 
 .subscribe-mode-pro-label {
@@ -187,12 +187,12 @@
 .subscribe-detail-panel {
   background: rgba(24, 24, 27, 0.65);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 16px;
+  border: 1px solid hsla(var(--accent-hsl), 0.2); border-radius: 16px;
   padding: var(--space-8); margin-bottom: var(--space-8); width: 100%;
   max-width: 420px; margin-left: auto; margin-right: auto;
   text-align: center;
   animation: fadeSlideIn 0.5s ease-out;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.05) inset;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px hsla(var(--accent-hsl), 0.05) inset;
 }
 
 .subscribe-detail-name {
@@ -229,7 +229,7 @@
 .subscribe-tier-badge {
   font-size: var(--text-sm); color: var(--color-success);
   letter-spacing: 0.02em;
-  background: var(--color-success-bg); border: 1px solid rgba(34, 197, 94, 0.2);
+  background: var(--color-success-bg); border: 1px solid rgb(var(--color-success-rgb) / 0.2);
   border-radius: var(--radius-md); padding: var(--space-1) var(--space-2);
   display: inline-block; margin-bottom: var(--space-4);
 }
@@ -241,8 +241,8 @@
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-tier-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.2); }
-.subscribe-tier-btn--primary { background: var(--color-accent); color: var(--color-accent-contrast); border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
-.subscribe-tier-btn--primary:hover:not(:disabled) { background: #2563eb; border-color: rgba(59, 130, 246, 0.7); box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35); }
+.subscribe-tier-btn--primary { background: var(--color-accent); color: var(--color-accent-contrast); border-color: hsla(var(--accent-hsl), 0.5); box-shadow: 0 2px 8px hsla(var(--accent-hsl), 0.25); }
+.subscribe-tier-btn--primary:hover:not(:disabled) { background: var(--color-accent-hover); border-color: hsla(var(--accent-hsl), 0.7); box-shadow: 0 4px 16px hsla(var(--accent-hsl), 0.35); }
 .subscribe-tier-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .subscribe-turnstile { margin-top: var(--space-4); display: flex; justify-content: center; }
@@ -311,7 +311,7 @@
   display: inline-block;
   font-size: 0.55rem;
   font-weight: var(--font-bold);
-  color: var(--color-accent, #3b82f6);
+  color: var(--color-accent);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-left: 0.4rem;

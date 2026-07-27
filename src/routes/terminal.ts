@@ -293,22 +293,43 @@ export async function handleWebSocketUpgrade(
     // connection is established"). Race a timeout so the client fails fast with the
     // same retryable 1013 the warming-up path uses, letting its reconnect backoff
     // recover once the container is reachable again instead of freezing.
+    // A dead container REJECTS the forward ('Network connection lost.') rather
+    // than hanging, and the race above only covers the hang. An unhandled reject
+    // falls through to the generic 500 handler below, and a handshake answered by
+    // anything other than a 101 reaches the browser as an abnormal closure
+    // (1006) — which is in the client's retryable set but never opens a socket,
+    // so its backoff stays pinned at the 500ms base and the tab reconnects ~1/s
+    // indefinitely. Observed in prod: a destroyed session whose KV status was
+    // never written 'stopped' (so the authoritative 4503 gate above could not
+    // fire) drew ~1 upgrade/second for 20+ minutes. Map the reject onto the same
+    // retryable 1013 the timeout uses, so the client's existing backoff runs.
     const TIMED_OUT = Symbol('container-ws-forward-timeout');
+    const FORWARD_FAILED = Symbol('container-ws-forward-failed');
+    let forwardError: unknown;
     let forwardTimer: ReturnType<typeof setTimeout> | undefined;
     const response = await Promise.race([
-      container.fetch(new Request(terminalUrl.toString(), request)),
+      container.fetch(new Request(terminalUrl.toString(), request)).catch((err: unknown) => {
+        forwardError = err;
+        return FORWARD_FAILED;
+      }),
       new Promise<typeof TIMED_OUT>((resolve) => {
         forwardTimer = setTimeout(() => resolve(TIMED_OUT), CONTAINER_WS_FORWARD_TIMEOUT_MS);
       }),
     ]);
     if (forwardTimer !== undefined) clearTimeout(forwardTimer);
 
-    if (response === TIMED_OUT) {
-      logger.warn('Container WS forward timed out — returning retryable close', {
+    // Narrow on the Response side, not the symbols: a Symbol() bound inside a
+    // function widens to plain `symbol`, so both sentinels collapse into one type
+    // and an equality check narrows nothing. instanceof does, and the sentinels
+    // still distinguish the two reasons below.
+    if (!(response instanceof Response)) {
+      logger.warn('Container WS forward failed — returning retryable close', {
         fullSessionId,
         terminalId,
         containerId,
         timeoutMs: CONTAINER_WS_FORWARD_TIMEOUT_MS,
+        reason: response === TIMED_OUT ? 'timeout' : 'rejected',
+        error: response === FORWARD_FAILED ? toErrorMessage(forwardError) : undefined,
       });
       const pair = new WebSocketPair();
       pair[1].accept();

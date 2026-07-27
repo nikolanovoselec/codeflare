@@ -3153,7 +3153,17 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     #     ctx_execute. Closes the silent-bypass discovered in ai-news-digest
     #     PR #247 and the matching bug-class flagged by issue #319 in the
     #     enforce-review-spawn Stop hook.
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture-block.sh"}]},{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
+    #
+    # disableAgentView turns off background agents' agent view and its
+    # supervisor. Agent view takes over the terminal with a full-screen
+    # dispatch/session switcher, which is unusable on a phone — the swipe
+    # navigation fights the mobile terminal. Background subagents themselves
+    # still run, so the memory/vault capture hooks are unaffected — verified
+    # under Claude Code 2.1.219 on 2026-07-25 by running a session with the
+    # setting on and watching background subagents spawn and complete. The
+    # capture hooks depend on that half, and it fails silently if it breaks,
+    # so re-check it when the pinned CLI version moves.
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture-block.sh"}]},{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"SessionStart":[{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
     # context-mode hooks (Custom tier only, gated on plugin manifest presence).
     # Implements REQ-AGENT-005. Same four hooks the upstream context-mode
     # plugin would self-register via hooks.json — we wire them through
@@ -3244,7 +3254,9 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     fi
     echo "[entrypoint] Advanced mode: configuring settings.json with hooks"
 else
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
+    # disableAgentView: see the rationale above the advanced-mode literal —
+    # agent view's full-screen switcher is unusable on mobile.
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true}'
     echo "[entrypoint] Default mode: configuring settings.json without hooks"
 fi
 
@@ -3252,7 +3264,7 @@ SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
     JQ_ERR=$(mktemp)
-    # Implements REQ-AGENT-008
+    # Implements REQ-AGENT-099
     # Merge non-hooks settings with *, rebuild hooks separately to avoid
     # jq array-replace destroying user-added hooks or leaving stale managed hooks.
     # "Managed" = command path contains plugins/(codeflare-(hooks|memory|

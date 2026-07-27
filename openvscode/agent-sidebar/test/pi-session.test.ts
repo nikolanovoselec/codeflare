@@ -90,7 +90,6 @@ test('REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the
       cwd: '/home/user/workspace',
       env: {
         HOME: '/home/user',
-        CODEFLARE_SIDEBAR: '1',
         [SIDEBAR_PROCESS_GENERATION_ENV]: 'pi-generation-1',
       },
       shell: false,

@@ -3,6 +3,9 @@
 //   AC2: matched nodes capped at 10 (budget cap)
 //   AC3: fires at most once per session (sentinel file gate)
 //   AC4: skips prompts shorter than 20 characters
+//   AC7: a graph past the size ceiling is skipped without spending the sentinel
+// The REQ's other criteria are Pi-side; the spec's @test anchors, not this
+// header, are what record where each one is covered.
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
@@ -23,7 +26,7 @@ function makeGraph(dir, nodes) {
 }
 
 function runHook(opts) {
-  const { counterDir, sessionId, prompt, home } = opts;
+  const { counterDir, sessionId, prompt, home, maxGraphBytes } = opts;
   const input = JSON.stringify({
     hook_event_name: 'UserPromptSubmit',
     session_id: sessionId || 'test-sess',
@@ -36,6 +39,7 @@ function runHook(opts) {
       ...process.env,
       HOME: home || process.env.HOME,
       MEMCAP_COUNTER_DIR: counterDir,
+      ...(maxGraphBytes ? { MEMORY_INJECT_MAX_GRAPH_BYTES: String(maxGraphBytes) } : {}),
     },
   });
   return {
@@ -181,6 +185,66 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     });
     assert.equal(status, 0);
     assert.equal(stdout, '', 'malformed graph must produce no output');
+  });
+
+  it('AC7: skips a graph past the ceiling without spending the session sentinel', () => {
+    const counterDir = mkdtempSync(join(baseTmp, 'ac7-counter-'));
+    const homeDir = mkdtempSync(join(baseTmp, 'ac7-home-'));
+    const graphDir = join(homeDir, '.graphify');
+    makeGraph(graphDir, [
+      { id: '1', label: 'handleVaultRequest', source: 'src/routes/vault.ts', description: 'Main vault route handler' },
+    ]);
+    const sessionId = 'ac7-session';
+
+    // Below the graph's own size: the ceiling, not the content, decides.
+    const skipped = runHook({
+      counterDir,
+      home: homeDir,
+      sessionId,
+      maxGraphBytes: 1,
+      prompt: 'check the vault route handler and fix the container proxy issue',
+    });
+
+    assert.equal(skipped.status, 0);
+    assert.equal(skipped.stdout, '', 'a graph past the ceiling must inject nothing');
+    // The sentinel is the session's one shot. Spending it on a graph that was
+    // never read would disable injection for the whole session.
+    assert.ok(!existsSync(join(counterDir, `${sessionId}.inject-lock`)));
+
+    // Same session, same graph, ceiling now above it: injection still happens,
+    // which is only true because the skip left the sentinel unclaimed.
+    const injected = runHook({
+      counterDir,
+      home: homeDir,
+      sessionId,
+      maxGraphBytes: 134217728,
+      prompt: 'check the vault route handler and fix the container proxy issue',
+    });
+
+    assert.equal(injected.json?.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+    assert.ok(injected.json?.hookSpecificOutput?.additionalContext?.includes('handleVaultRequest'));
+    assert.ok(existsSync(join(counterDir, `${sessionId}.inject-lock`)));
+  });
+
+  it('AC7: an out-of-range numeric ceiling falls back instead of voiding the guard', () => {
+    const counterDir = mkdtempSync(join(baseTmp, 'range-counter-'));
+    const homeDir = mkdtempSync(join(baseTmp, 'range-home-'));
+    makeGraph(join(homeDir, '.graphify'), [
+      { id: '1', label: 'handleVaultRequest', source: 'src/routes/vault.ts', description: 'Main vault route handler' },
+    ]);
+
+    // All digits, but past what the shell can compare: the test errors and, with
+    // stderr discarded, would read as "not over the ceiling" — a guard that is
+    // present and inert. The fallback default must take over instead.
+    const { json, status } = runHook({
+      counterDir,
+      home: homeDir,
+      maxGraphBytes: '9'.repeat(40),
+      prompt: 'check the vault route handler and fix the container proxy issue',
+    });
+
+    assert.equal(status, 0);
+    assert.ok(json?.hookSpecificOutput?.additionalContext?.includes('handleVaultRequest'));
   });
 
   it('creates counter directory if missing', () => {

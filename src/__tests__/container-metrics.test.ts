@@ -25,6 +25,7 @@ const testState = vi.hoisted(() => ({
   tcpFetchShouldFail: false,
   stopCalls: 0,
   scheduleCalls: [] as Array<[number, string]>,
+  activityHangs: false,
   kvRef: null as MockKV | null,
   // REQ-SESSION-011: POST /internal/final-sync (drainFinalSync). finalSyncStatus
   // controls the mocked response status; callOrder records final-sync vs stop so
@@ -40,7 +41,7 @@ const testState = vi.hoisted(() => ({
 vi.mock('@cloudflare/containers', () => {
   class MockContainer {
     ctx: {
-      container: { running: boolean; getTcpPort: (port: number) => { fetch: (url: string) => Promise<Response> } };
+      container: { running: boolean; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
       storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string) => Promise<void> };
       blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>;
     };
@@ -52,7 +53,7 @@ vi.mock('@cloudflare/containers', () => {
         container: {
           get running() { return testState.containerRunning; },
           getTcpPort: () => ({
-            fetch: async (url: string) => {
+            fetch: async (url: string, init?: RequestInit) => {
               if (url.includes('/internal/final-sync')) {
                 // drainFinalSync's call. Record it (and order vs stop) and honor
                 // the failure switch / configured status so best-effort behavior
@@ -69,6 +70,16 @@ vi.mock('@cloudflare/containers', () => {
               }
               if (testState.tcpFetchShouldFail) {
                 throw new Error('Connection refused');
+              }
+              // A wedged container: the TCP connect succeeds and nothing is ever
+              // written back. Settles ONLY on abort, mirroring how the existing
+              // drainFinalSync budget test models this same port. Remove the
+              // caller's signal and nothing ends this promise, so collectMetrics
+              // never returns and the case fails by timeout.
+              if (testState.activityHangs && url.includes('/activity')) {
+                return new Promise<Response>((_resolve, reject) => {
+                  init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+                });
               }
               const body = url.includes('/activity')
                 ? testState.activityResult
@@ -137,7 +148,7 @@ vi.mock('../lib/logger', () => ({
 
 // Import AFTER mocks are set up
 import { container } from '../container/index';
-import { drainFinalSync, FINAL_SYNC_BUDGET_MS } from '../container/container-metrics';
+import { drainFinalSync, FINAL_SYNC_BUDGET_MS, CONTAINER_POLL_BUDGET_MS } from '../container/container-metrics';
 
 describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
@@ -149,6 +160,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
     testState.tcpFetchShouldFail = false;
+    testState.activityHangs = false;
     testState.activityResult = {
       hasActiveConnections: true,
       connectedClients: 1,
@@ -307,6 +319,35 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stored.metrics).toBeDefined();
       expect(stored.metrics!.cpu).toBe('45%');
     });
+
+    // REQ-SESSION-020: the watchdog must survive the failure it exists to detect.
+    // A wedged container accepts the TCP connect and never answers /activity. The
+    // re-arm is the last statement of doCollectMetrics and schedule() is one-shot,
+    // so before this was bounded the tick never returned and the alarm loop was
+    // gone for good - no idle detection, no health loop, and nothing to restore
+    // them (onStart only runs on a fresh start, onError only when the SDK sees the
+    // container exit; neither fires for wedged-but-running). Remove the bound and
+    // the mock below never settles, so this case fails by timeout rather than by
+    // assertion. Costs one real poll budget of wall-clock; that is the price of
+    // proving a hang rather than simulating one.
+    it('REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers', async () => {
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      testState.activityHangs = true;
+      testState.scheduleCalls = [];
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    }, 25_000);
 
     it('should re-arm schedule if container is still running', async () => {
       const session: Session = {
@@ -510,6 +551,71 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
       // Returns early after stop — must NOT re-arm the schedule.
       expect(testState.scheduleCalls).toEqual([]);
+    });
+
+    // REQ-SESSION-020 AC1: the Timekeeper ping is awaited before the re-arm, and a
+    // Durable Object stub is a different transport from the container port, so its
+    // abort support is not established. This stub ignores the signal entirely and
+    // never answers — exactly the unproven case — and the alarm must still re-arm.
+    // Deleting the race in raceBudget hangs this test until its own timeout.
+    it('REQ-SESSION-020 AC1: re-arms the alarm when the Timekeeper ping never answers', async () => {
+      testState.storedBucketName = 'test-bucket';
+      testState.storedSessionId = 'testsession123456';
+      testState.storedUserEmail = 'quota@example.com';
+
+      const timekeeperStub = {
+        fetch: vi.fn(() => new Promise<Response>(() => { /* never settles, signal ignored */ })),
+      };
+      const TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+      );
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
+
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      await vi.waitFor(
+        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
+
+      testState.scheduleCalls = [];
+      // Fake timers only from here — the vi.waitFor above needs real ones.
+      // raceBudget's bound is a plain setTimeout so it is faked, while the
+      // retained AbortSignal.timeout is native and is not. That asymmetry is the
+      // point: the race is the only thing that can end this await, and faking it
+      // proves that in milliseconds instead of ten real seconds.
+      vi.useFakeTimers();
+      try {
+        const pending = instance.collectMetrics();
+        // Advance repeatedly rather than once: each call drains microtasks before
+        // moving the clock, so a timer armed behind one more await than expected
+        // is still caught instead of failing on the default test timeout. The
+        // budget timer is the only one faked here, so extra passes are inert.
+        for (let i = 0; i < 3; i++) await vi.advanceTimersByTimeAsync(CONTAINER_POLL_BUDGET_MS);
+        await pending;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
     it('REQ-SESSION-011 AC6: quota-stop drains the final sync BEFORE stop (same order as idle-stop)', async () => {

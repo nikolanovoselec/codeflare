@@ -45,7 +45,11 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
   };
 });
 
-vi.mock('../../lib/r2-client', () => ({
+// Partial rather than a bare factory: every cleanup reconcile runs the stale-marker
+// sweep, which needs the real parser even here, where no listing fixture is supplied
+// and it parses the empty body into an empty result.
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: mockCreateR2Client,
   getR2Url: mockGetR2Url,
 }));
@@ -58,6 +62,8 @@ vi.mock('../../lib/agent-seed.generated', () => ({
   get AGENTS_SEEDED_CONFIGS() {
     return testState.agentDocs;
   },
+  RETIRED_PRESEED_KEYS: [] as readonly string[],
+  PRESEED_CONTENT_HASH: 'testhash00000000',
 }));
 
 import {
@@ -177,7 +183,7 @@ describe('reconcileAgentConfigs tier gating', () => {
       contextModeEnabled: false,
     });
 
-    // 2 advanced non-context-mode files written, 2 context-mode files deleted
+    // 2 advanced non-context-mode files written, 2 context-mode files deleted.
     expect(result.written).toHaveLength(2);
     expect(result.deleted).toContain('.claude/plugins/context-mode/.claude-plugin/plugin.json');
     expect(result.deleted).toContain('.claude/plugins/context-mode/README.md');

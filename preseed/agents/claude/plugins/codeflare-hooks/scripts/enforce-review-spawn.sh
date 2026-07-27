@@ -444,6 +444,211 @@ fi
 # LAST_ACK regress or jump to a SHA that is not an ancestor of (or
 # equal to) HEAD.
 # ---------------------------------------------------------------------------
+
+# Lane-spawn match contract, shared by every coverage / in-flight check below.
+#
+# A lane counts as spawned under EITHER transport:
+#
+#   (a) Agent subagent - an `Agent` tool_use whose `subagent_type` is the lane.
+#   (b) Headless subprocess - a `Bash` tool_use invoking run-review-lane.sh with
+#       `--lane <name>`. The lane runs as `claude -p` with a replaced system
+#       prompt, which is what makes it affordable; it emits no subagent_type.
+#
+# Both conditions anchor on `"type":"tool_use"` so the substring match only
+# fires on real tool_use envelopes, never on prose or tool_result text that
+# happens to quote the same bytes. Detection is deliberately additive: shape (a)
+# is unchanged, so the transport migration cannot narrow what the gate accepts.
+# The awk half is only a CHEAP PREFILTER. It emits `<line>\t<kind>`; a `bash`
+# kind is a candidate that must still survive structural verification in
+# `bash_line_runs_lane`, because a substring match on the serialised envelope
+# also fires on the runner path appearing INSIDE a command string. One
+# `echo "... --lane code-reviewer --lane spec-reviewer --lane doc-updater"`
+# would otherwise satisfy all three lanes and bypass the gate wholesale - the
+# same class as matching `git push` inside `echo "git push later"`.
+LANE_SPAWN_AWK='
+function lane_spawn_kind(line, lane) {
+  if (!index(line, "\"type\":\"tool_use\"")) return ""
+  if (index(line, "\"name\":\"Agent\"") \
+      && index(line, "\"subagent_type\":\"" lane "\"")) return "agent"
+  if (index(line, "\"name\":\"Bash\"") \
+      && index(line, "run-review-lane.sh") \
+      && index(line, "--lane " lane)) return "bash"
+  return ""
+}
+'
+
+# Structural verification of a Bash lane-runner envelope. Parses the command out
+# of the tool_use with jq (already a hard dependency of this hook) and requires
+# the runner to sit in COMMAND position - start of line or after a shell
+# separator - with `--lane <name>` among its arguments and no separator in
+# between. Quoted mentions inside another command therefore never qualify.
+bash_line_runs_lane() {
+  local line_content="$1"
+  local lane="$2"
+  local cmd cmd_bare
+  cmd=$(printf '%s' "$line_content" | jq -r '
+    [ .message.content[]?
+      | select(.type? == "tool_use" and .name? == "Bash")
+      | .input.command? // empty ] | .[]
+  ' 2>/dev/null) || return 1
+  [ -n "$cmd" ] || return 1
+
+  # Collapse quoted regions FIRST. Matching command position against the raw
+  # string is unsound: a separator inside a quoted argument satisfies the
+  # anchor, so `echo "step1; bash .../run-review-lane.sh --lane X"` reads as a
+  # real invocation and silently credits a lane that never ran.
+  #
+  # A quoted region holding exactly one bare word is a quoted PATH
+  # (`bash "$HOME/.../run-review-lane.sh"`, the normal defensive habit) and
+  # collapses to that word. Any quoted region containing whitespace or a shell
+  # separator is prose and is dropped entirely, so nothing inside a string can
+  # ever open command position.
+  cmd_bare=$(printf '%s' "$cmd" | awk '
+    {
+      out = ""; n = length($0); i = 1
+      while (i <= n) {
+        c = substr($0, i, 1)
+        if (c == "\"" || c == "'"'"'") {
+          q = c; j = i + 1; body = ""
+          while (j <= n && substr($0, j, 1) != q) { body = body substr($0, j, 1); j++ }
+          if (body ~ /^[^[:space:];&|]+$/) out = out body
+          i = j + 1
+        } else { out = out c; i++ }
+      }
+      print out
+    }')
+
+  # Only `--lane <name>` is accepted. The awk prefilter and the runner argument
+  # parser both require the space form, so permitting `--lane=<name>` here would
+  # be dead permissiveness that misdescribes the end-to-end contract.
+  printf '%s' "$cmd_bare" | grep -qE \
+    "(^|[;&|])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(bash[[:space:]]+)?[^[:space:];&|]*run-review-lane\.sh([[:space:]]+[^;&|]*)?[[:space:]]--lane[[:space:]]+${lane}([[:space:]]|\$)"
+}
+
+# Verified lane-spawn line numbers, newest last. Optional $2/$3 bound the search
+# to an exclusive (min, max) line window; omit or pass 0 for unbounded.
+lane_spawn_lines() {
+  local lane="$1"
+  local min_line="${2:-0}"
+  local max_line="${3:-0}"
+  # The prefilter emits the candidate's own line alongside it, so verification
+  # never re-scans the transcript. This runs per lane per window inside
+  # retroactive_ack_scan, where a second full-file pass per candidate is a
+  # visible Stop-hook stall on the long transcripts the staleness bound expects.
+  local nr kind line_content
+  awk -v a="$lane" -v p="$min_line" -v q="$max_line" "$LANE_SPAWN_AWK"'
+    NR > p && (q == 0 || NR < q) {
+      k = lane_spawn_kind($0, a)
+      if (k != "") print NR "\t" k "\t" $0
+    }
+  ' "$TRANSCRIPT" | while IFS="$(printf '\t')" read -r nr kind line_content; do
+    if [ "$kind" = "agent" ]; then
+      printf '%s\n' "$nr"
+    elif bash_line_runs_lane "$line_content" "$lane"; then
+      printf '%s\n' "$nr"
+    fi
+  done
+}
+
+
+# Completion correlation for a spawned lane, shared by every check below.
+#
+# A lane completes under EITHER transport:
+#
+#   (a) Agent subagent - a background task notification carrying
+#       `tool-use-id>ID<` together with `completed</status>`.
+#   (b) Headless subprocess - launched as a BACKGROUND Bash call, which emits
+#       the very same notification shape on completion.
+#
+# One contract therefore covers both transports, byte-for-byte the behaviour
+# that predates the headless transport.
+#
+# A tool_result carrying `"tool_use_id":"ID"` is deliberately NOT accepted. Under
+# `run_in_background`, which is how lanes are dispatched, the harness returns
+# that envelope IMMEDIATELY as a start receipt holding a background shell id -
+# it means "launched", never "finished". Treating it as completion would credit
+# all three lanes the instant they launch and ack a head whose review is still
+# running. That applies equally to a backgrounded Agent spawn, so no transport
+# may use it.
+tool_use_id_completed() {
+  local spawn_line="$1"
+  local tool_use_id="$2"
+  awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
+    | grep -F "tool-use-id>${tool_use_id}<" \
+    | grep -qF 'completed</status>'
+}
+
+# Terminal status for a spawned lane: the background task ENDED, successfully or
+# not. `completed` credits the review; `failed` must not. But `failed` is just as
+# terminal as `completed` -- a lane that died is not still running.
+#
+# Conflating the two is what wedged the checkpoint in practice: a lane whose
+# subprocess exited non-zero read as "in flight" for the next 1200 transcript
+# lines, so the gate waited on a process that was already dead, the head stayed
+# un-acked, and the next push measured its range from the last ACKED head rather
+# than the last reviewed one. One lost lane therefore widened every subsequent
+# review permanently -- a measured 10-commit re-review where one commit was due.
+# The tool_use id of a spawn line. Four call sites re-derived this verbatim.
+tool_use_id_of_spawn() {
+  awk -v L="$1" 'NR==L { print; exit }' "$TRANSCRIPT" \
+    | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+'
+}
+
+tool_use_id_terminal() {
+  local spawn_line="$1"
+  local tool_use_id="$2"
+  # Open set, not a closed one: `cancelled`, `killed`, `timed_out` and anything
+  # else the harness adds are terminal too, and enumerating successes would make
+  # each new status silently re-create the wedge this exists to close.
+  awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
+    | grep -F "tool-use-id>${tool_use_id}<" \
+    | grep -E '</status>' \
+    | grep -qvE '<status>(in_progress|running|pending|queued)</status>'
+}
+
+# The triage table, byte-for-byte the shape Pi pins as REVIEW_TRIAGE_HEADER /
+# REVIEW_TRIAGE_DIVIDER. It is a contract value, not prose: the gate reads it to
+# decide whether the root actually consumed the lanes' findings.
+REVIEW_TRIAGE_HEADER='| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |'
+REVIEW_TRIAGE_DIVIDER='|---|---|---|---|---|'
+
+# Transcript line of a spawn's successful completion notification, or empty.
+# Needed because the triage table only counts if it came AFTER the last lane
+# returned -- a table published earlier belongs to the previous round.
+spawn_completion_line() {
+  local spawn_line="$1"
+  local tool_use_id
+  tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
+  [ -n "$tool_use_id" ] || return 1
+  awk -v s="$spawn_line" -v id="$tool_use_id" '
+    NR > s && index($0, "tool-use-id>" id "<") && index($0, "completed</status>") { print NR; exit }
+  ' "$TRANSCRIPT"
+}
+
+# An assistant message carrying the triage table and NO tool call.
+#
+# Structural, not substring. The gate's own demand text quotes both constants,
+# and a model restating a required format ("I'll publish <header> over
+# <divider>") writes them too -- so a substring test acknowledges a head on a
+# message that contains no verdict at all, inverting the gate. The header must
+# be its own line, the divider the line immediately after it, and at least one
+# data row must follow: that shape is a published table and nothing else is.
+triage_published_after_line() {
+  local min_line="$1"
+  awk -v s="$min_line" '
+    NR > s && index($0, "\"type\":\"assistant\"") && !index($0, "\"type\":\"tool_use\"")
+  ' "$TRANSCRIPT" \
+    | jq -R -r 'fromjson? | [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]' 2>/dev/null \
+    | awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
+        { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
+        END {
+          for (i = 1; i <= n; i++) {
+            if (rows[i] == h && rows[i + 1] == d && rows[i + 2] ~ /^\|.*\|$/) exit 0
+          }
+          exit 1
+        }'
+}
+
 retroactive_ack_scan() {
   [ -f "$TRANSCRIPT" ] || return
   local total
@@ -553,31 +758,37 @@ retroactive_ack_scan() {
     # into its cumulative review).
     local window_complete=1
     local lane
+    local window_verdict_after=0
     for lane in $required_lanes; do
       local spawn_line
-      spawn_line=$(awk -v s="$start" -v e="$end" -v a="$lane" '
-        NR > s && NR < e \
-          && index($0, "\"type\":\"tool_use\"") \
-          && index($0, "\"name\":\"Agent\"") \
-          && index($0, "\"subagent_type\":\"" a "\"") { print NR }
-      ' "$TRANSCRIPT" | tail -1)
+      spawn_line=$(lane_spawn_lines "$lane" "$start" "$end" | tail -1)
       if [ -z "$spawn_line" ]; then
         window_complete=0; break
       fi
-      local line_content tool_use_id
-      line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
-      tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+      local tool_use_id
+      tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
       if [ -z "$tool_use_id" ]; then
         window_complete=0; break
       fi
       # Completion can land anywhere after the spawn (notifications may
       # arrive in a later turn).
-      if ! awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-          | grep -F "tool-use-id>${tool_use_id}<" \
-          | grep -qF 'completed</status>'; then
+      if ! tool_use_id_completed "$spawn_line" "$tool_use_id"; then
         window_complete=0; break
       fi
+      local completion_line
+      completion_line=$(spawn_completion_line "$spawn_line")
+      if [ -n "$completion_line" ] && [ "$completion_line" -gt "$window_verdict_after" ] 2>/dev/null; then
+        window_verdict_after="$completion_line"
+      fi
     done
+
+    # Same contract as the main gate. Without it this path acknowledges a head
+    # on lane exit alone, which silently bypasses the verdict requirement and
+    # swallows the FIX directive that acknowledgement is supposed to drive.
+    if [ "$window_complete" = "1" ] && [ "$window_verdict_after" -gt 0 ] 2>/dev/null \
+       && ! triage_published_after_line "$window_verdict_after"; then
+      window_complete=0
+    fi
 
     if [ "$window_complete" = "1" ]; then
       best_sha="$push_sha"
@@ -680,14 +891,14 @@ fi
 # authoritative order. No timestamp parsing needed.
 # ---------------------------------------------------------------------------
 
-# Agent-envelope match contract (used by the lane-coverage and in-flight
-# checks below): anchor each `"subagent_type"` match on `"type":"tool_use"`
-# AND `"name":"Agent"` on the same line, so the substring match only fires on
-# real Agent tool_use envelopes - not on prose / tool_result text / ctx_execute
-# output that happens to quote the literal `"subagent_type":"<name>"` bytes
-# (e.g. a diagnostic script printing hook JSON to the transcript). The JSONL
-# transcript serialises each tool_use envelope on a single line, so the
-# triple-condition match is reliable.
+# Lane-envelope match contract (used by the lane-coverage and in-flight checks
+# below) lives in `lane_spawn_lines` / `tool_use_id_completed` near the top of this
+# script, so both transports are described in exactly one place. Every match
+# anchors on `"type":"tool_use"` on the same line, so it only fires on real
+# tool_use envelopes - not on prose / tool_result text / ctx_execute output that
+# happens to quote the literal marker bytes (e.g. a diagnostic script printing
+# hook JSON to the transcript). The JSONL transcript serialises each tool_use
+# envelope on a single line, so the conjunctive match is reliable.
 
 # 5-strike circuit breaker (keyed by CURRENT_PR_HEAD - unique per PR state)
 #
@@ -698,10 +909,11 @@ fi
 # would let the next Stop event start at 0 and block 5 more times,
 # repeating forever. The counter resets only when CURRENT_PR_HEAD
 # changes (next push lands).
-read_count() {
-  if [ -f "$COUNT_FILE" ]; then
+read_count_from() {
+  local file="$1"
+  if [ -f "$file" ]; then
     local stored hash count
-    stored=$(cat "$COUNT_FILE" 2>/dev/null)
+    stored=$(cat "$file" 2>/dev/null)
     hash="${stored%%:*}"
     count="${stored#*:}"
     if [ "$hash" = "$CURRENT_PR_HEAD" ]; then
@@ -719,8 +931,43 @@ read_count() {
   echo "0"
 }
 
+read_count() { read_count_from "$COUNT_FILE"; }
+
+# The verdict demand gets its own head-keyed counter. Sharing the lane-demand
+# counter meant a head that took five Stop events to launch its lanes arrived
+# at the verdict check already at the limit, so the escape hatch fired on the
+# FIRST pass -- acknowledging a head whose findings were never triaged, before
+# a single verdict demand had been issued, while claiming five went unanswered.
+VERDICT_COUNT_FILE="$GIT_COMMON_DIR/sdd-review-verdict-count"
+
+reack_on_repeated_demand() {
+  local strikes
+  strikes=$(read_count_from "$VERDICT_COUNT_FILE")
+  if [ "$strikes" = "GIVEUP" ] || { [ "$strikes" -ge 5 ] 2>/dev/null; }; then
+    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    clear_counter
+    echo "enforce-review-spawn: ${CURRENT_PR_HEAD:0:7} acknowledged after repeated unanswered verdict demands; its findings were never triaged" >&2
+    return 0
+  fi
+  case "$strikes" in ''|*[!0-9]*) strikes=0 ;; esac
+  echo "$CURRENT_PR_HEAD:$((strikes + 1))" > "$VERDICT_COUNT_FILE" 2>/dev/null || true
+  return 1
+}
+
 clear_counter() {
   rm -f "$COUNT_FILE" 2>/dev/null || true
+}
+
+# The verdict demand has its own head-keyed breaker (reack_on_repeated_demand),
+# so routing it through emit_block would gate it twice: a head that spent its
+# lane-demand budget getting the lanes launched would find the shared counter
+# already at GIVEUP and the verdict demand would exit SILENTLY -- the session
+# is never told what to publish, while the verdict counter keeps recording
+# demands that were never shown. One breaker per demand, on its own counter.
+emit_block_uncounted() {
+  jq -n --arg r "$1" '{decision:"block", reason:$r}' 2>/dev/null
+  exit 0
 }
 
 emit_block() {
@@ -763,9 +1010,13 @@ emit_block() {
 # Initial state (no LAST_ACK) or unresolvable git diff -> same conservative
 # all-three posture inside compute_required_lanes itself.
 # ---------------------------------------------------------------------------
+# The RANGE ends at the resolved head, the ACK still records the gh head.
+# Separating the two is what lets this agree with the nudge's classification
+# without ever acking a commit the PR does not carry.
+REVIEW_RANGE_HEAD=$(resolve_review_head "$CURRENT_PR_HEAD")
 REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
 if . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null; then
-  REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")
+  REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD")
 fi
 
 # No lanes required -> already-clean PR HEAD for this diff shape. Ack
@@ -819,11 +1070,7 @@ IN_FLIGHT_STALE_LINES=1200
 lane_in_flight() {
   local lane="$1"
   local spawn_line
-  spawn_line=$(awk -v a="$lane" '
-    index($0, "\"type\":\"tool_use\"") \
-      && index($0, "\"name\":\"Agent\"") \
-      && index($0, "\"subagent_type\":\"" a "\"") { print NR }
-  ' "$TRANSCRIPT" | tail -1)
+  spawn_line=$(lane_spawn_lines "$lane" | tail -1)
   [ -n "$spawn_line" ] || return 1  # never spawned -> not in flight
   # Staleness bound: an uncompleted spawn far behind the transcript tail is
   # treated as orphaned (dead subagent), not in-flight, so the gate re-fires.
@@ -832,38 +1079,36 @@ lane_in_flight() {
   if [ "$((total - spawn_line))" -gt "$IN_FLIGHT_STALE_LINES" ] 2>/dev/null; then
     return 1
   fi
-  local line_content tool_use_id
-  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
-  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+  local tool_use_id
+  tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
   [ -n "$tool_use_id" ] || return 1  # can't correlate -> treat as not in flight
-  if awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-      | grep -F "tool-use-id>${tool_use_id}<" \
-      | grep -qF 'completed</status>'; then
-    return 1  # completed -> not in flight
+  if tool_use_id_terminal "$spawn_line" "$tool_use_id"; then
+    return 1  # ended (completed OR failed) -> not in flight, re-demand at once
   fi
-  return 0  # spawned recently, no completion yet -> in flight
+  return 0  # spawned recently, no terminal status yet -> in flight
 }
 
 latest_lane_spawn_after_line() {
   local lane="$1"
   local min_line="$2"
-  awk -v p="$min_line" -v a="$lane" '
-    NR > p \
-      && index($0, "\"type\":\"tool_use\"") \
-      && index($0, "\"name\":\"Agent\"") \
-      && index($0, "\"subagent_type\":\"" a "\"") { print NR }
-  ' "$TRANSCRIPT" | tail -1
+  lane_spawn_lines "$lane" "$min_line" | tail -1
+}
+
+spawn_ended_unsuccessfully() {
+  local spawn_line="$1"
+  local tool_use_id
+  tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
+  [ -n "$tool_use_id" ] || return 1
+  tool_use_id_terminal "$spawn_line" "$tool_use_id" \
+    && ! tool_use_id_completed "$spawn_line" "$tool_use_id"
 }
 
 spawn_completed() {
   local spawn_line="$1"
-  local line_content tool_use_id
-  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
-  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+  local tool_use_id
+  tool_use_id=$(tool_use_id_of_spawn "$spawn_line")
   [ -n "$tool_use_id" ] || return 1
-  awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-    | grep -F "tool-use-id>${tool_use_id}<" \
-    | grep -qF 'completed</status>'
+  tool_use_id_completed "$spawn_line" "$tool_use_id"
 }
 
 lane_has_coverage_after_line() {
@@ -877,9 +1122,31 @@ lane_has_coverage_after_line() {
     return 0
   fi
 
+  # Ended badly is not covered. Without this the staleness window below credits
+  # a dead lane as covered, so it is never re-demanded -- which made the whole
+  # failed-lane path dead code in exactly the case it was written for.
+  if spawn_ended_unsuccessfully "$spawn_line"; then
+    return 1
+  fi
+
   local total
   total=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
   [ "$((total - spawn_line))" -le "$IN_FLIGHT_STALE_LINES" ] 2>/dev/null
+}
+
+# Latest completion across every required lane, i.e. the moment the round's
+# evidence was complete. Empty if any required lane has not completed.
+latest_required_completion_line() {
+  local lane spawn_line line max=0
+  for lane in $REQUIRED_LANES; do
+    spawn_line=$(latest_lane_spawn_after_line "$lane" "$PUSH_LINE")
+    [ -n "$spawn_line" ] || return 1
+    line=$(spawn_completion_line "$spawn_line") || return 1
+    [ -n "$line" ] || return 1
+    [ "$line" -gt "$max" ] 2>/dev/null && max="$line"
+  done
+  [ "$max" -gt 0 ] 2>/dev/null || return 1
+  printf '%s\n' "$max"
 }
 
 lane_completed_after_line() {
@@ -935,8 +1202,46 @@ if requires_lane "doc-updater" && ! lane_has_current_coverage "doc-updater" && !
   MISSING="$MISSING doc-updater"
 fi
 
+# A lane that already ran for THIS head and ended without success is the case
+# that used to disappear: its report may even have been readable, but the gate
+# never credited it, so the head stayed un-acked and every later range widened.
+# Name it in the demand so a lost lane is re-run rather than silently absorbed.
+FAILED=""
+for lane in $REQUIRED_LANES; do
+  failed_spawn=$(latest_lane_spawn_after_line "$lane" "$PUSH_LINE")
+  [ -n "$failed_spawn" ] || continue
+  if spawn_ended_unsuccessfully "$failed_spawn"; then
+    FAILED="$FAILED $lane"
+  fi
+done
+
+# SCOPE THE DEMAND. Without --range the runner falls through to "Review the
+# full PR diff" (run-review-lane.sh), and because both the inlined packet and
+# the ownership short-circuit are gated on RANGE, a scopeless lane gets no
+# packet, no short-circuit, and an instruction to run its own diff -- which is
+# precisely the raw-scan blowup the packet CLI was built to end. The nudge has
+# always passed a scope; this path never did, so every re-demand, failed-lane
+# retry and post-compaction spawn ran the expensive way.
+#
+# Same resolution and same ancestry guard as the nudge, so the two agree: an
+# incremental range only when the acked head is an ancestor of the head under
+# review (equal counts), else the PR base, else nothing rather than a dangling
+# flag.
+if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$REVIEW_RANGE_HEAD" ] \
+   && [ "$LAST_ACK_PR_HEAD" != "$REVIEW_RANGE_HEAD" ] \
+   && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD" 2>/dev/null; then
+  LANE_SCOPE=" --range $LAST_ACK_PR_HEAD..$REVIEW_RANGE_HEAD"
+elif [ -n "$BASE_REF" ]; then
+  LANE_SCOPE=" --base $BASE_REF"
+else
+  LANE_SCOPE=""
+fi
+
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn$MISSING in parallel. Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>$LANE_SCOPE' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  if [ -n "$FAILED" ]; then
+    REASON="$REASON ATTENTION:$FAILED already ran for this head and ended WITHOUT success, so nothing was credited - re-run those lanes rather than treating their output as a completed round."
+  fi
   emit_block "$REASON"
 fi
 
@@ -950,9 +1255,33 @@ fi
 # coverage check (it requires an actual completion, not just an in-flight spawn), so the
 # ack never fires while any lane is still running.
 # ---------------------------------------------------------------------------
+# Acknowledgement means "this head's review was CONSUMED", not merely "the lanes
+# exited". Those are different claims, and only the first is what a later range
+# may safely be measured from. A round whose lanes returned into a session that
+# never read them leaves findings unacted while the checkpoint advances past
+# them -- so the gate requires the triage verdict, published after the last lane
+# returned, exactly as the Pi enforcement path does.
+#
+# The FIX phase is then its own directive rather than something the session is
+# trusted to remember: the head is already acknowledged when it fires, so fixing
+# never relaunches review or CI for that head.
 if all_required_lanes_completed_for_current_head; then
-  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
-  clear_counter
+  ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
+  if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
+    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    clear_counter
+    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane returned and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION from that table and nothing else — a rejected row stays rejected, and a row you accepted is not deferred. State what you fixed and anything you deliberately left."
+  fi
+  # The demand must never cost more than it protects. Five unanswered demands
+  # would otherwise leave this head unacked forever, and a wedged checkpoint is
+  # the exact failure this whole path exists to remove -- it re-measures every
+  # later range from a stale head. Take the escape hatch the 5-strike breaker
+  # already defines: acknowledge, and say plainly that no verdict backed it.
+  if reack_on_repeated_demand; then
+    exit 0
+  fi
+  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER'. Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
 fi
 
 exit 0

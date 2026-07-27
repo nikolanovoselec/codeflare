@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse hook — silently triggers review agents at the PR boundary.
+# PostToolUse hook — triggers the review lanes at the PR boundary.
 # ONLY on projects that have opted into SDD by running /sdd init.
 #
 # Trigger model (PR-boundary, gated on PR target = main/master):
@@ -36,8 +36,23 @@
 # rapid-fire pushes don't hammer the GitHub API.
 #
 # PostToolUse (not PreToolUse) so the directive arrives in the SAME
-# turn as the push/create result. The assistant acts on it immediately
-# without needing to announce it to the user.
+# turn as the push/create result, and the assistant acts on it immediately.
+#
+# The round is user-visible AND blocking: the directive requires an overview
+# before the lanes run, then an immediate end of turn, then a triage result
+# once every lane has returned. It previously required silence, which
+# contradicted the constitution's review-result handoff gate and made an
+# autofix look like an unexplained edit. The end-of-turn is what keeps the
+# round legible: a lane result landing in the middle of unrelated work gets
+# interleaved with it, and the user loses the thread of what was reviewed.
+#
+# The triage table is Pi's shape verbatim (REVIEW_TRIAGE_HEADER/DIVIDER in
+# extensions/review-helpers.ts), so both runtimes publish one comparable
+# artifact. Pi additionally ends the turn after the table and fixes in a
+# separate follow-up, because settled enforcement injects that follow-up for
+# it. Claude has no such injector -- ending the turn here would strand the
+# fixes until the user asked again -- so the fix runs in the same turn,
+# immediately after the table is published.
 #
 # Vibe-coding mode: if sdd/ does not exist, emits nothing. Zero friction.
 #
@@ -162,12 +177,14 @@ if [ "$TRIGGER" = "git-push" ]; then
   PR_STATE=""
   PR_BASE=""
   CACHE_VALID=0
+  CACHED_PR_HEAD=""
   if [ -f "$PR_CACHE" ]; then
     cache_age=$(( $(date +%s) - $(stat -c %Y "$PR_CACHE" 2>/dev/null || stat -f %m "$PR_CACHE" 2>/dev/null || echo 0) ))
     cached_branch=$(head -1 "$PR_CACHE" 2>/dev/null)
     if [ "$cached_branch" = "$CURRENT" ]; then
       cached_state=$(sed -n '2p' "$PR_CACHE" 2>/dev/null)
       cached_base=$(sed -n '3p' "$PR_CACHE" 2>/dev/null)
+      cached_head=$(sed -n '4p' "$PR_CACHE" 2>/dev/null)
       # Asymmetric TTL: positive (OPEN) results cached for 60s; legitimate
       # empty results (gh exit 1 = "no PR found") cached for only 10s. The
       # short negative TTL bounds the staleness of the "no PR" case so a
@@ -176,8 +193,14 @@ if [ "$TRIGGER" = "git-push" ]; then
       # cached at all — see the GH_OK gate below — so they never poison
       # the cache; they re-query on the next push.
       #
-      # Cache schema is 3 lines: branch, state, baseRefName. Older
-      # 2-line caches (pre-base-gating) lack line 3. Legacy detection
+      # Cache schema is 4 lines: branch, state, baseRefName, headRefOid.
+      # The head is cached because the lane classifier feeds it to
+      # resolve_review_head, whose ancestry guard is what stops a narrower
+      # local HEAD from naming fewer lanes than the PR actually needs. An
+      # absent head reads as "gh said nothing" and takes local HEAD
+      # unconditionally, so a cache that omits it silently disarms the
+      # guard on the most common path. Older 3-line caches therefore miss
+      # and re-query rather than being accepted headless. Legacy detection
       # is by *line count*, NOT by empty-base heuristic, so an
       # OPEN PR with a transiently-empty base (gh returned state but
       # jq couldn't extract baseRefName) caches as `branch\nOPEN\n\n`
@@ -186,9 +209,18 @@ if [ "$TRIGGER" = "git-push" ]; then
       max_age=10
       [ "$cached_state" = "OPEN" ] && max_age=60
       cache_lines=$(wc -l < "$PR_CACHE" 2>/dev/null | tr -d ' ')
-      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null && [ "$cache_lines" -ge 3 ] 2>/dev/null; then
+      # An OPEN cache must carry a head. gh can return state without
+      # headRefOid (the same transient the empty-base note above anticipates),
+      # which writes four lines whose fourth is empty -- passing a line-count
+      # gate, yielding an empty CACHED_PR_HEAD, and taking resolve_review_head's
+      # unconditional local-HEAD branch for the rest of the TTL. That is the
+      # headless acceptance this schema bump exists to stop, so check the field
+      # and not just the count. A negative cache legitimately has no head.
+      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null && [ "$cache_lines" -ge 4 ] 2>/dev/null \
+         && { [ "$cached_state" != "OPEN" ] || [ -n "$cached_head" ]; }; then
         PR_STATE="$cached_state"
         PR_BASE="$cached_base"
+        CACHED_PR_HEAD="$cached_head"
         CACHE_VALID=1
       fi
     fi
@@ -211,6 +243,7 @@ if [ "$TRIGGER" = "git-push" ]; then
       gh_exit=$?
       PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
       PR_BASE=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
+      PR_HEAD_OID=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
       if [ -n "$PR_STATE" ] || [ "$gh_exit" -eq 1 ]; then
         GH_OK=1
       fi
@@ -224,7 +257,7 @@ if [ "$TRIGGER" = "git-push" ]; then
       # contents, never a torn write.
       TMP_CACHE=$(mktemp "$PR_CACHE.XXXXXX" 2>/dev/null)
       if [ -n "$TMP_CACHE" ]; then
-        if printf '%s\n%s\n%s\n' "$CURRENT" "$PR_STATE" "$PR_BASE" > "$TMP_CACHE" 2>/dev/null; then
+        if printf '%s\n%s\n%s\n%s\n' "$CURRENT" "$PR_STATE" "$PR_BASE" "${PR_HEAD_OID:-}" > "$TMP_CACHE" 2>/dev/null; then
           mv "$TMP_CACHE" "$PR_CACHE" 2>/dev/null || rm -f "$TMP_CACHE" 2>/dev/null
         else
           rm -f "$TMP_CACHE" 2>/dev/null
@@ -320,6 +353,14 @@ fi
 # install never silently produces an under-specified directive).
 # ---------------------------------------------------------------------------
 LANE_CLASSIFIER_LOADED=0
+# gh-pr-state.sh is sourced again here because the two earlier sources are
+# both conditional (a cold gh query, or the pr-retarget trigger), while the
+# head resolution below is not. The cached git-push path -- the ordinary
+# repeat push inside the cache window -- reached that call with the function
+# undefined, left CURRENT_PR_HEAD empty, and so skipped classification and
+# demanded all three lanes on every push. The file only defines functions, so
+# sourcing it twice costs nothing.
+. "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || true
 . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null && LANE_CLASSIFIER_LOADED=1
 
 REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
@@ -342,17 +383,33 @@ if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
   fi
 
   # Resolve current PR HEAD. Both trigger paths may have queried gh
-  # already (PR_INFO for git-push, PR_INFO_OPEN for pr-open). Fall back
-  # to local HEAD: post-push the just-pushed SHA equals origin's HEAD
-  # equals headRefOid. The cached git-push path skips the gh query and
-  # has no PR_INFO, so the fallback is the normal case there.
-  CURRENT_PR_HEAD=""
+  # already (PR_INFO for git-push, PR_INFO_OPEN for pr-open). The cached
+  # git-push path skips the gh query and has no PR_INFO, so the local-HEAD
+  # resolution below is the normal case there.
+  GH_PR_HEAD=""
   if [ "$TRIGGER" = "git-push" ] && [ -n "${PR_INFO:-}" ]; then
-    CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+    GH_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+  elif [ "$TRIGGER" = "git-push" ]; then
+    GH_PR_HEAD="${CACHED_PR_HEAD:-}"
   elif [ "$TRIGGER" = "pr-open" ] && [ -n "${PR_INFO_OPEN:-}" ]; then
-    CURRENT_PR_HEAD=$(echo "$PR_INFO_OPEN" | jq -r '.headRefOid // empty' 2>/dev/null)
+    GH_PR_HEAD=$(echo "$PR_INFO_OPEN" | jq -r '.headRefOid // empty' 2>/dev/null)
   fi
-  [ -z "$CURRENT_PR_HEAD" ] && CURRENT_PR_HEAD=$(git rev-parse HEAD 2>/dev/null)
+  # Shared with the Stop gate so both classify over the same range. If the
+  # helper is missing from a stale install then gh_pr_state is missing too,
+  # so GH_PR_HEAD is already empty, CURRENT_PR_HEAD stays empty, and the
+  # guard below skips classification and leaves the all-three default. That
+  # is the fail-closed direction; the branch exists so a missing helper is a
+  # skipped optimisation rather than an unbound-variable abort.
+  if command -v resolve_review_head >/dev/null 2>&1; then
+    CURRENT_PR_HEAD=$(resolve_review_head "$GH_PR_HEAD")
+  else
+    # Empty, not the raw gh head. Since the cached path now supplies GH_PR_HEAD
+    # from the cache file rather than from the helper, a stale install could
+    # otherwise classify against an unvalidated head up to 60s old -- and if it
+    # matched the last ack, require no lanes at all for a push carrying new
+    # commits. Skipping classification leaves the all-three default instead.
+    CURRENT_PR_HEAD=""
+  fi
 
   if [ -n "$CURRENT_PR_HEAD" ]; then
     REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")
@@ -379,30 +436,64 @@ case " $REQUIRED_LANES " in *" code-reviewer "*) needs_code=1 ;; esac
 case " $REQUIRED_LANES " in *" spec-reviewer "*) needs_spec=1 ;; esac
 case " $REQUIRED_LANES " in *" doc-updater "*) needs_doc=1 ;; esac
 
-DIRECTIVE="[silent] SDD $CONTEXT detected. Execute NOW without user-facing output."
+DIRECTIVE="SDD $CONTEXT detected. Execute NOW, and keep the user informed as described at the end of this directive."
 
 # Lane-aware composition. All review lanes are report-only and return findings to the
 # root session, so they run in parallel without shared-file writes or ordering dependency.
 # Pure doc-only or spec-only pushes simply demand fewer lanes.
 if [ "$needs_code" = "1" ] && [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
-  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three run concurrently and return structured reports."
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three."
 elif [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
-  DIRECTIVE="$DIRECTIVE Parallel: spec-reviewer (sdd/ lane) and doc-updater (docs/ lane) - run concurrently and return structured reports. Code lane silently excluded by Stop hook (no source files in diff)."
+  DIRECTIVE="$DIRECTIVE Lanes: spec-reviewer (sdd/ lane) and doc-updater (docs/ lane) - both. Code lane silently excluded by Stop hook (no source files in diff)."
 elif [ "$needs_doc" = "1" ] && [ "$needs_code" = "0" ] && [ "$needs_spec" = "0" ]; then
-  DIRECTIVE="$DIRECTIVE Spawn: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
+  DIRECTIVE="$DIRECTIVE Lanes: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
+elif [ "$needs_code" = "1" ] && [ "$needs_doc" = "1" ] && [ "$needs_spec" = "0" ]; then
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) and doc-updater (docs/ lane) - both. Spec lane silently excluded by Stop hook (no sdd/ file changed and no @impl anchor there cites a changed file, so that lane owns nothing in this diff)."
+elif [ "$needs_code" = "1" ] && [ "$needs_spec" = "1" ] && [ "$needs_doc" = "0" ]; then
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) and spec-reviewer (sdd/ lane) - both. Doc lane silently excluded by Stop hook (no documentation/ file changed and no @impl anchor there cites a changed file)."
+elif [ "$needs_code" = "1" ] && [ "$needs_spec" = "0" ] && [ "$needs_doc" = "0" ]; then
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane) only. Spec and doc lanes silently excluded by Stop hook (neither surface changed and no @impl anchor in either tree cites a changed file, so both lanes would open, find nothing they own, and exit)."
 else
   # Defensive: any unexpected combination falls back to the all-three parallel directive.
   # The Stop hook is still the source of truth and will correct any over-spawn by silently
   # acking the SHA when the required lanes' agents are spawned.
-  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three run concurrently and return structured reports."
+  DIRECTIVE="$DIRECTIVE Lanes: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three."
 fi
 
+# Transport: each lane runs as a headless `claude -p` subprocess, NOT as an Agent
+# subagent. A subagent inherits CLAUDE.md, every ~/.claude/rules/*.md, MEMORY.md
+# and the SessionStart blocks with no per-agent way to exclude them - a measured
+# 20,513-token floor before the lane does any work. run-review-lane.sh replaces
+# the system prompt and prunes the tool schemas, which the CLI supports and
+# subagent frontmatter does not, taking that floor to ~1,533. The Stop hook
+# accepts either transport, so a lane spawned the old way still acks.
+# Must agree with run-review-lane.sh's own resolution: it honours
+# CLAUDE_CONFIG_DIR, so hardcoding $HOME/.claude here would emit a directive
+# pointing at a path that does not exist under a relocated config, every lane
+# would exit non-zero, and the Bash envelope would still satisfy the gate's
+# spawn match - acking a head whose review never ran.
+RUNNER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh"
 if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$CURRENT_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
-  DIRECTIVE="$DIRECTIVE Each agent reviews ONLY the incremental diff since the last reviewed head: 'git diff $LAST_ACK_PR_HEAD $CURRENT_PR_HEAD'. Do NOT review the full PR diff against origin/$PR_BASE - only the delta from this push. Do NOT paste diffs into the prompt; just give a one-line task framing."
+  LANE_SCOPE="--range $LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD"
+  DIRECTIVE="$DIRECTIVE Each lane reviews ONLY the incremental diff since the last reviewed head ($LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD), not the full PR diff."
+elif [ -n "$PR_BASE" ]; then
+  LANE_SCOPE="--base $PR_BASE"
+  DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against origin/$PR_BASE (no prior review base)."
 else
-  DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff (no prior review base): 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) - the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
+  # PR_BASE is allowed to be empty upstream (it fails open to enforcement).
+  # Emitting `--base ` with no value would hand the runner a dangling flag.
+  LANE_SCOPE=""
+  DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against its default base (base branch unresolved)."
 fi
-DIRECTIVE="$DIRECTIVE Return findings to the root session; reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes. Do NOT mention these agents to the user. Do NOT print status updates about them."
+DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> $LANE_SCOPE' with run_in_background: true. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents and do NOT paste diffs into the command - the lane gathers its own evidence."
+DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes."
+# VISIBILITY. This replaces an earlier instruction to run the round silently.
+# That instruction also contradicted the constitution's review-result handoff
+# gate, which has always required a user-facing summary; the round is the
+# user's to see, and a silent round makes an autofix look like an unexplained
+# edit. Lane names are deliberately not written here: several emission tests
+# assert the directive carries no lane literal outside its Lanes: line.
+DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message and then END YOUR TURN. While the lanes are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. When no lane returned a finding, do not publish an empty table: state plainly that every lane came back clean, and name each lane with its turn count and its triage verdict from the runner telemetry, so a clean round is distinguishable from a round that did not happen. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. THEN fix every finding whose MINIMAL DECISION is to fix, in this same session, and state what you fixed and anything you deliberately left. Never ask permission to fix a legitimate finding."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
 exit 0

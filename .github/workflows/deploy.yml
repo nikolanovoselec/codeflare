@@ -1,4 +1,8 @@
 name: Deploy
+# Surface the resolved deploy target in the run title so the Actions list and
+# `gh run list` answer "what did this deploy to?" without opening the run.
+# Same resolution expression as the concurrency group below.
+run-name: "Deploy ${{ ((github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }} (${{ github.event.workflow_run.head_branch || github.ref_name }})"
 # main is the protected production branch; the only push that reaches
 # it is a merged PR. workflow_run waits for that PR's "PR Checks" to
 # finish on the merge commit and only deploys when it ended green.
@@ -100,6 +104,12 @@ jobs:
     name: PR Checks
     if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/test.yml
+    with:
+      # Keeps this deploy's inline verify in its own concurrency group. Without
+      # it, deploying two environments from one branch puts both verifies in the
+      # same group and the second dispatch cancels the first — which surfaces as
+      # a cancelled run that deployed nothing.
+      concurrency_key: ${{ github.run_id }}
 
   prepare:
     name: Resolve deploy target
@@ -120,6 +130,12 @@ jobs:
     # non-main -> integration.
     environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
     outputs:
+      # The authority for what actually deploys. run-name and the concurrency
+      # group resolve the same target but lead with an extra
+      # `github.event_name == 'workflow_run'` clause: they are evaluated before
+      # any job runs, so they cannot read this output. The two agree because a
+      # workflow_run always executes on the default branch, making the ref test
+      # below true on that path too.
       env_name: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
       # Pin to the exact commit that was verified: on workflow_run the SHA whose
       # PR Checks just ended green, on dispatch the SHA the `verify` job above
@@ -172,7 +188,7 @@ jobs:
     steps:
       # See the pwn-request rationale above: the shared gate guarantees this
       # checkout only ever sees already-merged, maintainer-trusted SHAs.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.ref }}
@@ -270,7 +286,7 @@ jobs:
       WORKER_NAME: ${{ needs.prepare.outputs.worker_name }}
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.ref }}

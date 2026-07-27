@@ -743,3 +743,61 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
     assert.equal(existsSync(termLog), true, 'launch group receives TERM before bounded KILL');
   });
 });
+
+// The sidebar extension is compiled against the API surface its own runtime
+// exposes. openvscode-server ships well behind upstream VS Code (1.109.5 is the
+// newest gitpod release), so npm always offers a newer @types/vscode than any
+// server we can run. Taking it types the extension against APIs the runtime
+// lacks and moves the failure from build time to activation time.
+//
+// The two pins are guarded to different depths, because they drift for
+// different reasons. @types/vscode tracks a VS Code release exactly, so it is
+// held to the server's minor. @types/node is published on DefinitelyTyped's own
+// cadence and its minor moves independently of any Node release, so only the
+// major is an invariant worth asserting -- holding it to engines.node's minor
+// would fail on bumps that carry no risk.
+const sidebarPkg = () =>
+  JSON.parse(readFileSync(resolve(__dirname, '../../openvscode/agent-sidebar/package.json'), 'utf8'));
+const versionMinor = (version) => version.replace(/^[^\d]*/, '').split('.').slice(0, 2).join('.');
+const versionMajor = (version) => version.replace(/^[^\d]*/, '').split('.')[0];
+
+describe('agent-sidebar type pins track the runtime they describe', () => {
+  it('pins @types/vscode to the openvscode-server release baked into the image', () => {
+    const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
+    const pkg = sidebarPkg();
+    const server = dockerfile.match(/OPENVSCODE_VERSION="([\d.]+)"/);
+    assert.ok(server, 'Dockerfile must pin an explicit OPENVSCODE_VERSION');
+    assert.equal(
+      versionMinor(pkg.devDependencies['@types/vscode']),
+      versionMinor(server[1]),
+      '@types/vscode minor must match the Dockerfile OPENVSCODE_VERSION'
+    );
+    assert.equal(
+      versionMinor(pkg.engines.vscode),
+      versionMinor(server[1]),
+      'engines.vscode minor must match the Dockerfile OPENVSCODE_VERSION'
+    );
+  });
+
+  it('pins @types/node to the Node the image builds the extension with', () => {
+    const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
+    const pkg = sidebarPkg();
+    // Anchored to the builder stage, not to engines.node: comparing the manifest
+    // against itself would stay green while engines.node drifted away from the
+    // Node the extension is actually compiled and run with.
+    const builder = dockerfile.match(
+      /FROM \S+node:([\d.]+)-\S+ AS openvscode-agent-sidebar-builder/
+    );
+    assert.ok(builder, 'Dockerfile must pin an explicit Node for the sidebar builder stage');
+    assert.equal(
+      pkg.engines.node,
+      builder[1],
+      'engines.node must match the Node the sidebar builder stage runs'
+    );
+    assert.equal(
+      versionMajor(pkg.devDependencies['@types/node']),
+      versionMajor(builder[1]),
+      '@types/node major must match the Node the sidebar builder stage runs'
+    );
+  });
+});

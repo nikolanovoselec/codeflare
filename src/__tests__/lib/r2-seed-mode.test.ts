@@ -49,11 +49,15 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
           modes: ['default', 'advanced'] as ('default' | 'advanced')[],
         },
       ],
+      retiredKeys: ['.claude/rules/karpathy.md'] as readonly string[],
     },
   };
 });
 
-vi.mock('../../lib/r2-client', () => ({
+// Partial: the sweep parses real ListObjectsV2 XML, so the parser stays real and
+// the fixtures below are the wire format rather than a hand-shaped parse result.
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: mockCreateR2Client,
   getR2Url: mockGetR2Url,
 }));
@@ -66,6 +70,10 @@ vi.mock('../../lib/agent-seed.generated', () => ({
   get AGENTS_SEEDED_CONFIGS() {
     return testState.agentDocs;
   },
+  get RETIRED_PRESEED_KEYS() {
+    return testState.retiredKeys;
+  },
+  PRESEED_CONTENT_HASH: 'testhash00000000',
 }));
 
 import {
@@ -146,6 +154,48 @@ describe('getPreseedKeysNotInMode', () => {
   });
 });
 
+describe('seedAgentConfigs provenance marker', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const putHeaders = (): Record<string, string>[] =>
+    mockFetch.mock.calls
+      .filter((call) => (call[1] as { method?: string })?.method === 'PUT')
+      .map((call) => (call[1] as { headers: Record<string, string> }).headers);
+
+  it('stamps the marker on every overwrite write', async () => {
+    // Presence of this header is the only thing separating a file codeflare
+    // wrote from one the user created; an unstamped write is invisible to
+    // cleanup forever.
+    mockFetch.mockResolvedValue(new Response('', { status: 200 }));
+
+    await seedAgentConfigs(env, bucket, endpoint, { overwrite: true, mode: 'advanced' });
+
+    const headers = putHeaders();
+    expect(headers.length).toBeGreaterThan(0);
+    for (const h of headers) {
+      expect(h['x-amz-meta-codeflare-preseed']).toBe('testhash00000000');
+    }
+  });
+
+  it('stamps the marker on writes issued by the non-overwrite path', async () => {
+    // The 404-missing branch is a different PUT call site; an unmarked file
+    // written here would never be reclaimable.
+    mockFetch.mockImplementation((_url: string, init?: { method?: string }) =>
+      Promise.resolve(new Response('', { status: init?.method === 'HEAD' ? 404 : 200 })),
+    );
+
+    await seedAgentConfigs(env, bucket, endpoint, { overwrite: false, mode: 'advanced' });
+
+    const headers = putHeaders();
+    expect(headers.length).toBeGreaterThan(0);
+    for (const h of headers) {
+      expect(h['x-amz-meta-codeflare-preseed']).toBe('testhash00000000');
+    }
+  });
+});
+
 describe('seedAgentConfigs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -176,51 +226,390 @@ describe('seedAgentConfigs', () => {
   });
 });
 
+const listXml = (...keys: string[]): string =>
+  `<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>${keys
+    .map(
+      (k) =>
+        `<Contents><Key>${k}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified><ETag>"x"</ETag></Contents>`,
+    )
+    .join('')}</ListBucketResult>`;
+
+/**
+ * Route mocked R2 traffic by method. `listed` is what every LIST returns;
+ * `markers` gives each key's provenance header (undefined = unmarked).
+ */
+const mockR2 = (opts: {
+  listed?: string[];
+  markers?: Record<string, string>;
+  deleteStatus?: number;
+} = {}): void => {
+  const { listed = [], markers = {}, deleteStatus = 204 } = opts;
+  mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+    const method = init?.method ?? 'GET';
+    if (method === 'GET') {
+      // Filter by prefix the way R2 does, so a test that asserts something is
+      // out of listing scope actually exercises that.
+      const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
+      return Promise.resolve(
+        new Response(listXml(...listed.filter((k) => k.startsWith(prefix))), { status: 200 }),
+      );
+    }
+    const key = String(url).replace(`${endpoint}/${bucket}/`, '');
+    if (method === 'HEAD') {
+      const marker = markers[key];
+      return Promise.resolve(
+        new Response(null, {
+          status: 200,
+          headers: marker ? { 'x-amz-meta-codeflare-preseed': marker } : {},
+        }),
+      );
+    }
+    return Promise.resolve(new Response(null, { status: deleteStatus }));
+  });
+};
+
+const listedPrefixes = (): string[] =>
+  mockFetch.mock.calls
+    .filter((call) => ((call[1] as { method?: string })?.method ?? 'GET') === 'GET')
+    .map((call) => new URL(String(call[0])).searchParams.get('prefix') ?? '');
+
+const headRequests = (): string[] =>
+  mockFetch.mock.calls
+    .filter((call) => (call[1] as { method?: string })?.method === 'HEAD')
+    .map((call) => String(call[0]).replace(`${endpoint}/${bucket}/`, ''));
+
+const deleteRequests = (): string[] =>
+  mockFetch.mock.calls
+    .filter((call) => (call[1] as { method?: string })?.method === 'DELETE')
+    .map((call) => String(call[0]).replace(`${endpoint}/${bucket}/`, ''));
+
 describe('deleteNonModeConfigs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    testState.retiredKeys = ['.claude/rules/karpathy.md'];
   });
 
   it('deletes advanced-only keys for "default" mode', async () => {
-    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    mockR2();
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'default');
 
+    // Out-of-mode keys first, then the frozen pre-marker list, which belongs to
+    // no mode in this build and so is swept in every mode.
     expect(result.deleted).toEqual([
       '.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json',
       '.claude/skills/consult-llm/SKILL.md',
+      '.claude/rules/karpathy.md',
     ]);
     expect(result.warnings).toEqual([]);
-    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('performs zero DELETEs for "advanced" mode', async () => {
+  it('sweeps the pre-marker list even when no key is out of mode', async () => {
+    mockR2();
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual(['.claude/rules/karpathy.md']);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('never deletes a key the current build still seeds, by name or by sweep', async () => {
+    // Seeding and deleting the same key in one reconcile would leave the bucket
+    // missing a live file. The generator rejects such a list; this is the
+    // runtime backstop, exercised through both paths at once -- the key is on
+    // the frozen list AND listed carrying a foreign marker.
+    const live = '.claude/rules/common.md';
+    testState.retiredKeys = [live];
+    mockR2({ listed: [live], markers: { [live]: 'an-older-build' } });
+
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
     expect(result.deleted).toEqual([]);
-    expect(result.warnings).toEqual([]);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(deleteRequests()).toEqual([]);
   });
 
   it('treats 404 as successful delete (idempotent)', async () => {
-    mockFetch.mockResolvedValue(new Response('', { status: 404 }));
+    mockR2({ deleteStatus: 404 });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'default');
 
-    expect(result.deleted).toHaveLength(2);
+    expect(result.deleted).toHaveLength(3);
     expect(result.warnings).toEqual([]);
   });
 
   it('returns warnings for partial delete failure', async () => {
-    mockFetch
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(new Response('', { status: 500 }));
+    const failing = '.claude/skills/consult-llm/SKILL.md';
+    mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') return Promise.resolve(new Response(listXml(), { status: 200 }));
+      return Promise.resolve(new Response(null, { status: String(url).endsWith(failing) ? 500 : 204 }));
+    });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'default');
 
-    expect(result.deleted).toHaveLength(1);
+    expect(result.deleted).toHaveLength(2);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain('HTTP 500');
+  });
+});
+
+// A key retired after the provenance marker shipped is identified by the marker
+// it still carries, so nothing has to enumerate it at build time.
+describe('deleteNonModeConfigs stale-marker sweep', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    testState.retiredKeys = [];
+  });
+
+  it('deletes an object carrying a different build marker', async () => {
+    const orphan = '.claude/skills/retired-later/SKILL.md';
+    mockR2({ listed: [orphan], markers: { [orphan]: 'an-older-build' } });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toContain(orphan);
+    expect(deleteRequests()).toContain(orphan);
+  });
+
+  it('keeps an unmarked object as the user file', async () => {
+    // Both cases land here: a file they created, and one of ours they edited
+    // (the rewrite drops the metadata).
+    const theirs = '.claude/skills/my-own/SKILL.md';
+    mockR2({ listed: [theirs] });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+  });
+
+  it('does not touch a key the current build just seeded', async () => {
+    const live = '.claude/rules/common.md';
+    mockR2({ listed: [live], markers: { [live]: 'an-older-build' } });
+
+    await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(deleteRequests()).not.toContain(live);
+  });
+
+  it('lists only inside the seed two-segment prefixes', async () => {
+    // Two things ride on this. The getting-started docs (REQ-STOR-009) are
+    // stamped by the same helper but live at top-level paths, so a broader
+    // listing would put them in scope for deletion; and a runtime root such as
+    // `.claude/projects/` holds a session transcript per session, so listing at
+    // one segment would page the whole bucket on every reconcile.
+    mockR2();
+
+    await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    const listed = listedPrefixes();
+    expect(listed.length).toBeGreaterThan(0);
+    expect(listed).toContain('.claude/rules/');
+    expect(listed).toContain('.claude/skills/');
+    // Never a bare runtime root, and never an unbounded listing.
+    expect(listed).not.toContain('.claude/');
+    expect(listed).not.toContain('');
+    for (const prefix of listed) expect(prefix).not.toMatch(/^\.[a-z]+\/$/);
+  });
+
+  it('never HEADs a key under a runtime tree outside those prefixes', async () => {
+    // A session transcript is not reachable by the sweep at all: it is not under
+    // any listed prefix, so it never becomes a candidate.
+    const transcript = '.claude/projects/abc/transcript.jsonl';
+    mockR2({ listed: [transcript], markers: { [transcript]: 'an-older-build' } });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    // Marked as ours on purpose: if it were ever listed it would be deleted, so
+    // asserting no HEAD is what proves it is out of listing scope rather than
+    // merely surviving the marker check.
+    expect(headRequests()).not.toContain(transcript);
+    expect(result.deleted).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+  });
+
+  it('never probes the runtime-managed plugin cache', async () => {
+    // Excluded before the candidate count, so a large cache cannot trip the cap
+    // and silently disable the sweep on the buckets that accumulated the most.
+    const cached = '.claude/plugins/cache/some-plugin/1.0.0/plugin.json';
+    mockR2({ listed: [cached], markers: { [cached]: 'an-older-build' } });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(headRequests()).not.toContain(cached);
+    expect(result.deleted).toEqual([]);
+  });
+
+  it('keeps an object carrying the current build marker', async () => {
+    // Written by this very reconcile under a key the mode does not list. The
+    // by-name paths own that case; deleting on marker presence alone would make
+    // any future key stamped by the shared writer disappear.
+    const current = '.claude/skills/other/SKILL.md';
+    mockR2({ listed: [current], markers: { [current]: 'testhash00000000' } });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+  });
+
+  it('follows the continuation token across pages', async () => {
+    // Page one is truncated; the orphan only appears on page two, so a sweep
+    // that stopped at the first page would silently never see it.
+    const orphan = '.claude/skills/page-two/SKILL.md';
+    let page = 0;
+    mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
+        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        page += 1;
+        return Promise.resolve(
+          new Response(
+            page === 1
+              ? `<?xml version="1.0"?><ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>tok</NextContinuationToken></ListBucketResult>`
+              : listXml(orphan),
+            { status: 200 },
+          ),
+        );
+      }
+      if (method === 'HEAD') {
+        return Promise.resolve(
+          new Response(null, { status: 200, headers: { 'x-amz-meta-codeflare-preseed': 'an-older-build' } }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(page).toBeGreaterThan(1);
+    expect(result.deleted).toContain(orphan);
+  });
+
+  it('treats a truncated page with no continuation token as a failed listing', async () => {
+    // The parser sets IsTruncated and the token independently, so deriving
+    // completeness from the token would read this as a finished listing and
+    // sweep the partial view it returned.
+    const partial = '.claude/skills/seen-before-truncation/SKILL.md';
+    mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
+        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        return Promise.resolve(
+          new Response(
+            `<?xml version="1.0"?><ListBucketResult><IsTruncated>true</IsTruncated><Contents><Key>${partial}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified><ETag>"x"</ETag></Contents></ListBucketResult>`,
+            { status: 200 },
+          ),
+        );
+      }
+      if (method === 'HEAD') {
+        return Promise.resolve(
+          new Response(null, { status: 200, headers: { 'x-amz-meta-codeflare-preseed': 'an-older-build' } }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).not.toContain(partial);
+    expect(deleteRequests()).not.toContain(partial);
+    expect(result.warnings.some((w) => w.includes('truncated'))).toBe(true);
+  });
+
+  it('issues no listing for a seeded key too shallow to have a directory', async () => {
+    // `.codex/AGENTS.md` and friends would list only themselves, and they are
+    // seeded, so the request could never produce a candidate.
+    mockR2();
+
+    await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(listedPrefixes()).not.toContain('.codex/AGENTS.md');
+    for (const prefix of listedPrefixes()) expect(prefix.endsWith('/')).toBe(true);
+  });
+
+  it('deletes nothing from a prefix whose listing failed part-way', async () => {
+    // Page one succeeded and named a marked orphan, page two failed. Acting on
+    // that is deleting on the strength of not having looked, so the whole
+    // prefix is discarded.
+    const partial = '.claude/skills/seen-on-page-one/SKILL.md';
+    let page = 0;
+    mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
+        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        page += 1;
+        if (page === 1) {
+          return Promise.resolve(
+            new Response(
+              `<?xml version="1.0"?><ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>tok</NextContinuationToken><Contents><Key>${partial}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified><ETag>"x"</ETag></Contents></ListBucketResult>`,
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(new Response('denied', { status: 403 }));
+      }
+      if (method === 'HEAD') {
+        return Promise.resolve(
+          new Response(null, { status: 200, headers: { 'x-amz-meta-codeflare-preseed': 'an-older-build' } }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).not.toContain(partial);
+    expect(deleteRequests()).not.toContain(partial);
+    expect(result.warnings.some((w) => w.includes('HTTP 403'))).toBe(true);
+  });
+
+  it('skips the sweep when two prefixes are each under the cap but over it combined', async () => {
+    // The per-prefix page guard cannot see this: neither prefix trips it. The
+    // cross-prefix check after the merge is the only remaining bound on total
+    // HEAD and DELETE subrequests.
+    const skills = Array.from({ length: 150 }, (_, i) => `.claude/skills/s${i}/SKILL.md`);
+    const rules = Array.from({ length: 150 }, (_, i) => `.claude/rules/r${i}.md`);
+    const all = [...skills, ...rules];
+    mockR2({ listed: all, markers: Object.fromEntries(all.map((k) => [k, 'an-older-build'])) });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(headRequests()).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+    expect(result.warnings.some((w) => w.includes('across the seed prefixes'))).toBe(true);
+  });
+
+  it('skips the sweep and warns when the candidate set is implausibly large', async () => {
+    // The caller has already spent a PUT per live key in this request, so an
+    // unbounded fan-out is what would hit the subrequest ceiling.
+    const many = Array.from({ length: 250 }, (_, i) => `.claude/skills/x${i}/SKILL.md`);
+    mockR2({ listed: many, markers: Object.fromEntries(many.map((k) => [k, 'an-older-build'])) });
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(deleteRequests()).toEqual([]);
+    expect(result.warnings.some((w) => w.includes('stale-marker sweep skipped'))).toBe(true);
+  });
+
+  it('warns and deletes nothing when a prefix cannot be listed', async () => {
+    mockFetch.mockImplementation((_url: string, init?: { method?: string }) =>
+      Promise.resolve(
+        (init?.method ?? 'GET') === 'GET'
+          ? new Response('denied', { status: 403 })
+          : new Response(null, { status: 204 }),
+      ),
+    );
+
+    const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
+
+    expect(result.deleted).toEqual([]);
+    expect(result.warnings.some((w) => w.includes('HTTP 403'))).toBe(true);
   });
 });
 
@@ -232,10 +621,17 @@ describe('deleteNonModeConfigs', () => {
 describe('reconcileAgentConfigs / REQ-MEM-011 AC4', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Pinned rather than inherited: this suite's delete counts are about mode
+    // scoping, and leaving the frozen list to whatever ran before makes them
+    // depend on suite order.
+    testState.retiredKeys = [];
   });
 
   it('seeds and cleans up for "default" mode with cleanup=true', async () => {
-    mockFetch.mockResolvedValue(new Response('', { status: 200 }));
+    // A fresh Response per call, not one shared instance: the sweep reads the
+    // body of every listing, and this mode derives two prefixes, so a shared
+    // instance is already consumed by the second LIST.
+    mockFetch.mockImplementation(() => new Response('', { status: 200 }));
 
     const result = await reconcileAgentConfigs(env, bucket, endpoint, 'default', {
       overwrite: true,
@@ -243,6 +639,7 @@ describe('reconcileAgentConfigs / REQ-MEM-011 AC4', () => {
     });
 
     expect(result.written).toHaveLength(3);
+    // Out-of-mode keys only; the frozen list is empty for this suite.
     expect(result.deleted).toHaveLength(2);
     expect(result.warnings).toEqual([]);
   });
