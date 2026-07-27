@@ -418,12 +418,22 @@ function declaredDependencies(repo, listing) {
       // names. `[dependencies.serde]` matches as ONE token, and without this
       // `serde` never enters the set at all.
       //
-      // The LAST segment only. Taking every segment would admit `dependencies`,
-      // `tool` and `project` -- table names, not packages -- and widen the weak
-      // class past the one thing this split exists to recover.
+      // The LAST segment only, and what that guarantees is narrower than it
+      // looks: it drops the LEADING table words, so `tool` and `project` do not
+      // enter. It does NOT drop trailing ones -- a real table can end in the
+      // word, as `[tool.poetry.group.dev.dependencies]` and
+      // `[project.optional-dependencies]` both do -- so `dependencies` still
+      // arrives. That is tolerable here and nowhere else: this set feeds only
+      // the weakest class, which is reported under its own name rather than as
+      // a pass, so an over-admitted table word costs a labelled row and never a
+      // silent clean. Subtracting a list of known table words instead would be
+      // the per-ecosystem grammar this module just spent seven defects removing.
+      //
+      // The one filter is shape, not vocabulary: a segment with no letter in it
+      // is a version fragment (`1.2.34` -> `34`), never a package.
       const segments = token.split(/[./]/);
       const last = segments[segments.length - 1];
-      if (segments.length > 1 && LITERAL_SHAPE.test(last)) tokens.add(last);
+      if (segments.length > 1 && /[A-Za-z]/.test(last) && LITERAL_SHAPE.test(last)) tokens.add(last);
     }
   }
   return { exact, tokens };
