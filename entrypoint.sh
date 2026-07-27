@@ -3210,9 +3210,6 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     fi
     # graphify hooks (advanced session mode + plugin manifest present).
     # Implements REQ-AGENT-023 AC3 + AC4:
-    #   - SessionStart (matcher "startup") injects context if a graph
-    #     exists in cwd, or a build-suggestion reminder for code repos
-    #     without a graph. Never auto-builds.
     #   - PostToolUse on Bash + the two MCP shell tools detects
     #     `git clone` / `gh repo clone` and injects an AskUserQuestion
     #     triage directive. Idempotent per cloned dir.
@@ -3232,9 +3229,6 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
         # variants (custom-tier users where `cd` happens inside ctx_execute
         # shells that Claude Code's session cwd never sees).
         GRAPHIFY_HOOKS=$(jq -n --arg dir "$PLUGIN_DIR" '{
-          SessionStart: [
-            {matcher:"startup",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-session-start.sh")}]}
-          ],
           PostToolUse: [
             {matcher:"Bash",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
             {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
@@ -3253,7 +3247,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
             from_entries
           )
         ')
-        echo "[entrypoint] Advanced mode: graphify hooks added (SessionStart + PostToolUse on clone + PreToolUse graph-first nudge)"
+        echo "[entrypoint] Advanced mode: graphify hooks added (PostToolUse on clone + PreToolUse graph-first nudge)"
     fi
     # Hardening: validate SETTINGS_CONFIG is well-formed JSON before it
     # reaches the settings.json merge below. The literal heredoc-style

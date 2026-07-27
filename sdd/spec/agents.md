@@ -277,7 +277,7 @@ Multi-agent support, preseed system, and session modes.
 3. The container entrypoint enables the codeflare-managed plugins in the agent's plugin configuration permanently (not mode-gated). Missing plugin files are silently skipped so a plugin removal does not break agent startup. <!-- @impl: entrypoint.sh::PLUGINS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (plugin enablement) -->
 4. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning). <!-- @impl: entrypoint.sh::SETTINGS_FILE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
 5. Both session modes disable the full-screen agent view, so background agents never replace the terminal with it. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command) > both SETTINGS_CONFIG literals disable agent view) -->
-6. A registration whose target this release retires counts as managed and is removed by the merge, so retiring the object cannot leave a command pointing at a missing file, while a user-authored hook on the same event is untouched. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js (prunes the bare-path cache-heal registration) --> <!-- @test: host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js (keeps a user-authored SessionStart hook while pruning it) -->
+6. A registration whose target this release retires counts as managed and is removed by the merge, so retiring the object cannot leave a command pointing at a missing file, while a user-authored hook on the same event is untouched. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js (prunes the bare-path cache-heal registration) --> <!-- @test: host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js (retires every persisted graphify SessionStart registration) --> <!-- @test: host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js (keeps a user-authored SessionStart hook while pruning it) -->
 
 **Constraints:**
 
@@ -752,7 +752,6 @@ None.
 
 **Constraints:**
 
-- The SessionStart hook never auto-builds a graph; It only injects context when one exists or a build suggestion when source files are present without one.
 - The soft nudge never blocks; graph-first discipline stays advisory through the preseeded rule and per-call nudge.
 - The soft-nudge matcher set covers both the non-ctx tool surface (`Grep`/`Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`/`mcp__context-mode__ctx_batch_execute`).
 
@@ -768,18 +767,16 @@ None.
 
 ### REQ-AGENT-091: Advanced-session graph-first runtime reminders
 
-**Intent:** Advanced sessions receive advisory graph-first context at startup and a non-blocking reminder before grep-class tool calls when a repository graph exists.
+**Intent:** Advanced sessions receive a non-blocking graph-first reminder before grep-class tool calls when a repository graph exists.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, a SessionStart hook queries the knowledge graph for the highest-connectivity nodes and injects a compressed structural summary as additionalContext. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh::emit_reminder --> <!-- @test: host/__tests__/graphify-session-start.test.js (graphify-session-start.sh (REQ-AGENT-091 AC1)) -->
-2. In advanced session mode only, a soft-nudge hook fires on grep-class tool calls and emits a reminder to prefer the graph MCP tools when a graph exists for the cwd; the hook never blocks. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::TOOL --> <!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-091 AC2)) -->
+1. In advanced session mode only, a soft-nudge hook fires on grep-class tool calls and emits a reminder to prefer the graph MCP tools when a graph exists for the cwd; the hook never blocks. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::TOOL --> <!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-091 AC1)) -->
 
 **Constraints:**
 
-- The SessionStart hook never auto-builds a graph; It only injects context when one exists or a build suggestion when source files are present without one.
 - The soft nudge never blocks; graph-first discipline stays advisory through the preseeded rule and per-call nudge.
 - The soft-nudge matcher set covers both the non-ctx tool surface (`Grep`/`Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`/`mcp__context-mode__ctx_batch_execute`).
 
@@ -860,7 +857,7 @@ None.
 **Acceptance Criteria:**
 
 1. When the context-mode plugin is preseeded, `graphify update .` and `graphify query ...` run unimpeded: context-mode is wired as a tool only, with no Bash deny-gate, so no command-routing whitelist is needed. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
-2. The [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders) AC2 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::INPUT --> <!-- @test: host/__tests__/graph-first-nudge.test.js (graph-first-nudge.sh) -->
+2. The [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders) AC1 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::INPUT --> <!-- @test: host/__tests__/graph-first-nudge.test.js (graph-first-nudge.sh) -->
 
 **Constraints:**
 

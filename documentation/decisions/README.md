@@ -1004,17 +1004,17 @@ doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and P
 **Decision:** Split delivery on a discipline-vs-capability axis, not on tier:
 
 - **Plugin folder + `plugin.json` + MCP server registration**: ships in both `default` and `advanced` session modes. The `graphify` MCP server is registered in `~/.claude.json` whenever the preseed manifest is present, which is every paid tier.
-- **SessionStart context-injection hook, PostToolUse-on-clone triage hook, the graph-first discipline, and `graphify/SKILL.md`**: ship in `advanced` session mode only. These are the load-bearing pieces that teach the agent to use the graph proactively.
+- **PostToolUse-on-clone triage hook, PreToolUse graph-first nudge, the graph-first discipline, and `graphify/SKILL.md`**: ship in `advanced` session mode only. These are the load-bearing pieces that teach the agent to use the graph proactively.
+
+The prompt-independent `SessionStart[startup]` context-injection hook was retired on 2026-07-27. It read a non-canonical edge key, ignored graph freshness, and its corrected highest-degree output was dominated by generic duplicate labels. Prompt-aware first-turn memory and focused graph queries provide the relevant context without carrying that startup list.
 
 The graph-first discipline was a standalone `graph-first.md` rule until 2026-07-25; it is now a section of `engineering-constitution.md`.
 
 Tier-gating is not part of the decision: graphify ships uniformly across standard, advanced, max, and custom paid tiers. The discipline gating is keyed only on session mode.
 
 **Consequences:**
-- Default session mode users CAN reach for graphify by name (CLI on PATH, MCP tools exposed) but do not get nudged toward it. No SessionStart reminder, no triage on clone, no rule in `~/.claude/rules/`.
-- Advanced session mode users get the full discipline:
-
-the agent reads `GRAPH_REPORT.md` at session start when a graph exists, prompts on clone, prefers focused MCP queries over Grep for architecture questions, and gets a PreToolUse soft-nudge when reaching for Grep/Glob (or the context-mode grep-equivalents `ctx_search`/`ctx_batch_execute`) in a repo that has a graph.
+- Default session mode users CAN reach for graphify by name (CLI on PATH, MCP tools exposed) but do not get nudged toward it. No triage on clone and no rule in `~/.claude/rules/`.
+- Advanced session mode users get the full discipline: the agent prompts on clone, prefers focused MCP queries over Grep for architecture questions, and gets a PreToolUse soft-nudge when reaching for Grep/Glob (or the context-mode grep-equivalents `ctx_search`/`ctx_batch_execute`) in a repo that has a graph.
 - Image cost (~220 MB for Python + tree-sitter wheels) is paid by every container regardless of mode, justified by one-time build cost vs. universal capability.
 - Coexists cleanly with context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) without depending on it.
 

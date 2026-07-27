@@ -1,6 +1,6 @@
-// Verifies REQ-AGENT-023 AC3 + AC4, REQ-AGENT-091 AC1/AC2: graphify SessionStart + PostToolUse + PreToolUse
-// hooks are merged into settings.json in advanced session mode when the
-// plugin manifest is present, and absent otherwise (mode-gated discipline).
+// Verifies REQ-AGENT-023 AC3 + AC4 and REQ-AGENT-091: graphify PostToolUse +
+// PreToolUse hooks are merged into settings.json in advanced session mode when
+// the plugin manifest is present, while the retired SessionStart hook stays absent.
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -81,26 +81,15 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
     baseTmp = mkdtempSync(join(tmpdir(), 'gf-hooks-'));
   });
 
-  it('manifest present + advanced mode: SessionStart hook is wired with matcher=startup', () => {
-    const cwd = mkdtempSync(join(baseTmp, 'present-startup-'));
-    const { settings, pluginDir } = buildHarness(cwd, {
+  it('manifest present + advanced mode: retired graphify SessionStart hook stays absent', () => {
+    const cwd = mkdtempSync(join(baseTmp, 'retired-startup-'));
+    const { settings } = buildHarness(cwd, {
       sessionMode: 'advanced', graphifyManifest: true, ctxManifest: false,
     });
-    const sessionStart = settings.hooks.SessionStart;
-    assert.ok(Array.isArray(sessionStart), 'SessionStart hooks array must exist');
-    const gfHook = sessionStart.find(h =>
-      h.matcher === 'startup' &&
-      h.hooks.some(x => x.command.includes('graphify/scripts/graphify-session-start.sh'))
-    );
-    assert.ok(gfHook, 'SessionStart hook with matcher=startup pointing at graphify-session-start.sh must be present');
-    assert.equal(
-      gfHook.matcher,
-      'startup',
-      'matcher must be exactly "startup" - resume/compact reminders are noise'
-    );
+    const hooksJson = JSON.stringify(settings.hooks || {});
     assert.ok(
-      gfHook.hooks[0].command.startsWith(`bash ${pluginDir}/graphify`),
-      `hook command must invoke bash on the script under ${pluginDir}/graphify`
+      !hooksJson.includes('graphify-session-start.sh'),
+      'advanced mode must not restore the retired graphify SessionStart hook'
     );
   });
 
@@ -155,10 +144,6 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
     });
     const allHooks = JSON.stringify(settings.hooks || {});
     assert.ok(
-      !allHooks.includes('graphify-session-start.sh'),
-      'SessionStart graphify hook must not be wired without the plugin manifest'
-    );
-    assert.ok(
       !allHooks.includes('graphify-clone-prompt.sh'),
       'PostToolUse graphify hook must not be wired without the plugin manifest'
     );
@@ -168,7 +153,7 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
     );
   });
 
-  it('manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-091 AC2)', () => {
+  it('manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-091 AC1)', () => {
     const cwd = mkdtempSync(join(baseTmp, 'present-nudge-'));
     const { settings } = buildHarness(cwd, {
       sessionMode: 'advanced', graphifyManifest: true, ctxManifest: false,
@@ -221,10 +206,6 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
       sessionMode: 'default', graphifyManifest: true, ctxManifest: true,
     });
     const hooksJson = JSON.stringify(settings.hooks || {});
-    assert.ok(
-      !hooksJson.includes('graphify-session-start.sh'),
-      'default mode must not wire the graphify SessionStart hook even when the plugin manifest is present'
-    );
     assert.ok(
       !hooksJson.includes('graphify-clone-prompt.sh'),
       'default mode must not wire the graphify PostToolUse hook even when the plugin manifest is present'

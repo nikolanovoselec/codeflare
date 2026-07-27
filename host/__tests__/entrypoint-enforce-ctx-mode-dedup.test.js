@@ -201,11 +201,9 @@ describe('entrypoint settings.json hook merge - enforce-ctx-mode.sh dedup', () =
 
 // Reproduces the prod accumulation observed in production verification of
 // PR #367: vault-monitor-hook.sh registered 2x on UserPromptSubmit and the
-// graphify hooks (graphify-clone-prompt.sh, graphify-session-start.sh)
-// registered 10x each. Without the extended MANAGED_HOOKS_REGEX, the merge
-// preserves every prior copy because the prune regex only knew about
-// codeflare-(hooks|memory)/scripts/ + enforce-ctx-mode.sh + context-mode
-// invocations.
+// graphify hooks registered 10x each. The fixture retains old startup-hook
+// copies to verify retirement prunes them without touching user SessionStart
+// hooks. Without the managed-hook regex, all persisted copies survive.
 function accumulatedVaultGraphifySettingsFixture() {
   const vaultHook = 'bash /home/user/.claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh';
   const memoryHook = 'bash /home/user/.claude/plugins/codeflare-memory/scripts/memory-capture.sh';
@@ -258,13 +256,12 @@ function accumulatedVaultGraphifySettingsFixture() {
   });
 }
 
-// Canonical advanced-mode config with one copy of each managed hook on its
-// canonical matcher (mirrors what entrypoint.sh assembles into SETTINGS_CONFIG).
+// Canonical advanced-mode config after startup-hook retirement. The remaining
+// managed hooks are re-applied; the merge must prune old startup registrations.
 function advancedVaultGraphifySettingsConfig() {
   const vaultHook = 'bash /home/user/.claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh';
   const memoryHook = 'bash /home/user/.claude/plugins/codeflare-memory/scripts/memory-capture.sh';
   const graphifyClone = 'bash /home/user/.claude/plugins/graphify/scripts/graphify-clone-prompt.sh';
-  const graphifyStart = 'bash /home/user/.claude/plugins/graphify/scripts/graphify-session-start.sh';
   return {
     skipDangerousModePermissionPrompt: true,
     hooks: {
@@ -281,12 +278,6 @@ function advancedVaultGraphifySettingsConfig() {
         {
           matcher: 'Bash',
           hooks: [{ type: 'command', command: graphifyClone }],
-        },
-      ],
-      SessionStart: [
-        {
-          matcher: 'startup',
-          hooks: [{ type: 'command', command: graphifyStart }],
         },
       ],
     },
@@ -328,16 +319,15 @@ describe('entrypoint settings.json hook merge - vault + graphify dedup', () => {
     );
   });
 
-  it('graphify-session-start.sh duplicated 10x collapses to exactly 1 on SessionStart[startup]', () => {
+  it('retires every persisted graphify SessionStart registration', () => {
     const merged = runJqMerge(accumulatedVaultGraphifySettingsFixture(), advancedVaultGraphifySettingsConfig());
-    const ss = merged?.hooks?.SessionStart ?? [];
-    const startupMatcher = ss.find((e) => e.matcher === 'startup');
-    assert.ok(startupMatcher, 'SessionStart startup matcher must exist after merge');
-    const startCount = startupMatcher.hooks.filter((h) => h.command.includes('graphify-session-start.sh')).length;
+    const commands = (merged?.hooks?.SessionStart ?? []).flatMap((entry) =>
+      (entry.hooks ?? []).map((hook) => hook.command),
+    );
     assert.equal(
-      startCount,
-      1,
-      `expected exactly 1 graphify-session-start.sh entry, got ${startCount}`,
+      commands.filter((command) => command.includes('graphify-session-start.sh')).length,
+      0,
+      `retired startup registrations must be pruned: ${JSON.stringify(commands)}`,
     );
   });
 
