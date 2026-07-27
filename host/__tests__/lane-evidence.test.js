@@ -1133,10 +1133,18 @@ describe('lane-evidence.mjs — a manifest key is not a dependency', () => {
     git(cwd, 'add', '-A');
     git(cwd, 'commit', '-q', '-m', 'feat: manifests');
 
-    write(cwd, 'documentation/x.md', 'Uses `serde`, `httpx`, `build`, `verify_ssl`.\n');
+    write(cwd, 'pyproject.toml', '[project]\nname = "proj"\ndependencies = ["httpcore>=1"]\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: pep621');
+    // `thing` and `proj` are metadata VALUES, `build`/`verify_ssl` metadata
+    // KEYS. Both sides of the line have to be gated, and `httpcore` proves the
+    // gate did not take PEP-621 with it -- its dependency list lives under
+    // `[project]`, which is not a dependencies heading.
+    write(cwd, 'documentation/x.md',
+      'Uses `serde`, `httpx`, `httpcore`, `build`, `verify_ssl`, `thing`, `proj`.\n');
     const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
 
-    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['build', 'verify_ssl'],
-      'keys above a dependencies heading are metadata, and the packages under one resolve');
+    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['build', 'proj', 'thing', 'verify_ssl'],
+      'metadata keys and values are not dependencies; the packages under a dependency key are');
   });
 });

@@ -431,6 +431,12 @@ function declaredDependencies(repo, listing) {
         continue;
       }
       if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+      // Admitted by SECTION or by the line's own key. Gating on the section
+      // alone would drop PEP-621, which writes `dependencies = [...]` under
+      // `[project]`; admitting `[project]` wholesale would re-admit the
+      // `name = "thing"` two lines above it. The key decides that line.
+      const admit = inDependencies || /^[A-Za-z0-9_.-]*depend/i.test(line);
+      if (!admit) continue;
       // No closing quote required: `"httpx>=0.27"` must yield `httpx`, and a
       // version specifier is exactly what stops the name.
       for (const hit of line.match(/["'][A-Za-z0-9_@][\w./@-]{0,120}/g) ?? []) {
@@ -439,7 +445,6 @@ function declaredDependencies(repo, listing) {
       }
       const bare = line.match(/^[A-Za-z0-9_@][\w./@-]{1,120}/);
       if (bare && LITERAL_SHAPE.test(bare[0])
-        && inDependencies
         && !(directives && NOT_A_DEPENDENCY.has(bare[0]))) names.add(bare[0]);
     }
   }
