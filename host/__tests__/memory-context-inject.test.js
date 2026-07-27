@@ -3,6 +3,7 @@
 //   AC2: matched nodes capped at 10 (budget cap)
 //   AC3: fires at most once per session (sentinel file gate)
 //   AC4: skips prompts shorter than 20 characters
+//   AC5: a graph past the size ceiling is skipped without spending the sentinel
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
@@ -23,7 +24,7 @@ function makeGraph(dir, nodes) {
 }
 
 function runHook(opts) {
-  const { counterDir, sessionId, prompt, home } = opts;
+  const { counterDir, sessionId, prompt, home, maxGraphBytes } = opts;
   const input = JSON.stringify({
     hook_event_name: 'UserPromptSubmit',
     session_id: sessionId || 'test-sess',
@@ -36,6 +37,7 @@ function runHook(opts) {
       ...process.env,
       HOME: home || process.env.HOME,
       MEMCAP_COUNTER_DIR: counterDir,
+      ...(maxGraphBytes ? { MEMORY_INJECT_MAX_GRAPH_BYTES: String(maxGraphBytes) } : {}),
     },
   });
   return {
@@ -181,6 +183,45 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     });
     assert.equal(status, 0);
     assert.equal(stdout, '', 'malformed graph must produce no output');
+  });
+
+  it('AC5: skips a graph past the ceiling without spending the session sentinel', () => {
+    const counterDir = mkdtempSync(join(baseTmp, 'ac5-counter-'));
+    const homeDir = mkdtempSync(join(baseTmp, 'ac5-home-'));
+    const graphDir = join(homeDir, '.graphify');
+    makeGraph(graphDir, [
+      { id: '1', label: 'handleVaultRequest', source: 'src/routes/vault.ts', description: 'Main vault route handler' },
+    ]);
+    const sessionId = 'ac5-session';
+
+    // Below the graph's own size: the ceiling, not the content, decides.
+    const skipped = runHook({
+      counterDir,
+      home: homeDir,
+      sessionId,
+      maxGraphBytes: 1,
+      prompt: 'check the vault route handler and fix the container proxy issue',
+    });
+
+    assert.equal(skipped.status, 0);
+    assert.equal(skipped.stdout, '', 'a graph past the ceiling must inject nothing');
+    // The sentinel is the session's one shot. Spending it on a graph that was
+    // never read would disable injection for the whole session.
+    assert.ok(!existsSync(join(counterDir, `${sessionId}.inject-lock`)));
+
+    // Same session, same graph, ceiling now above it: injection still happens,
+    // which is only true because the skip left the sentinel unclaimed.
+    const injected = runHook({
+      counterDir,
+      home: homeDir,
+      sessionId,
+      maxGraphBytes: 134217728,
+      prompt: 'check the vault route handler and fix the container proxy issue',
+    });
+
+    assert.equal(injected.json?.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+    assert.ok(injected.json?.hookSpecificOutput?.additionalContext?.includes('handleVaultRequest'));
+    assert.ok(existsSync(join(counterDir, `${sessionId}.inject-lock`)));
   });
 
   it('creates counter directory if missing', () => {

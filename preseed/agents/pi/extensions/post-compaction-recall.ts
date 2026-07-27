@@ -101,17 +101,22 @@ export function registerPostCompactionRecall(
   dependencies: PostCompactionRecallDependencies,
 ): void {
   pi.on("session_compact", (_event, ctx) => {
-    if (isChildSession(ctx)) return;
-    const content = buildRecall(dependencies);
-    if (!content) return;
-    // followUp without triggerTurn: the recall rides along with whatever runs
-    // next - the retried turn on overflow recovery, or the user's next prompt -
-    // rather than spending a turn announcing itself. display stays off because
-    // this is context for the model, not a notice for the user.
-    pi.sendMessage(
-      { customType: POST_COMPACTION_RECALL_TYPE, content, display: false, details: { sessionsDir: dependencies.sessionsDir } },
-      { deliverAs: "followUp", triggerTurn: false },
-    );
+    // The whole body, not just the reads: this runs inside Pi's dispatch at the
+    // compaction boundary, where the session is least able to absorb a throw,
+    // for a feature that is a convenience. Failing silently is the contract.
+    try {
+      if (isChildSession(ctx)) return;
+      const content = buildRecall(dependencies);
+      if (!content) return;
+      // followUp without triggerTurn: the recall rides along with whatever runs
+      // next - the retried turn on overflow recovery, or the user's next prompt -
+      // rather than spending a turn announcing itself. display stays off because
+      // this is context for the model, not a notice for the user.
+      pi.sendMessage(
+        { customType: POST_COMPACTION_RECALL_TYPE, content, display: false, details: { sessionsDir: dependencies.sessionsDir } },
+        { deliverAs: "followUp", triggerTurn: false },
+      );
+    } catch { /* recall is best-effort and never blocks a session */ }
   });
 }
 

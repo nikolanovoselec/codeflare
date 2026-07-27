@@ -82,6 +82,7 @@ if not names:
     sys.exit(0)
 
 WANTED = ("## Context", "## Decisions")
+MARKER = "... (truncated - read the file for the rest)"
 
 
 FENCE = re.compile(r"^(`{3,})(.*)$")
@@ -142,10 +143,13 @@ for name in names:
         continue
     # Cap on encoded bytes, not characters: len() on a str counts code points, so
     # multibyte content would overrun the declared budget several times over.
+    # The marker is spent from the same budget rather than added on top of it, so
+    # a capped block never exceeds the bound it advertises.
     encoded = joined.encode("utf-8")
     if len(encoded) > cap:
-        joined = encoded[:cap].decode("utf-8", "ignore").rstrip()
-        joined += "\n... (truncated - read the file for the rest)"
+        budget = max(0, cap - len(MARKER.encode("utf-8")) - 1)
+        joined = encoded[:budget].decode("utf-8", "ignore").rstrip()
+        joined += "\n" + MARKER
 
     blocks.append("### " + title.lstrip("# ").strip() + "\nSource: " + path + "\n\n" + joined)
 

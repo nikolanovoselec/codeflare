@@ -37,16 +37,27 @@ export function captureInstant(name: string): number | null {
   return Number.isNaN(instant) ? null : instant;
 }
 
-/** Newest capture first. Names carrying no parseable instant sort last. */
+/**
+ * Newest capture first. Names carrying no parseable instant sort last.
+ *
+ * The tie-break compares code points rather than collating, so it matches the
+ * shell runtime's ordering: two extracts sharing an instant must not land in a
+ * different order depending on which runtime - or which locale - read them.
+ */
 export function orderByCaptureInstant(names: readonly string[]): string[] {
   return [...names].sort((left, right) => {
     const a = captureInstant(left);
     const b = captureInstant(right);
-    if (a === null && b === null) return right.localeCompare(left);
+    if (a === null && b === null) return byCodePointDescending(left, right);
     if (a === null) return 1;
     if (b === null) return -1;
-    return b - a || right.localeCompare(left);
+    return b - a || byCodePointDescending(left, right);
   });
+}
+
+function byCodePointDescending(left: string, right: string): number {
+  if (left === right) return 0;
+  return left > right ? -1 : 1;
 }
 
 /**
@@ -90,12 +101,14 @@ export function sections(text: string): Map<string, string> {
  * length counts UTF-16 units, so multibyte content would overrun the declared
  * budget several times over. A sequence the slice cut in half decodes to the
  * replacement character, which is dropped rather than carried - the source
- * never held it.
+ * never held it. The marker is spent from the same budget, not added on top of
+ * it, so a capped block never exceeds the bound it advertises.
  */
 export function capBytes(text: string, cap: number): string {
   const encoded = Buffer.from(text, "utf-8");
   if (encoded.length <= cap) return text;
-  const decoded = new TextDecoder("utf-8").decode(encoded.subarray(0, cap));
+  const budget = Math.max(0, cap - Buffer.byteLength(RECALL_TRUNCATION_MARKER, "utf-8") - 1);
+  const decoded = new TextDecoder("utf-8").decode(encoded.subarray(0, budget));
   const kept = decoded.endsWith(REPLACEMENT_CHARACTER) ? decoded.slice(0, -1) : decoded;
   return `${kept.trimEnd()}\n${RECALL_TRUNCATION_MARKER}`;
 }
@@ -138,4 +151,8 @@ export function recallMessage(blocks: readonly string[], sessionsDir: string): s
     "",
     `Full extracts live in ${sessionsDir}; read a Source path above for the Observations and References these omit.`,
   ].join("\n");
+}
+
+export default function () {
+  // Helper module only; loaded by Pi extension scanner as a no-op extension.
 }

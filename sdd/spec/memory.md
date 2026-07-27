@@ -354,9 +354,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. Matched nodes (up to 10, ~1000 tokens) are injected as additionalContext in the UserPromptSubmit hook response. <!-- @test: host/__tests__/memory-context-inject.test.js (AC2: injects at most 10 nodes even when more match) --> <!-- @manual -->
 3. The hook fires at most once per session (gated by its own atomic mkdir sentinel, claimed only after a successful graph query; independent of the memory-capture counter). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC3: fires at most once per session (sentinel directory prevents re-fire)) -->
 4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction). <!-- @test: host/__tests__/memory-context-inject.test.js (AC4: skips prompts shorter than 20 characters) --> <!-- @manual -->
+5. A graph beyond the configured size ceiling is skipped without claiming the session sentinel, so injection resumes on a later prompt once the graph is readable again. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::MAX_GRAPH_BYTES --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC5: skips a graph past the ceiling without spending the session sentinel) -->
 
 **Constraints:**
 
+- The size ceiling is a memory guard, not a latency one — the query's own timeout bounds the parse — and it is overridable, so a graph that outgrows the default cannot silently disable injection with no signal that it stopped working.
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
 - The hook reads the graph JSON directly (no MCP round-trip).
 - The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.

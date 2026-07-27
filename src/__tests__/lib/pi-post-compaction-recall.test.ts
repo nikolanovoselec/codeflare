@@ -133,9 +133,15 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(capped).not.toContain(String.fromCharCode(0xfffd));
   });
 
-  it('AC5: marks the truncation only when content was actually dropped', () => {
+  it('AC5: marks the truncation, spending the marker from the same budget', () => {
     expect(capBytes('short', 500)).toBe('short');
-    expect(capBytes('x'.repeat(600), 500)).toContain('truncated');
+
+    const capped = capBytes('x'.repeat(600), 500);
+
+    expect(capped).toContain('truncated');
+    // The marker is part of the bound, not an addition to it: appending it
+    // after a full-budget slice would put every capped block over its cap.
+    expect(Buffer.byteLength(capped, 'utf-8')).toBeLessThanOrEqual(500);
   });
 
   it('AC1: builds the digest newest-first, bounded by the extract count', () => {
