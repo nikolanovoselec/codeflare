@@ -743,3 +743,29 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
     assert.equal(existsSync(termLog), true, 'launch group receives TERM before bounded KILL');
   });
 });
+
+// The sidebar extension is compiled against the API surface its own runtime
+// exposes. openvscode-server ships well behind upstream VS Code (1.109.5 is the
+// newest gitpod release), so npm always offers a newer @types/vscode than any
+// server we can run. Taking it types the extension against APIs the runtime
+// lacks and moves the failure from build time to activation time. Same for
+// @types/node against the pinned engines.node. These assert the pins the image
+// actually ships, so bumping one without the other fails here.
+describe('agent-sidebar type pins track the runtime they describe', () => {
+  const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
+  const pkg = JSON.parse(
+    readFileSync(resolve(__dirname, '../../openvscode/agent-sidebar/package.json'), 'utf8')
+  );
+  const minor = (version) => version.replace(/^[^\d]*/, '').split('.').slice(0, 2).join('.');
+
+  it('pins @types/vscode to the openvscode-server release baked into the image', () => {
+    const server = dockerfile.match(/OPENVSCODE_VERSION="([\d.]+)"/);
+    assert.ok(server, 'Dockerfile must pin an explicit OPENVSCODE_VERSION');
+    assert.equal(minor(pkg.devDependencies['@types/vscode']), minor(server[1]));
+    assert.equal(minor(pkg.engines.vscode), minor(server[1]));
+  });
+
+  it('pins @types/node to the Node major the extension declares it runs on', () => {
+    assert.equal(minor(pkg.devDependencies['@types/node']).split('.')[0], pkg.engines.node.split('.')[0]);
+  });
+});

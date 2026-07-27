@@ -156,7 +156,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       'actions/checkout',
       'actions/upload-artifact',
     ]);
-    expect(imageUses.every((use) => /@[0-9a-f]{40}$/.test(use))).toBe(true);
+    expect(imageUses.filter((use) => !/@[0-9a-f]{40}$/.test(use))).toEqual([]);
     expect(imageCommands).not.toMatch(
       /\b(?:docker|podman)\s+(?:(?:image|manifest)\s+)?(?:login|push)\b|\bdocker\s+(?:buildx\s+build|build)\b[^;&]*--push\b|\b(?:npm\s+publish|oras\s+push|skopeo\s+copy)\b/i,
     );
