@@ -805,6 +805,19 @@ vault round-trips through rclone bisync, which rewrites it, and the name read as
 text is unusable because a UTC-offset change puts a later capture behind an
 earlier one. `PostCompact` is not used: it carries no decision control and
 cannot return `additionalContext`.
+
+Three mechanics in the digest builder are load-bearing and identical in both
+runtimes. Section headings are recognised only outside fenced blocks, and fences
+are matched by backtick run length rather than toggled on any backtick line — an
+inner fence would otherwise close its parent, after which every later heading
+goes unrecognised and the Decisions section the recall exists to carry is
+silently dropped. The per-extract cap is spent in encoded bytes and cut on a
+character boundary, because bytes are what the context actually costs; the
+truncation notice is paid out of that same budget and dropped rather than
+carried when the remainder cannot hold it, so the cap is never exceeded in order
+to announce that it was reached. Extracts sharing a capture instant are ordered
+by name descending, so both runtimes resolve a tie the same way instead of
+inheriting whatever order the filesystem offered.
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 

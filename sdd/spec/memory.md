@@ -360,10 +360,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- The size ceiling is a memory guard, not a latency one — the query's own timeout bounds the parse — and it is overridable, so a graph that outgrows the default cannot silently disable injection with no signal that it stopped working. The default is justified by measurement on both runtimes rather than inherited by one from the other, and an override that is not a plausible byte count — non-numeric, or numeric but beyond what the comparison can hold — falls back to the default, so the guard cannot end up present and inert. <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
+- The size ceiling is a memory guard, not a latency one, and is overridable, so a graph that outgrows the default cannot silently disable injection. An implausible override falls back to the default, so the guard cannot be present and inert. <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
 - The hook reads the graph JSON directly (no MCP round-trip).
-- Claude and Pi carry separate implementations because their injection surfaces differ — a UserPromptSubmit hook returning `additionalContext` against a pre-agent-loop event returning a turn message — while the keyword rule, ranking weights, node cap, rendered shape and sentinel semantics are the same in both. The Pi side skips synthetic prompts, which the hook runtime never delivers.
+- Claude and Pi carry separate implementations because their injection surfaces differ, while the keyword rule, ranking weights, node cap, rendered shape and sentinel semantics are the same in both. The Pi side skips synthetic prompts, which the hook runtime never delivers.
 - The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.
 - Keyword extraction strips all non-alphanumeric characters and filters to words of 4+ characters to avoid noise.
 
@@ -394,16 +394,14 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- Only the narrative and decision sections of an extract are injected; the remaining sections are reachable through the emitted source path.
-- The injected text is framed as a record of what happened, not as instructions, so a prior session cannot issue directives to a later one.
+- Only the narrative and decision sections are injected; the rest is reachable through the emitted source path.
+- The injected text is framed as a record, not instructions, so a prior session cannot direct a later one.
 - The hook plugin is advanced-session-only by manifest declaration; standard sessions never receive it.
-- The hook is fail-safe: any error exits silently with no output and never blocks a session.
-- A `## ` line inside a fenced block is content, not a heading. Fence delimiters are matched by run length rather than toggled on any backtick line, so an inner fence cannot close an outer one and leave every later heading unrecognised.
-- The per-extract bound is spent in encoded bytes and cut on a character boundary, because that is what the context actually costs. The truncation notice is spent from that same bound, and is dropped rather than carried when the bound is too small to hold it — the bound is the guarantee, the notice is not. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC4: holds the bound even when the cap cannot fit the marker) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: a nonsensical cap carries nothing rather than everything) -->
+- A heading inside a fenced block is content, not a section heading.
+- The per-extract bound is a byte bound and is never exceeded; the truncation notice is spent from it and dropped when it cannot fit. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC4: holds the bound even when the cap cannot fit the marker) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: a nonsensical cap carries nothing rather than everything) -->
 - Two extracts sharing a capture instant are ordered by name descending, so the two runtimes agree on a tie. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC2: breaks a shared instant on the name, descending) -->
-- The Pi delivery is fail-silent as a whole, not only in its reads: it runs inside the runtime's compaction dispatch, so a failure anywhere in the handler is swallowed rather than raised into the session. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (swallows a delivery failure instead of throwing into the compaction dispatch) -->
-- Claude and Pi carry separate implementations because their injection surfaces differ — a SessionStart hook returning `additionalContext` against a compaction event delivering a session message — while the selection, bounds and injected wording are the same in both.
-- The Pi extension is fail-safe on the same terms: an unreadable extract store leaves the session untouched.
+- Both runtimes are fail-safe: an error anywhere — including inside Pi's compaction dispatch — is swallowed with no output and never blocks the session. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (swallows a delivery failure instead of throwing into the compaction dispatch) -->
+- Claude and Pi carry separate implementations because their injection surfaces differ; the selection, bounds and injected wording are identical.
 
 **Priority:** P1
 
