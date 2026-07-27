@@ -286,10 +286,11 @@ export function getConfigsForMode(
  *
  * Narrowing stops there deliberately. A retired skill is a whole DIRECTORY, so
  * any filter keyed to "a directory the seed still populates" would discard the
- * common case. What remains inside those prefixes is the user's own files plus
- * `.claude/plugins/cache/**`; they are HEADed once per upgrade, return no marker
- * and are kept. On a bucket with nothing retired the candidate set is whatever
- * the user added, and no DELETE is ever issued for it.
+ * common case. The one exception is runtime state that shares a seeded prefix,
+ * which RUNTIME_MANAGED_KEYS drops before the count and which is therefore never
+ * HEADed. What remains is the user's own files: they are HEADed once per
+ * upgrade, return no marker, and are kept. On a bucket with nothing retired the
+ * candidate set is whatever the user added, and no DELETE is ever issued for it.
  */
 async function deleteStaleMarkedConfigs(
   env: SeedEnv,
@@ -351,7 +352,7 @@ async function deleteStaleMarkedConfigs(
       // per live key in this same request, so continuing to page a large tree
       // would exhaust the subrequest budget before the guard could refuse to
       // spend it.
-      if (candidates.length + found.length > MAX_STALE_MARKER_CANDIDATES) {
+      if (found.length > MAX_STALE_MARKER_CANDIDATES) {
         warnings.push(
           `stale-marker sweep skipped: more than ${MAX_STALE_MARKER_CANDIDATES} candidates under ${prefix}`
         );
@@ -359,7 +360,17 @@ async function deleteStaleMarkedConfigs(
       }
     } while (continuationToken);
 
-    if (complete) candidates.push(...found);
+    if (!complete) continue;
+    candidates.push(...found);
+    // Counted against what has actually been merged. Counting a prefix that
+    // then turns out incomplete would abort the sweep over keys it was never
+    // going to touch.
+    if (candidates.length > MAX_STALE_MARKER_CANDIDATES) {
+      warnings.push(
+        `stale-marker sweep skipped: more than ${MAX_STALE_MARKER_CANDIDATES} candidates across the seed prefixes`
+      );
+      return { deleted, warnings };
+    }
   }
 
   if (candidates.length === 0) return { deleted, warnings };
