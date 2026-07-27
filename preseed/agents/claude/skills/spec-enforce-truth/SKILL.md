@@ -155,6 +155,9 @@ For each captured anchor:
 1. **Resolve symbol.** Call `mcp__graphify__get_node(<symbol>)` against the unified graph when a current graph is available. If graphify cannot resolve (graph absent, stale, or symbol not indexed), fall back to one focused `Grep` against `<path>`. Symbol not resolved by either path → HIGH `spec-anchor-orphaned` listing REQ-ID, AC-N, the searched `<path>::<symbol>`. No auto-fix; escalate to `sdd/spec/.review-queue.md`.
 2. **Verify value (when `<value-pattern>` present).** Read the symbol's source body (graphify `source_location` or direct file read on the path slice). Grep for the literal `<value-pattern>`. Not found → HIGH `spec-value-drift` listing REQ-ID, AC-N, expected vs anything-found-in-symbol. No auto-fix; escalate.
 3. **Verify behaviour overlap (when `<value-pattern>` absent).** Compute token overlap between the AC text (content words ≥4 chars, stopwords excluded) and the symbol body. Overlap <3 tokens → MEDIUM `spec-behavior-orphaned`. Auto-fix in `auto`/`unleashed`: attempt to find a sibling symbol with stronger overlap via `mcp__graphify__get_neighbors`; on success, rewrite the anchor; otherwise escalate.
+4. **Verify the claim, not the vocabulary.** Overlap answers "is this the right symbol". It never answers "is the criterion true", and passing it discharges nothing. Read the resolved body and ask what the AC actually asserts: does anything there CONTRADICT it — a bound, a cap, an early return, a swallowed error, a default, a branch the claim does not admit? A contradiction on an `Implemented` REQ is HIGH `spec-claim-contradicted`, listing REQ-ID, AC-N, the asserted claim and the line that defeats it. No auto-fix — the correction is a behaviour change or a restatement, and which one is a judgment: escalate to `sdd/spec/.review-queue.md`.
+
+   An AC asserting "every X" against a body that caps X is the canonical instance, and it is invisible to step 3 by construction: the vocabulary overlaps *perfectly* — the cap is named in the same words as the claim it breaks — so the token check returns its strongest possible pass on the clearest possible falsehood. That case shipped: an AC reading "every unresolved reference is listed rather than a capped sample" sat `Implemented` above a `MAX_UNRESOLVED` slice, through four rounds of review, because both texts say "unresolved" and nothing was reading for meaning. The runtime that caught it had no rule to cite and named the finding itself.
 
 The Phase 7a verifier is the deterministic checker. Steady-state review uses graphify+grep because (a) the graph is the right hammer for symbol-vs-source questions on a mature codebase, (b) the diff scope keeps it cheap. Both paths produce findings of the same shape and follow the same escalation rule (NEVER silently rewrite; route to `.review-queue.md` with concrete Context + Recommendation).
 
@@ -179,7 +182,7 @@ Unlike CQ-TEST, CQ-SOURCE runs during `transition: true`. The Truth guarantee is
 
 ### CQ-SOURCE output
 
-Manifest row evidence count: `ran (N REQs, A anchors verified, V drift findings, O orphaned, U unanchored)`. Never `inert`. Layout-aware (nested or flat).
+Manifest row evidence count: `ran (N REQs, A anchors verified, V drift findings, C contradicted, O orphaned, U unanchored)`. Never `inert`. Layout-aware (nested or flat). `A anchors verified` counts anchors that RESOLVED; it is not a truth count, and reporting it as though it were is how a contradicted claim passes as a clean pass.
 
 ## Auto-demote suppression during SDD transition
 
@@ -196,6 +199,7 @@ HIGH:
 - CQ-TEST `spec-test-anchor-orphaned` (file or block not resolved).
 - CQ-SOURCE `spec-anchor-orphaned` (symbol not resolved).
 - CQ-SOURCE `spec-value-drift` (value-pattern not found in symbol body).
+- CQ-SOURCE `spec-claim-contradicted` (the resolved body contradicts what the AC asserts, on an `Implemented` REQ).
 
 MEDIUM:
 - CQ-1 Subclass A/B.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -121,4 +121,31 @@ test('REQ-AGENT-059 AC7: all scope enumerates the lane tree while diff rejects a
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
+});
+
+// A resolver failure used to reach the reviewer as a packet with no `evidence`
+// key, indistinguishable from one never requested -- so a lane whose resolver
+// exceeded the bound on every run read as "this lane has no evidence" and
+// nothing surfaced it. The reviewer can act on a named reason; it cannot act on
+// a key that is simply missing.
+test('REQ-AGENT-108: an evidence failure is named in the packet, not dropped', () => {
+  const isolated = mkdtempSync(join(tmpdir(), 'packet-no-resolver-'));
+  const script = join(isolated, 'build-review-packet.mjs');
+  writeFileSync(script, readFileSync(join(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs',
+  ), 'utf8'));
+
+  const { repo, base, head } = fixture();
+  const out = execFileSync(process.execPath, [
+    script, '--repo', repo, '--scope', 'diff', '--range', `${base}..${head}`,
+    '--lane', 'doc-updater', '--with-evidence',
+  ], { encoding: 'utf8' });
+  const packet = JSON.parse(out);
+
+  assert.equal(packet.evidence, undefined, 'the sibling resolver is absent, so there is no evidence to carry');
+  assert.ok(typeof packet.evidenceOmitted === 'string' && packet.evidenceOmitted.length > 0,
+    'the packet must name why evidence is missing rather than omit the key silently');
+  assert.ok(packet.files, 'and the packet itself must still be usable');
+  rmSync(isolated, { recursive: true, force: true });
 });

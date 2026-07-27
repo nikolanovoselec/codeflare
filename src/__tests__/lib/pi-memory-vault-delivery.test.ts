@@ -23,6 +23,8 @@ import {
   type ExtractionJob,
   type PublicExtractionRequest,
   capTurn,
+  MEMORY_CAPTURE_MAX_RESCUED_REFS,
+  MEMORY_CAPTURE_MAX_TURN_CHARS,
 } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import {
   registerMemoryVault,
@@ -956,5 +958,16 @@ describe('capTurn citation rescue', () => {
     // captures become unsearchable for citations the other kept.
     expect(capTurn('pre '.repeat(4000) + TAIL).split('\n').pop())
       .toBe('[refs dropped in truncation: #709, 4899fb6, AD58, REQ-AGENT-040]');
+  });
+
+  it('bounds the rescue list so it cannot outgrow the cap it follows', () => {
+    // The rescue line is appended after the cap, so without a bound one turn
+    // holding a pasted list of hashes can cost more than the whole payload
+    // budget -- and selectTurns, which stops at the first turn that does not
+    // fit, would then drop every user prompt in the window.
+    const shas = Array.from({ length: 400 }, (_, i) => i.toString(16).padStart(8, 'b'));
+    const capped = capTurn(`${'pre '.repeat(3000)}${shas.join(' ')}`);
+    expect(capped.split('\n').pop()!.split(', ')).toHaveLength(MEMORY_CAPTURE_MAX_RESCUED_REFS);
+    expect(capped.length).toBeLessThan(MEMORY_CAPTURE_MAX_TURN_CHARS + 2000);
   });
 });

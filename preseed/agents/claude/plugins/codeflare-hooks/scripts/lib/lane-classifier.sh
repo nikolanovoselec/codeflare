@@ -22,8 +22,13 @@
 #                                 (force-push / rebase / hard-reset safety)
 #   - empty diff               -> "code-reviewer spec-reviewer doc-updater"
 #                                 (conservative fall-through)
-#   - any behavioral file      -> "code-reviewer spec-reviewer doc-updater"
-#     (anything outside sdd/ + the doc-surface allowlist)
+#   - any behavioral file      -> "code-reviewer", plus spec-reviewer and/or
+#     (anything outside sdd/ +    doc-updater ONLY where that surface actually
+#      the doc-surface allowlist) has work: its own tree changed in this diff,
+#                                 or one of its `@impl` anchors cites a changed
+#                                 file and may now be stale. A source-only push
+#                                 that no anchor cites therefore requires the
+#                                 code lane alone. REQ-AGENT-040
 #   - behavioral files whose delta is provably comments/whitespace only
 #                              -> "code-reviewer" (plus any sdd//docs lanes the
 #                                 same diff independently earns). Proven by
@@ -44,6 +49,29 @@
 # the emission shape in host/__tests__/git-push-review-reminder.test.js
 # (lane-aware directive) and host/__tests__/enforce-review-spawn.test.js
 # (gate-level lane gating).
+
+# Does any `@impl` anchor inside $1 cite one of the changed files $2..? That is
+# the only way a source-only change can invalidate something in a spec or doc
+# tree, and it is exactly the check those lanes perform first. Answering it here
+# with grep costs nothing; answering it by spawning an agent costs a startup.
+#
+# Absent tree -> the lane owns no files at all, so "no work" is the true answer.
+# A path is matched literally (-F) because anchors carry repo-relative paths that
+# routinely contain regex metacharacters such as `.` and `+`.
+anchor_cites_changed() {
+  local tree="$1"
+  shift
+  [ -d "$tree" ] || return 1
+  [ "$#" -gt 0 ] || return 1
+  local file
+  for file in "$@"; do
+    [ -z "$file" ] && continue
+    if grep -rqlF -- "@impl: $file" "$tree" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 compute_required_lanes() {
   local last_ack="$1" current="$2"
@@ -180,7 +208,36 @@ compute_required_lanes() {
   fi
 
   if [ "$has_behavioral" = "1" ]; then
-    echo "code-reviewer spec-reviewer doc-updater"
+    # A behavioural change always owes the code lane. It owes the spec and doc
+    # lanes only where those trees actually have something to check: their own
+    # surface changed, or one of their `@impl` anchors cites a file in this
+    # diff and may now be stale. Demanding all three unconditionally is what
+    # made a source-only push pay for two lanes that opened, found no
+    # lane-owned file, and exited -- each still costing a full agent startup.
+    # The reviewers' own review-scope policy already exits early in exactly
+    # that case; this makes the classifier agree with them before the spawn,
+    # where the decision is free. Fail-closed: if the repository root cannot
+    # be resolved the anchor test is unavailable, so keep the old posture.
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [ -z "$repo_root" ]; then
+      echo "code-reviewer spec-reviewer doc-updater"
+      return
+    fi
+
+    local lanes="code-reviewer" wants_docs="$touches_docs"
+    if [ "$touches_sdd" = "1" ] \
+       || anchor_cites_changed "$repo_root/sdd" "${behavioral_files[@]}"; then
+      lanes="$lanes spec-reviewer"
+      # Same coupling the non-behavioural path uses: a spec change drags the
+      # doc lane along for backlinks and table-of-contents drift.
+      [ "$touches_sdd" = "1" ] && wants_docs=1
+    fi
+    if [ "$wants_docs" = "1" ] \
+       || anchor_cites_changed "$repo_root/documentation" "${behavioral_files[@]}"; then
+      lanes="$lanes doc-updater"
+    fi
+    echo "$lanes"
     return
   fi
 

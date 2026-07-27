@@ -61,6 +61,11 @@ CHUNK_SIZE="${5:-20}"
 # the same algorithm.
 MAX_TOTAL_CHARS=200000
 MAX_TURN_CHARS=10000
+# The rescue list below is appended after the per-turn cap, so it is bounded or
+# the cap means nothing: one turn holding a pasted list of commit hashes would
+# otherwise carry a rescue line larger than the whole payload budget. Mirrors
+# Pi's MEMORY_CAPTURE_MAX_RESCUED_REFS.
+MAX_RESCUED_REFS=50
 
 # Fail-loud integer validation of START/END/CHUNK_SIZE. Empty captures
 # (START=END=0) or non-numeric args previously silently slid through
@@ -104,7 +109,7 @@ def capped($text):
   | if ($text | length) <= $maxchars then $kept
     else (($text | cites | unique) - ($kept | cites)) as $lost
       | if ($lost | length) > 0
-        then $kept + "\n[refs dropped in truncation: " + ($lost | join(", ")) + "]"
+        then $kept + "\n[refs dropped in truncation: " + ($lost[0:$maxrefs] | join(", ")) + "]"
         else $kept end
     end;
 def is_synthetic_marker(s):
@@ -127,7 +132,8 @@ elif .type == "assistant" and (.message.content | type) == "array" then
     {role:"assistant", text:capped($t), ts:(.timestamp // null)}
   else empty end
 else empty end
-' --argjson maxchars "$MAX_TURN_CHARS" < "$OUT/slice.jsonl" > "$OUT/turns.ndjson"
+' --argjson maxchars "$MAX_TURN_CHARS" --argjson maxrefs "$MAX_RESCUED_REFS" \
+  < "$OUT/slice.jsonl" > "$OUT/turns.ndjson"
 
 # 2b. Spend the character budget newest-first, user prompts before assistant
 #     turns, then re-emit chronologically. paste supplies awk with each turn's

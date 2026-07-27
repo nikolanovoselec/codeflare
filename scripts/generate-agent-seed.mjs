@@ -121,6 +121,7 @@ const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
 ]);
 
 const PI_MODEL_HIDDEN_SKILLS = new Set([
+  'code-review-checklist',
   'doc-enforce',
   'doc-enforce-lanes',
   'doc-enforce-shape',
@@ -569,25 +570,29 @@ function piNativeKey(withinPi) {
   throw new Error(`Cannot map Pi native preseed file: ${withinPi}`);
 }
 
-const PI_SKILL_INCLUDE_PATTERN = /^<!-- @include-skill ([a-z0-9-]+) -->$/gm;
+const SKILL_INCLUDE_PATTERN = /^<!-- @include-skill ([a-z0-9-]+) -->$/gm;
 
-function expandPiSkillIncludes(content, withinPi, piSkillContents) {
-  const directives = [...content.matchAll(PI_SKILL_INCLUDE_PATTERN)];
+// Runtime-agnostic: an agent that carries the exact skills its lane needs has
+// nothing left to discover. Pi has always worked this way because it has no
+// Skill tool; Claude reviewers reach for one instead, which costs a listing of
+// every installed skill up front plus a discovery call at runtime.
+function expandSkillIncludes(content, withinPath, skillContents, label) {
+  const directives = [...content.matchAll(SKILL_INCLUDE_PATTERN)];
   if (directives.length === 0) return content;
-  if (!withinPi.startsWith('agents/')) {
-    throw new Error(`Pi skill includes are only valid in agent definitions: ${withinPi}`);
+  if (!withinPath.startsWith('agents/')) {
+    throw new Error(`${label} skill includes are only valid in agent definitions: ${withinPath}`);
   }
 
   const included = new Set();
   let expanded = content;
   for (const directive of directives) {
     const skillName = directive[1];
-    const skillContent = piSkillContents.get(skillName);
+    const skillContent = skillContents.get(skillName);
     if (included.has(skillName)) {
-      throw new Error(`Duplicate Pi skill include "${skillName}" in ${withinPi}`);
+      throw new Error(`Duplicate ${label} skill include "${skillName}" in ${withinPath}`);
     }
     if (skillContent === undefined) {
-      throw new Error(`Pi agent ${withinPi} includes unseeded skill "${skillName}"`);
+      throw new Error(`${label} agent ${withinPath} includes unseeded skill "${skillName}"`);
     }
 
     // Replacer function: a string replacement would interpret $$, $&, $` and
@@ -599,6 +604,36 @@ function expandPiSkillIncludes(content, withinPi, piSkillContents) {
     included.add(skillName);
   }
   return expanded;
+}
+
+// Replace an agent's "## Embedded canonical policy" section (heading, prose and
+// directives) with a retrieval pointer for runtimes that receive the skills as
+// files instead. Agents without the section are returned unchanged.
+function stripEmbeddedPolicySection(content, config) {
+  const section = /^## Embedded canonical policy\n[\s\S]*?(?=^## )/m;
+  if (!section.test(content)) return content;
+  // Every other "embedded" reference has to move too. Replacing the section
+  // alone left the rest of the prompt asserting policy that is no longer there
+  // and forbidding the retrieval that would supply it.
+  const derefer = (text, how) => text
+    .replace(/embedded `([a-z-]+)` policy/g, (m, name) => `${how(m, name)} policy`)
+    .replace(/the embedded ([a-z-]+) policy/g, (m, name) => `the ${how(m, name)} policy`)
+    .replace(/\bis embedded below\b[^.]*\./g, `is installed as files; ${how('', 'the named policy')}.`)
+    .replace(/\bexactly as embedded above\b/g, 'exactly as written in the installed policy files')
+    .replace(/\byour policy is embedded above\b/g, 'your policy is installed as files');
+  // No skillsPrefix means this runtime receives no skill files at all, so name
+  // no path: there is nothing to point at.
+  if (!config.skillsPrefix) {
+    return derefer(content.replace(section, ''), () => 'canonical');
+  }
+  const path = (name) => `\`~/${config.skillsPrefix}/${name}/SKILL.md\``;
+  return derefer(
+    content.replace(
+      section,
+      `## Canonical policy\n\nYour lane's enforcement policy is installed as files. Read the ones your\nmanifest says apply, in your existing shell call:\n\n\`\`\`bash\ncat ~/${config.skillsPrefix}/<name>/SKILL.md\n\`\`\`\n\nRead one only when its condition actually fires.\n\n`,
+    ),
+    (_match, name) => path(name || '<name>'),
+  );
 }
 
 /** Ensure no duplicate (key, mode) pairs across all documents. */
@@ -623,14 +658,23 @@ function validateDocuments(documents) {
 // Output
 // ---------------------------------------------------------------------------
 
-function computePreseedHash(documents) {
+function computePreseedHash(documents, retired) {
   const sorted = [...documents].sort((a, b) => a.key.localeCompare(b.key));
-  return createHash('sha256').update(JSON.stringify(sorted)).digest('hex').slice(0, 16);
+  // The retired list is part of the hash because the hash is what triggers an
+  // upgrade (REQ-AGENT-049), and the upgrade is when cleanup runs. Hashing only
+  // the documents would let a release that retires a key ship without any bucket
+  // ever reconciling -- the deletion would sit inert until unrelated content
+  // happened to change.
+  return createHash('sha256')
+    .update(JSON.stringify({ documents: sorted, retired: retired.keys }))
+    .digest('hex')
+    .slice(0, 16);
 }
 
-function toGeneratedModuleSource(documents) {
-  const hash = computePreseedHash(documents);
+function toGeneratedModuleSource(documents, retired) {
+  const hash = computePreseedHash(documents, retired);
   const serializedDocuments = JSON.stringify(documents, null, 2);
+  const serializedRetired = JSON.stringify(retired.keys, null, 2);
   return `/* eslint-disable */
 // Auto-generated by scripts/generate-agent-seed.mjs
 // Do not edit manually.
@@ -645,6 +689,14 @@ type SeedDocument = {
 export const PRESEED_CONTENT_HASH = '${hash}';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ${serializedDocuments};
+
+/**
+ * Keys shipped by builds that predate the provenance marker. Nothing stored in
+ * R2 identifies them, so they are deleted by name in one clean-slate pass.
+ * Frozen: never appended to. A key retired from here on carries a stale marker,
+ * which identifies it without an enumeration.
+ */
+export const RETIRED_PRESEED_KEYS: readonly string[] = ${serializedRetired};
 `;
 }
 
@@ -679,6 +731,21 @@ async function generate() {
     sourceFiles.push({ withinClaude, content, modes: entry.modes, category });
   }
 
+  // An agent that ships its lane's skills needs no Skill tool, and without one
+  // it is never handed the listing of every installed skill nor spends a turn
+  // fetching one -- the reviewer receives its instructions instead of hunting
+  // for them. This is a Claude-output-only expansion: the transformed runtimes
+  // carry their own smaller agent set and must not inherit an inlined copy of
+  // every enforcement skill, so their directives are stripped instead.
+  const claudeSkillContents = new Map();
+  for (const file of sourceFiles) {
+    const skillName = file.withinClaude.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1];
+    if (file.category === 'skill' && skillName) claudeSkillContents.set(skillName, file.content);
+  }
+  const claudeAgentContent = (file) => (file.category === 'agent'
+    ? expandSkillIncludes(file.content, file.withinClaude, claudeSkillContents, 'Claude')
+    : file.content);
+
   const documents = [];
 
   // --- Claude documents (emit as-is) ---
@@ -686,7 +753,7 @@ async function generate() {
     documents.push({
       key: `.claude/${file.withinClaude}`,
       contentType: inferContentType(file.withinClaude),
-      content: file.content,
+      content: claudeAgentContent(file),
       modes: file.modes,
     });
   }
@@ -727,7 +794,7 @@ async function generate() {
       } catch {
         throw new Error(`Pi manifest references "${withinPi}" but file does not exist`);
       }
-      content = expandPiSkillIncludes(content, withinPi, piSkillContents);
+      content = expandSkillIncludes(content, withinPi, piSkillContents, 'Pi');
       if (withinPi.startsWith('rules/')) {
         piNativeRuleFiles.push({ withinClaude: withinPi, content, modes: entry.modes, category: 'rule' });
       }
@@ -838,10 +905,21 @@ async function generate() {
         const baseName = fileName.replace(/\.md$/, '');
         const key = `${config.agentsPrefix}/${baseName}${config.agentExtension}`;
 
+        // The whole embedded-policy section goes, not just the directives:
+        // inlining every enforcement skill into each transformed runtime would
+        // multiply the seed for agents that never run the PR lanes, but leaving
+        // the surrounding prose behind is worse than either choice. It promises
+        // policy that is no longer there and tells the agent there is nothing
+        // further to retrieve, while these runtimes do receive the skills on
+        // disk through the skills loop above. Replace it with the pointer they
+        // can actually act on.
         documents.push({
           key,
           contentType: 'text/markdown; charset=utf-8',
-          content: adaptAgentFrontmatter(file.content, agentId),
+          content: adaptAgentFrontmatter(
+            stripEmbeddedPolicySection(file.content, config),
+            agentId,
+          ),
           modes: file.modes,
         });
       }
@@ -851,8 +929,39 @@ async function generate() {
   // Validate output
   validateDocuments(documents);
 
-  // Write TypeScript module
-  const source = toGeneratedModuleSource(documents);
+  // An unexpanded directive means a consumer receives the literal comment
+  // instead of its policy. The Claude expansion and the transform strip are
+  // both anchored on headings and section shape, so a renamed heading or a
+  // section moved to end-of-file would no-op silently and ship the raw text.
+  for (const doc of documents) {
+    if (doc.content.includes('@include-skill')) {
+      throw new Error(`Unexpanded @include-skill directive in ${doc.key}`);
+    }
+  }
+
+  const retiredPath = path.join(rootDir, 'preseed/retired-keys.json');
+  let retired;
+  try {
+    retired = JSON.parse(await fs.readFile(retiredPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`preseed/retired-keys.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // Every entry reaches both the preseed hash and the generated module, so a
+  // non-string here ships a key nothing can ever match.
+  if (!Array.isArray(retired.keys) || !retired.keys.every((key) => typeof key === 'string')) {
+    throw new Error('preseed/retired-keys.json: expected "keys" to be an array of strings');
+  }
+  const liveKeys = new Set(documents.map((doc) => doc.key));
+  const resurrected = retired.keys.filter((key) => liveKeys.has(key));
+  if (resurrected.length > 0) {
+    // Seeding and deleting the same key in one reconcile would leave the bucket
+    // missing a live file. Take it off the frozen list instead.
+    throw new Error(
+      `retired-keys.json lists ${resurrected.length} key(s) the current build still seeds: ${resurrected.join(', ')}`
+    );
+  }
+
+  const source = toGeneratedModuleSource(documents, retired);
   await fs.writeFile(outputFile, source, 'utf8');
 
   // Summary

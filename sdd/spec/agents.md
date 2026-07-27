@@ -1238,7 +1238,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Generated-only changes require no lane, documentation-only changes require `doc-updater`, SDD-only or SDD-plus-documentation changes require `spec-reviewer` and `doc-updater`, and source, test, configuration, workflow, preseed, mixed, or unknown changes require all three lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
+1. Generated-only changes require no lane, documentation-only changes require `doc-updater`, SDD-only or SDD-plus-documentation changes require `spec-reviewer` and `doc-updater`, and source, test, configuration, workflow, preseed, mixed, or unknown changes require the code lane. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
 2. Unusual filenames and source-to-documentation renames cannot reduce the required reviewer set or bypass code review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies tricky filenames and source-to-doc renames without bypassing code review) -->
 3. An invalid or empty review range falls back to all three lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 4. An acknowledged current head requires no reviewer lane. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current head emits a CI-only plan) -->
@@ -1257,6 +1257,55 @@ None.
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
 **Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Claude lane classifier tests](../../host/__tests__/lane-classifier.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-106: Round-Limit Lane Suppression
+
+**Intent:** A lane that has exhausted its review rounds must stop costing model invocations, so a stuck review converges instead of billing another full round per push.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A lane already at its round limit costs no model invocation in either runtime. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::roundLimitReached --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (drops a lane at its round limit instead of demanding it) -->
+
+**Constraints:**
+
+- Suppression counts agent-authored review-loop commits only; user-directed commits reset the counter.
+- The limit bounds invocations, never findings: a suppressed lane is reported as suppressed, never as clean.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
+
+**Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-101: Reviewer Lane Spawn Requires Surface Ownership
+
+**Intent:** A reviewer lane that provably owns nothing in a range must not be spawned, because an agent costs its full startup to reach the same conclusion the classifier can reach for free.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A behavioural change requires the spec or documentation lane only when that surface changed or one of its source anchors cites a changed file. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::anchor_cites_changed --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::anchorCitesChanged --> <!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes - file classification) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: a behavioural change earns a lane only where that surface changed or an anchor cites it) -->
+
+2. A repository root that cannot be resolved keeps the all-lane posture. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes - initial state) -->
+
+**Constraints:** The code lane is never gated by this rule; only the spec and documentation lanes are.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
+
+**Verification:** Automated test ([Claude lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -1337,6 +1386,8 @@ None.
 3. spec-reviewer runs the spec analogs (REQ-test truth-check beyond literal ID match, vendor/protocol drift detection, content-preservation on shrink). <!-- @manual -->
 4. code-reviewer flags tests whose name claims behavior the assertions don't actually verify (the test-name-lies antipattern from `tdd-discipline`). <!-- @manual -->
 5. Auto-fixes derive concrete content from source or REQ when possible; load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose, or the trim is reverted with a finding. <!-- @manual -->
+6. A resolved source anchor is checked for whether the body contradicts what the criterion or documented fact asserts, never for whether their words overlap. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/SKILL.md::CQ-SOURCE --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-truth/SKILL.md::Pass 15 --> <!-- @manual -->
+7. What a reviewer is told to look for is shared policy, so every runtime's lane of the same kind applies the same categories. <!-- @impl: preseed/agents/claude/skills/code-review-checklist/SKILL.md::Review checklist --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 
 **Constraints:**
 
@@ -2286,28 +2337,91 @@ None.
 
 ---
 
-### REQ-AGENT-084: Pi Reviewer Policy Contract
+### REQ-AGENT-084: Reviewer Policy Contract
 
-**Intent:** Pi reviewers must begin every run with complete canonical scope and enforcement policy, including deterministic round control, without spending review turns on policy discovery.
+**Intent:** Every runtime's reviewers must hold the same policy set and begin a run holding the part of it that applies to almost every run, so no reviewer reads a diff before the rules it is judged against have arrived, and no reviewer spends a turn discovering policy.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Code, specification, and documentation reviewers begin with every declared canonical policy available before their first tool call. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+1. Every reviewer begins holding the canonical policy that applies to almost every run; a policy gated on a diff condition may instead arrive in the evidence wave the lane was already making. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
-3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
-4. At five or more counted commits, the direct-user fully-autonomous marker changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker) -->
+3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 
 **Constraints:**
 
 - Canonical skill files remain the only hand-maintained policy source.
 - Reviewer launch prompts carry only dynamic repository, scope, range, and direct-user override inputs.
 - Preloading changes no review scope, manifest row, or acknowledgement condition.
+- One policy set per reviewer in every runtime; whether a policy is carried or fetched is chosen per lane from measurement, never by default.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+
+**Verification:** Automated test ([Pi-native review asset tests](../../host/__tests__/pi-native-review-assets.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-108: Reviewer Evidence Resolution Fidelity
+
+**Intent:** The evidence a review lane is handed must be produced fast enough that every transport delivers it, must resolve a documented name by any honest form it can be written in, and must name its own failure, so a lane never re-derives what it holds nor acts on a list of names that were never stale.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Reference resolution costs a bounded pass over the tree regardless of how many names a document cites. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @test: host/__tests__/lane-evidence.test.js (answers two hundred names for the cost of reading the tree) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not resolve a name by the identifier next to it) -->
+2. A name declared only inside generated output is not a declaration. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a generated tree declare a symbol) -->
+3. A documented name resolves by the strongest form holding it, never a weaker one: path tail, basename, directory, declaration in any repository language, exact npm dependency, registered string, then a token in a dependency manifest. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::quotedLiterals --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declaredDependencies --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::DECL_SHAPES --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a name that appears under more than one directory) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves declarations and dependencies in a repo that is not JavaScript) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a control keyword in another language declare a name) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not demote a real declaration that a manifest happens to also mention) -->
+4. Notation that documents an interface rather than naming code is never a resolvable candidate. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::resolveDocReferences --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) -->
+5. The unresolved list carries an explicit bound, and a list reaching that bound is marked truncated so the remainder is known to be outstanding. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports every unresolved reference rather than a capped sample) --> <!-- @test: host/__tests__/lane-evidence.test.js (marks a list that reaches the bound as truncated) -->
+6. A resolver that fails names the reason in the packet instead of omitting the block. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::laneEvidence --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-108: an evidence failure is named in the packet, not dropped) -->
+7. Every reviewer that builds its own packet is told what to do when the evidence block is absent. <!-- @impl: preseed/agents/pi/agents/doc-updater.md::evidenceOmitted --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-108: a self-building reviewer is told how to proceed without evidence) -->
+8. A name resolved only on the weakest evidence the resolver accepts -- a registered string, or a token in a dependency manifest -- is reported in its own class rather than as an ordinary pass. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a name known only from a manifest as a weak resolution rather than a pass) --> <!-- @test: host/__tests__/lane-evidence.test.js (retries the last segment for a package but never for a version fragment) -->
+
+**Constraints:**
+
+- One resolver serves every runtime, under one bound; a transport may not change what it can deliver.
+- Resolution answers whether a name still names something, never which file it named.
+- Outside `package.json`, dependency manifests are tokenised rather than parsed by grammar; a manifest setting resolving alongside a real package is the accepted cost (rationale: `sdd/spec/changes.md`, 2026-07-27).
+- The resolver is seeded into every repository `/sdd` bootstraps, so nothing in it may assume the language the repository is written in or the package manager it uses; a stack it does not recognise indexes no declarations and reports a consistent tree as entirely stale.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-105](#req-agent-105-review-lane-turn-economy)
+
+**Verification:** Automated test ([lane evidence tests](../../host/__tests__/lane-evidence.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-107: Deterministic Round-Limit Gate
+
+**Intent:** The anti-spiral round limit must be decided by one executable gate every runtime is directed to, so the same window yields the same verdict regardless of which agent reads it, and so releasing the limit is a stated contract rather than a reader's judgment.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. At five or more counted commits, the direct-user fully-autonomous marker changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: enforcement round limit honors only the exact fully autonomous marker) -->
+2. The agent executing a user-invoked clean reports the round-limit row inert without consulting the gate. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::The 5-round commit cycle limit --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the user-invoked exemption is wired on both sides in every runtime) -->
+3. Every reviewer takes both its round count and its round-limit decision from the deterministic gate it is directed to, which counts any agent-authored tag that touched the lane rather than only the reviewer's own. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the round-limit row routes the verdict to the gate in every runtime) --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (counts any agent tag that touched the lane, and only those) -->
+4. Every reviewer reports both the counted total and the gate's decision as enforcement evidence. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-107: the round-limit row routes the verdict to the gate in every runtime) -->
+5. A gate that cannot read the commit history fails with a non-zero status and a concise diagnostic rather than a verdict, so an unreadable window is never mistaken for a permissive one. <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (refuses to return a verdict when the history cannot be read) -->
+
+**Constraints:**
+
+- The limit binds agent-authored review rounds only; user-invoked runs are released, never counted down.
+- One gate serves every runtime; a reviewer that derives count or verdict itself is in breach.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Automated test ([Pi-native review asset tests](../../host/__tests__/pi-native-review-assets.test.js))
 
@@ -2333,7 +2447,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Automated test ([Test-anchor parser tests](../../host/__tests__/test-anchor-parser.test.js))
 
@@ -2364,7 +2478,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Automated test ([Pi compact-context tests](../../src/__tests__/lib/pi-compact-context.test.ts), [Pi native-asset tests](../../host/__tests__/pi-native-review-assets.test.js))
 
@@ -2485,7 +2599,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts), [reviewer tool-guard tests](../../src/__tests__/lib/review-tool-guard.test.ts), [review work-set tests](../../host/__tests__/pi-review-workset.test.js))
 
@@ -2501,13 +2615,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Claude `code-reviewer`, `spec-reviewer`, and `doc-updater` expose the scoped-evidence toolset -- enforcement skills, direct shell execution, native file reads, and cross-session Graphify signal lookup -- and no repository-wide search, indexed-retrieval, or file-mutation tool. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools) -->
+1. Claude `code-reviewer`, `spec-reviewer`, and `doc-updater` expose direct shell execution as their only tool, with their enforcement policy embedded, and no repository-wide search, indexed-retrieval, native file-read, or file-mutation tool. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools) -->
 2. Source, specification, and documentation trees stay read-only to reviewers. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Operating Mode: Research + Report --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
 3. PR-boundary reviewers return structured findings without writing project or triage files. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Operating Mode: Research + Report --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) --> <!-- @manual: Trigger a Claude SDD PR-boundary review; confirm each reviewer returns structured findings without writing files, confirm the root alone persists triage, then confirm the root evaluates and applies each legitimate finding. -->
 4. The root session alone persists PR-boundary triage content. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
 5. The root session evaluates and applies legitimate PR-boundary fixes. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
-6. The code reviewer runs pinned `high` reasoning effort while the specification and documentation reviewers run `medium`; transformed runtimes never inherit the Claude-only effort key. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::effort = high --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::effort = medium --> <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms) -->
-7. Each Claude PR-boundary reviewer builds its lane evidence packet once through the seeded `review-scope` packet CLI and reasons from that packet instead of repository-wide scans. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Build the lane packet once --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools) -->
+6. Every Claude PR-boundary reviewer runs pinned `medium` reasoning effort; transformed runtimes never inherit the Claude-only effort key. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::effort = medium --> <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms) -->
+7. Each Claude PR-boundary reviewer reasons from one `review-scope` evidence packet instead of repository-wide scans, building it through the seeded CLI only when the runner did not hand it one. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Your lane packet --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Your lane packet --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Your lane packet --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools) -->
 
 **Constraints:**
 
@@ -2523,6 +2637,145 @@ None.
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
 
 **Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [Claude review reminder tests](../../host/__tests__/git-push-review-reminder.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-102: Claude Reviewer Headless Lane Transport
+
+**Intent:** A PR-boundary lane must pay for its own review policy and nothing else, so the lane runs in a process whose context it fully controls rather than inheriting a session it cannot trim.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Each Claude PR-boundary lane runs as a headless `claude -p` subprocess whose system prompt is the lane's own agent document. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+2. The review gate credits a lane under either that headless transport or a legacy Agent subagent spawn. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_spawn_lines --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_completed --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+3. A lane whose range contains no file it owns returns a no-op report without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — no-op short-circuit) -->
+4. The lane subprocess carries a validated, escalating time bound that a zero, empty, or non-numeric override cannot disable. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — timeout bound) -->
+5. Guard re-injection fails closed on a missing guard, an absent JSON-processing dependency, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) -->
+6. A lane whose background run ended without success counts as ended rather than in flight, so the gate re-demands it instead of awaiting it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_terminal --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (treats an unrecognised end status as terminal and a running status as not) -->
+7. That demand states the lane already ran without being credited. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::spawn_ended_unsuccessfully --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+
+**Constraints:**
+
+- Lane floor reduction requires replacing the system prompt and pruning tool schemas (both CLI-only); a lane is therefore a subprocess, not a subagent.
+- `--lane <name>` is the gate's match token; renaming the flag silently disables review enforcement.
+- Dropping inherited settings drops hooks; build/test guards are re-injected explicitly and invoked as `bash <script>` (seeded hooks ship non-executable).
+- Transport detection is additive: the legacy Agent shape stays credited, so a migrated lane is still counted as reviewed.
+- A runner reference matched inside another command, or a background spawn's start receipt, must not credit a lane.
+- A lane subprocess is time-bounded; an unbounded lane would hold the review gate open.
+- Guard settings are constructed programmatically and verified non-empty before use.
+- Triage state that alters a round is reported to the launching session, not only to the lane.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-086](#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff)
+
+**Verification:** Automated test ([Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-103: Deterministic Lane Triage
+
+**Intent:** A lane's Phase 0 answers are the same for every lane on a given range, so resolving them once outside the model costs nothing per lane and cannot drift between them.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Each lane's Phase 0 triage is resolved deterministically before the subprocess starts and handed to it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — transition gate) --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — round counter) -->
+2. The pre-computed triage reproduces the bulk-op audit and round-limit gates the reviewer prose defines. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::bulkOpAudit --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — bulk-op audit) -->
+3. A lane whose triage resolves to a no-op returns without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
+4. Every triage condition that cannot be resolved resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — fail-safe direction) -->
+
+5. A config that never mentions `enforce_tdd` resolves to on, not to a silent opt-out. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — config defaults) -->
+
+**Constraints:**
+
+- Both the packet and the triage block inlined into a lane's prompt are byte-capped; an oversized block degrades to a normal review rather than a skipped one.
+- Triage answers the SDD questions only; documentation scaffolding is not among them and the doc lane still checks its own index.
+- Lane ownership stays with the shell classifier and is passed in, never reimplemented in triage.
+- The no-op decision is read as a field; matching it anywhere in the serialised document would drop a required review.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
+
+**Verification:** Automated test ([Lane triage tests](../../host/__tests__/lane-triage.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-104: Review Acknowledgement Requires a Published Verdict
+
+**Intent:** A checkpoint that advances on lane exit records that processes ran, not that findings were read, so a later range can be measured from a head whose findings nobody acted on.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. The review checkpoint advances only when every required lane has returned and the triage verdict has been published. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::triage_published_after_line --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+2. A verdict published before the last required lane returned does not advance the checkpoint. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::latest_required_completion_line --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+3. Lanes that returned without a published verdict produce a demand for the verdict in the shape the gate matches. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+4. Acknowledgement is followed by a fix directive that states the head is already acknowledged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
+5. Every path that advances the checkpoint applies the verdict requirement, including the retroactive scan. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::retroactive_ack_scan --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (applies the verdict requirement on the retroactive scan path, not just the live path) -->
+6. Repeated unanswered verdict demands acknowledge the head rather than leave the checkpoint wedged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::reack_on_repeated_demand --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (acknowledges after repeated unanswered demands instead of staying wedged) -->
+
+**Constraints:**
+
+- The verdict is recognised structurally, by its table header and divider in a message carrying no tool call; a command quoting the header is not a verdict.
+- The verdict demand is counted and rate-limited on its own, never on the counter that limits lane demands; sharing one lets a head be acknowledged before any verdict was asked for, and silences the demand that would have been answered.
+- Both runtimes recognise the same table shape, so a verdict is portable between them.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
+
+**Verification:** Automated test ([Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-105: Review Lane Turn Economy
+
+**Intent:** A lane re-sends its whole prompt every turn, so cost grows with the square of the turn count and the drip — one lookup per turn — is what a review actually pays for.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Lane evidence gathering is structured as waves, each collecting every outstanding question in one call. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+2. Where a runtime fetches a sub-policy rather than carrying it, the read happens inside a wave that was already being made rather than on a turn of its own. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
+3. Policy that applies on almost every run is embedded in the reviewer document, whether or not it is nominally conditional. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Embedded canonical policy --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-105: large conditional policy is fetched, small always-applicable policy is embedded) -->
+4. Every path that demands a lane passes the range under review, so the demanded lane receives its packet and its ownership short-circuit rather than reviewing the whole PR. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (scopes the lanes it demands to the range under review) -->
+5. Inlined evidence over its byte cap degrades by field, keeping the resolved answers. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (sheds config.raw rather than the whole triage block) -->
+6. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+7. The lookups a lane checklist would order — index presence, tree layout, anchor resolution, documented-reference resolution, call sites, the decision ledger — are resolved before the lane starts and handed to it. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::main --> <!-- @test: host/__tests__/lane-evidence.test.js (reports an anchor whose symbol no longer exists as unresolved) --> <!-- @test: host/__tests__/lane-evidence.test.js (carries the diff of each cited file, not just the citation) --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a tracked doc the index does not link, and passes one it does) --> <!-- @test: host/__tests__/run-review-lane.test.js (inlines the evidence block) --> <!-- @test: host/__tests__/run-review-lane.test.js (states the repository root so the lane does not spend a turn finding it) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+
+**Constraints:**
+
+- No hard turn, call, or token cap; truncating a review is worse than paying.
+- A wave never licenses skipping a required check; it batches it.
+- Broad discovery is forbidden: no survey, no indexed search, no re-reading returned evidence, no re-deriving a resolved block.
+- Over-cap evidence degrades by field, never by block, each shed field a named marker stating its recovery.
+- Resolved evidence counts passes and lists failures in full.
+- A resolver failure yields an absent field, never an empty one.
+- Report length is bounded: a finding short, a clean pass a count, the search never narrated.
+- The lane prompt arrives on standard input, not as one argument.
+- One canonical resolver serves both runtimes, reaching Pi byte-identically, and bounds itself so no caller is the unbounded one.
+- Evidence covers why a lane was spawned, not only the files it owns.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
+
+**Verification:** Automated test ([Review lane runner tests](../../host/__tests__/run-review-lane.test.js))
 
 **Status:** Implemented
 
@@ -2545,7 +2798,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
 **Verification:** Manual check
 

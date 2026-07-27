@@ -21,6 +21,8 @@ Resolve one scope before any reviewer or enforcement pass starts. Return the sco
 
 ## Build the lane packet once
 
+**When your prompt already carries a `<packet>` block, it is built — reason from it and do not run the CLI.** You already have what it would return. Everything below applies when no such block is present (a very large diff, or a direct invocation).
+
 For `diff`, validate the range and obtain the lane-owned file list and hunks in one call:
 
 ```bash
@@ -41,16 +43,17 @@ A changed input path alone does not invalidate every anchor in that file. Resolv
 
 ## `scope=diff` execution
 
-Use gather-then-reason evidence processing instead of alternating one read or search with one reasoning turn:
+**Work in waves, then report.** Ask everything outstanding in one call rather than alternating one lookup with one thought. A wave is a batching discipline, not a quota: the number of waves a review takes is whatever the open questions require.
 
-1. Build and parse the lane packet exactly once inside the first Bash call. Every canonical policy arrives through the enforcement skill, so no policy retrieval call is needed.
-2. Derive the pending manifest and direct-impact candidates in that same evidence wave. Emit compact counts, failures, and snippets for every lane hunk and only anchor targets intersecting `changedInputs[].hunks`; do not emit raw packet JSON.
-3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate in one focused wave, batching independent lookups together. Never re-query policy text, packet sections, or evidence already retrieved. This cadence is not a turn limit: continue only when a named candidate still lacks concrete evidence, and state what evidence is missing before the next call.
-4. Bound every shell command that searches. `grep`/`rg` must carry `-c`, `| wc -l`, or `| head -N` so the transcript receives counts and named candidates rather than whatever the pattern happened to match. An unbounded scan defeats the packet.
-5. Inspect lane-owned hunks first. Follow a changed caller, contract, test, REQ anchor, or owner document only when its resolved symbol/block overlaps a changed-input hunk or a concrete lane candidate identifies the dependency. File-path equality alone is not direct invalidation.
-6. Read a whole file only after a hunk or direct invalidation identifies a candidate that cannot be verified from focused context. Treat generated seed files as derived output: review their canonical preseed source and use one deterministic source-to-seed identity check instead of searching generated lines repeatedly.
-7. Finalize every manifest row and give each candidate one direct-impact disposition. Do not recursively explore unrelated callers or graph communities.
-8. Stop when every lane-owned hunk, manifest row, and direct candidate has one disposition. Do not report unchanged baseline debt.
+**Wave 1 — everything derivable, in one call.** Parse the inlined packet (or build it once when no `<packet>` block is present). Derive the pending manifest and every direct-impact candidate. Read, in this same call, any conditional sub-policy the manifest triggers, so the policy arrives with the evidence it applies to. Emit compact counts, failures, and snippets for every lane hunk and only anchor targets intersecting `changedInputs[].hunks`; never raw packet JSON.
+
+**Wave 2 — every unresolved candidate at once, in one call.** Enter it only when a *named* candidate still lacks concrete evidence, and say what evidence is missing before you make the call. Then collect all of it together: one compound command answering every open question, not one command per question. Never re-query policy text, packet sections, or evidence already returned.
+
+**Then report.** Stop when every packet hunk, every manifest row, and every directly invalidated anchor has exactly one disposition.
+
+**This is a completeness rule, not a budget.** A required check is *batched*, never skipped to save a call. Take a further wave whenever a real question is still open — say what is missing, then ask. There is no turn count that is too many for a question you actually have, and no finding is ever traded for a shorter run. What is forbidden is only the drip: a call that answers one question when it could have answered eight, or that re-fetches something already in your context.
+
+Within a wave: inspect lane-owned hunks first, and follow a changed caller, contract, test, REQ anchor, or owner document only when its resolved symbol or block overlaps a changed-input hunk. File-path equality alone is not direct invalidation. Bound every searching command — `grep`/`rg` carries `-c`, `| wc -l`, or `| head -N`, so what returns is counts and named candidates rather than whatever the pattern happened to match; an unbounded scan puts raw output in context for every remaining turn and defeats the packet. Read a whole file only when a NAMED candidate genuinely cannot be verified from focused context, batched into a wave you were already taking. Treat generated seed files as derived output: review the canonical preseed source and run one deterministic source-to-seed identity check rather than searching generated lines. Do not recursively explore unrelated callers or graph communities, and do not report unchanged baseline debt.
 
 Code review does not re-review SDD or documentation prose. Spec and documentation reviewers may use `changedInputs` only to verify anchors or owned contract impact.
 
@@ -59,3 +62,5 @@ Code review does not re-review SDD or documentation prose. Spec and documentatio
 Walk every packet file in the requested corpus and execute every applicable enforcement row. A zero-finding result means the entire declared tree was inspected. Process each packet file once, never re-read completed evidence, and emit compact counts and failures rather than full-file output.
 
 Scope controls breadth only. It does not change severity, evidence, truth, or report-only restrictions. Never impose token, turn, tool, or concurrency limits as a substitute for scope.
+
+Broad discovery is forbidden at every wave: no repository survey, no indexed search, no re-reading evidence already returned, and no re-deriving what an inlined `<triage>`, `<packet>` or `<evidence>` block already resolved. Being handed an answer is not permission to skip the check — it *is* the check, already performed. A resolution discharges only what its field NAMES — an anchor row proves the symbol exists and, where a value pattern was given, that the value is present. It never reads the body against the claim, so CQ-SOURCE step 4 and Pass 15 step 4 are still yours, from the patch and locations already in hand: that is the one check being handed an answer does not perform.

@@ -27,7 +27,7 @@ Returns findings array + auto-fix actions. Writes evidence-count rows back to th
 - `Pass 10 — Stale code-block detection`: `ran (B blocks, M findings)`
 - `Pass 11 — Content-preservation on trim`: `ran (T ops, M findings)` or `inert (no trim ops)`
 - `Pass 12 — Stranger cold-read`: `ran (T tasks, M findings)` or `ran (cached, hit on SHA <sha>)`
-- `Pass 15 — Doc source-anchor truth-check`: `ran (D docs, A anchors verified, V drift, O orphaned, U unanchored)` — ALWAYS runs, never inert
+- `Pass 15 — Doc source-anchor truth-check`: `ran (D docs, A anchors verified, V drift, B broader-than-source, O orphaned, U unanchored)` — ALWAYS runs, never inert. `A anchors verified` counts anchors that RESOLVED; it is not a truth count.
 
 **Layout-awareness.** Doc file discovery uses `documentation/lanes/**/*.md` and `documentation/decisions/**/*.md` when the nested layout exists; falls back to `documentation/*.md` and `documentation/decisions/*.md` on flat layout.
 
@@ -130,6 +130,7 @@ For each direct `<!-- @impl: ... -->` comment in a doc file:
 1. **Resolve symbol** via `mcp__graphify__get_node(<symbol>)`. Fallback: grep `<symbol>` in `<path>`. Symbol not resolved → HIGH `doc-anchor-orphaned` listing file, section, anchor.
 2. **Verify value (when `<value-pattern>` present).** Grep symbol body for literal pattern. Not found → HIGH `doc-value-drift`.
 3. **Verify behaviour overlap (when no `<value-pattern>`).** Token overlap between the fact's surrounding prose (≥4-char content words) and the symbol body must be ≥3. Below threshold → MEDIUM `doc-behavior-orphaned`.
+4. **Verify the claim, not the vocabulary.** Overlap answers "is this the right symbol"; it never answers "is the documented fact true", and passing it discharges nothing. Read the resolved body and check what the prose actually claims — especially its scope words. A fact claiming *every*, *any*, *all* or *always* against a body that handles some is MEDIUM `doc-claim-broader-than-source`, listing file, the claim and the case the source does not cover. Documentation stating a narrower truth is never a finding; documentation stating a wider one is, because a reader takes the wider claim and stops checking. This is the doc mirror of CQ-SOURCE's `spec-claim-contradicted`, and it fails the same way: the overlap is strongest exactly where the prose enumerates the cases, which is where an over-broad claim is written.
 
 For each load-bearing fact WITHOUT direct anchor AND WITHOUT REQ backlink: MEDIUM `doc-fact-not-anchored` listing file, section, the fact. Auto-fix in `auto`/`unleashed`: best-effort retrofit — attempt to source-scan the fact's noun phrase against the project source via graphify; on plausible match, insert `<!-- @impl: ... -->`. On no plausible match, escalate to `documentation/.doc-coverage.md` under `## Anchor gaps`.
 
