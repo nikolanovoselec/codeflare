@@ -581,7 +581,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
         assert.match(
           claudeDocument.content,
           /skills\/<name>\/SKILL\.md/,
-          `${reviewer} does not embed ${skillName}, so it must carry the command that fetches it`,
+          `${reviewer} leaves a policy unembedded, so it must carry the fetch command`,
         );
       }
       // No prose-contradiction guard here, deliberately. One was written to

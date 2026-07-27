@@ -1121,3 +1121,22 @@ describe('lane-evidence.mjs — the candidate ceiling and a failed scan', () => 
     assert.equal(out.truncated, true, 'a bounded weak list must say it was bounded');
   });
 });
+
+describe('lane-evidence.mjs — a manifest key is not a dependency', () => {
+  it('does not resolve a metadata key in a sectioned manifest', () => {
+    const { cwd, base } = makeRepo();
+    // Every one of these keys is also a real published package name, so the
+    // resolver cannot filter them by name -- only by where they sit. Above a
+    // dependencies heading they are metadata; under one they are packages.
+    write(cwd, 'Cargo.toml', '[package]\nname = "thing"\nversion = "1"\nbuild = "b.rs"\n\n[dependencies]\nserde = "1"\n');
+    write(cwd, 'Pipfile', '[[source]]\nurl = "https://pypi.org/simple"\nverify_ssl = true\n\n[packages]\nhttpx = "*"\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: manifests');
+
+    write(cwd, 'documentation/x.md', 'Uses `serde`, `httpx`, `build`, `verify_ssl`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved.map((r) => r.ref).sort(), ['build', 'verify_ssl'],
+      'keys above a dependencies heading are metadata, and the packages under one resolve');
+  });
+});

@@ -378,7 +378,11 @@ const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|
 // Both are one-line fixes to the wrong question: what the token means depends
 // on the grammar it sits in.
 const DIRECTIVE_MANIFEST = /(^|\/)(go\.mod|Gemfile|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
-const SECTIONED_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml)$/;
+const SECTIONED_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|Pipfile)$/;
+// `[packages]` and `[dev-packages]` are Pipfile's dependency headings and match
+// neither `dependencies` nor `deps`, so the heading test has to admit them or
+// the file resolves nothing.
+const DEPENDENCY_HEADING = /depend|packages/i;
 
 // The first token on a manifest line is a dependency in `Cargo.toml` and
 // `requirements.txt` and a directive in `Gemfile`, `go.mod` and a Gradle build.
@@ -423,7 +427,7 @@ function declaredDependencies(repo, listing) {
     for (const raw of (read(repo, path) ?? '').split('\n')) {
       const line = raw.trim();
       if (sectioned && line.startsWith('[')) {
-        inDependencies = /depend/i.test(line);
+        inDependencies = DEPENDENCY_HEADING.test(line);
         continue;
       }
       if (!line || line.startsWith('#') || line.startsWith('//')) continue;
