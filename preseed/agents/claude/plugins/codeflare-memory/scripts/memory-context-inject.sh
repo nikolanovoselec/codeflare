@@ -66,7 +66,10 @@ KEYWORDS=$(printf '%s' "$PROMPT_TEXT" | head -c 200 \
 # An override is rejected unless it is a plausible byte count. A non-numeric one
 # would make the comparison exit 2 and, under `set +e`, carry on; an all-digit
 # but out-of-range one fails the same way with the error swallowed. Both leave a
-# guard that reads as present and does nothing.
+# guard that reads as present and does nothing. The second pattern is eighteen
+# `?` and so rejects 18 digits or more: `test -gt` compares 64-bit integers,
+# which top out at nineteen digits, and seventeen is the widest length that
+# cannot overflow whatever the leading digit is.
 MAX_GRAPH_BYTES="${MEMORY_INJECT_MAX_GRAPH_BYTES:-104857600}"
 case "$MAX_GRAPH_BYTES" in
   ''|*[!0-9]*) MAX_GRAPH_BYTES=104857600 ;;
