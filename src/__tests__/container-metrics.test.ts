@@ -148,7 +148,7 @@ vi.mock('../lib/logger', () => ({
 
 // Import AFTER mocks are set up
 import { container } from '../container/index';
-import { drainFinalSync, FINAL_SYNC_BUDGET_MS } from '../container/container-metrics';
+import { drainFinalSync, FINAL_SYNC_BUDGET_MS, CONTAINER_POLL_BUDGET_MS } from '../container/container-metrics';
 
 describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
@@ -330,7 +330,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     // the mock below never settles, so this case fails by timeout rather than by
     // assertion. Costs one real poll budget of wall-clock; that is the price of
     // proving a hang rather than simulating one.
-    it('re-arms the alarm when an in-container poll never answers', async () => {
+    it('REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers', async () => {
       const session: Session = {
         id: 'testsession123456',
         name: 'Test',
@@ -558,7 +558,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     // abort support is not established. This stub ignores the signal entirely and
     // never answers — exactly the unproven case — and the alarm must still re-arm.
     // Deleting the race in raceBudget hangs this test until its own timeout.
-    it('re-arms the alarm when the Timekeeper ping never answers', async () => {
+    it('REQ-SESSION-020 AC1: re-arms the alarm when the Timekeeper ping never answers', async () => {
       testState.storedBucketName = 'test-bucket';
       testState.storedSessionId = 'testsession123456';
       testState.storedUserEmail = 'quota@example.com';
@@ -596,11 +596,25 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
 
       testState.scheduleCalls = [];
-      await instance.collectMetrics();
+      // Fake timers only from here — the vi.waitFor above needs real ones.
+      // raceBudget's bound is a plain setTimeout so it is faked, while the
+      // retained AbortSignal.timeout is native and is not. That asymmetry is the
+      // point: the race is the only thing that can end this await, and faking it
+      // proves that in milliseconds instead of ten real seconds. The first
+      // advance drains the awaits ahead of the ping so its timer is armed.
+      vi.useFakeTimers();
+      try {
+        const pending = instance.collectMetrics();
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(CONTAINER_POLL_BUDGET_MS);
+        await pending;
+      } finally {
+        vi.useRealTimers();
+      }
 
       expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
-    }, 25_000);
+    });
 
     it('REQ-SESSION-011 AC6: quota-stop drains the final sync BEFORE stop (same order as idle-stop)', async () => {
       // The quota-eviction path must drain through /internal/final-sync before

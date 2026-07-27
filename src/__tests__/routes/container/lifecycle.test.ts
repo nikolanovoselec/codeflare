@@ -418,7 +418,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
 // leave nothing to clear the marker or restore 'running', so self-heal declines
 // by design and the authoritative 4503 gate refuses every terminal upgrade.
 describe('Container Lifecycle - restart after a bucket change', () => {
-  it('starts the container even when the bucket forward fails after destroy', async () => {
+  it('REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy', async () => {
     const waitUntil = vi.fn();
     const kv = createMockKV();
     // What destroy() left behind: stopped, with lastActiveAt refreshed on its way
