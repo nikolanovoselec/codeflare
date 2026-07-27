@@ -128,7 +128,7 @@ test('REQ-AGENT-059 AC7: all scope enumerates the lane tree while diff rejects a
 // exceeded the bound on every run read as "this lane has no evidence" and
 // nothing surfaced it. The reviewer can act on a named reason; it cannot act on
 // a key that is simply missing.
-test('REQ-AGENT-108: an evidence failure is named in the packet, not dropped', () => {
+test('REQ-AGENT-109: an evidence failure is named in the packet, not dropped', () => {
   const isolated = mkdtempSync(join(tmpdir(), 'packet-no-resolver-'));
   const script = join(isolated, 'build-review-packet.mjs');
   writeFileSync(script, readFileSync(join(

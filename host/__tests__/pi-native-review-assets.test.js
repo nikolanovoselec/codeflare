@@ -593,7 +593,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     }
   });
 
-  it('REQ-AGENT-108: a self-building reviewer is told how to proceed without evidence', () => {
+  it('REQ-AGENT-109: a self-building reviewer is told how to proceed without evidence', () => {
     // The invariant, not the wording. A reviewer that is told to build its own
     // packet is the only kind that can be handed `evidenceOmitted` instead of a
     // block, so every such reviewer must also carry the absent-evidence branch

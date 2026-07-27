@@ -2368,7 +2368,7 @@ None.
 
 ### REQ-AGENT-108: Reviewer Evidence Resolution Fidelity
 
-**Intent:** The evidence a review lane is handed must be produced fast enough that every transport delivers it, must resolve a documented name by any honest form it can be written in, and must name its own failure, so a lane never re-derives what it holds nor acts on a list of names that were never stale.
+**Intent:** The evidence a review lane is handed must be produced fast enough that every transport delivers it and must resolve a documented name by any honest form it can be written in, so a lane never re-derives what it holds nor acts on a list of names that were never stale.
 
 **Applies To:** Agent
 
@@ -2379,9 +2379,7 @@ None.
 3. A documented name resolves by the strongest form holding it, never a weaker one: path tail, basename, directory, declaration in any repository language, exact npm dependency, registered string, then a token in a dependency manifest. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::quotedLiterals --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declaredDependencies --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::DECL_SHAPES --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a name that appears under more than one directory) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves declarations and dependencies in a repo that is not JavaScript) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a control keyword in another language declare a name) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not demote a real declaration that a manifest happens to also mention) -->
 4. Notation that documents an interface rather than naming code is never a resolvable candidate. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::resolveDocReferences --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) -->
 5. The unresolved list carries an explicit bound, and a list reaching that bound is marked truncated so the remainder is known to be outstanding. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports every unresolved reference rather than a capped sample) --> <!-- @test: host/__tests__/lane-evidence.test.js (marks a list that reaches the bound as truncated) -->
-6. A resolver that fails names the reason in the packet instead of omitting the block. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::laneEvidence --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-108: an evidence failure is named in the packet, not dropped) -->
-7. Every reviewer that builds its own packet is told what to do when the evidence block is absent. <!-- @impl: preseed/agents/pi/agents/doc-updater.md::evidenceOmitted --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-108: a self-building reviewer is told how to proceed without evidence) -->
-8. A name resolved only on the weakest evidence the resolver accepts -- a registered string, or a token in a dependency manifest -- is reported in its own class rather than as an ordinary pass. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a name known only from a manifest as a weak resolution rather than a pass) --> <!-- @test: host/__tests__/lane-evidence.test.js (retries the last segment for a package but never for a version fragment) -->
+6. A name resolved only on the weakest evidence the resolver accepts -- a registered string, or a token in a dependency manifest -- is reported in its own class rather than as an ordinary pass. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a name known only from a manifest as a weak resolution rather than a pass) --> <!-- @test: host/__tests__/lane-evidence.test.js (retries the last segment for a package but never for a version fragment) -->
 
 **Constraints:**
 
@@ -2395,6 +2393,31 @@ None.
 **Dependencies:** [REQ-AGENT-105](#req-agent-105-review-lane-turn-economy)
 
 **Verification:** Automated test ([lane evidence tests](../../host/__tests__/lane-evidence.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-109: Reviewer Evidence Absence Contract
+
+**Intent:** A resolver that could not produce evidence must be visible as a failure rather than as a packet with one fewer block, and every lane that meets an absent block must already know what to do about it, so nothing is silently reviewed against evidence that was never gathered.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A resolver that fails names the reason in the packet instead of omitting the block. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::laneEvidence --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-109: an evidence failure is named in the packet, not dropped) -->
+2. Every reviewer that builds its own packet is told what to do when the evidence block is absent. <!-- @impl: preseed/agents/pi/agents/doc-updater.md::evidenceOmitted --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-109: a self-building reviewer is told how to proceed without evidence) -->
+
+**Constraints:**
+
+- An absent block is a lookup the lane owes by hand, never a check that is skipped and never a failed packet call.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-108](#req-agent-108-reviewer-evidence-resolution-fidelity)
+
+**Verification:** Automated test ([Pi review workset tests](../../host/__tests__/pi-review-workset.test.js), [Pi native review asset tests](../../host/__tests__/pi-native-review-assets.test.js))
 
 **Status:** Implemented
 
