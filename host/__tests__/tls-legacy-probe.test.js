@@ -45,15 +45,20 @@ const SERVER_HELLO = Buffer.from([
  * hangup is swallowed here rather than left to crash every later case.
  */
 function serveOnce(reply) {
-  const server = net.createServer((socket) => {
-    socket.on('error', () => {});
-    socket.once('data', () => {
-      if (reply) socket.write(reply);
-      socket.end();
+  return new Promise((ready, fail) => {
+    const server = net.createServer((socket) => {
+      socket.on('error', () => {});
+      socket.once('data', () => {
+        if (reply) socket.write(reply);
+        socket.end();
+      });
     });
+    // Only the per-connection hangup above is expected. A listen failure is
+    // not, and swallowing it here would leave this promise unsettled so the
+    // case hung to the runner timeout instead of naming its cause.
+    server.on('error', fail);
+    server.listen(0, '127.0.0.1', () => ready(server));
   });
-  server.on('error', () => {});
-  return new Promise((ready) => server.listen(0, '127.0.0.1', () => ready(server)));
 }
 
 /**
@@ -65,7 +70,12 @@ function serveOnce(reply) {
 function runProbeArgs(args) {
   return new Promise((settle) => {
     execFile('python3', [PROBE, ...args], { encoding: 'utf8' }, (error, stdout, stderr) => {
-      settle({ status: error ? error.code : 0, stdout, stderr });
+      // error.code is the exit status on a normal exit, but 'ENOENT' when
+      // python3 is missing and undefined when the child is signalled. Both of
+      // those produce empty output, so the reason is carried in `detail` or the
+      // case fails as a bare value mismatch with nothing to go on.
+      const status = error ? (error.code ?? `signal:${error.signal}`) : 0;
+      settle({ status, stdout, stderr, detail: error ? String(error) : '' });
     });
   });
 }
@@ -82,7 +92,7 @@ describe('REQ-OPS-005: legacy-TLS probe reports the server answer', () => {
     const server = await serveOnce(ALERT_PROTOCOL_VERSION);
     servers.push(server);
     const result = await runProbe(server.address().port);
-    assert.equal(result.status, EXIT.refused, result.stdout + result.stderr);
+    assert.equal(result.status, EXIT.refused, result.stdout + result.stderr + result.detail);
     assert.match(result.stdout, /^PASS:/);
   });
 
@@ -90,7 +100,7 @@ describe('REQ-OPS-005: legacy-TLS probe reports the server answer', () => {
     const server = await serveOnce(SERVER_HELLO);
     servers.push(server);
     const result = await runProbe(server.address().port);
-    assert.equal(result.status, EXIT.accepted, result.stdout + result.stderr);
+    assert.equal(result.status, EXIT.accepted, result.stdout + result.stderr + result.detail);
     assert.match(result.stdout, /^FAIL:/);
     // The version reported must be the one the ServerHello negotiated, not the
     // record layer's -- the fixture makes them differ so this can fail.
@@ -102,7 +112,7 @@ describe('REQ-OPS-005: legacy-TLS probe reports the server answer', () => {
     const server = await serveOnce(ALERT_HANDSHAKE_FAILURE);
     servers.push(server);
     const result = await runProbe(server.address().port);
-    assert.equal(result.status, EXIT.inconclusive, result.stdout + result.stderr);
+    assert.equal(result.status, EXIT.inconclusive, result.stdout + result.stderr + result.detail);
     assert.doesNotMatch(result.stdout, /^PASS:/);
   });
 
@@ -110,13 +120,13 @@ describe('REQ-OPS-005: legacy-TLS probe reports the server answer', () => {
     const server = await serveOnce(null);
     servers.push(server);
     const result = await runProbe(server.address().port);
-    assert.equal(result.status, EXIT.inconclusive, result.stdout + result.stderr);
+    assert.equal(result.status, EXIT.inconclusive, result.stdout + result.stderr + result.detail);
     assert.doesNotMatch(result.stdout, /^PASS:/);
   });
 
   it('is inconclusive, never a pass, when nothing is listening', async () => {
     const result = await runProbe(1);
-    assert.equal(result.status, EXIT.inconclusive, result.stdout + result.stderr);
+    assert.equal(result.status, EXIT.inconclusive, result.stdout + result.stderr + result.detail);
     assert.doesNotMatch(result.stdout, /^PASS:/);
   });
 
@@ -124,7 +134,7 @@ describe('REQ-OPS-005: legacy-TLS probe reports the server answer', () => {
     const server = await serveOnce(Buffer.from([0x99, 0x03, 0x01, 0x00, 0x02, 0x00, 0x00]));
     servers.push(server);
     const result = await runProbe(server.address().port);
-    assert.equal(result.status, EXIT.inconclusive, result.stdout + result.stderr);
+    assert.equal(result.status, EXIT.inconclusive, result.stdout + result.stderr + result.detail);
     assert.doesNotMatch(result.stdout, /^PASS:/);
   });
 
