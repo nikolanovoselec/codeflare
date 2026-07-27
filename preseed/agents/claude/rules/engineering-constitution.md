@@ -108,7 +108,7 @@ finish the current concrete step to a safe stopping point, then handle the new r
 order. If the new message explicitly says to stop, pause, or reprioritize, obey it; otherwise
 complete what you were doing first.
 
-## Review push gate (absolute)
+## Review push gate
 
 Never `git push` while a review is running, pending, missing, stale, or incomplete for the
 current head. Only explicit user authorisation lifts this; no finding severity, reviewer

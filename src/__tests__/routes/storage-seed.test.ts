@@ -29,6 +29,7 @@ vi.mock('../../lib/r2-config', () => ({
 
 vi.mock('../../lib/agent-seed.generated', () => ({
   PRESEED_CONTENT_HASH: 'test_hash_abc123',
+  RETIRED_PRESEED_KEYS: [] as readonly string[],
 }));
 
 import { createBucketIfNotExists } from '../../lib/r2-admin';

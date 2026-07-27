@@ -27,7 +27,11 @@ const { mockFetch, mockCreateR2Client, testState } = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../lib/r2-client', () => ({
+// Partial rather than a bare factory: every cleanup reconcile runs the stale-marker
+// sweep, which needs the real parser even here, where no listing fixture is supplied
+// and it parses the empty body into an empty result.
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
   createR2Client: mockCreateR2Client,
   getR2Url: vi.fn((endpoint: string, bucket: string, key: string) =>
     `${endpoint}/${bucket}/${key}`
@@ -38,6 +42,8 @@ vi.mock('../../lib/agent-seed.generated', () => ({
   get AGENTS_SEEDED_CONFIGS() {
     return testState.agentDocs;
   },
+  RETIRED_PRESEED_KEYS: [] as readonly string[],
+  PRESEED_CONTENT_HASH: 'testhash00000000',
 }));
 
 vi.stubGlobal('fetch', mockFetch);

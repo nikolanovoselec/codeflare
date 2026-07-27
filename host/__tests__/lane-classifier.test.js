@@ -144,11 +144,31 @@ describe('compute_required_lanes - file classification', () => {
     assert.equal(classify(cwd, base, next), 'spec-reviewer doc-updater');
   });
 
-  it('source file diff returns all three lanes (behavioral catch-all)', () => {
+  it('source file diff no spec or doc anchor cites returns the code lane alone', () => {
+    // The spec and doc trees provably have nothing to check here: neither
+    // surface changed and no @impl anchor names the changed file. Spawning
+    // those lanes anyway bought two agent startups that opened, found no
+    // lane-owned file, and exited.
     const { cwd, run } = makeRepo();
     const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
     const next = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
-    assert.equal(classify(cwd, base, next), 'code-reviewer spec-reviewer doc-updater');
+    assert.equal(classify(cwd, base, next), 'code-reviewer');
+  });
+
+  it('a documentation @impl anchor citing the changed file pulls the doc lane back in', () => {
+    const { cwd, run } = makeRepo();
+    commitFile(cwd, run, 'documentation/api.md', 'x <!-- @impl: src/foo.ts -->\n', 'docs: anchored');
+    const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
+    const next = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    assert.equal(classify(cwd, base, next), 'code-reviewer doc-updater');
+  });
+
+  it('an sdd @impl anchor citing the changed file pulls the spec lane back in', () => {
+    const { cwd, run } = makeRepo();
+    commitFile(cwd, run, 'sdd/spec/x.md', 'x <!-- @impl: src/foo.ts -->\n', 'spec: anchored');
+    const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
+    const next = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    assert.equal(classify(cwd, base, next), 'code-reviewer spec-reviewer');
   });
 
   it('mixed src + sdd diff returns all three lanes (behavioral wins)', () => {
@@ -166,20 +186,14 @@ describe('compute_required_lanes - file classification', () => {
     const { cwd, run } = makeRepo();
     const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
     const next = commitFile(cwd, run, 'host/__tests__/foo.test.js', '// test\n', 'test: foo');
-    assert.equal(
-      classify(cwd, base, next),
-      'code-reviewer spec-reviewer doc-updater',
-    );
+    assert.equal(classify(cwd, base, next), 'code-reviewer');
   });
 
   it('entrypoint.sh / config files count as behavioral', () => {
     const { cwd, run } = makeRepo();
     const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
     const next = commitFile(cwd, run, 'entrypoint.sh', '#!/bin/bash\n', 'chore: entry');
-    assert.equal(
-      classify(cwd, base, next),
-      'code-reviewer spec-reviewer doc-updater',
-    );
+    assert.equal(classify(cwd, base, next), 'code-reviewer');
   });
 });
 
@@ -196,7 +210,7 @@ describe('compute_required_lanes - generated graphify-out artifacts (REQ-AGENT-0
     const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
     commitFile(cwd, run, 'graphify-out/graph.json', '{}\n', 'chore: refresh graph');
     const next = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
-    assert.equal(classify(cwd, base, next), 'code-reviewer spec-reviewer doc-updater');
+    assert.equal(classify(cwd, base, next), 'code-reviewer');
   });
 
   it('graphify-out mixed with sdd only returns spec-reviewer + doc-updater', () => {
@@ -221,10 +235,10 @@ describe('compute_required_lanes - rename safety (--no-renames)', () => {
     run('mv', 'src/foo.ts', 'documentation/foo.md');
     run('commit', '-q', '-m', 'rename: src to docs');
     const next = run('rev-parse', 'HEAD').stdout.trim();
-    assert.equal(
-      classify(cwd, base, next),
-      'code-reviewer spec-reviewer doc-updater',
-    );
+    // The point of the guard is that the SOURCE path survives into the diff, so
+    // the code lane still fires. --no-renames also surfaces the new doc path,
+    // which independently earns the doc lane.
+    assert.equal(classify(cwd, base, next), 'code-reviewer doc-updater');
   });
 });
 
@@ -240,7 +254,7 @@ describe('compute_required_lanes - file mode changes', () => {
     run('add', '-A');
     run('commit', '-q', '-m', 'chore: make executable');
     const head = run('rev-parse', 'HEAD').stdout.trim();
-    assert.equal(classify(cwd, base, head), 'code-reviewer spec-reviewer doc-updater');
+    assert.equal(classify(cwd, base, head), 'code-reviewer');
   });
 });
 
@@ -255,7 +269,10 @@ describe('compute_required_lanes - inert source deltas', () => {
   // Every fixture MODIFIES a file committed in an earlier commit. That is
   // load-bearing: an added or deleted file is never inert, however trivial its
   // body, because it changes the set of modules.
-  const ALL = 'code-reviewer spec-reviewer doc-updater';
+  // A src-only fixture with no @impl anchor citing it owes the code lane and
+  // nothing else; 'not inert' means the code lane must still fire, which is
+  // what these assert.
+  const ALL = 'code-reviewer';
 
   function seeded(body = 'export const a = 1;\n') {
     const { cwd, run } = makeRepo();

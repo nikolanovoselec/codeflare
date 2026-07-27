@@ -2644,7 +2644,7 @@ Separately, manual verification was REQ-level: `Verification: Manual check` exem
 
 **Decision:** The Claude-tree skill files are the single canonical, agent-neutral enforcement contract; Pi receives them through the existing seed-generator transform (tool-name remap, path rewrites, appended compatibility note), and the seven Pi-native overrides plus their manifest entries are deleted. Reviewer agent definitions and Pi's `review`/`review-scope` dispatch layer are unchanged ([AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) still governs the Pi-native `review` skill; this decision covers only the enforcement-policy layer). Where the copies conflicted, the stricter side won: 40-word list items, `prose-unverifiable` HIGH, mandated verbatim integrity commands. Pi-only rules were ported into the canon: `spec-test-anchor-multiple` (HIGH — the greedy title capture cannot parse two `@test` anchors on one line) and the FULLY AUTONOMOUS round-limit override backed by the shared `round-limit.mjs` gate.
 
-Manual verification became per-AC: an AC that cannot be automatically verified carries inline `<!-- @manual -->` (bare) or `<!-- @manual: <procedure> -->` (with dedicated guidance) instead of anchors; the `Verification:` field derives categorically from the markers (`Manual check` iff every AC is `@manual`; drift is MEDIUM `verification-field-marker-drift`); the four checklist sections, their TOC entries, and all pointer sites were deleted, with the eleven bespoke procedures relocated verbatim into their owning REQs' marker payloads ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract), [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)).
+Manual verification became per-AC: an AC that cannot be automatically verified carries inline `<!-- @manual -->` (bare) or `<!-- @manual: <procedure> -->` (with dedicated guidance) instead of anchors; the `Verification:` field derives categorically from the markers (`Manual check` iff every AC is `@manual`; drift is MEDIUM `verification-field-marker-drift`); the four checklist sections, their TOC entries, and all pointer sites were deleted, with the eleven bespoke procedures relocated verbatim into their owning REQs' marker payloads ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract), [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)).
 <!-- @impl: scripts/generate-agent-seed.mjs::adaptPiSkillContent -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
 <!-- @impl: preseed/agents/claude/skills/spec-driven-development/SKILL.md::Manual-verification convention (@manual, per-AC) -->
@@ -2843,3 +2843,96 @@ Before launch, every agent kind seeds OpenVSCode User settings that disable work
 
 The custom webviews, xterm, node-pty, ABI-127 addon build, and owned Claude PTY code are removed. The image grows by the extracted official extension (about 285 MiB), and an OpenVSCode or Anthropic API change can break integration; exact package, manifest, proposal, complete-image, and laziness checks therefore fail closed. The owner accepts the proprietary-license and local authenticated-MCP boundaries. <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC2 + REQ-IDE-006 AC1: native Pi receives bounded editor, reference, diagnostic, and chat context) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-005 AC2 + REQ-IDE-006 AC1: official Claude launch writes isolated OpenVSCode settings) -->
 
+
+---
+
+### AD115: Claude PR-boundary review lanes run as headless `claude -p` subprocesses
+
+**Category:** Architecture, Cost
+
+**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport).
+
+**Context:** A review lane began work already holding context it had no way to refuse. Claude Code injects CLAUDE.md, every `~/.claude/rules/*.md`, MEMORY.md and the SessionStart blocks into every subagent, and exposes no frontmatter field that excludes any of them — measured at 20,513 prompt tokens against an agent whose own document is nearly empty, so the figure is the harness rather than the lane.
+
+Reducing the reviewers to `tools: ["Bash"]` moved it by roughly 1,200 tokens, because tool schemas are already loaded on demand and were never where the cost sat. What a lane actually carried was a memory index of files it has no tool to open, a block instructing it to prefer retrieval tools it is explicitly denied, and rule files whose enforcement content it already embeds. Every turn re-sends the whole prompt, so that overhead multiplied by turn count rather than being paid once. This mirrors the Pi-side problem settled in [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
+
+**Decision:** Run each lane as a headless subprocess — `claude -p --setting-sources "" --strict-mcp-config --system-prompt <agent-doc> --tools Bash` — rather than an Agent subagent. The three controls that collapse the floor exist only on the command line, which is what forces a subprocess: `--setting-sources ""` takes the measured floor to 21,034, `--system-prompt` to 17,598, and `--tools Bash` to 1,533. Each lane's declared `model` and `effort` are read from its own frontmatter and passed through, so the transport change re-tiers nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+
+Declining inherited settings also declines hooks, so the container guards are passed back explicitly via `--settings` and invoked as `bash <script>`: the seeded hook scripts ship non-executable, and a bare command path fails silently, which reads as permission rather than as breakage.
+
+A lane that owns no changed file in the range short-circuits before the model is invoked. Measured, an empty range otherwise took seven turns and 67,609 prompt tokens for the model to conclude there was nothing to review — the most expensive possible way to answer a question Git answers for free. Uncertainty falls through to a full review rather than skipping one.
+
+The Stop-hook gate matched an Agent envelope, which a subprocess never emits. It now credits either transport, so migrating a lane can never narrow what qualifies as reviewed. Lanes are dispatched as background calls, and a background Bash call completes with the same notification shape a background subagent does, so one completion contract still covers both and is unchanged from before the transport existed.
+
+What must never count as completion is the tool_result the harness returns the instant a background call is launched: it carries the same identifier but holds a background shell id and means "launched". Accepting it would credit all three lanes at launch and acknowledge a head whose review was still running — the gate inverted. Spawn detection is likewise structural rather than textual, because a substring match let one command quoting the runner path satisfy every lane at once; the runner must occupy command position, quoted or not. `--lane <name>` is the gate's match token, and renaming it would disable enforcement silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_spawn_lines --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_completed -->
+
+A launched lane can also end *badly*, and that is a third state the gate originally lacked. `completed` and `failed` are both terminal — the process is gone either way — but only `completed` may credit a review. Treating `failed` as indistinguishable from "still running" meant the gate waited on a dead process until a staleness bound expired, the head was never acknowledged, and the next push measured its range from the last *acknowledged* head rather than the last reviewed one. 
+
+One lost lane therefore widened every subsequent review permanently: measured once as a ten-commit re-review where a single commit was due. A failed lane is now re-demanded immediately and named in the demand, because its report can be readable enough to look like a finished round. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::spawn_ended_unsuccessfully --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_has_coverage_after_line -->
+
+Acknowledgement itself was also making the wrong claim. Advancing the checkpoint on lane exit records that three processes ran, not that anything was read, so a round returning into a session that never triaged it moved the checkpoint past its own unacted findings. The gate now requires the triage verdict — recognised structurally, by the table header and divider in a message carrying no tool call, after the last lane returned — and then issues the fix directive itself rather than trusting the session to remember. The Pi enforcement path already worked this way, so both runtimes key on one table shape. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::triage_published_after_line -->
+
+The subprocess is also time-bounded, and the bound is validated rather than merely defaulted: `timeout 0` means *no* timeout, so an empty, zero, or non-numeric override resolves to the default instead of silently removing the bound, and expiry escalates past `SIGTERM` so a lane wedged in an auth prompt or a retry loop is actually reaped. Guard settings are built programmatically and verified non-empty before use for the same fail-closed reason: a missing dependency, a missing guard script, or a config path containing a space must stop the lane rather than yield a settings file whose hooks never fire. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+
+**Related:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
+
+---
+### AD116: Review-lane Phase 0 is computed deterministically and handed to the lane
+
+**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-103](../../sdd/spec/agents.md#req-agent-103-deterministic-lane-triage).
+
+**Context:** Every PR-boundary lane opened with a six-step Phase 0 — SDD bootstrap, layout resolution, config read, transition check, round counter, bulk-op audit. Each step was its own Bash call and therefore its own turn. Measured at ~3,945 tokens and 5–6 turns per lane before any reviewing began. Because a lane re-sends its whole prompt every turn, triage output is the most expensive evidence a lane can hold: arriving first, it is re-read on every turn that follows. Not one of the six steps requires a model — they are `test -f`, a config read, and two `git log` walks — and the diff-classification step was already answered by the lane classifier before the lane was spawned.
+
+**Decision:** Resolve Phase 0 in `lib/lane-triage.mjs` before the subprocess starts and inline the result, with the already-built review packet, into the lane's opening prompt. The reviewer documents instruct the lane to treat that block as authoritative and never re-derive it. A triage-proven no-op (no SDD bootstrap, an active transition, a round limit) returns without invoking a model, extending the existing zero-token short-circuit. Lane ownership is still computed by the shell classifier and passed in rather than reimplemented, so there remains one source of truth for it.
+
+**Consequences:** Measured on one range, all three lanes: 67 turns → 19, and 1,874,525 prompt tokens → 468,537. Finding quality did not drop — the doc lane returned more findings than before, because precise triage replaced evidence it previously had to derive. The cost is that triage now reproduces two enforcement gates (round limit, bulk-op audit) in a second place; both are pinned by behavioral tests, and every unresolvable condition resolves to running the review rather than skipping it, so a triage bug degrades to a redundant review rather than a silent enforcement hole.
+
+**Supersedes:** none. Extends [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses).
+
+---
+
+### AD117: Review-lane cost is governed by turn count, so evidence gathering is structured in waves
+
+**Category:** Architecture, Cost
+
+**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-105](../../sdd/spec/agents.md#req-agent-105-review-lane-turn-economy).
+
+**Context:** Four measured review rounds refused to correlate with diff size — a two-commit range cost 1.30M prompt tokens while a nine-commit range cost 0.80M. Fitting all twelve lane-runs gives `prompt_tokens ~= T*(S+E) + 2.75k*T^2`, where `T` is turns, `S` the system prompt and `E` the inlined evidence. The fit is close: the spec lane at sixteen turns predicts 1,113k against 1,117k actual, the doc lane at eight predicts 362k against 401k. A lane re-sends its entire prompt every turn, so the accumulated conversation makes the second term quadratic and it dominates everything else past a handful of turns.
+
+Every cost lever considered before this was linear in `T` and therefore worth 5-10%: trimming reviewer prose, splitting apply-only policy out of the enforcement skills, narrowing the packet. The one lever that is quadratic had not been touched.
+
+**Decision:** Structure lane evidence gathering into waves rather than capping it. Wave one parses what the lane was handed, derives everything derivable, and reads any conditional sub-policy the manifest triggers. Wave two, entered only when a *named* candidate still lacks evidence, collects all of it in one call. Then the lane reports, stopping when every packet hunk, manifest row and invalidated anchor has exactly one disposition. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::scope=diff execution -->
+
+This is a completeness rule, not a budget, and the distinction is load-bearing: an earlier "at most four Bash calls" cap made a lane exhaust its allowance on environment discovery and report its required sub-policy read as unverified. Truncating a review is a worse failure than an expensive one. The wave budget is therefore surfaced on stderr and never enforced. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+
+The same measurement settles what to embed. Inlining beats fetching only when the fetch would cost an extra turn; inside a wave that was happening anyway, a fetch costs nothing while carrying the policy costs its bytes on every turn. So small, always-applicable policy is embedded — `review-scope`, the enforcement spines, `tdd-enforce` — and large conditional policy is read in wave one. Inlining `tdd-enforce` (15 KB) took the code lane from fourteen turns to eight; inlining `spec-enforce-ac` and `spec-enforce-truth` (41 KB) took the spec lane from ten turns to sixteen and cost 2.4x. Both followed from the same rule applied with and without regard to size.
+
+**Consequences:** Predicted at three turns: 57k for the code lane, 72k for spec, 61k for doc, against 262k / 1,117k / 401k measured at eight, sixteen and eight. The prediction is the point of the model and the next round is its test. The risk is that a lane reads the wave structure as permission to stop early; the completeness rule and the unchanged verdict gate are what hold against that, and the stderr line makes an over-budget run visible rather than silently truncated.
+
+**Related:** [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses), [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane).
+
+---
+
+### AD118: Seed provenance is carried in R2 custom metadata, verified before it was relied on
+
+**Status:** Accepted (2026-07-27). Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
+
+**Context:** Files a release stopped shipping were never removed from existing buckets, so retired policy kept loading beside whatever replaced it. Cleanup derived its delete list from the generated seed, so a key dropped from the seed also vanished from the delete list; the escape hatch was a hand-maintained enumeration carrying three entries against a real backlog of 165.
+
+Removing them by name alone is not safe, because a key is a filename and not proof of ownership — a user may have their own file at a retired path. The distinguishing fact has to be recorded when the file is written, not guessed when it is deleted.
+
+**Decision:** Every seed write stamps `x-amz-meta-codeflare-preseed` with the writing build's preseed hash. A reconcile rewrites every live key before cleaning, so an object still carrying an older build's marker is one the product has dropped — which removes the bookkeeping rather than automating it, since the object already records what a list would have had to remember. <!-- @impl: src/lib/r2-seed.ts::seedDocuments -->
+
+**Verification (empirical, 2026-07-27).** The mechanism rests on three claims about systems we do not control, so they were probed against a real R2 bucket before anything was built on them, with a throwaway key deleted afterwards:
+
+- a PUT carrying `x-amz-meta-*` round-trips: HEAD returned `x-amz-meta-codeflare-preseed` verbatim;
+- a rewrite without the header drops it — S3 replaces object metadata wholesale, so an edit through the file browser or by rclone (which does not send custom metadata unless asked) silently transfers ownership to the user at no cost;
+- **a listing does not expose custom metadata.** The key appeared in `ListObjectsV2`; the marker did not.
+
+The third result is why the sweep is shaped as it is: the marker can only be read with a HEAD, so candidates are narrowed to keys the current build did not just write, listing is issued per two-segment prefix rather than per runtime root, runtime-owned paths are excluded before counting, and a candidate count past the cap skips the sweep rather than spending the requests. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs -->
+
+**Consequences:** Deletion always requires positive evidence, so the failure direction is a leak and never lost user data. Files already in buckets predate the marker and carry none, so they are enumerated once from the seed module's history and deleted by name in a single clean-slate pass; that list is frozen, and nothing is appended to it. Two guards were rejected on evidence: an age cutoff, because rclone rewrites object timestamps on sync and would have made the backlog immortal, and a content-hash match, because the clean slate is one-time and the marker takes over after it.
+
+**Related:** [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) supplies the upgrade that runs it.
+
+---

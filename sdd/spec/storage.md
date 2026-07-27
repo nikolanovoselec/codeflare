@@ -312,7 +312,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
-- Mode takes effect only on explicit re-seed action or new bucket creation; existing users keep their current files until they re-seed.
+- Mode takes effect on an explicit re-seed, a mode-change reconcile, or the release-upgrade reconcile ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)), and currently-seeded keys are build-authoritative and overwritten by those reconciles.
+- Only files the build never seeded are preserved as the user's own ([REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
 - No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as the single source of truth.
 - Preseed configuration must validate that no two entries within a single mode share the same key.
 
@@ -530,5 +531,40 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser), [REQ-STOR-016](#req-stor-016-file-browser-presentation-and-traversal-safety)
 
 **Verification:** Automated test ([Storage store tests](../../web-ui/src/__tests__/stores/storage.test.ts), [file-list behavior tests](../../web-ui/src/__tests__/components/FileList.test.tsx), [Storage Browser timer tests](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx))
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-019: Seeded Files Are Marked and Retired Ones Are Removed
+
+**Intent:** Preseed files that a release stops shipping must leave existing user buckets instead of accumulating beside whatever replaced them, while files codeflare never wrote are never deleted.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every seed write stamps a provenance marker in the object's R2 custom metadata whose value is the writing build's preseed content hash. <!-- @impl: src/lib/r2-seed.ts::seedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (stamps the marker on every overwrite write) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (stamps the marker on writes issued by the non-overwrite path) -->
+2. Reconcile cleanup deletes an object under the seed's own prefixes that carries a provenance marker other than the current build's. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deletes an object carrying a different build marker) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (keeps an object carrying the current build marker) -->
+3. An object with no provenance marker is never deleted by the sweep, which is what makes a user-created file and a user-edited seed file equally safe. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (keeps an unmarked object as the user file) -->
+4. Listing is confined to the two-segment prefixes the seed writes, keeping both the getting-started documents and the large runtime trees outside the sweep's reach. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (lists only inside the seed two-segment prefixes) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never HEADs a key under a runtime tree outside those prefixes) -->
+5. A prefix that is not listed completely, or a candidate set past the fan-out cap, produces a warning and withholds deletion over the scope it cannot vouch for — that prefix for an incomplete listing, the whole sweep for the cap. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (warns and deletes nothing when a prefix cannot be listed) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deletes nothing from a prefix whose listing failed part-way) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (treats a truncated page with no continuation token as a failed listing) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep and warns when the candidate set is implausibly large) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep when two prefixes are each under the cap but over it combined) -->
+6. Keys shipped before the marker existed are enumerated once in the generated seed, recovered by walking the seed module's history, and deleted by name in every cleanup. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (sweeps the pre-marker list even when no key is out of mode) -->
+7. A key the current build still seeds is never deleted, by the by-name path or by the sweep. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (never lists a key the current build still seeds) -->
+
+**Constraints:**
+
+- The marker value identifies the writing build and is never used to infer staleness on its own; only an object outside the current build's key set is a candidate.
+- The pre-marker list is frozen; keys retired after the marker shipped are identified by the marker they carry, never by being appended here.
+- Deletion always requires positive evidence — a marker or membership of the frozen list — and anything unproven is kept.
+- The preseed content hash covers the pre-marker list, so shipping the list triggers the upgrade that applies it.
+- The generator refuses to emit a pre-marker list naming a key the current build still seeds.
+- Paths the agent runtime writes and owns are excluded from the sweep before the candidate cap is counted, so accumulated runtime state cannot disable retirement.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-010](#req-stor-010-agent-configs-auto-seeded-based-on-session-mode), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
+
+**Verification:** Automated test ([r2-seed mode tests](../../src/__tests__/lib/r2-seed-mode.test.ts), [agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts))
 
 **Status:** Implemented

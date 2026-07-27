@@ -17,7 +17,14 @@ const SCRIPT = join(
   '../../preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh',
 );
 
+// Mirrors of the script's own ceilings; duplicated because the constants live in
+// shell and cannot be imported across the boundary.
 const BUDGET = 200000;
+const TURN_CHAR_CAP = 10000;
+const RESCUE_REF_CAP = 50;
+// Worst case is 50 refs of the pattern's 40-char maximum, 49 separators and
+// the ~30-char prefix: 50*40 + 98 + 30 = 2128.
+const RESCUE_SLACK = 2200;
 
 // A turn is either a string (a user prompt) or {role, text}.
 function record(turn, i) {
@@ -90,10 +97,32 @@ describe('prefilter-transcript.sh payload ceilings', () => {
     const tail = 'closed REQ-AGENT-040 AC5 per AD58 in 4899fb6 and PR #709';
     const { rows } = runPrefilter(['pre '.repeat(4000) + tail]);
     for (const citation of ['REQ-AGENT-040', 'AD58', '4899fb6', '#709']) {
-      assert.match(rows[0].text, new RegExp(citation.replace('#', '#')),
+      assert.ok(rows[0].text.includes(citation),
         `${citation} sat past the cap and must survive it`);
     }
     assert.ok(rows[0].text.length > 10000, 'the rescue line is appended after the cap');
+    // Pinned byte-for-byte against the same literal in Pi's capTurn test. Only
+    // asserting the citations are present somewhere lets the two runtimes drift
+    // on separator, ordering or regex dialect while both stay green.
+    assert.equal(rows[0].text.split('\n').pop(),
+      '[refs dropped in truncation: #709, 4899fb6, AD58, REQ-AGENT-040]');
+  });
+
+  it('bounds the rescue list so it cannot outgrow the per-turn cap', () => {
+    // Appended after the cap, so an unbounded list would defeat it: this turn
+    // carries 400 distinct hashes past the cut. Endpoints are pinned so the cap
+    // and the selection order are both fixed; cross-runtime parity on separator,
+    // sort order and regex dialect is carried by the citation-rescue test above,
+    // which pins the same literal Pi's capTurn test does.
+    const shas = Array.from({ length: 400 }, (_, i) => i.toString(16).padStart(8, 'b'));
+    const { rows } = runPrefilter(['pre '.repeat(3000) + shas.join(' ')]);
+    const rescue = rows[0].text.split('\n').pop();
+    const refs = rescue.match(/^\[refs dropped in truncation: (.*)\]$/)?.[1].split(', ') ?? [];
+    assert.equal(refs.length, RESCUE_REF_CAP);
+    assert.equal(refs[0], 'bbbbb100');
+    assert.equal(refs.at(-1), 'bbbbb131');
+    assert.ok(rows[0].text.length < TURN_CHAR_CAP + RESCUE_SLACK,
+      `turn stayed bounded, got ${rows[0].text.length}`);
   });
 
   it('leaves a normal window untouched', () => {
