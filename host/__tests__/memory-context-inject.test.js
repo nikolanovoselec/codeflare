@@ -3,7 +3,9 @@
 //   AC2: matched nodes capped at 10 (budget cap)
 //   AC3: fires at most once per session (sentinel file gate)
 //   AC4: skips prompts shorter than 20 characters
-//   AC5: a graph past the size ceiling is skipped without spending the sentinel
+//   AC5: the unified graph is the only source queried
+//   AC7: a graph past the size ceiling is skipped without spending the sentinel
+//        (AC6 is Pi-only and is covered in src/__tests__/lib/pi-memory-inject.test.ts)
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
@@ -185,7 +187,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     assert.equal(stdout, '', 'malformed graph must produce no output');
   });
 
-  it('AC5: skips a graph past the ceiling without spending the session sentinel', () => {
+  it('AC7: skips a graph past the ceiling without spending the session sentinel', () => {
     const counterDir = mkdtempSync(join(baseTmp, 'ac5-counter-'));
     const homeDir = mkdtempSync(join(baseTmp, 'ac5-home-'));
     const graphDir = join(homeDir, '.graphify');
@@ -224,7 +226,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     assert.ok(existsSync(join(counterDir, `${sessionId}.inject-lock`)));
   });
 
-  it('AC5: an out-of-range numeric ceiling falls back instead of voiding the guard', () => {
+  it('AC7: an out-of-range numeric ceiling falls back instead of voiding the guard', () => {
     const counterDir = mkdtempSync(join(baseTmp, 'range-counter-'));
     const homeDir = mkdtempSync(join(baseTmp, 'range-home-'));
     makeGraph(join(homeDir, '.graphify'), [

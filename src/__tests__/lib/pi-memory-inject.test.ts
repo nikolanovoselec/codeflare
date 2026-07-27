@@ -107,15 +107,11 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
 
   it('AC5: reads the unified graph only, and only within the ceiling', () => {
     const deps = workspace();
-    const repo = mkdtempSync(join(tmpdir(), 'pi-mem-repo-'));
-    roots.push(repo);
-    mkdirSync(join(repo, 'graphify-out'), { recursive: true });
-    writeFileSync(join(repo, 'graphify-out', 'graph.json'), JSON.stringify({ nodes: NODES }));
 
     expect(resolveGraphPath(deps)).toBe(deps.globalGraph);
     expect(resolveGraphPath({ ...deps, maxGraphBytes: 1 })).toBeNull();
-    // A repo graph is a subset the merger already folded into the unified one,
-    // and at session start it does not exist at all — never a substitute.
+    // No unified graph means no injection: a repo graph is a subset the merger
+    // already folded into it, and at session start it does not exist at all.
     expect(resolveGraphPath({ ...deps, globalGraph: join(deps.root, 'missing.json') })).toBeNull();
   });
 
@@ -146,7 +142,6 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
     expect(result?.message?.content).not.toContain('Unrelated Widget');
     expect(result?.message?.details).toEqual({ graph: deps.globalGraph });
   });
-
 
   it('AC3: fires at most once per session', () => {
     const deps = workspace();

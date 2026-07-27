@@ -186,6 +186,24 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     assert.ok(!context.includes('�'));
   });
 
+  it('AC4: a nonsensical cap carries nothing rather than everything', () => {
+    const dir = join(baseTmp, 'ac4-negative');
+    const marker = 'TAILEND';
+    seed(dir, {
+      '2026-07-03T10-00-00+0200-fff.md': extract('negative cap session', {
+        decisions: `- ${'x'.repeat(4000)}\n- ${marker}`,
+      }),
+    });
+
+    // A negative slice bound counts from the far end of the buffer, so an
+    // unfloored budget returns almost the whole extract — the inverse of a
+    // bound, from the one input the environment is most likely to get wrong.
+    const { context } = runHook({ sessionsDir: dir, perFileBytes: -5 });
+
+    assert.ok(!context.includes(marker));
+    assert.ok(!context.includes('xxxx'));
+  });
+
   it('AC5: marks the truncation and keeps the source path', () => {
     const dir = join(baseTmp, 'ac5');
     const name = '2026-07-03T10-00-00+0200-ddd.md';
