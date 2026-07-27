@@ -500,7 +500,7 @@ This onboarding branch is skipped in SaaS mode (which keeps the `/app/subscribe`
 Two entry points clone a repo into a session, distinguished by whether the session already exists.
 
 - **New session (clone-on-start):** `POST /api/sessions` accepts `clone:{repo,ref}`, mapped via `container-env.ts` to `GIT_CLONE_REPO` / `GIT_CLONE_REF`. `entrypoint.sh` clones into `$USER_WORKSPACE/<repo-verbatim>` before agent start, skipping an existing directory.
-- **Running session:** `POST /api/github/clone` forwards to the container DO's `/internal/git-clone` host endpoint (authed by the `CONTAINER_AUTH_TOKEN` Worker→DO bearer injection). The host `resolveGitClone` validates `owner/name` + ref and refuses a pre-existing folder (`409`).
+- **Running session:** `POST /api/github/clone` forwards to the container DO's `/internal/git-clone` host endpoint (authed by the `CONTAINER_AUTH_TOKEN` Worker→DO bearer injection). The host `resolveGitClone` validates `owner/name` + ref and refuses a pre-existing folder; the status contract is in [api-reference.md](./api-reference.md#github-integration).
 
 Auth on the clone itself uses the per-mode credential path: egress injection in enterprise mode (the `GitHubInterceptor` stamps the user's token onto the outbound clone), or the container-local `GH_TOKEN` otherwise.
 
