@@ -352,7 +352,19 @@ describe('handleWebSocketUpgrade', () => {
         // gate and drops the request onto the forward path.
         status: 'running',
       });
-      mockContainerFetch.mockRejectedValueOnce(new Error('Network connection lost.'));
+      // Reject the FORWARD specifically. A one-shot rejection is consumed by the
+      // warming-up /health probe that runs first, which fails open — so the
+      // forward would then get the default 200 and the case would prove nothing.
+      mockContainerFetch.mockImplementation(async (req: Request) => {
+        const url = new URL(req.url);
+        if (url.pathname === '/health') {
+          return new Response(JSON.stringify({ terminalServiceReady: true, prewarmReady: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw new Error('Network connection lost.');
+      });
 
       const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
         headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },

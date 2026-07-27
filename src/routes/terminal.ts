@@ -318,7 +318,11 @@ export async function handleWebSocketUpgrade(
     ]);
     if (forwardTimer !== undefined) clearTimeout(forwardTimer);
 
-    if (response === TIMED_OUT || response === FORWARD_FAILED) {
+    // Narrow on the Response side, not the symbols: a Symbol() bound inside a
+    // function widens to plain `symbol`, so both sentinels collapse into one type
+    // and an equality check narrows nothing. instanceof does, and the sentinels
+    // still distinguish the two reasons below.
+    if (!(response instanceof Response)) {
       logger.warn('Container WS forward failed — returning retryable close', {
         fullSessionId,
         terminalId,
