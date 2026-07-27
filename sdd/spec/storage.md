@@ -67,16 +67,19 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. Agent configuration directories and per-user dotfiles persist across sessions. The per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
 3. Workspace files persist across sessions when the user has enabled full workspace sync. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
 
+4. A hook script the sync restored or rewrote is executable again before it is next invoked, since a hook registered by bare path is spawned through its shebang. <!-- @impl: entrypoint.sh::repair_hook_exec_bits --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (restores +x on hook scripts a sync stripped, leaving other files alone) --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (runs on the post-sync path, not only at boot) -->
+
 **Constraints:**
 
 - R2 is the durable store; the local filesystem is ephemeral.
 - Persistence depends on at least one successful sync completing before container shutdown.
+- R2 carries object content and modification time but not POSIX modes, so an attribute the store cannot round-trip is re-established locally after every sync rather than assumed to have survived it.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test ([Integration test](../../host/__tests__/entrypoint-bisync-behavior.test.js))
+**Verification:** Automated test ([Integration test](../../host/__tests__/entrypoint-bisync-behavior.test.js), [hook exec-bit repair](../../host/__tests__/entrypoint-hook-exec-bits.test.js))
 
 **Status:** Implemented
 
@@ -551,11 +554,12 @@ R2 persistence, rclone bisync, quotas, and file browser.
 5. A prefix that is not listed completely, or a candidate set past the fan-out cap, produces a warning and withholds deletion over the scope it cannot vouch for — that prefix for an incomplete listing, the whole sweep for the cap. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (warns and deletes nothing when a prefix cannot be listed) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deletes nothing from a prefix whose listing failed part-way) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (treats a truncated page with no continuation token as a failed listing) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep and warns when the candidate set is implausibly large) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep when two prefixes are each under the cap but over it combined) -->
 6. Keys shipped before the marker existed are enumerated once in the generated seed, recovered by walking the seed module's history, and deleted by name in every cleanup. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (sweeps the pre-marker list even when no key is out of mode) -->
 7. A key the current build still seeds is never deleted, by the by-name path or by the sweep. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (never lists a key the current build still seeds) -->
+8. A product-generated file that was never a seeded key is enumerated in the same list, because a sync strips the marker the sweep needs and the seed module's history never named it. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (retires the legacy ~/.claude/hooks/ copies the seed no longer owns) -->
 
 **Constraints:**
 
 - The marker value identifies the writing build and is never used to infer staleness on its own; only an object outside the current build's key set is a candidate.
-- The pre-marker list is frozen; keys retired after the marker shipped are identified by the marker they carry, never by being appended here.
+- A key the seed once shipped is never appended to the pre-marker list; once the marker existed, the marker identifies it. The list grows only for a product-generated file that was never a seeded key at all, which no marker describes and no history walk finds, and each such entry must be shown to be product-generated rather than user-authored before it is added.
 - Deletion always requires positive evidence — a marker or membership of the frozen list — and anything unproven is kept.
 - The preseed content hash covers the pre-marker list, so shipping the list triggers the upgrade that applies it.
 - The generator refuses to emit a pre-marker list naming a key the current build still seeds.

@@ -388,3 +388,49 @@ describe('entrypoint settings.json hook merge - vault + graphify dedup', () => {
       'user hook outside ~/.claude/plugins/ must survive');
   });
 });
+
+describe('entrypoint settings.json hook merge - context-mode-cache-heal prune', () => {
+  // An older context-mode self-installed this SessionStart hook by bare quoted
+  // path. It repairs symlinks under ~/.claude/plugins/cache/, which this product
+  // never populates, so it has only ever surfaced as a hook error. Its object is
+  // retired from R2 in the same release; the registration has to go with it, or
+  // the merge would preserve a command pointing at a file that no longer exists.
+  const cacheHeal = '"/home/user/.claude/hooks/context-mode-cache-heal.mjs"';
+  const userSessionHook = 'bash /home/user/scripts/my-session-start.sh';
+
+  function settingsWithCacheHeal() {
+    return JSON.stringify({
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: 'command', command: cacheHeal }] },
+          { matcher: '', hooks: [{ type: 'command', command: userSessionHook }] },
+        ],
+      },
+    });
+  }
+
+  it('prunes the bare-path cache-heal registration', () => {
+    const merged = runJqMerge(settingsWithCacheHeal(), advancedContextModeSettingsConfig());
+    const commands = (merged?.hooks?.SessionStart ?? []).flatMap((entry) =>
+      (entry.hooks ?? []).map((hook) => hook.command),
+    );
+    assert.equal(
+      commands.filter((cmd) => cmd.includes('context-mode-cache-heal')).length,
+      0,
+      `cache-heal registration must not survive the merge: ${JSON.stringify(commands)}`,
+    );
+  });
+
+  it('keeps a user-authored SessionStart hook while pruning it', () => {
+    // The prune is a regex over command strings, so the risk it carries is
+    // collateral: a user's own SessionStart hook must be untouched by it.
+    const merged = runJqMerge(settingsWithCacheHeal(), advancedContextModeSettingsConfig());
+    const commands = (merged?.hooks?.SessionStart ?? []).flatMap((entry) =>
+      (entry.hooks ?? []).map((hook) => hook.command),
+    );
+    assert.ok(
+      commands.includes(userSessionHook),
+      `user SessionStart hook must survive: ${JSON.stringify(commands)}`,
+    );
+  });
+});

@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = 'f87dc2e118d17753';
+export const PRESEED_CONTENT_HASH = '0a50b25c18686074';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -9059,8 +9059,10 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
 /**
  * Keys shipped by builds that predate the provenance marker. Nothing stored in
  * R2 identifies them, so they are deleted by name in one clean-slate pass.
- * Frozen: never appended to. A key retired from here on carries a stale marker,
- * which identifies it without an enumeration.
+ * A key retired from here on carries a stale marker, which identifies it without
+ * an enumeration, so a seeded key never belongs here. Appended to only for a
+ * product-generated orphan that was never a seeded key at all: no marker can
+ * exist for it and no sweep can reach it. See preseed/retired-keys.json.
  */
 export const RETIRED_PRESEED_KEYS: readonly string[] = [
   ".agents/skills/api-design/SKILL.md",
@@ -9118,6 +9120,8 @@ export const RETIRED_PRESEED_KEYS: readonly string[] = [
   ".claude/commands/test-coverage.md",
   ".claude/commands/verify.md",
   ".claude/hooks/block-attributed-commits.sh",
+  ".claude/hooks/context-mode-cache-heal.mjs",
+  ".claude/hooks/enforce-ctx-mode.sh",
   ".claude/hooks/memory-agent-prompt.md",
   ".claude/hooks/memory-capture.sh",
   ".claude/plugins/codeflare-hooks/scripts/lib/inert-source-delta.mjs",

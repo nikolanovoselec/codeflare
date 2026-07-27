@@ -693,8 +693,10 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ${serializedDocuments};
 /**
  * Keys shipped by builds that predate the provenance marker. Nothing stored in
  * R2 identifies them, so they are deleted by name in one clean-slate pass.
- * Frozen: never appended to. A key retired from here on carries a stale marker,
- * which identifies it without an enumeration.
+ * A key retired from here on carries a stale marker, which identifies it without
+ * an enumeration, so a seeded key never belongs here. Appended to only for a
+ * product-generated orphan that was never a seeded key at all: no marker can
+ * exist for it and no sweep can reach it. See preseed/retired-keys.json.
  */
 export const RETIRED_PRESEED_KEYS: readonly string[] = ${serializedRetired};
 `;
