@@ -79,7 +79,12 @@ def probe(host: str, port: int, version: str) -> tuple[int, str]:
         with socket.create_connection((host, port), timeout=10) as sock:
             sock.sendall(client_hello(major, minor, host))
             head = read_exactly(sock, 5)
-            body = read_exactly(sock, 2) if len(head) == 5 and head[0] == 0x15 else b""
+            # An alert body is 2 bytes; a ServerHello needs 6 to reach the
+            # negotiated version. Bounded by the record's own length so a short
+            # record cannot make this block waiting for bytes never sent.
+            want = {0x15: 2, 0x16: 6}.get(head[0], 0) if len(head) == 5 else 0
+            record_length = ((head[3] << 8) | head[4]) if len(head) == 5 else 0
+            body = read_exactly(sock, min(want, record_length)) if want else b""
     except OSError as exc:
         return 2, f"no answer from {host}:{port} ({exc})"
 
@@ -104,7 +109,16 @@ def probe(host: str, port: int, version: str) -> tuple[int, str]:
         # support and must not be read as a refusal.
         return 2, f"alert {named}({description}) level {level}: not a version refusal"
     if content_type == 0x16:  # handshake -> ServerHello
-        return 1, f"ServerHello returned, version {head[1]}.{head[2]} (version accepted)"
+        # Any handshake record means the server is proceeding, so the verdict is
+        # settled here and stays settled -- a server that answers a TLS 1.0
+        # hello by negotiating something even older has still accepted a legacy
+        # version, and reporting that as inconclusive would hide the worse case.
+        # Only the version NAMED in the message is read from the body: head[1:3]
+        # is the record layer, which servers set for compatibility and which is
+        # routinely not what was negotiated.
+        if len(body) >= 6 and body[0] == 0x02:
+            return 1, f"ServerHello negotiated {body[4]}.{body[5]} (version accepted)"
+        return 1, "handshake record returned (version accepted)"
     return 2, f"unexpected record type 0x{content_type:02x}"
 
 

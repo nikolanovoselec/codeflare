@@ -142,7 +142,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Manual check
+**Verification:** Automated test ([host/__tests__/tls-legacy-probe.test.js](../../host/__tests__/tls-legacy-probe.test.js))
 
 **Status:** Implemented
 

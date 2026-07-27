@@ -26,7 +26,15 @@ const ALERT_PROTOCOL_VERSION = Buffer.from([0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 
 // suites, so it must never be read as a refusal of the version.
 const ALERT_HANDSHAKE_FAILURE = Buffer.from([0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x28]);
 // A handshake record whose body is a ServerHello: the server agreed to speak it.
-const SERVER_HELLO = Buffer.from([0x16, 0x03, 0x01, 0x00, 0x04, 0x02, 0x00, 0x00, 0x00]);
+// The record layer says 3.3 and the ServerHello says 3.1 ON PURPOSE. Servers set
+// the record-layer version for compatibility and it is routinely not what was
+// negotiated, so a probe reading the wrong one reports a version the server
+// never chose. Only the body's 3.1 may reach the verdict message.
+const SERVER_HELLO = Buffer.from([
+  0x16, 0x03, 0x03, 0x00, 0x06, // record: handshake, layer version 3.3, length 6
+  0x02, 0x00, 0x00, 0x02, // handshake: ServerHello, body length 2
+  0x03, 0x01, // negotiated version: 3.1
+]);
 
 /**
  * Serve one canned reply, or close on null, then stop.
@@ -84,6 +92,10 @@ describe('REQ-OPS-005: legacy-TLS probe reports the server answer', () => {
     const result = await runProbe(server.address().port);
     assert.equal(result.status, EXIT.accepted, result.stdout + result.stderr);
     assert.match(result.stdout, /^FAIL:/);
+    // The version reported must be the one the ServerHello negotiated, not the
+    // record layer's -- the fixture makes them differ so this can fail.
+    assert.match(result.stdout, /\b3\.1\b/);
+    assert.doesNotMatch(result.stdout, /\b3\.3\b/);
   });
 
   it('is inconclusive, never a pass, on an alert that is not about the version', async () => {
