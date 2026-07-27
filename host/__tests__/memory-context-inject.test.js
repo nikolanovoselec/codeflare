@@ -3,9 +3,8 @@
 //   AC2: matched nodes capped at 10 (budget cap)
 //   AC3: fires at most once per session (sentinel file gate)
 //   AC4: skips prompts shorter than 20 characters
-//   AC5: the unified graph is the only source queried
 //   AC7: a graph past the size ceiling is skipped without spending the sentinel
-//        (AC6 is Pi-only and is covered in src/__tests__/lib/pi-memory-inject.test.ts)
+//        (AC5 and AC6 are covered in src/__tests__/lib/pi-memory-inject.test.ts)
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
