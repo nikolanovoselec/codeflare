@@ -1,0 +1,157 @@
+// Verifies REQ-MEM-019: Post-compaction recall of recent session extracts.
+//   AC1: injects the N most recent extracts, newest first, as additionalContext
+//   AC2: ordering is by filename, not mtime (the vault round-trips through rclone)
+//   AC3: fires only when the session started from compaction
+//   AC4: each extract is capped, and the cap is visible as a truncation marker
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, utimesSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const HOOK = resolve(
+  __dirname,
+  '../../preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh',
+);
+
+function extract(title, { context = 'ctx body', decisions = '- a decision' } = {}) {
+  return [
+    '---',
+    'session_id: abc',
+    '---',
+    '',
+    `# ${title}`,
+    '',
+    '## Context',
+    context,
+    '',
+    '## Decisions',
+    decisions,
+    '',
+    '## Observations',
+    '- an observation that must NOT be injected',
+    '',
+  ].join('\n');
+}
+
+function seed(dir, files) {
+  mkdirSync(dir, { recursive: true });
+  for (const [name, body] of Object.entries(files)) {
+    writeFileSync(join(dir, name), body);
+  }
+}
+
+function runHook({ sessionsDir, source = 'compact', count, perFileBytes }) {
+  const result = spawnSync('bash', [HOOK], {
+    encoding: 'utf-8',
+    input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: 's1', source }),
+    env: {
+      ...process.env,
+      POST_COMPACT_SESSIONS_DIR: sessionsDir,
+      ...(count ? { POST_COMPACT_EXTRACT_COUNT: String(count) } : {}),
+      ...(perFileBytes ? { POST_COMPACT_PER_FILE_BYTES: String(perFileBytes) } : {}),
+    },
+  });
+  const stdout = result.stdout.trim();
+  let json = null;
+  try { json = stdout ? JSON.parse(stdout) : null; } catch { json = null; }
+  return {
+    stdout,
+    status: result.status,
+    json,
+    context: json?.hookSpecificOutput?.additionalContext ?? '',
+  };
+}
+
+describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
+  let baseTmp;
+  before(() => {
+    baseTmp = mkdtempSync(join(tmpdir(), 'post-compact-'));
+    assert.ok(existsSync(HOOK), `hook script missing at ${HOOK}`);
+    chmodSync(HOOK, 0o755);
+  });
+
+  it('AC1: injects the N most recent extracts newest-first as SessionStart context', () => {
+    const dir = join(baseTmp, 'ac1');
+    seed(dir, {
+      '2026-07-01T10-00-00+0200-aaa.md': extract('oldest session'),
+      '2026-07-02T10-00-00+0200-bbb.md': extract('middle session'),
+      '2026-07-03T10-00-00+0200-ccc.md': extract('newest session'),
+    });
+
+    const { status, json, context } = runHook({ sessionsDir: dir, count: 2 });
+
+    assert.equal(status, 0);
+    assert.equal(json?.hookSpecificOutput?.hookEventName, 'SessionStart');
+
+    // The two newest are present and the third is not — proves the count bound
+    // rather than merely that something was emitted.
+    assert.ok(context.includes('newest session'));
+    assert.ok(context.includes('middle session'));
+    assert.ok(!context.includes('oldest session'));
+
+    // Newest first: ordering is the contract, not just membership.
+    assert.ok(context.indexOf('newest session') < context.indexOf('middle session'));
+
+    // Context and Decisions are carried; Observations deliberately are not.
+    assert.ok(context.includes('## Decisions'));
+    assert.ok(!context.includes('must NOT be injected'));
+  });
+
+  it('AC2: orders by filename even when mtime disagrees', () => {
+    const dir = join(baseTmp, 'ac2');
+    seed(dir, {
+      '2026-07-01T10-00-00+0200-old.md': extract('lexically oldest'),
+      '2026-07-09T10-00-00+0200-new.md': extract('lexically newest'),
+    });
+
+    // rclone bisync rewrites mtimes, so make mtime claim the opposite order:
+    // the oldest filename becomes the most recently modified file.
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(join(dir, '2026-07-01T10-00-00+0200-old.md'), future, future);
+
+    const { context } = runHook({ sessionsDir: dir, count: 1 });
+
+    assert.ok(context.includes('lexically newest'));
+    assert.ok(!context.includes('lexically oldest'));
+  });
+
+  it('AC3: stays silent unless the session started from compaction', () => {
+    const dir = join(baseTmp, 'ac3');
+    seed(dir, { '2026-07-03T10-00-00+0200-ccc.md': extract('a session') });
+
+    for (const source of ['startup', 'resume', 'clear', 'fork']) {
+      const { stdout, status } = runHook({ sessionsDir: dir, source });
+      assert.equal(status, 0, `${source} must not fail the session`);
+      assert.equal(stdout, '', `${source} must emit nothing`);
+    }
+
+    assert.notEqual(runHook({ sessionsDir: dir, source: 'compact' }).stdout, '');
+  });
+
+  it('AC4: caps each extract and marks the truncation', () => {
+    const dir = join(baseTmp, 'ac4');
+    const marker = 'TAILEND';
+    seed(dir, {
+      '2026-07-03T10-00-00+0200-ccc.md': extract('big session', {
+        decisions: `- ${'x'.repeat(4000)}\n- ${marker}`,
+      }),
+    });
+
+    const { context } = runHook({ sessionsDir: dir, perFileBytes: 500 });
+
+    assert.ok(context.includes('big session'));
+    assert.ok(context.includes('truncated'));
+    // The cap actually dropped content rather than only appending a notice.
+    assert.ok(!context.includes(marker));
+  });
+
+  it('emits nothing when the extracts directory is absent', () => {
+    const { stdout, status } = runHook({ sessionsDir: join(baseTmp, 'does-not-exist') });
+    assert.equal(status, 0);
+    assert.equal(stdout, '');
+  });
+});

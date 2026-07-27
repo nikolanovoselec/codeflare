@@ -372,6 +372,36 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
+### REQ-MEM-019: Post-compaction recall of recent session extracts
+
+**Intent:** Compaction replaces the conversation with a summary while keeping the same session, so the first-prompt injection has already fired and never runs again. The agent then resumes from a summary of a summary, having lost the concrete decisions, corrections and identifiers of prior work — restating plans that were settled and to-do items that were finished. Recent session extracts are injected when a session resumes from compaction, so what was actually decided survives the boundary.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. When a session resumes from compaction, the most recent session extracts are injected as additionalContext, newest first, bounded by a configurable count. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::EXTRACT_COUNT --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC1: injects the N most recent extracts newest-first as SessionStart context) -->
+2. Recency is decided by extract name rather than modification time, so a vault that round-trips through file sync cannot reorder or starve the selection. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::FILES --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC2: orders by filename even when mtime disagrees) -->
+3. No context is injected for a session that did not resume from compaction, so sessions that never lost context pay nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::SOURCE --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC3: stays silent unless the session started from compaction) -->
+4. Each extract contributes a bounded number of bytes, and content dropped by that bound is marked as truncated with its source path retained. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: caps each extract and marks the truncation) -->
+
+**Constraints:**
+
+- Only the narrative and decision sections of an extract are injected; the remaining sections are reachable through the emitted source path.
+- The injected text is framed as a record of what happened, not as instructions, so a prior session cannot issue directives to a later one.
+- The hook plugin is advanced-session-only by manifest declaration; standard sessions never receive it.
+- The hook is fail-safe: any error exits silently with no output and never blocks a session.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-013](#req-mem-013-proactive-memory-injection-on-first-prompt)
+
+**Verification:** Automated test ([post-compaction-recall](../../host/__tests__/post-compaction-recall.test.js))
+
+**Status:** Implemented
+
+---
+
 ### REQ-MEM-014: Pi capture contract, transcript prefilter, and model-fidelity lever
 
 **Intent:** Pi's memory-capture and vault-extract subagents must preserve the citation fidelity and prefiltered conversational arc established by the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) without inheriting Claude's multi-pass scratchpad cost. Pi extraction must cite REQ/ADR/SHA/PR identifiers verbatim and use a provider-neutral fidelity lever.

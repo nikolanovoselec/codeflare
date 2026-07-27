@@ -368,7 +368,8 @@ prose-transformed lane.
 The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
 Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,
 memory-capture-block.sh, memory-agent-prompt.md, prefilter-transcript.sh,
-assert-iso-ts.sh, memory-context-inject.sh), codeflare-vault (plugin.json,
+assert-iso-ts.sh, memory-context-inject.sh, post-compaction-recall.sh),
+codeflare-vault (plugin.json,
 vault-monitor-hook.sh, vault-extract-prompt.md, merge-vault-graph.py), and
 codeflare-hooks (plugin.json, block-attributed-commits.sh, block-local-builds.sh,
 git-push-review-reminder.sh, enforce-review-spawn.sh).
@@ -778,14 +779,25 @@ in default mode, the plugins simply don't load. Plugins are used for
 file organization and delivery via R2 sync only -- hook registration
 is done via `settings.json` (see above).
 
-- **codeflare-memory**: Two UserPromptSubmit hooks registered in
-  settings.json, scripts delivered via plugin.
+- **codeflare-memory**: Two UserPromptSubmit hooks and one SessionStart hook
+  registered in settings.json, scripts delivered via plugin.
 
 `memory-context-inject.sh` fires on the first prompt of each session: extracts
 keywords, queries the unified graphify graph, and injects matched nodes as
 additionalContext before the agent responds
 ([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt)).
 `memory-capture.sh` handles the ongoing 15-prompt capture cadence.
+
+`post-compaction-recall.sh` is registered on SessionStart under matcher
+`compact` and injects the Context and Decisions sections of the five most recent
+session extracts from `~/Vault/Raw/Sessions/`
+([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts)).
+It exists because compaction keeps the session id, so the first-prompt sentinel
+in `memory-context-inject.sh` is already claimed and that hook cannot fire again
+— leaving the agent resuming from a summary with prior decisions and identifiers
+gone. Recency is read from the extract filename rather than mtime, because the
+vault round-trips through rclone bisync, which rewrites mtimes. `PostCompact` is
+not used: it carries no decision control and cannot return `additionalContext`.
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 
