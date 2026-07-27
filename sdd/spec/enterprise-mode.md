@@ -795,3 +795,5 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Verification:** Automated test ([Setup persistence + validation](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [wizard store](../../web-ui/src/__tests__/stores/setup.test.ts))
 
 **Status:** Implemented
+
+---

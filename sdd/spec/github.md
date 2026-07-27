@@ -350,3 +350,5 @@ None.
 **Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts))
 
 **Status:** Implemented
+
+---

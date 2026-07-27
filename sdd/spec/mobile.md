@@ -536,3 +536,5 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Verification:** Automated test ([Mobile keyboard test](../../web-ui/src/__tests__/lib/mobile.test.ts), [useTerminal hook test](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
 
 **Status:** Implemented
+
+---

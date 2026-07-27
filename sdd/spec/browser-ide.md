@@ -296,3 +296,5 @@ A full browser editor for an advanced running session. The editor opens that ses
 **Verification:** Automated test ([Base settings tests](../../openvscode/claude/test/managed-settings.test.mjs); [base seed tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs); [all-kinds launch tests](../../host/__tests__/entrypoint-openvscode.test.js))
 
 **Status:** Implemented
+
+---

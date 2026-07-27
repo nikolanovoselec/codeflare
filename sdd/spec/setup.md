@@ -369,3 +369,5 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Verification:** Automated test ([setup-ac-coverage](../../src/__tests__/setup-ac-coverage.test.ts))
 
 **Status:** Implemented
+
+---

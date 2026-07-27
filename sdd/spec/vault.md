@@ -681,6 +681,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Status:** Implemented
 
+---
+
 ### REQ-VAULT-021: Bucket-stable vault URL and bucket-derived key
 
 **Intent:** SilverBullet is served under a bucket-stable URL and its local cache is encrypted with a bucket-derived key, so the client `sb_data_*` (index) and SW `sb_files_*` DB names are identical across sessions for one user — the mechanism that makes cross-session vault persistence possible in the first place.

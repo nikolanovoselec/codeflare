@@ -532,3 +532,5 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Verification:** Automated test ([Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js))
 
 **Status:** Implemented
+
+---

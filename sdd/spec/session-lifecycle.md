@@ -601,3 +601,5 @@ None.
 **Verification:** Automated test ([metrics alarm survives an unanswered poll](../../src/__tests__/container-metrics.test.ts))
 
 **Status:** Implemented
+
+---

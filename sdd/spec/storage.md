@@ -571,3 +571,5 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Verification:** Automated test ([r2-seed mode tests](../../src/__tests__/lib/r2-seed-mode.test.ts), [agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts))
 
 **Status:** Implemented
+
+---

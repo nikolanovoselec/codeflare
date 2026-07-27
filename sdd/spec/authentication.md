@@ -644,3 +644,5 @@ None.
 **Verification:** Automated test ([Resume-redirect component tests](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx), [fetch-helper 401-redirect tests](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [asset-serving tests](../../src/__tests__/index.test.ts))
 
 **Status:** Implemented
+
+---
