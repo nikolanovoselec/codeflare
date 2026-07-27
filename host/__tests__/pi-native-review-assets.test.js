@@ -567,9 +567,21 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
       const claudeEmbedded = [...claudeDocument.content.matchAll(/<embedded-skill name="([^"]+)">/g)]
         .map((match) => match[1]);
       for (const skillName of skillNames) {
+        if (claudeEmbedded.includes(skillName)) continue;
+        // Reachability has a structural form, and the prose form does not work:
+        // asserting the document merely MENTIONS the name is satisfied by the
+        // report template and the orchestration bullet, and stays green if the
+        // fetch instruction is deleted. Reachable means the policy is seeded at
+        // the path the fetch command builds, and the document carries that
+        // command -- both checkable, neither a sentence.
         assert.ok(
-          claudeEmbedded.includes(skillName) || claudeDocument.content.includes(skillName),
-          `${reviewer} must hold or be able to reach ${skillName}, which the other runtime has`,
+          documents.some((document) => document.key === `.claude/skills/${skillName}/SKILL.md`),
+          `${reviewer} does not embed ${skillName}, so it must be seeded for the lane to read`,
+        );
+        assert.match(
+          claudeDocument.content,
+          /skills\/<name>\/SKILL\.md/,
+          `${reviewer} does not embed ${skillName}, so it must carry the command that fetches it`,
         );
       }
       // Whatever IS embedded must not also be advertised as a runtime fetch --

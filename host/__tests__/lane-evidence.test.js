@@ -10,7 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1083,17 +1083,41 @@ describe('lane-evidence.mjs — the candidate ceiling and a failed scan', () => 
       'control: the symbol resolves when the scan works');
     assert.notEqual(clean.truncated, true, 'control: a working scan is not truncated');
 
-    const shimDir = mkdtempSync(join(tmpdir(), 'git-shim-'));
     const realGit = spawnSync('which', ['git'], { encoding: 'utf-8' }).stdout.trim();
-    writeFileSync(join(shimDir, 'git'),
-      `#!/bin/sh\nfor a in "$@"; do if [ "$a" = grep ]; then exit 2; fi; break; done\nexec ${realGit} "$@"\n`);
-    chmodSync(join(shimDir, 'git'), 0o755);
-    const degraded = JSON.parse(spawnSync('node',
-      [SCRIPT, '--repo', cwd, '--lane', 'doc-updater', '--range', `${base}..${head}`],
-      { cwd, encoding: 'utf-8', env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}` } },
-    ).stdout).references;
+    assert.ok(realGit, 'the shim needs a real git to delegate to');
+    const shimDir = mkdtempSync(join(tmpdir(), 'git-shim-'));
+    try {
+      writeFileSync(join(shimDir, 'git'),
+        `#!/bin/sh\nfor a in "$@"; do if [ "$a" = grep ]; then exit 2; fi; break; done\nexec ${realGit} "$@"\n`);
+      chmodSync(join(shimDir, 'git'), 0o755);
+      const degraded = JSON.parse(spawnSync('node',
+        [SCRIPT, '--repo', cwd, '--lane', 'doc-updater', '--range', `${base}..${head}`],
+        { cwd, encoding: 'utf-8', env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}` } },
+      ).stdout).references;
 
-    assert.equal(degraded.truncated, true,
-      'a scan whose tree read failed must be reported partial, not complete');
+      assert.equal(degraded.truncated, true,
+        'a scan whose tree read failed must be reported partial, not complete');
+    } finally {
+      rmSync(shimDir, { recursive: true, force: true });
+    }
+  });
+
+  it('marks a weak-resolution list that reaches the bound', () => {
+    const { cwd, base } = makeRepo();
+    // The third way truncation fires, and the one the last round added: neither
+    // the failure list nor the candidate ceiling, but the literal-only list.
+    // Between 401 and 599 weak resolutions it is the ONLY clause that can mark
+    // the scan, and an unmarked capped list of them is a page of names the lane
+    // is told resolved when it only saw four hundred of them.
+    const names = Array.from({ length: 500 }, (_, i) => `registered${i}`);
+    write(cwd, 'src/a.ts', `const registry = ${JSON.stringify(names)};\n`);
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: registrations');
+    write(cwd, 'documentation/x.md', `Uses ${names.map((n) => `\`${n}\``).join(', ')}.\n`);
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.equal(out.unresolved.length, 0, 'the fixture must fail nothing, so only the weak list can mark it');
+    assert.equal(out.resolvedOnlyByStringLiteral.length, 400, 'the weak list is bounded at the failure budget');
+    assert.equal(out.truncated, true, 'a bounded weak list must say it was bounded');
   });
 });

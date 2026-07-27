@@ -364,8 +364,21 @@ function quotedLiterals(repo, paths) {
 // generic pass takes -- so a Rust repo's `serde` and a Python repo's `httpx`
 // resolve without this module learning nine file formats.
 const DEP_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|Pipfile|go\.mod|Gemfile|composer\.json|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
-// Where a leading token is a directive rather than a package name.
+// Three manifest grammars, three rules for what a leading token means.
+//
+// Directive manifests: the first token is syntax (`gem`, `require`, `module`),
+// so the deny-list applies. Sectioned manifests: the first token is a key, and
+// only under a dependencies heading is that key a package name -- `name`,
+// `version` and `build` above the heading are metadata. Everything else
+// (`requirements.txt`, `Pipfile`) is one dependency per line.
+//
+// Filtering the deny-list everywhere ate `build`, `api`, `path` and `version`,
+// which are real published packages, and reported documented references to them
+// as stale. Filtering nowhere let a Cargo metadata key resolve as a dependency.
+// Both are one-line fixes to the wrong question: what the token means depends
+// on the grammar it sits in.
 const DIRECTIVE_MANIFEST = /(^|\/)(go\.mod|Gemfile|build\.gradle(\.kts)?|mix\.exs|Package\.swift)$/;
+const SECTIONED_MANIFEST = /(^|\/)(Cargo\.toml|pyproject\.toml)$/;
 
 // The first token on a manifest line is a dependency in `Cargo.toml` and
 // `requirements.txt` and a directive in `Gemfile`, `go.mod` and a Gradle build.
@@ -405,8 +418,14 @@ function declaredDependencies(repo, listing) {
 
   for (const path of tracked.filter((entry) => DEP_MANIFEST.test(entry))) {
     const directives = DIRECTIVE_MANIFEST.test(path);
+    const sectioned = SECTIONED_MANIFEST.test(path);
+    let inDependencies = !sectioned;
     for (const raw of (read(repo, path) ?? '').split('\n')) {
       const line = raw.trim();
+      if (sectioned && line.startsWith('[')) {
+        inDependencies = /depend/i.test(line);
+        continue;
+      }
       if (!line || line.startsWith('#') || line.startsWith('//')) continue;
       // No closing quote required: `"httpx>=0.27"` must yield `httpx`, and a
       // version specifier is exactly what stops the name.
@@ -416,6 +435,7 @@ function declaredDependencies(repo, listing) {
       }
       const bare = line.match(/^[A-Za-z0-9_@][\w./@-]{1,120}/);
       if (bare && LITERAL_SHAPE.test(bare[0])
+        && inDependencies
         && !(directives && NOT_A_DEPENDENCY.has(bare[0]))) names.add(bare[0]);
     }
   }
