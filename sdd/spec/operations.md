@@ -738,8 +738,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The deploy job runs only after exactly one authoritative verification path succeeds. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
-2. The final outcome fails when no deployment occurred. <!-- @impl: .github/workflows/deploy.yml::outcome --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+1. The deploy job runs only after exactly one authoritative verification path succeeds. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (allows exactly one authoritative verification path to reach deploy) -->
+2. The final outcome fails when no deployment occurred. <!-- @impl: scripts/ci/assert-deploy-outcome.mjs::deployOutcome --> <!-- @impl: .github/workflows/deploy.yml::outcome --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (fails the outcome when no deployment occurred) -->
 
 **Constraints:** Cancelled verification cannot be treated as successful verification.
 
@@ -747,7 +747,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
+**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js)) exercises the authoritative-path truth table and deployed/no-deploy outcomes.
 
 **Status:** Implemented
 

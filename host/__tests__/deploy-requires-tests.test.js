@@ -10,13 +10,17 @@
 // pins both paths, because the failure mode of losing either gate is invisible:
 // manual deploys keep working, they just stop being verified.
 
+import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 
-const WORKFLOWS = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), '.github', 'workflows');
+const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+const WORKFLOWS = join(ROOT, '.github', 'workflows');
+const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 
@@ -45,6 +49,15 @@ function condition(name) {
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function evaluateCondition(expression, values) {
+  let resolved = expression.replaceAll('cancelled()', JSON.stringify(values.cancelled));
+  for (const reference of Object.keys(values).filter((key) => key !== 'cancelled').sort((a, b) => b.length - a.length)) {
+    resolved = resolved.replaceAll(reference, JSON.stringify(values[reference]));
+  }
+  assert.doesNotMatch(resolved, /\b(?:github|needs|inputs)\./, `unresolved workflow reference in: ${resolved}`);
+  return Boolean(runInNewContext(resolved, Object.create(null), { timeout: 100 }));
 }
 
 describe('manual deploys cannot skip tests', () => {
@@ -188,5 +201,62 @@ describe('manual deploys cannot skip tests', () => {
       'prepare falls back to github.ref, which actions/checkout re-resolves at job start — the deployed commit could differ from the tested one'
     );
     assert.match(ref[1], /github\.sha/, 'the dispatch path must pin the SHA that verify tested');
+  });
+
+  it('allows exactly one authoritative verification path to reach deploy', () => {
+    const gate = condition('deploy');
+    const base = {
+      cancelled: false,
+      'github.event_name': 'workflow_dispatch',
+      'github.event.workflow_run.conclusion': '',
+      'github.event.workflow_run.event': '',
+      'github.event.workflow_run.head_repository.full_name': '',
+      'github.repository': 'owner/repo',
+      'needs.verify.result': 'skipped',
+      'needs.verify-existing.result': 'skipped',
+      'needs.verify-existing.outputs.verified': '',
+      'needs.prepare.result': 'success',
+      'needs.build-worker.result': 'success',
+      'needs.container.result': 'success',
+    };
+    const fixtures = [
+      ['inline checks', { ...base, 'needs.verify.result': 'success' }, true],
+      ['validated run', { ...base, 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, true],
+      ['both manual paths', { ...base, 'needs.verify.result': 'success', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, false],
+      ['no verification', base, false],
+      ['failed inline checks', { ...base, 'needs.verify.result': 'failure' }, false],
+      ['invalid reused run', { ...base, 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'false' }, false],
+      ['cancelled verification', { ...base, cancelled: true, 'needs.verify.result': 'cancelled' }, false],
+      ['green workflow run', {
+        ...base,
+        'github.event_name': 'workflow_run',
+        'github.event.workflow_run.conclusion': 'success',
+        'github.event.workflow_run.event': 'push',
+        'github.event.workflow_run.head_repository.full_name': 'owner/repo',
+      }, true],
+      ['failed workflow run', {
+        ...base,
+        'github.event_name': 'workflow_run',
+        'github.event.workflow_run.conclusion': 'failure',
+        'github.event.workflow_run.event': 'push',
+        'github.event.workflow_run.head_repository.full_name': 'owner/repo',
+      }, false],
+    ];
+
+    for (const [name, values, expected] of fixtures) {
+      assert.equal(evaluateCondition(gate, values), expected, name);
+    }
+  });
+
+  it('fails the outcome when no deployment occurred', () => {
+    assert.match(
+      jobBlock('outcome'),
+      /node scripts\/ci\/assert-deploy-outcome\.mjs "\$DEPLOY"/,
+      'the outcome job must execute the behaviorally tested decision kernel'
+    );
+    for (const [result, expected] of [['success', 0], ['skipped', 1], ['failure', 1], ['cancelled', 1]]) {
+      const outcome = spawnSync(process.execPath, [OUTCOME_GATE, result], { encoding: 'utf8' });
+      assert.equal(outcome.status, expected, result);
+    }
   });
 });

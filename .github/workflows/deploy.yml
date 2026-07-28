@@ -756,22 +756,14 @@ jobs:
           DEPLOY=$(echo "$RESULTS" | jq -r '.deploy.result')
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
 
-          if [ "$DEPLOY" = "success" ]; then
-            echo "Worker deployed."
-            exit 0
+          if [ "$DEPLOY" != "success" ]; then
+            {
+              echo "## No deploy happened"
+              echo ""
+              echo '```'
+              echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          {
-            echo "## No deploy happened"
-            echo ""
-            echo '```'
-            echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$DEPLOY" = "skipped" ]; then
-            echo "::error::Nothing was deployed — the gate was not satisfied (see the job results above). Failing so this run is not mistaken for a successful deploy."
-          else
-            echo "::error::The deploy job ended '$DEPLOY'."
-          fi
-          exit 1
+          node scripts/ci/assert-deploy-outcome.mjs "$DEPLOY"

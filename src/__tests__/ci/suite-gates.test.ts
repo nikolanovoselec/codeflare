@@ -226,10 +226,12 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const runStep = action.runs.steps.find((step) => step.name === 'Run suite with coverage');
     expect(runStep).toBeDefined();
     const activeCommands = (runStep?.run ?? '')
-      .replace(/\\\n\s*/g, ' ')
       .split('\n')
       .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'));
+      .filter((line) => line && !line.startsWith('#'))
+      .join(' ')
+      .replace(/\\\s+/g, ' ')
+      .replace(/\s+/g, ' ');
     expect(activeCommands).toContain(
       'node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" /tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH"',
     );
