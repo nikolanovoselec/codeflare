@@ -447,6 +447,26 @@ describe('Retired preseed keys', () => {
     }
   });
 
+  it('retires the legacy ~/.claude/hooks/ copies the seed no longer owns', () => {
+    // Two mechanisms reclaim a dropped file: the stale-marker sweep, which needs
+    // the object to still carry a marker, and this list. A file the container
+    // wrote itself and rclone carried to R2 has no marker and was never a seeded
+    // key, so the sweep cannot see it and the walk that compiled this list could
+    // not have found it - enumeration is the only route left. The two
+    // enforce-ctx-mode.sh copies are that pair: one was a real seeded key, the
+    // legacy hooks/ copy never was and outlived it.
+    expect(RETIRED_PRESEED_KEYS).toContain('.claude/hooks/enforce-ctx-mode.sh');
+    expect(RETIRED_PRESEED_KEYS).toContain(
+      '.claude/plugins/context-mode/scripts/enforce-ctx-mode.sh',
+    );
+    // Retiring by name is only safe while the build seeds nothing into that
+    // directory - a new hooks/ key would be written and then deleted by name.
+    const liveHooks = AGENTS_SEEDED_CONFIGS.filter((doc) =>
+      doc.key.startsWith('.claude/hooks/'),
+    ).map((doc) => doc.key);
+    expect(liveHooks).toEqual([]);
+  });
+
   it('lists the rules absorbed into the engineering constitution', () => {
     // Their content now ships inside the constitution; leaving the standalone
     // copies in the bucket would deliver the same policy twice.

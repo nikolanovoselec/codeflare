@@ -158,7 +158,7 @@ Failing closed is the entire security point: a misconfiguration can never silent
 
 **Raw TCP/UDP denied under strict egress.** The `interceptOutboundHttps` catch-all is an L7 (HTTP/HTTPS) control only — on Cloudflare Containers, traffic on ports other than 80/443 is never routed through it. So strict egress also starts the container with `enableInternet=false`, which makes the platform expose only ports 80/443 + Cloudflare DNS (the HTTP/HTTPS the catch-all carries to the Gateway) and **deny all raw TCP/UDP egress** (SSH, arbitrary sockets, tunnels) at a boundary the container cannot manipulate (Cloudflare Containers do not support in-container iptables, and the workload runs rootless).
 
-This closes the gap the L7-only interception left open, so the strict-egress boundary covers the full network surface rather than just HTTP/HTTPS. When strict egress is off / non-enterprise, `enableInternet` stays at the platform default and egress is byte-identical to today ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) AC6).
+This closes the gap the L7-only interception left open, so the strict-egress boundary covers the full network surface rather than just HTTP/HTTPS. When strict egress is off / non-enterprise, `enableInternet` stays at the platform default and egress is byte-identical to today ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) AC7).
 
 **SSRF guard + DNS-rebinding caveat.** Before any upstream send the `EgressController` rejects literal-IP SSRF targets — loopback, RFC 1918, link-local (incl. the `169.254.169.254` cloud-metadata endpoint), unspecified, and IPv6 literals — with `403 EGRESS_TARGET_BLOCKED`. This is **defense-in-depth only**: it is a literal-IP check and does **not** stop a public hostname that resolves to a private IP (DNS rebinding). The authoritative egress control is the customer's Cloudflare Gateway policy on `cf1:network`, not this guard.
 
@@ -172,7 +172,7 @@ This closes the gap the L7-only interception left open, so the strict-egress bou
 
 ## View-Only Storage (Enterprise Anti-Exfil)
 
-An enterprise admin can flip a Setup-wizard toggle (`setup:downloads_disabled`, default OFF) that makes the R2 Storage Panel view-only: `GET /api/storage/download` then **rejects downloads (attachment) with 403** and allows only **inline view of viewable types** — text/Markdown/HTML-as-text/images/PDF, via the `isInlineViewable` deny-by-default allowlist in `src/routes/storage/download.ts`. A non-viewable blob (zip/tar/binary/unknown) is 403 even with `?disposition=inline`, so its bytes cannot leak through the `text/plain` fallback. This blocks bulk exfiltration (e.g. an agent or user zipping a repo and downloading it).
+An enterprise admin can flip a Setup-wizard toggle (`setup:downloads_disabled`, default OFF) that makes the R2 Storage Panel view-only: the download route then refuses attachment downloads and allows only **inline view of viewable types** — text/Markdown/HTML-as-text/images/PDF, via the `isInlineViewable` deny-by-default allowlist in `src/routes/storage/download.ts`. A non-viewable blob (zip/tar/binary/unknown) is refused even with `?disposition=inline`, so its bytes cannot leak through the `text/plain` fallback. This blocks bulk exfiltration (e.g. an agent or user zipping a repo and downloading it). Status contract in [api-reference.md](./api-reference.md#storage-r2-file-browser).
 
 Enforcement is **server-side** (`isDownloadsDisabled` in `src/lib/downloads-policy.ts`, resolved before any R2 fetch); the Storage Panel additionally renders its download controls as blocked (disabled-looking but still tappable) and shows a notice that downloads are disabled by the administrator — proactively, and as a server-truth backstop when a download does reach the `403` (the response carries a distinct `DOWNLOADS_DISABLED` code so the client shows the notice instead of a raw failure, even if its cached flag is stale) — but that is UX only and not the control. Upload and delete are unaffected (not exfiltration vectors).
 
@@ -208,9 +208,13 @@ This satisfies [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterpri
 
 A random shared secret is generated per DO lifecycle and proxied requests from the DO to the container include it in the `Authorization: Bearer` header. The terminal server validates the token on all non-exempt paths (`checkContainerAuth` in `host/src/auth-check.ts`, invoked by `host/src/request-router.ts`). Internal paths (`/health`, `/activity`) are whitelisted because `collectMetrics()` calls them directly via the SDK's private TCP plumbing (`ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)`), never through the public `fetch()` override -- so no `Authorization` header is injected. The whitelist is safe because these two paths expose no user data and no mutable container state.
 
-**Threat model -- silent Unauthorized after DO wake (REQ-SEC-012 AC2/AC3):** Without lifecycle-scoped persistence, every DO wake from hibernation regenerates a fresh token while the container process retains the original value, breaking every subsequent proxied request with `{"error":"Unauthorized"}` until the user manually recreates the session. The terminal, vault, and every other in-container HTTP surface go silently unreachable.
+**Threat:** Without lifecycle-scoped persistence, every DO wake from hibernation regenerates a fresh token while the container process retains the original value, breaking proxied requests with `{"error":"Unauthorized"}` until the session is recreated; terminal, vault, and every in-container HTTP surface become unreachable ([REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle) AC2–AC3).
 
-**Mitigation:** The token is scoped to one DO lifecycle and survives hibernate/wake within that lifecycle; on `destroy()` it is cleared so the next session under the same DO ID starts fresh. Persistence mechanics (DO storage key, restore site, hibernate-window pinning, cleanup hook) live in [architecture.md](./architecture.md#container-do-container). The env-var name (`CONTAINER_AUTH_TOKEN`) is catalogued in [configuration.md](./configuration.md#container-environment).
+**Mitigation:** The token is scoped to one DO lifecycle and survives hibernate/wake within that lifecycle; on `destroy()` it is cleared so the next session under the same DO ID starts fresh. Persistence mechanics live in [architecture.md](./architecture.md#container-do-container); `CONTAINER_AUTH_TOKEN` is catalogued in [configuration.md](./configuration.md#container-environment).
+
+**Verification:** [Container lifecycle tests](../../src/__tests__/container/index.test.ts) and [host bearer-validation tests](../../host/__tests__/server-auth-check.test.js).
+
+**Implements:** [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle), [REQ-SEC-022](../../sdd/spec/security.md#req-sec-022-container-proxy-bearer-validation)
 
 ## Dual R2 Credential Architecture
 
@@ -382,7 +386,7 @@ Implementation: `src/lib/kv-crypto.ts`
 
 **AAD (Additional Authenticated Data):** The KV key name (e.g., `llm-keys:codeflare-user-example-com`) is bound to the ciphertext as AAD. This prevents ciphertext from being copied between KV keys - decryption fails if the key name doesn't match.
 
-**Key caching:** The CryptoKey is imported once per Worker isolate lifetime and cached in module-level state. Subsequent requests reuse the cached key without re-importing.
+**Key caching:** The CryptoKey is imported once per Worker isolate lifetime and cached in module-level state, keyed on the `ENCRYPTION_KEY` it was derived from so a rotated key re-imports. Subsequent requests reuse the cached key without re-importing. <!-- @impl: src/lib/kv-crypto.ts::getOrImportKey -->
 
 **API responses** always return masked values (`****` + last 4 chars), never plaintext keys - regardless of whether encryption is enabled.
 
@@ -396,7 +400,7 @@ When `ENCRYPTION_KEY` is enabled on an existing deployment with plaintext KV ent
 4. Fire-and-forget: re-encrypt the plaintext value and write back to KV (`kv.put` runs asynchronously, never blocks the response)
 5. Subsequent reads hit the fast decrypt path (step 2)
 
-The write-back is fire-and-forget - if the KV write fails (transient error, rate limit), the caller still gets the correct data. Migration retries automatically on the next read. No data loss, no downtime.
+The write-back is fire-and-forget - if the KV write fails (transient error, rate limit), the caller still gets the correct data. Migration retries automatically on the next read. No data loss, no downtime. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
 
 **Race condition safety:** Two concurrent requests can both read the same plaintext entry and both write encrypted copies. This is safe because both workers encrypt the same plaintext - whichever write wins is equally valid. Real updates go through `encryptAndStore()` which always encrypts directly.
 
@@ -529,7 +533,7 @@ Surface: [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-bro
 
 ### Session Limits ([REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits))
 
-Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSIONS_USER` (default: 3) and `MAX_SESSIONS_ADMIN` (default: 10) in `wrangler.toml`.
+Per-user cap on concurrent running sessions, configurable by role. The two variables and their defaults are in [configuration.md](./configuration.md#worker-environment).
 
 **Frontend-first enforcement:** The dashboard disables the start button when `isAtSessionLimit()` returns true (running + initializing sessions >= maxSessions). A popup explains the limit and which sessions to stop.
 
@@ -590,7 +594,7 @@ Every entry carries an inline comment recording the affected package, the impact
 - [REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) - Enterprise backend route hardening (billing, tier-config, subscribe, Stripe webhook fail closed with 403)
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT provisioning; get-identity gate fails closed on error or non-membership
 - [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin elevation via Access group: live, context-only, fails closed; confined to admin routes
-- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress: transparent proxy (no identity stamping), mandatory Gateway boundary, fail-closed, SSRF guard + DNS-rebinding caveat, raw TCP/UDP denied via `enableInternet=false` (AC9)
+- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress: transparent proxy (no identity stamping), mandatory Gateway boundary, fail-closed, SSRF guard + DNS-rebinding caveat, raw TCP/UDP denied via `enableInternet=false` (AC7)
 - [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable) - View-Only Storage: enterprise anti-exfil toggle (`setup:downloads_disabled`), attachment downloads blocked (403), inline view of allowlisted types only, server-side in `src/routes/storage/download.ts` / `src/lib/downloads-policy.ts`
 - [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (admin-global token, encrypted at rest, browser-run gated on it)
 - [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) - Browser Rendering token interception: real token never in the container, injected worker-side by the account-scoped CloudflareBrowserInterceptor

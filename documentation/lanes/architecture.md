@@ -35,7 +35,7 @@ graph TD
     P2 -->|"rclone bisync (15min + manual triggers)"| R2
 ```
 
-**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, operators route all traffic through that domain, protected by the configured auth mechanism (CF Access or GitHub OIDC), as required by [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) AC7. In CF Access mode, the workers.dev URL should be gated behind one-click Access in the Cloudflare dashboard.
+**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, operators route all traffic through that domain, protected by the configured auth mechanism (CF Access or GitHub OIDC), as required by [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) AC7. In CF Access mode, gate the workers.dev URL behind one-click Access in the Cloudflare dashboard.
 
 ---
 
@@ -144,13 +144,13 @@ A GitHub panel sits beside the R2 storage panel: a connected user browses and cl
     `web-ui/src/components/github/RepoList.tsx` and `web-ui/src/styles/github-panel.css` render no-repos/search-empty states and present repos inside an anchoring split with Storage: GitHub is pinned to the top, Storage to the bottom; the shorter panel shrinks to its content while the taller absorbs the slack, meeting at 50/50 when both are full ([REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states)).
 - **Adaptive split / face switching**
 
-    `web-ui/src/components/Dashboard.tsx` (`effectiveFace` + `decidePanelLayoutMode` in `web-ui/src/lib/panel-allocation.ts`) and `web-ui/src/components/github/GitHubPanel.tsx` run the GitHub+Storage split on desktop/tablet and swap to a single face with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short for both panels (the narrow check reads the viewport width, not the column's own width, which the layout caps small). GitHub leads — it is the default face on every enabled session — and Storage becomes the sole face only when GitHub is disabled ([REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching)).
+    `web-ui/src/components/Dashboard.tsx` (`effectiveFace` + `decidePanelLayoutMode` in `web-ui/src/lib/panel-allocation.ts`) and `web-ui/src/components/github/GitHubPanel.tsx` run the GitHub+Storage split on desktop/tablet and swap to a single face with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short for both panels (the narrow check reads the viewport width, not the column's own width, which the layout caps small). GitHub leads — it is the default face on every enabled session — and Storage becomes the sole face only when GitHub is disabled ([REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching)); responsive allocation is specified by [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation).
 
 On desktop/tablet the panel expands to 80vh (centered, via `.dashboard-panel:not(--expanded)` in `web-ui/src/styles/dashboard.css`) and the two faces stack as a JS-measured anchoring split: `measureLayout`/`measureNatural` in `Dashboard.tsx` measure each face's natural height (panel chrome + the scroller's `scrollHeight`, with the cap removed), re-run on a ResizeObserver/MutationObserver, and write it as an inline `max-height`; the faces are `flex: 1 1 0` capped at that measured height with `justify-content: space-between`, so GitHub anchors to the top and Storage to the bottom — a short panel sits at its content while the larger one absorbs the slack, both meeting at 50/50 when full.
 
 `panel-allocation.ts` only decides split-vs-flip; the per-face allocation is the flex engine's, fed by those measured caps.
 
-    In single-panel (flip / mobile) mode the panel is content-sized and centered, and the active face sizes to its content up to one shared viewport cap (`max-height: 75vh` for both faces — mobile shows a single flip face at a time, so GitHub and Storage cap identically and flipping never resizes the panel; overflow scrolls inside `.github-repo-rows`/`.storage-drop-zone`), so a short panel — the connect card or a few repos — collapses instead of reserving the column ([REQ-GITHUB-010 AC7](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching)).
+    In single-panel (flip / mobile) mode the panel is content-sized and centered, and the active face sizes to its content up to one shared viewport cap (`max-height: 75vh` for both faces — mobile shows a single flip face at a time, so GitHub and Storage cap identically and flipping never resizes the panel; overflow scrolls inside `.github-repo-rows`/`.storage-drop-zone`), so a short panel — the connect card or a few repos — collapses instead of reserving the column ([REQ-GITHUB-012 AC3](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation)).
 - **Search disclosure**
 
     on every breakpoint `GitHubPanel` hides the repo search behind a magnify toggle in `ConnectedHeader` (left of Refresh) so the list keeps its full whole-row viewport; revealing it focuses the input synchronously in the tap/click handler (so the on-screen keyboard opens on touch), and closing it clears the filter. Touch additionally runs `scrollFieldAboveKeyboard` (`web-ui/src/lib/mobile.ts`) to scroll the input above the keyboard via `visualViewport`. There is no longer an always-on desktop search bar ([REQ-GITHUB-011](../../sdd/spec/github.md#req-github-011-mobile-search-disclosure-with-autofocus)).
@@ -284,7 +284,13 @@ Discoverability documents (REQ-LANDING-003) are served by the Worker at the depl
 
 **Directory:** `web-ui/`
 
-Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `TerminalArea.tsx` (renders only visible workspace panes), `TerminalGrid.tsx` (shared tiled pane grid), `Layout.tsx` (orchestrates dashboard/terminal workspaces, manages WS disconnect/reconnect lifecycle), `SessionStatCard.tsx` (real-session Dashboard card with three-color status dot and metrics), `StorageBrowser.tsx` (R2 browser with toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, `AdminActionButton.tsx` (shared full-width admin action button; tone comes from a `--color-action-*` token), `PageFooter.tsx` (shared footer for the login, onboarding and subscribe pages), `Dashboard.tsx` (new-session button plus icon-only MultiView reopen action), `SessionDropdown.tsx` (session + MultiView selection), `OnboardingLanding.tsx`, `OnboardingPage.tsx` (guided setup), `SubscribePage.tsx` (subscription flow), `UsagePage.tsx` (usage dashboard), `LoginPage.tsx` (SaaS login), `Header.tsx` (nav + user dropdown + inline usage), `KittScanner.tsx`.
+Key shell and terminal files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `TerminalArea.tsx` (visible workspace panes), `TerminalGrid.tsx` (shared tiled pane grid), and `Layout.tsx` (dashboard/terminal orchestration and WebSocket lifecycle).
+
+Dashboard files: `SessionStatCard.tsx` (real-session card with three-color status and metrics), `StorageBrowser.tsx` (R2 browser toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, and `AdminActionButton.tsx` (full-width admin action whose tone uses `--color-action-*`).
+
+Flow files: `PageFooter.tsx` (login, onboarding, and subscribe footer), `Dashboard.tsx` (new-session and icon-only MultiView-reopen actions), `SessionDropdown.tsx` (session and MultiView selection), `OnboardingLanding.tsx`, `OnboardingPage.tsx` (guided setup), `SubscribePage.tsx` (subscription flow), `UsagePage.tsx` (usage dashboard), and `LoginPage.tsx` (SaaS login).
+
+`Header.tsx` owns navigation, the user dropdown, and inline usage; `KittScanner.tsx` owns the scanner treatment.
 
 Stores: `terminal-workspace.ts` (active workspace and visible pane ownership: dashboard, single session, or `MultiView #1`), `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `terminal-url-detection.ts` (URL detection signals for floating buttons), `terminal-layout.ts` (terminal layout state), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling - also updates storage stats from batch-status via `updateStatsFromBatch()`; mirrors `enterpriseMode` and `saasMode` from `/api/user` via `App.tsx`), `storage.ts` (R2 operations), `setup.ts`, `tiling.ts` (per-session tiled tab layout), `session-tabs.ts` (tab configuration).
 
@@ -303,6 +309,12 @@ MultiView open, close, dashboard return, and session selection transitions are o
 `MultiView #1` is a virtual frontend workspace, not a backend session. It is persisted only in browser storage, validates membership against currently running or initializing sessions, accepts two to four members on desktop, exactly two on tablet, and is hidden on mobile while preserving saved membership. It appears in the session switcher as `Launch MultiView`; on Dashboard it never renders as a session card and is reopened through the icon-only action beside `+ New Session` when saved panes exist. It is never sent to session lifecycle, quota, storage, metrics, or terminal-route APIs.
 
 #### Dashboard WS Disconnect Flow
+
+**Responsibility:** Coordinate dashboard disconnect grace, visible-only reconnect, and session connection status.
+
+**Inputs:** Workspace navigation, browser visibility, session KV state, and terminal connection state.
+
+**Outputs:** Scheduled disconnects, scoped reconnects, and three-color session status.
 
 When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (user-configurable, default 30m for paying users, 15m for free tier). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then visibility-return reconnect receives the exact visible terminal keys: current workspace panes plus visible tiled tabs for the active single-session workspace.
 
@@ -500,7 +512,9 @@ This onboarding branch is skipped in SaaS mode (which keeps the `/app/subscribe`
 Two entry points clone a repo into a session, distinguished by whether the session already exists.
 
 - **New session (clone-on-start):** `POST /api/sessions` accepts `clone:{repo,ref}`, mapped via `container-env.ts` to `GIT_CLONE_REPO` / `GIT_CLONE_REF`. `entrypoint.sh` clones into `$USER_WORKSPACE/<repo-verbatim>` before agent start, skipping an existing directory.
-- **Running session:** `POST /api/github/clone` forwards to the container DO's `/internal/git-clone` host endpoint (authed by the `CONTAINER_AUTH_TOKEN` Worker→DO bearer injection). The host `resolveGitClone` validates `owner/name` + ref and refuses a pre-existing folder (`409`).
+- **Running session:** `POST /api/github/clone` forwards to the authenticated container-host clone endpoint; [api-reference.md](./api-reference.md#github-integration) owns the status contract.
+
+The host endpoint is `/internal/git-clone`, authenticated through the `CONTAINER_AUTH_TOKEN` Worker-to-DO bearer injection. `resolveGitClone` validates `owner/name` plus ref and refuses a pre-existing folder ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)).
 
 Auth on the clone itself uses the per-mode credential path: egress injection in enterprise mode (the `GitHubInterceptor` stamps the user's token onto the outbound clone), or the container-local `GH_TOKEN` otherwise.
 
@@ -626,7 +640,7 @@ Code, specification, and documentation lanes use the provider-neutral `medium` t
 
 Only the reminder head can be acknowledged after every required reviewer has either a correlated successful native notification or a successful public result retrieval. A later tool-free root response must contain the fixed triage table before `agent_end` reads the live session, writes the existing full-SHA acknowledgement, and queues one separate FIX follow-up; `agent_settled` is the idempotent fallback. This transcript-derived barrier reuses `.git/sdd-last-ack-pr-head` without a second acknowledgement path, preserving the reviewed head as the next push's incremental range base ([REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier)).
 
-Reload alone cannot fabricate completion, but a persisted delayed notification may acknowledge the reviewed head after reload or newer unpublished local work while the authoritative PR head still matches it. A replacement PR head is never acknowledged by stale notifications. Pi has no pre-command merge interceptor or durable review execution state. See [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), and [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection).
+Reload alone cannot fabricate completion, but a persisted delayed notification may acknowledge the reviewed head after reload or newer unpublished local work while the authoritative PR head still matches it. A replacement PR head is never acknowledged by stale notifications. Pi has no pre-command merge interceptor or durable review execution state. See [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), and [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection).
 
 ### User-Invoked Review and SDD Ownership
 
@@ -781,6 +795,7 @@ The server output is the complete resting state. Client scripts only enhance it,
 - [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states) - GitHub repository list viewport and empty states
 - [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching) - Mobile GitHub and storage face switching
 - [REQ-GITHUB-011](../../sdd/spec/github.md#req-github-011-mobile-search-disclosure-with-autofocus) - Mobile search disclosure with autofocus
+- [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation) - Responsive GitHub and storage panel allocation
 
 ---
 

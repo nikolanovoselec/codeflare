@@ -242,11 +242,6 @@
       "advanced"
     ]
   },
-  "plugins/graphify/scripts/graphify-session-start.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/graphify/scripts/local-graphify-labels.sh": {
     "modes": [
       "advanced"

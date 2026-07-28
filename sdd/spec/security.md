@@ -157,7 +157,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. The SSE-C scheme uses AES-256; the request carries the customer-provided key and a key-hash so the storage layer can verify integrity. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (returns 3 SSE-C headers when ENCRYPTION_KEY is set) -->
 3. The encryption key is propagated from Worker to Durable Object to container as part of the session environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 4. In containers, the sync configuration is extended with SSE-C settings so all R2 traffic carries the customer-provided key. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-ENTERPRISE-018: rclone.conf under Governed Mode (entrypoint.sh create_rclone_config)) -->
-5. All bidirectional sync operations (initial restore, periodic sync, shutdown sync) transparently encrypt and decrypt without user action. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)) -->
+5. All bidirectional sync operations (initial restore, periodic sync, shutdown sync) transparently encrypt and decrypt without user action. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @manual: With SSE-C enabled, create and edit a file across two sessions and confirm it restores without an encryption prompt. -->
 6. Files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable without the key. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/lib/r2-sse.test.ts (returns 3 SSE-C headers when ENCRYPTION_KEY is set) -->
 7. When no operator encryption key is configured, R2 operations proceed without SSE-C (no code path changes). <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 
@@ -280,7 +280,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. Setup wizard inputs (domain, emails, origins) are validated with shape-specific patterns. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @manual -->
 3. Session IDs are validated against the canonical format (8-24 lowercase alphanumeric characters) on every entry point. Invalid IDs are rejected with 400 before any session-side interaction. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> <!-- @test: src/__tests__/routes/terminal.test.ts (returns 400 errorResponse for invalid session ID format) -->
 4. Malformed base64 inputs are rejected with 400 immediately. <!-- @manual -->
-5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads). <!-- @impl: src/index.ts --> <!-- @manual -->
+5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads). <!-- @impl: src/index.ts::bodyLimit --> <!-- @manual -->
 6. Email addresses are normalized before any lookup, comparison, or derivation operation. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (normalizes authenticated email before allowlist lookup) -->
 
 **Constraints:**
@@ -578,7 +578,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. WebSocket upgrade requests for stopped sessions are rejected before the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s WS budget. The close code conveys "container stopped" to the client. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (CF-015: Stopped session returns 4503 close code / REQ-SEC-020 AC1 (4503 short-circuit BEFORE WS rate-limit check)) -->
 2. WebSocket upgrade requests are rejected before the rate-limit check when the container's terminal service is not yet ready; the close code conveys "container warming up". The readiness probe is best-effort: probe errors fall through to the normal rate-limit + forward path. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate (PR #365) / REQ-SEC-020 AC2 (1013 close BEFORE WS rate-limit when terminalServiceReady=false; /health probe error falls through)) -->
-3. The container WebSocket forward is bounded by `CONTAINER_WS_FORWARD_TIMEOUT_MS`: a healthy container answers the upgrade in under a second. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/constants.ts::CONTAINER_WS_FORWARD_TIMEOUT_MS --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (handleWebSocketUpgrade) -->
+3. The container WebSocket forward is bounded by `CONTAINER_WS_FORWARD_TIMEOUT_MS`: a healthy container answers the upgrade in under a second. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/constants.ts::CONTAINER_WS_FORWARD_TIMEOUT_MS --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (fast-fails with a 101 close (not an indefinite hang) when the container WS forward never answers) -->
 
 **Constraints:**
 
@@ -596,7 +596,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-021: HSTS coverage on redirect response paths
 
-**Intent:** The HSTS header coverage in [REQ-SEC-008](#req-sec-008-security-headers-on-every-response) AC1 must extend to every redirect emission path. Without a dedicated helper, redirects emitted from `Response.redirect()` or middleware shortcuts would drop the security header set the global middleware applies.
+**Intent:** The HSTS coverage in [REQ-SEC-008](#req-sec-008-security-headers-on-every-response) AC1 must extend to every direct or middleware redirect path.
 
 **Applies To:** User
 
@@ -615,3 +615,5 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Verification:** Automated test ([redirect-with-headers](../../src/__tests__/redirect-with-headers.test.ts))
 
 **Status:** Implemented
+
+---

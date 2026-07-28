@@ -4,7 +4,7 @@ Operator and developer reference for Codeflare - an agentic engineering engine t
 
 This documentation is organized into **lanes** - each file targets a specific audience (operator, developer, or security) and covers one operational slice of the system. Facts live in one place and are cross-referenced elsewhere. When documentation implements a specification requirement, the file links back to the relevant REQ in `sdd/` via anchor references.
 
-The specification (`sdd/`) defines what the system should do. This documentation describes public implementation behavior and default-mode operation. Together they form a closed loop: requirements drive implementation, implementation is documented, and documentation links back to requirements.
+The specification (`sdd/`) defines required system behavior. This documentation describes public implementation behavior and default-mode operation. Together they form a closed loop: requirements drive implementation, implementation is documented, and documentation links back to requirements.
 
 ## Documentation Principles
 
@@ -22,7 +22,7 @@ The specification (`sdd/`) defines what the system should do. This documentation
 
 Public documentation owns default-mode setup, product behavior, architecture, and REQ/ADR backlinks. Exact non-default deployment secrets, variables, token scopes, GitHub Environments, and operator runbooks live in [private operations](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
-When their public workflows or consumers change, update the private README in the same work. Public docs should link there rather than duplicate the operational matrix.
+When their public workflows or consumers change, update the private README in the same work. Public docs link there rather than duplicate the operational matrix.
 
 **Agents:** to read or modify a non-default deployment secret, variable, or token scope, do it in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) — those values are not stored in this repository. Never write a real secret, a non-default deployment variable, or a token-scope value into this public repo (code, `sdd/`, or `documentation/`); reference the private repo instead.
 

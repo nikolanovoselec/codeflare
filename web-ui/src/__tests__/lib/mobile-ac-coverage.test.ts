@@ -2,12 +2,12 @@
  * AC coverage for REQ-MOB-001, REQ-MOB-002, REQ-MOB-004, REQ-MOB-010, REQ-MOB-012
  *
  * Scope: ACs that are unit-testable in jsdom with vitest.
- * Playwright candidates (real device/browser required) are documented below.
+ * Deployed-browser checks (real device/browser required) are documented below.
  *
- * PLAYWRIGHT CANDIDATES (not covered here):
- *   REQ-MOB-001 AC1 - terminal renders on real mobile viewport (Playwright + Android emulator)
- *   REQ-MOB-001 AC2 - touch input / command execution identical to desktop (Playwright E2E)
- *   REQ-MOB-001 AC3 - e2e-ui-mobile CI job passes (CI job, not a unit test)
+ * DEPLOYED-BROWSER CHECKS (not covered here):
+ *   REQ-MOB-001 AC1 - terminal renders at supported phone and tablet viewport widths
+ *   REQ-MOB-001 AC2 - touch input and command execution match desktop behavior
+ *   REQ-MOB-001 AC3 - deployed command output and scrollback work at those widths
  *   REQ-MOB-016 AC1 - iframe compositor jail (not exported; Playwright + Android IME)
  *   REQ-MOB-016 AC1 - iframe focus check via iframe.contentDocument.hasFocus() (not exported; Playwright)
  *   REQ-MOB-004 AC2 - _syncTextArea not frozen (xterm internal; Playwright)
@@ -23,13 +23,13 @@ vi.mock('../../lib/settings', () => ({
 
 // ============================================================================
 // REQ-MOB-001: Terminal fully usable on mobile devices
-// ACs covered: AC4, AC5, AC6
-// AC1/AC2/AC3 are Playwright candidates (documented above)
+// ACs covered here: AC4
+// AC1/AC2/AC3 are deployed-browser checks (documented above)
 // ============================================================================
 
 describe('REQ-MOB-001: Terminal fully usable on mobile devices', () => {
-  // AC4 + AC5: keyboard open/close triggers layout adjustment via getKeyboardHeight signal
-  describe('AC4 + AC5: layout adjusts when virtual keyboard opens or closes (VirtualKeyboard API)', () => {
+  // AC4: keyboard open/close triggers layout adjustment via getKeyboardHeight signal
+  describe('AC4: layout adjusts when virtual keyboard opens or closes (VirtualKeyboard API)', () => {
     let mockVirtualKeyboard: {
       overlaysContent: boolean;
       boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => object };
@@ -95,8 +95,8 @@ describe('REQ-MOB-001: Terminal fully usable on mobile devices', () => {
       expect(mobile.getKeyboardHeight()).toBe(0);
     });
 
-    it('REQ-MOB-001 AC5: visualViewport resize event triggers keyboard state update (fallback path)', async () => {
-      // REQ-MOB-001 AC5: FitAddon recalculates on viewport changes via visualViewport resize
+    it('REQ-MOB-001 AC4: visualViewport resize event triggers keyboard state update (fallback path)', async () => {
+      // REQ-MOB-001 AC4: FitAddon recalculates on viewport changes via visualViewport resize
       // This tests the fallback detection path (iOS Safari / Firefox)
       delete (navigator as any).virtualKeyboard;
 
@@ -133,25 +133,18 @@ describe('REQ-MOB-001: Terminal fully usable on mobile devices', () => {
     });
   });
 
-  // AC6: fit() call sites guard against zero-height containers
-  describe('AC6: fit() sites guard against zero-height containers', () => {
-    it('REQ-MOB-001 AC6: getKeyboardHeight returns 0 when keyboard state is clean (safe baseline for fit guards)', async () => {
-      // REQ-MOB-001 AC6: The zero-height guard (containerEl.clientHeight === 0) is implemented
-      // in useTerminal.ts. This test verifies the state machine that drives those guards:
-      // when no keyboard is detected, height is 0, so fit() must not proceed on a zero container.
-      // The guard logic reads containerEl.clientHeight > 0 before calling fitAddon.fit().
+  describe('keyboard state reset baseline', () => {
+    it('reports a closed keyboard when no keyboard is detected', async () => {
       delete (navigator as any).virtualKeyboard;
 
       vi.resetModules();
       const mobile = await import('../../lib/mobile');
 
-      // With no keyboard detected, height should be 0
       expect(mobile.getKeyboardHeight()).toBe(0);
       expect(mobile.isVirtualKeyboardOpen()).toBe(false);
     });
 
-    it('REQ-MOB-001 AC6: forceResetKeyboardState zeros all signals (guards can rely on clean state)', async () => {
-      // REQ-MOB-001 AC6: After forceReset, height is 0 - fit guard will skip correctly
+    it('clears all keyboard signals on force reset', async () => {
       vi.resetModules();
       const mobile = await import('../../lib/mobile');
 

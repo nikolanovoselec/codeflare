@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -125,6 +125,10 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD112](#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) | CI runs as parallel path-filtered lanes and deploys reuse content-addressed container images | Architecture, Operations |
 | [AD113](#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty) | One owned Browser IDE extension uses Pi RPC and a Claude PTY (superseded by AD114) | Architecture, Security |
 | [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) | Native Pi Chat and the official Claude extension own editor integration | Architecture, Security, Supply Chain |
+| [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses) | Claude PR-boundary review lanes run as headless `claude -p` subprocesses | Architecture, Cost |
+| [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane) | Review-lane Phase 0 is computed deterministically and handed to the lane | Architecture, Cost |
+| [AD117](#ad117-review-lane-cost-is-governed-by-turn-count-so-evidence-gathering-is-structured-in-waves) | Review-lane cost is governed by turn count, so evidence gathering is structured in waves | Architecture, Cost |
+| [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Seed provenance is carried in R2 custom metadata, verified before it was relied on | Storage, Agents |
 
 ---
 
@@ -132,48 +136,95 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 
 ### AD1: One container per session
 
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** CPU isolation -- each tab gets full 1 vCPU instead of sharing.
 
 Alternative was one container per user with multiplexed PTYs. Per-session containers avoid noisy-neighbor CPU contention between tabs running different agents, and simplify cleanup (destroy container = clean slate).
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD2: Container ID format
 
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** `{bucketName}-{sessionId}`
 
 Example: `codeflare-user-example-com-abc12345`. Deterministic from user email + session ID. Enables DO lookup without KV round-trip. `getContainerId()` must NEVER fallback on invalid sessionId -- that was root cause of orphaned containers.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD3: Per-user R2 buckets
 
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Bucket name derived from email, auto-created on first login.
 
 Isolation boundary: each user's files live in their own bucket. Simplifies deletion (empty + delete bucket). Bucket name sanitized from email (max 63 chars, S3-compatible). Per-user scoped R2 tokens ([AD13](#ad13-per-user-scoped-r2-tokens)) further restrict access.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD4: Periodic rclone bisync
 
 **Category:** Architecture
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 **Status:** Superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (cadence rationale) and [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (shutdown budget).
 
 **Decision:** Background daemon every 60s + final sync on shutdown. Superseded cadence rationale: see [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (now 15min). Superseded shutdown budget rationale: see [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (now an awaited live drain within a 120s budget before stop, 135s DO destroy hard cap; the SIGTERM trap is only a backstop -- see the Revision in AD57).
 
 Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally; manual triggers via SIGUSR1 (storage panel Sync-now button). SIGINT/SIGTERM trap runs final bisync before exit. Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD5: Login shell autostart
+
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** `.bashrc` auto-starts the configured agent in workspace.
 
 PTY spawns `bash -l` (login shell). `.bashrc` reads `TAB_CONFIG` env var and launches the configured agent. `MANUAL_TAB=1` env var skips autostart for user-created tabs.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD6: KV read-modify-write races and `collectMetrics` atomicity
+
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Last-writer-wins is acceptable for KV state; `collectMetrics` keeps activity, health, and KV updates inside a single `alarm()` callback for natural atomicity.
 
@@ -185,29 +236,65 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 **`collectMetrics` density** (formerly [AD17](#ad17-merged-into-ad6)): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations - same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD7: Merged into AD10
 
-**Status:** Merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) on 2026-05-03. Pre-setup public-endpoint risk acceptance is now consolidated under the bootstrap-window ADR alongside the related CSRF trade-off. Inbound `AD7` references in the codebase remain valid; this entry preserves the anchor.
+**Category:** Security
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
+**Status:** Reclassified — merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) on 2026-05-03. Pre-setup public-endpoint risk acceptance is now consolidated under the bootstrap-window ADR alongside the related CSRF trade-off. Inbound `AD7` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD8: Root container, no internal auth
 
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Network isolation via DO proxy is sufficient.
 
 Root needed for rclone mount. Container auth token (random UUID per DO lifecycle) validates all proxied requests. Network boundary: only the DO can reach the container's port 8080. Wildcard CORS inside container is safe -- it's internal-only.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD9: RESSOURCE_TIER spelling
 
+**Category:** (redirect)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
 **Status:** Reclassified on 2026-05-09. Naming/spelling preserved for backward compatibility is not an architectural decision; documentation lives at [configuration.md "Container Specs"](../lanes/configuration.md#container-specs) with a do-not-rename note. Inbound `AD9` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD10: Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation
+
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** A narrow pre-setup window (seconds to minutes) is the unavoidable shape of a self-hosted bootstrap; auth and CSRF protections are intentionally relaxed during it, mitigated by short exposure, rate limiting, and the `setup:complete` KV flag.
 
@@ -223,9 +310,18 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 **Pre-setup CSRF** (formerly [AD33](#ad33-merged-into-ad10)): `createConditionalSetupAuth()` calls `next()` directly when setup is not complete, bypassing the `X-Requested-With` CSRF check. The pre-setup CSRF risk is accepted under the same rationale as above: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact `workers.dev` URL during its unconfigured window. Adding `Origin` validation to the pre-setup path is a low-cost future hardening that complements the bootstrap-secret idea above.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD11: Suffix-pattern CORS with credentials
+
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** `matchesPattern()` with domain-boundary enforcement.
 
@@ -237,9 +333,18 @@ Default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, with `Acc
 
 **Future**: Restricting credentialed CORS to exact known hosts would tighten the trust surface.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD12: KV-based setup lock (non-atomic)
+
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Read-then-write pattern, acceptable for one-time setup.
 
@@ -249,9 +354,18 @@ Read `setup:complete`, check if false, perform setup, write true. Not atomic -- 
 
 **Future**: Moving to a Durable Object would provide strict serialization, deferred until there's evidence of the race occurring.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD13: Per-user scoped R2 tokens
+
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Each container gets an R2 token scoped to its user's bucket only.
 
@@ -265,9 +379,18 @@ Replaces previous shared credential model. Token lifecycle:
 
 **Trade-off**: Requires `API Tokens: Edit` permission on deploy token (broader than ideal). Accepted because manual R2 credential management per user is operationally impractical.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD14: Never auto-`--resync` on bisync failure
+
+**Category:** Storage
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** `--resilient` + `--recover` for self-healing instead.
 
@@ -277,31 +400,67 @@ Replaces previous shared credential model. Token lifecycle:
 
 **Manual `--resync`** is safe in `establish_bisync_baseline()` on container startup because one-way restore runs first.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD15: TabConfigSchema allows arbitrary command strings
+
+**Category:** UI/Frontend
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** `z.string().max(200)` -- no additional security risk.
 
 Users already have full root shell access inside their own ephemeral container. Restricting tab commands provides no additional security benefit since the container is their sandbox.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD16: entrypoint.sh ~1090 lines complexity
+
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Battle-tested, rewrite risk > benefit.
 
 Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab autostart, and graceful shutdown. Accumulated complexity reflects real-world edge cases discovered over months of production use. A rewrite risks reintroducing solved bugs for marginal readability gains.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD17: Merged into AD6
 
-**Status:** Merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) on 2026-05-03. The `collectMetrics` `alarm()`-context atomicity rationale is now part of the consolidated KV-races ADR. Inbound `AD17` references in the codebase remain valid; this entry preserves the anchor.
+**Category:** Architecture
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
+**Status:** Reclassified — merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) on 2026-05-03. The `collectMetrics` `alarm()`-context atomicity rationale is now part of the consolidated KV-races ADR. Inbound `AD17` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD18: Vendored creative/WebGL code uses untyped patterns
+
+**Category:** UI/Frontend
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Both isolated WebGL utilities and adapted creative-coding modules use `any` types where upstream TS definitions don't exist; refactoring offers no runtime benefit and risks regressing battle-tested visual code.
 
@@ -313,57 +472,129 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 **Common rationale across all three surfaces**: vendored creative/WebGL code is type-foreign by design. The boundary at the module's import surface is what matters; internal `any` is acceptable when the module is small, isolated, and has no production data path.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD19: Merged into AD18
 
-**Status:** Merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) on 2026-05-03. The `splash-cursor-logic.ts` `as any` rationale is now part of the consolidated vendored-creative-code ADR. Inbound `AD19` references in the codebase remain valid; this entry preserves the anchor.
+**Category:** UI/Frontend
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
+**Status:** Reclassified — merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) on 2026-05-03. The `splash-cursor-logic.ts` `as any` rationale is now part of the consolidated vendored-creative-code ADR. Inbound `AD19` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD20: TOCTOU in container/lifecycle.ts
 
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Durable Objects are single-threaded per ID -- false positive.
 
 Static analysis flags time-of-check-time-of-use patterns between KV reads and subsequent writes. However, Durable Objects guarantee that `alarm()` and `fetch()` handlers are serialized by the runtime -- no concurrent execution within a single DO instance. The TOCTOU pattern is architecturally impossible here.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD21: Inconsistent function signatures
 
+**Category:** Architecture
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Old helpers use positional args, new ones use options objects.
 
 Legacy helper functions accept positional parameters while newer ones use destructured options objects. Normalizing all signatures risks caller regressions across the codebase. The inconsistency is cosmetic -- both styles are well-typed and documented.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD22: JWKS 30s cache staleness
 
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Industry-standard tradeoff for key rotation.
 
 The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized for up to 30s. This is an industry-standard tradeoff -- Cloudflare Access uses key overlap periods during rotation, and shorter cache durations add latency to every JWT verification without meaningful security improvement.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD23: CORS origin pattern validation
 
+**Category:** (redirect)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
 **Status:** Reclassified on 2026-05-09. Static-analyzer false positive accepted with admin-trust rationale; documented inline at `src/lib/cors-cache.ts` (the `isAllowedOrigin` docstring) and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD23` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD24: Predictable session IDs
 
+**Category:** (redirect)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
 **Status:** Reclassified on 2026-05-09. Static-analyzer false positive (analyzer treats session IDs as auth tokens, but they are KV namespace keys; JWT is the auth gate); documented inline at `src/lib/constants.ts:6` and summarized in [security.md "Session ID Validation"](../lanes/security.md#session-id-validation). Inbound `AD24` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD25: E2E service email hardcoded
 
+**Category:** (redirect)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
 **Status:** Reclassified on 2026-05-09. Static-analyzer false positive (test fixture flagged as hardcoded credential); documented inline at `src/lib/access.ts:166` and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD25` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD26: Stress test rate-limit bypass (integration-only)
+
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** `STRESS_TEST_MODE=active` skips all rate limiting; the variable is scoped to the GitHub Actions `integration` environment only.
 
@@ -371,89 +602,195 @@ k6 stress tests share a single CF Access service token (single identity), so per
 
 **Integration-only scoping** (formerly [AD28](#ad28-merged-into-ad26)): no CI-level guard is needed because GitHub Actions environment separation controls it. The variable is only set via the workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but that requires deliberate action - the same trust model that already governs every other production secret.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD27: Server-side prefix delete
+
+**Category:** Storage
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Server-side list+batch delete via R2 S3 API instead of frontend recursive browse+delete.
 
 Frontend folder deletion was subject to API rate limits (30/min browse, 20/min delete), causing failures for large folders. R2 has no native "delete prefix" API, and lifecycle rules (Days=0) take up to 24h. Server-side ListObjectsV2 + batch DeleteObjects (1000 keys/call) using `emptyR2Bucket()` is the fastest approach. No `[[r2_buckets]]` binding needed -- per-user dynamic buckets use account-level S3 credentials directly.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD28: Merged into AD26
 
-**Status:** Merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) on 2026-05-03. The integration-only environment-scoping rationale is now part of the consolidated `STRESS_TEST_MODE` ADR. Inbound `AD28` references in the codebase remain valid; this entry preserves the anchor.
+**Category:** Security
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
+**Status:** Reclassified — merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) on 2026-05-03. The integration-only environment-scoping rationale is now part of the consolidated `STRESS_TEST_MODE` ADR. Inbound `AD28` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD29: Container secrets as env vars
 
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Plaintext env vars acceptable for single-tenant containers.
 
 Container DO injects R2 credentials, LLM API keys, and auth tokens as plaintext environment variables. Users already have full terminal access (`env` command). Secrets are: R2 credentials (bucket-scoped), LLM keys (user's own), container auth token (internal DO-to-container). Any process can read via `/proc/self/environ` but containers are single-tenant.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD30: Worker name from Host header
 
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Host header parsing for `.workers.dev` domains during setup only.
 
 Worker name derived from Host header for `.workers.dev` subdomains during first-time setup. Custom domains use `CLOUDFLARE_WORKER_NAME` env var instead. Exposure window: only during setup (minutes), requires CF Access JWT, setup is idempotent. Spoofed Host could theoretically direct to wrong worker name but requires authenticated access and extremely narrow window.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD31: Root container is intentional
 
+**Category:** (redirect)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
 **Status:** Reclassified on 2026-05-09. Static-analyzer false positive (missing `USER` directive flagged as privilege issue) accepted with network-isolation rationale; documented inline in `Dockerfile` (search `SAST-false-positive`) and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD31` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD32: ENCRYPTION_KEY is optional
 
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Optional encryption eases onboarding; operators accept plaintext KV storage as trade-off.
 
 When ENCRYPTION_KEY is absent, LLM API keys, GitHub tokens, and Cloudflare API tokens are stored as plaintext JSON in KV with no warning. This is an intentional deployment-complexity trade-off. New deployers can get a running instance without generating and managing an encryption key. The target audience is self-hosted single-user/small-team deployments where the operator and the user are the same person. A startup warning when ENCRYPTION_KEY is absent is a recommended future improvement. Operators who want encryption set ENCRYPTION_KEY.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD33: Merged into AD10
 
-**Status:** Merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) on 2026-05-03. Pre-setup CSRF risk acceptance is now consolidated under the bootstrap-window ADR. Inbound `AD33` references in the codebase remain valid; this entry preserves the anchor.
+**Category:** Security
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
+**Status:** Reclassified — merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) on 2026-05-03. Pre-setup CSRF risk acceptance is now consolidated under the bootstrap-window ADR. Inbound `AD33` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD34: WebSocket auth bypass of Hono middleware
 
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** workerd constraint -- WS upgrades cannot use Hono middleware; parallel auth path is manually synchronized.
 
 WebSocket upgrades must be intercepted before the Hono middleware chain (documented workaround for cloudflare/workerd#2319). This creates a parallel auth path replicating authentication, CORS, rate limiting, and subscription-tier gating. The duplication is explicit and documented. Any change to the Hono middleware auth chain must be manually mirrored in the WebSocket handler. SaaS tier gating tests for the parallel path are tracked as a fix item.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD35: Merged into AD18
 
-**Status:** Merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) on 2026-05-03. The old-style-constructor `this: any` rationale is now part of the consolidated vendored-creative-code ADR. Inbound `AD35` references in the codebase remain valid; this entry preserves the anchor.
+**Category:** UI/Frontend
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
+**Status:** Reclassified — merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) on 2026-05-03. The old-style-constructor `this: any` rationale is now part of the consolidated vendored-creative-code ADR. Inbound `AD35` references in the codebase remain valid; this entry preserves the anchor.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD36: WebSocket Origin check is optional for non-browser clients
 
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** JWT auth is the security gate, not Origin -- CLI tools need originless connections.
 
 The WebSocket upgrade handler in `terminal.ts` only requires the `Origin` header when `Sec-Fetch-Mode` is present (browser heuristic). CLI tools (websocat, wscat) omit `Sec-Fetch-Mode` and are intentionally allowed without Origin. The primary security gate is `authenticateRequest()` which validates JWT/session credentials -- Origin check is defense-in-depth for CSRF protection on browser connections only. An attacker omitting `Sec-Fetch-Mode` still cannot connect without a valid JWT.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD37: KV as billing read cache -- Signal and Sync (CF-015)
 
+**Category:** Billing
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Webhooks signal; `syncSubscriptionState()` fetches latest from Stripe API and writes complete snapshot to KV.
 
 Previous design had 6 webhook handlers incrementally patching KV fields, causing race conditions, silent tier update failures, and wrong emails. "Signal and Sync" pattern: Stripe is source of truth, KV is read cache. `lastSyncedAt` timestamp guard prevents stale overwrites. Concurrent webhooks are idempotent (both fetch same latest state). Price metadata on Stripe Price objects carries tier/mode, eliminating reverse lookups. `getEffectiveTier()` provides read-time enforcement with safe defaults. `past_due` grace period keeps paid tier while `billingPeriodEnd` is in the future.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD38: GitHub OIDC replaces CF Access in SaaS mode
+
+**Category:** Billing
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Status:** Superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) (2026-05-09) - oauth_state mechanism replaced
 
@@ -461,43 +798,86 @@ Previous design had 6 webhook handlers incrementally patching KV fields, causing
 
 When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentication directly via GitHub OAuth with HMAC-SHA256 session cookies. CF Access is bypassed at runtime. OAuth state uses HttpOnly cookies (not KV) to avoid eventual consistency issues. Only verified GitHub emails are accepted. The `codeflare_session` cookie is HttpOnly, Secure, SameSite=Lax with 1-hour TTL. Middleware in `index.ts` auto-refreshes when < 15 minutes remain -- active users stay logged in indefinitely. Expired cookie triggers frontend auto-redirect to `/` for re-authentication.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD39: Max users capacity cap counts paid slots only
+
+**Category:** Billing
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** `countPaidSlots()` excludes free/pending/blocked users from the cap.
 
 The `setup:max_users` KV key limits subscribing users. Free tier users (4h/month, 1 session) use minimal resources and shouldn't block paid customers. `countPaidSlots()` counts admins + users with paid tiers (standard/advanced/max/unlimited) whose billing is active or trialing. Canceled users count until `billingPeriodEnd` expires. Unlimited free users allowed without hitting cap.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD40: Webhook route order (`/public/stripe` before `/public`)
+
+**Category:** Billing
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Hono catch-all ordering is load-bearing.
 
 Hono's `app.route('/public', publicRoutes)` catches all `/public/*` paths. The Stripe webhook at `/public/stripe/webhook` must be mounted first. Future `/public/*` sub-routes must also be mounted before the catch-all.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD41: Custom tier uses contact flow (not self-service checkout)
+
+**Category:** Billing
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Enterprise tier -- "Let's talk" button sends admin email via Resend.
 
 The Custom tier (unlimited compute, 5 sessions, custom SLA) is enterprise-grade. Renamed from "Team" to "Custom" -- `getTierConfig()` auto-migrates legacy `displayName: 'Team'` to `'Custom'` on read. `POST /api/auth/contact-team` (rate-limited 1/hour) sends inquiry email. Button changes to "We'll get in touch" (disabled) after click. No Stripe checkout for Custom tier.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD42: Unauthenticated first setBucketName call (CF-010)
 
+**Category:** Security
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
 **Decision:** Worker-only access is the effective security boundary -- DO binding is not externally reachable.
 
 The first `/_internal/setBucketName` request is unauthenticated because the container auth token (random UUID per DO lifecycle) is generated after this call. The endpoint is only reachable via the Worker's internal Durable Object binding, not from external callers. For orphaned R2 tokens from failed KV writes, token ID is logged at creation time for manual revocation via CF dashboard. A periodic sweeper is deferred as a future improvement.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD43: Parse-and-exclude vanishing files before escalating to nuke
 
 **Category:** Storage
+
+**Status:** Accepted (date not recorded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** When bisync fails with `lstat: no such file or directory`, parse the error output to identify the vanishing file, add it to a session-scoped exclusion filter, and retry - before escalating to `nuke_corrupted_r2_files`.
 
@@ -512,11 +892,16 @@ Non-workspace files are auto-excluded because they are config/cache files that w
 
 The recovery applies at both call sites: `establish_bisync_baseline()` (startup) and `bisync_with_r2()` (daemon). The filter file is initialized empty on every container start via `init_recovery_filters()`.
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD44: SDD three-mode autonomy with conservative JUDGMENT resolution
 
 **Category:** Architecture
+
+**Status:** Accepted (date not recorded)
 
 **Decision:** Codeflare ships SDD (Spec-Driven Development) as a Pro feature with three autonomy modes (`interactive`, `auto`, `unleashed`), with a universal enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions, and conservative JUDGMENT auto-resolution that never overwrites spec intent. The spec-reviewer and doc-updater agents are project-agnostic and detect `sdd/` automatically.
 
@@ -585,15 +970,29 @@ spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read 
 - `preseed/agents/claude/agents/doc-updater.md` (project-agnostic doc-updater agent)
 - `preseed/agents/claude/commands/sdd.md` (sub-command dispatcher with help screen)
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD45: User overrides recorded as ADRs, not skip-list
 
+**Category:** (superseded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
+
+**Decision:** Follow the redirect or supersession recorded by this ADR.
+
 **Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The override-via-ADR mechanism was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ. Body removed on trim-to-tombstone; this anchor is retained for inbound references. See [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) for the rip-out rationale.
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
 ### AD46: `/review` Reality Filter as Phase 5
+
+**Category:** Architecture
 
 **Status:** Accepted (2026-05-05)
 
@@ -680,9 +1079,14 @@ First run in the new pipeline starts the persistent log fresh; cycle 1 will prod
 
 **Issue:** [codeflare#271](https://github.com/nikolanovoselec/codeflare/issues/271)
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD47: PTY keepalive as safety net only, not the idle policy
+
+**Category:** Architecture
 
 **Status:** Accepted (2026-05-09)
 
@@ -737,9 +1141,14 @@ The container would also be stuck (because `collectMetrics` is the trigger for b
 - `host/src/session.ts` (`_ptyKeepaliveMs` fallback)
 - `host/src/session.ts` (`detach()` arms the timer; `keepAliveTimeout` fires `kill()`)
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD48: OAuth state replaced by HMAC-signed stateless token
+
+**Category:** Security
 
 **Status:** Accepted (2026-05-09)
 
@@ -775,9 +1184,14 @@ Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly c
 
 - `src/routes/github-oauth.ts` (`generateState()`, `verifyState()`)
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
 
 ### AD49: context-mode delivered as preseed plugin, not runtime install
+
+**Category:** Architecture
 
 **Status:** Accepted (2026-05-10); MCP registration wiring superseded by [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). The Custom-tier hook decision remains active.
 
@@ -853,11 +1267,19 @@ without the shim, `ctx_execute` and `ctx_batch_execute` fail on every dynamic `r
 - Container-side detection: `entrypoint.sh` (`CONTEXT_MODE_MANIFEST` existence check; conditional `mcpServers["context-mode"]` jq merge; conditional `enabledPlugins["context-mode"]: true`)
 - Tests: `src/__tests__/lib/r2-seed-context-mode.test.ts`, `host/__tests__/entrypoint-context-mode.test.js`, `host/__tests__/context-mode-version-pin.test.js`
 
+**Consequences:** The original compact ADR did not record a separate consequences field.
 ### AD50: Unified ADR file with structural doc-allow-large exemption
+
+**Category:** (superseded)
+
+**Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
 
-**Decision (still in effect):** All ADRs live in a single `decisions/README.md`. AD-N identifiers are referenced throughout the codebase, so splitting into one file per ADR would mean rewriting every inbound `README.md#ad-N` anchor for no product value. The file-size overage is an accepted, known LOW the operator defers; per-ADR budget enforcement still applies, so any new ADR over the per-ADR cap is split or compressed. Only the `<!-- doc-allow-large -->` hatch-exemption machinery was superseded ([AD51](#ad51-rip-out-six-overengineered-sdd-framework-features)).
+**Decision:** (still in effect) All ADRs live in a single `decisions/README.md`. AD-N identifiers are referenced throughout the codebase, so splitting into one file per ADR would mean rewriting every inbound `README.md#ad-N` anchor for no product value. The file-size overage is an accepted, known LOW the operator defers; per-ADR budget enforcement still applies, so any new ADR over the per-ADR cap is split or compressed. Only the `<!-- doc-allow-large -->` hatch-exemption machinery was superseded ([AD51](#ad51-rip-out-six-overengineered-sdd-framework-features)).
+
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
 
 ---
 
@@ -906,17 +1328,17 @@ doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and P
 **Decision:** Split delivery on a discipline-vs-capability axis, not on tier:
 
 - **Plugin folder + `plugin.json` + MCP server registration**: ships in both `default` and `advanced` session modes. The `graphify` MCP server is registered in `~/.claude.json` whenever the preseed manifest is present, which is every paid tier.
-- **SessionStart context-injection hook, PostToolUse-on-clone triage hook, the graph-first discipline, and `graphify/SKILL.md`**: ship in `advanced` session mode only. These are the load-bearing pieces that teach the agent to use the graph proactively.
+- **PostToolUse-on-clone triage hook, PreToolUse graph-first nudge, the graph-first discipline, and `graphify/SKILL.md`**: ship in `advanced` session mode only. These are the load-bearing pieces that teach the agent to use the graph proactively.
+
+The prompt-independent `SessionStart[startup]` context-injection hook was retired on 2026-07-27. It read a non-canonical edge key, ignored graph freshness, and its corrected highest-degree output was dominated by generic duplicate labels. Prompt-aware first-turn memory and focused graph queries provide the relevant context without carrying that startup list.
 
 The graph-first discipline was a standalone `graph-first.md` rule until 2026-07-25; it is now a section of `engineering-constitution.md`.
 
 Tier-gating is not part of the decision: graphify ships uniformly across standard, advanced, max, and custom paid tiers. The discipline gating is keyed only on session mode.
 
 **Consequences:**
-- Default session mode users CAN reach for graphify by name (CLI on PATH, MCP tools exposed) but do not get nudged toward it. No SessionStart reminder, no triage on clone, no rule in `~/.claude/rules/`.
-- Advanced session mode users get the full discipline:
-
-the agent reads `GRAPH_REPORT.md` at session start when a graph exists, prompts on clone, prefers focused MCP queries over Grep for architecture questions, and gets a PreToolUse soft-nudge when reaching for Grep/Glob (or the context-mode grep-equivalents `ctx_search`/`ctx_batch_execute`) in a repo that has a graph.
+- Default session mode users CAN reach for graphify by name (CLI on PATH, MCP tools exposed) but do not get nudged toward it. No triage on clone and no rule in `~/.claude/rules/`.
+- Advanced session mode users get the full discipline: the agent prompts on clone, prefers focused MCP queries over Grep for architecture questions, and gets a PreToolUse soft-nudge when reaching for Grep/Glob (or the context-mode grep-equivalents `ctx_search`/`ctx_batch_execute`) in a repo that has a graph.
 - Image cost (~220 MB for Python + tree-sitter wheels) is paid by every container regardless of mode, justified by one-time build cost vs. universal capability.
 - Coexists cleanly with context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) without depending on it.
 
@@ -1925,6 +2347,10 @@ On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backst
 
 ### AD81: Reuse the container egress-injection layer for per-user GitHub tokens
 
+**Category:** Architecture, Security
+
+**Status:** Accepted (date not recorded)
+
 **Decision:** In enterprise mode, authenticate the agent's GitHub traffic by injecting the user's token at the container egress boundary — reusing the existing AI-Gateway `interceptOutboundHttps` layer — rather than placing the token in the container. `github.com` and `api.github.com` are registered for outbound interception; a `GitHubInterceptor` WorkerEntrypoint resolves and decrypts the per-user token (`DeployKeys.githubToken`, keyed by the bound session's `bucket`), strips the container's placeholder credential, and stamps the real one. The container holds only a non-secret placeholder `GH_TOKEN`.
 
 **Context:** The agent must act with the user's full GitHub permissions (clone/push/PR/merge), but a prompt-injected agent or a malicious dependency could exfiltrate a raw token from the container environment. Codeflare already runs the platform egress-injection pattern for AI keys (placeholder in container → real secret stamped at the Worker boundary, with the Cloudflare containers CA trusted container-wide). Extending it to the GitHub hosts is ~90% reuse and covers git-over-HTTPS and the REST API uniformly — both are HTTPS to github hosts — which dissolves the "token in the container / `gh` has no per-call broker" problem.
@@ -1943,6 +2369,8 @@ Short-lived GitHub App tokens cap the exfiltration value there.
 ---
 
 ### AD82: Visible terminal panes own WebSockets, and MultiView is virtual
+
+**Category:** Architecture, UI/Frontend
 
 **Status:** Accepted (2026-06-18)
 
@@ -1965,9 +2393,11 @@ Short-lived GitHub App tokens cap the exfiltration value there.
 
 ### AD83: Vault IndexedDB cannot be persisted across sessions by keying the encryption key to the R2 bucket
 
+**Category:** Architecture
+
 **Status:** Superseded by [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) (2026-06-25). Option A below (bucket-stable vault URL) was implemented — the editor is now served under `/api/vault/<token>/` with the session id carried in the `cf_vault_sid` cookie, and the encryption key is HKDF-derived per bucket — so the SB IndexedDB persists across sessions. The "do NOT key to the bucket / reject persistence" decision below no longer holds; this record is retained for its DB-id analysis (which correctly identified that BOTH `Ie` and the key had to become bucket-stable — the reason Option B's key-only approach was insufficient).
 
-**Decision (SUPERSEDED — see REQ-VAULT-021):** Do NOT key the vault's client-side encryption key to the user's R2 bucket. Preserve the existing per-Durable-Object key lifecycle: `ensureVaultKey()` mints 32 bytes of raw random entropy per per-session container DO (base64-encoded into DO storage; SilverBullet later consumes those bytes for its own AES-CTR IDB encryption) and explicitly wipes it on `destroy()` (`storage.delete('vaultKey')` + nulled in-memory cache), so deletion stays forward-secret ([AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key), [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption)). A bucket-stable key is rejected because it cannot deliver the persistence it was meant to buy and would only relax forward secrecy for zero benefit.
+**Decision:** (SUPERSEDED — see REQ-VAULT-021) Do NOT key the vault's client-side encryption key to the user's R2 bucket. Preserve the existing per-Durable-Object key lifecycle: `ensureVaultKey()` mints 32 bytes of raw random entropy per per-session container DO (base64-encoded into DO storage; SilverBullet later consumes those bytes for its own AES-CTR IDB encryption) and explicitly wipes it on `destroy()` (`storage.delete('vaultKey')` + nulled in-memory cache), so deletion stays forward-secret ([AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key), [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption)). A bucket-stable key is rejected because it cannot deliver the persistence it was meant to buy and would only relax forward secrecy for zero benefit.
 
 **Context:** A request asked to key the SilverBullet (SB) vault IndexedDB to the user's R2 bucket ID instead of the session ID so the SB store would persist across sessions, and proposed achieving this by making the encryption key bucket-stable. Reading the vendored SB worker disproves the premise. SB derives its IndexedDB name as `sb_<type>_<SHA-256(`${spaceFolderPath}:${Ie}:${keyDigest}`)>`, built by `Xe(type, spaceFolderPath, Ie, key)` in `src/routes/vault/native-sw.ts` (verbatim SilverBullet code; call site `let i=t.spaceFolderPath,n=await Xe("files",i,Ie,y)`).
 
@@ -2003,6 +2433,8 @@ Persistence is deferred. The actual drivers of the per-session terminal/keyboard
 ---
 
 ### AD84: Retain the vault SW encryption key in memory (neuter the proactive flush) and open a green Vault button directly
+
+**Category:** Architecture
 
 **Status:** Accepted (2026-06-26). Implemented on `fix/vault-keyflush-and-direct-open`.
 
@@ -2596,7 +3028,7 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 
 **Alternatives considered:** Upgrade xterm alone; retain write-side zero-clamp recovery; keep a distance-based browser-reset heuristic; or use a short grace timer as ownership. The available xterm update has no relevant scroll change, both correction heuristics misclassify valid full-buffer transitions, and a timer cannot represent the persistent user state.
 
-**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
+**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [REQ-MOB-019](../../sdd/spec/mobile.md#req-mob-019-keyboard-mode-swipe-semantics), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
 
 ---
 
@@ -2628,7 +3060,7 @@ Keyboard-open gestures are deterministic again: arrows while typing, wheel/scrol
 
 **Alternatives considered:** Enlarge scrollback (delays, does not remove, the top-pin and costs mobile memory); restore distance-from-bottom after trims (AD104 already showed it yanks the reader through moving content); pause the PTY via flow control (server-side complexity, risks blocking the agent); keep keyboard-open wheel routing behind a setting (two gesture contracts to document and test for one mode); patch the DOM desync via a distance-jump heuristic in the scroll hook (the old Strategy 2 — structurally blind to yanks that ride on user-intent windows, which is exactly how this one fires).
 
-**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
+**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [REQ-MOB-019](../../sdd/spec/mobile.md#req-mob-019-keyboard-mode-swipe-semantics), [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
 
 ---
 
@@ -2766,16 +3198,6 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 ---
 
-## Related Documentation
-
-- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
-- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
-- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
-- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
-- [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
-- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
----
-
 ### AD112: CI runs as parallel path-filtered lanes and deploys reuse content-addressed container images
 
 **Category:** Architecture, Operations
@@ -2856,7 +3278,7 @@ The custom webviews, xterm, node-pty, ABI-127 addon build, and owned Claude PTY 
 
 Reducing the reviewers to `tools: ["Bash"]` moved it by roughly 1,200 tokens, because tool schemas are already loaded on demand and were never where the cost sat. What a lane actually carried was a memory index of files it has no tool to open, a block instructing it to prefer retrieval tools it is explicitly denied, and rule files whose enforcement content it already embeds. Every turn re-sends the whole prompt, so that overhead multiplied by turn count rather than being paid once. This mirrors the Pi-side problem settled in [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
-**Decision:** Run each lane as a headless subprocess — `claude -p --setting-sources "" --strict-mcp-config --system-prompt <agent-doc> --tools Bash` — rather than an Agent subagent. The three controls that collapse the floor exist only on the command line, which is what forces a subprocess: `--setting-sources ""` takes the measured floor to 21,034, `--system-prompt` to 17,598, and `--tools Bash` to 1,533. Each lane's declared `model` and `effort` are read from its own frontmatter and passed through, so the transport change re-tiers nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+**Decision:** Run each lane as a headless subprocess — `claude -p --setting-sources "" --strict-mcp-config --system-prompt <agent-doc> --tools Bash` — rather than an Agent subagent. The three controls that collapse the floor exist only on the command line, which is what forces a subprocess: `--setting-sources ""` takes the measured floor to 21,034, `--system-prompt` to 17,598, and `--tools Bash` to 1,533. Each lane's declared `model` and `effort` are read from its own frontmatter and passed through, so the transport change re-tiers nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::SYSTEM_PROMPT -->
 
 Declining inherited settings also declines hooks, so the container guards are passed back explicitly via `--settings` and invoked as `bash <script>`: the seeded hook scripts ship non-executable, and a bare command path fails silently, which reads as permission rather than as breakage.
 
@@ -2872,12 +3294,18 @@ One lost lane therefore widened every subsequent review permanently: measured on
 
 Acknowledgement itself was also making the wrong claim. Advancing the checkpoint on lane exit records that three processes ran, not that anything was read, so a round returning into a session that never triaged it moved the checkpoint past its own unacted findings. The gate now requires the triage verdict — recognised structurally, by the table header and divider in a message carrying no tool call, after the last lane returned — and then issues the fix directive itself rather than trusting the session to remember. The Pi enforcement path already worked this way, so both runtimes key on one table shape. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::triage_published_after_line -->
 
-The subprocess is also time-bounded, and the bound is validated rather than merely defaulted: `timeout 0` means *no* timeout, so an empty, zero, or non-numeric override resolves to the default instead of silently removing the bound, and expiry escalates past `SIGTERM` so a lane wedged in an auth prompt or a retry loop is actually reaped. Guard settings are built programmatically and verified non-empty before use for the same fail-closed reason: a missing dependency, a missing guard script, or a config path containing a space must stop the lane rather than yield a settings file whose hooks never fire. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+The subprocess is also time-bounded, and the bound is validated rather than merely defaulted: `timeout 0` means *no* timeout, so an empty, zero, or non-numeric override resolves to the default instead of silently removing the bound, and expiry escalates past `SIGTERM` so a lane wedged in an auth prompt or a retry loop is actually reaped. Guard settings are built programmatically and verified non-empty before use for the same fail-closed reason: a missing dependency, a missing guard script, or a config path containing a space must stop the lane rather than yield a settings file whose hooks never fire. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::bounded_cap -->
 
 **Related:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
+
+**Consequences:** The original compact ADR did not record a separate consequences field.
+
 ---
+
 ### AD116: Review-lane Phase 0 is computed deterministically and handed to the lane
+
+**Category:** Architecture, Cost
 
 **Status:** Accepted (2026-07-26). Implements [REQ-AGENT-103](../../sdd/spec/agents.md#req-agent-103-deterministic-lane-triage).
 
@@ -2901,9 +3329,9 @@ The subprocess is also time-bounded, and the bound is validated rather than mere
 
 Every cost lever considered before this was linear in `T` and therefore worth 5-10%: trimming reviewer prose, splitting apply-only policy out of the enforcement skills, narrowing the packet. The one lever that is quadratic had not been touched.
 
-**Decision:** Structure lane evidence gathering into waves rather than capping it. Wave one parses what the lane was handed, derives everything derivable, and reads any conditional sub-policy the manifest triggers. Wave two, entered only when a *named* candidate still lacks evidence, collects all of it in one call. Then the lane reports, stopping when every packet hunk, manifest row and invalidated anchor has exactly one disposition. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::scope=diff execution -->
+**Decision:** Structure lane evidence gathering into waves rather than capping it. Wave one parses what the lane was handed, derives everything derivable, and reads any conditional sub-policy the manifest triggers. Wave two, entered only when a *named* candidate still lacks evidence, collects all of it in one call. Then the lane reports, stopping when every packet hunk, manifest row and invalidated anchor has exactly one disposition. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution -->
 
-This is a completeness rule, not a budget, and the distinction is load-bearing: an earlier "at most four Bash calls" cap made a lane exhaust its allowance on environment discovery and report its required sub-policy read as unverified. Truncating a review is a worse failure than an expensive one. The wave budget is therefore surfaced on stderr and never enforced. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh -->
+This is a completeness rule, not a budget, and the distinction is load-bearing: an earlier "at most four Bash calls" cap made a lane exhaust its allowance on environment discovery and report its required sub-policy read as unverified. Truncating a review is a worse failure than an expensive one. The wave budget is therefore surfaced on stderr and never enforced. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::rawBudget -->
 
 The same measurement settles what to embed. Inlining beats fetching only when the fetch would cost an extra turn; inside a wave that was happening anyway, a fetch costs nothing while carrying the policy costs its bytes on every turn. So small, always-applicable policy is embedded — `review-scope`, the enforcement spines, `tdd-enforce` — and large conditional policy is read in wave one. Inlining `tdd-enforce` (15 KB) took the code lane from fourteen turns to eight; inlining `spec-enforce-ac` and `spec-enforce-truth` (41 KB) took the spec lane from ten turns to sixteen and cost 2.4x. Both followed from the same rule applied with and without regard to size.
 
@@ -2914,6 +3342,8 @@ The same measurement settles what to embed. Inlining beats fetching only when th
 ---
 
 ### AD118: Seed provenance is carried in R2 custom metadata, verified before it was relied on
+
+**Category:** Storage, Agents
 
 **Status:** Accepted (2026-07-27). Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
 
@@ -2936,3 +3366,12 @@ The third result is why the sweep is shaped as it is: the marker can only be rea
 **Related:** [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) supplies the upgrade that runs it.
 
 ---
+
+## Related Documentation
+
+- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
+- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
+- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
+- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
+- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders

@@ -318,7 +318,7 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ## Scroll-Stability Integration Test Plan
 
-[REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) and [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions) define one scroll owner per terminal mode across `terminal.ts`, `useScrollCorrection.ts`, `useTerminal.ts`, and `touch-gestures.ts`. Behavioral unit tests compose batched writes with native-like `onScroll` feedback and verify keyboard lifecycle/gesture routing. The mobile Playwright job remains the deployed-browser check for visual stability.
+[REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), and [REQ-MOB-019](../../sdd/spec/mobile.md#req-mob-019-keyboard-mode-swipe-semantics) define one scroll owner per terminal mode across `terminal.ts`, `useScrollCorrection.ts`, `useTerminal.ts`, and `touch-gestures.ts`. Behavioral unit tests compose batched writes with native-like `onScroll` feedback and verify keyboard lifecycle/gesture routing. The deployed-browser checklist below covers visual stability and device event ordering that have no genuine unit-test seam.
 
 ### REQ-MOB-004 test scenarios
 
@@ -332,9 +332,14 @@ The reading position must stay perfectly still (output is deferred — no trims,
 ### REQ-MOB-012 test scenarios
 
 1. **Tap opens and anchors.** Tap the terminal, confirm the virtual keyboard opens, and confirm the lifecycle fit performs one intentional bottom anchor.
-2. **Keyboard-open viewport is locked.** During keyboard-open output, confirm generic correction does not move the viewport and every vertical swipe sends terminal arrow input — including inside fullscreen applications with mouse tracking.
-3. **Fullscreen wheel routing stays keyboard-closed.** With the keyboard closed, in an application that enables mouse-wheel tracking, confirm vertical swipes route through xterm's wheel pipeline.
-4. **Keyboard close restores scrollback.** Close the keyboard, confirm vertical swipes scroll terminal history, and confirm manual ownership persists until the viewport returns to bottom.
+2. **Keyboard-open viewport is locked.** During keyboard-open output, confirm generic correction does not move the viewport.
+3. **Keyboard close restores scrollback ownership.** Close the keyboard and confirm manual ownership persists until the viewport returns to bottom.
+
+### REQ-MOB-019 test scenarios
+
+1. **Keyboard-open swipes send arrows.** With the keyboard open, confirm every vertical swipe sends terminal arrow input, including inside fullscreen applications with mouse tracking.
+2. **Fullscreen wheel routing stays keyboard-closed.** With the keyboard closed, confirm fullscreen vertical swipes route through xterm's wheel pipeline.
+3. **Keyboard close restores swipe scrolling.** Close the keyboard and confirm vertical swipes return to terminal scrollback.
 
 The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) point at the committed behavioral tests; this checklist supplies deployed-browser confirmation of rendering and native event ordering.
 
@@ -345,6 +350,7 @@ The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) poin
 - [REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) - Terminal fully usable on mobile devices
 - [REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) - Virtual keyboard opens reliably on tap
 - [REQ-MOB-003](../../sdd/spec/mobile.md#req-mob-003-samsung-internet-keyboard-viewport-state) - Samsung Internet keyboard viewport state
+- [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll-drop detection during burst output
 - [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll
 - [REQ-MOB-006](../../sdd/spec/mobile.md#req-mob-006-sticky-ctrl-button-for-mobile) - Sticky Ctrl button for mobile
 - [REQ-MOB-007](../../sdd/spec/mobile.md#req-mob-007-voice-input-via-web-speech-api) - Voice input via Web Speech API
@@ -352,9 +358,14 @@ The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) poin
 - [REQ-MOB-009](../../sdd/spec/mobile.md#req-mob-009-visibility-return-recovers-keyboard-state) - Visibility return recovers keyboard state
 - [REQ-MOB-010](../../sdd/spec/mobile.md#req-mob-010-fitaddon-fit-calls-are-coordinated) - FitAddon fit calls are coordinated
 - [REQ-MOB-011](../../sdd/spec/mobile.md#req-mob-011-samsung-internet-keyboard-state-recovery) - Samsung Internet keyboard state recovery
+- [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions) - Scroll anchoring during keyboard transitions
 - [REQ-MOB-013](../../sdd/spec/mobile.md#req-mob-013-mobile-input-system-platform-compatibility) - Mobile input-system platform compatibility
 - [REQ-MOB-014](../../sdd/spec/mobile.md#req-mob-014-mobile-background-surface-focus-isolation) - Mobile background-surface focus isolation
+- [REQ-MOB-015](../../sdd/spec/mobile.md#req-mob-015-virtual-keyboard-persists-across-terminal-pane-focus-handoff) - Virtual keyboard persists across terminal pane focus handoff
+- [REQ-MOB-016](../../sdd/spec/mobile.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls) - Mobile terminal input compositor and autocorrect controls
+- [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) - Fullscreen application touch scrolling
 - [REQ-MOB-018](../../sdd/spec/mobile.md#req-mob-018-decorative-webgl-canvas-retirement) - Decorative WebGL canvas retirement
+- [REQ-MOB-019](../../sdd/spec/mobile.md#req-mob-019-keyboard-mode-swipe-semantics) - Keyboard-mode swipe semantics
 
 ---
 

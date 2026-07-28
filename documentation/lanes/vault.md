@@ -9,8 +9,6 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 ## Contents
 
 - [Overview](#overview-req-vault-001)
-  - [Uploads and Temporary folders](#uploads-and-temporary-folders)
-  - [Storage panel special folders](#storage-panel-special-folders-req-vault-001)
 - [Directory Layout](#directory-layout)
 - [Capture Path](#capture-path-req-vault-002)
 - [User-edit Path](#user-edit-path-req-vault-003)
@@ -19,10 +17,6 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 - [Vault encryption and IDB lifecycle](#vault-encryption-and-idb-lifecycle-req-vault-008-req-vault-024-req-vault-015-req-vault-021-req-vault-023)
 - [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
 - [Preseed Integration](#preseed-integration-req-vault-007)
-  - [Vault initialization tiers](#vault-initialization-tiers-req-vault-001-ac3--req-vault-010-ac1ac4ac5)
-  - [CONFIG.md and Library/Std (base_fs)](#configmd-and-librarystd-base_fs)
-  - [STYLES.md and codeflare theming](#stylesmd-and-codeflare-theming-req-vault-007)
-  - [SilverBullet plug preinstall](#silverbullet-plug-preinstall-req-vault-007)
 - [First-session Expectations](#first-session-expectations)
 - [Attachment Cost Caveat](#attachment-cost-caveat-req-vault-011-ac1)
 - [PDF-Ingestion E2E Plan](#pdf-ingestion-e2e-plan-req-vault-011)
@@ -506,39 +500,21 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
    excluded: tool_result wrappers (array content, excluded by the
    trailing `"`) and slash-command/task-notification wrappers (string
    content starting with `<`, excluded by `[^<]`).
-3. **Counter check** - reads `/tmp/.memory-counter/{session_id}` (line 1:
-   last count, line 2: last line offset). The counter lives under `/tmp`
-   on purpose: Cloudflare Containers guarantees an ephemeral disk on every
-   container start ("All disk is ephemeral. When a Container instance goes
-   to sleep, the next time it is started, it will have a fresh disk as
-   defined by its container image."), so in codeflare the counter's
-   presence/absence is the canonical "mid-session vs. fresh-container"
-   signal. The `MEMCAP_COUNTER_DIR` env var overrides the default for
-   hermetic tests; production never sets it. If the counter file exists
-   and the delta is `< 15`, exits silently. If the counter is missing,
-   the hook distinguishes two sub-cases by `CURRENT_COUNT` (real-user
-   prompts in the transcript):
-   - **`CURRENT_COUNT == 1`** (brand-new session): baseline at the current
-     transcript size, write the counter, emit the first-message
-     graphify-query nudge, exit without capture.
-   - **`CURRENT_COUNT > 1`** (resumed session per [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC6): the
-     container was recycled but the transcript was restored on disk, so
-     prior-session prompts are still there. Force-fire a capture covering
-     the transcript from line 1 (flushing any tail from the prior session
-     that never reached the 15-prompt boundary), AND re-emit the
-     graphify-query directive because the agent's in-context recall of
-     prior decisions is gone after the recycle.
+3. **Counter check** - reads the last count from line 1 and last offset from line 2 of `/tmp/.memory-counter/{session_id}`; `CURRENT_COUNT` counts real-user prompts.
+   - **Lifetime:** `/tmp` is fresh after container recycle, so counter presence distinguishes a continuing session from a fresh container.
+   - **Override:** `MEMCAP_COUNTER_DIR` changes the location for hermetic tests; production leaves it unset.
+   - **Existing counter:** a delta below 15 exits silently.
+   - **`CURRENT_COUNT == 1`:** baseline at the transcript size, write the counter, emit the first-message graphify-query nudge, and exit without capture.
+   - **`CURRENT_COUNT > 1`:** treat the restored transcript as a resumed session ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC6). Capture from line 1 to flush the prior-session tail and re-emit the graphify-query directive.
+   - **Why re-emit:** the recycled agent context no longer recalls prior decisions or graph-query guidance.
 4. **Vars file** - writes transcript path, offsets, date, counts, and
    counter path to `/tmp/.memory-counter/{session_id}.vars` as JSON.
 5. **Counter update** - writes current count + total lines back to the
    counter before emitting so subsequent invocations see delta `< 15`.
-6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}`
-   with a mandatory directive: the main agent MUST spawn the **memory-capture**
-   subagent (Task tool, `subagent_type="memory-capture"`, `run_in_background=true`)
-   before any other work. The companion `memory-capture-block.sh` PreToolUse hook
-   hard-blocks all tool calls until the subagent is spawned. The subagent's
-   frontmatter pins `model: sonnet` ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)); the main agent must not pass a model
-   override.
+6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with three launch constraints.
+   - The main agent calls the Task tool with `subagent_type="memory-capture"` and `run_in_background=true` before other work.
+   - The `memory-capture-block.sh` PreToolUse guard blocks tool calls until that launch.
+   - Agent frontmatter pins `model: sonnet`; the caller passes no model override ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
 
 The capture agent deletes the `.vars` file as its first step (dedup
 gate), runs `prefilter-transcript.sh` (jq filter that strips tool I/O,

@@ -38,7 +38,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 2. Pi excludes tool results and known synthetic agent envelopes from its real-user count while preserving genuine code-like prompts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001 AC2: Pi excludes synthetic envelopes and preserves genuine code-like prompts) -->
 3. Each triggered Claude capture receives bounded uncaptured user/assistant content from the durable transcript. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh::is_synthetic_marker --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
-4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::ISO_TS --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) -->
+4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::ISO_TS --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureTimestamp --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001 AC4: captureTimestamp includes the resolved timezone offset) -->
 5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md::captured_at --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 6. Extracted chunks merge serially and atomically into cumulative `vault-graph.json`, then into the global graph under `user_vault`, queryable in the same turn. On Pi, post-commit note and chunk artifacts plus an exact successful background-task result precede root-owned counter advancement. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
 7. Pi builds each capture request from only the root-bounded uncaptured interval after the last successful counter. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only prompts after the root-owned successful counter) -->
@@ -227,7 +227,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-009: Vault graph accumulates monotonically across extractions
 
-**Intent:** Every vault writer - the vault-extract and memory-capture pipelines, on both the Claude and Pi runtimes - must add new nodes to the unified global graph's vault contribution without destroying nodes from prior passes. All four converge on a single cumulative `vault-graph.json` maintained by the shared `merge-vault-graph.py`; `--as user_vault` replace-semantics means anything less than the cumulative graph fed to `graphify global add` wipes prior vault knowledge.
+**Intent:** Every vault writer, across extraction and capture in both agent runtimes, must add new nodes to one cumulative vault contribution without destroying knowledge from prior passes.
 
 **Applies To:** System
 
@@ -288,7 +288,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-011: Session-mode storage, resolution, and propagation
 
-**Intent:** The mechanics behind the user-observable behavior in [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode): how the mode value is stored, defaulted, clamped against the billing tier, propagated into `settings.json`, and reconciled into the preseed file set without trampling user content.
+**Intent:** The session mode behind [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode) must be stored, defaulted, clamped against billing entitlement, and reconciled into agent configuration without trampling user content.
 
 **Applies To:** User
 
@@ -360,10 +360,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- The size ceiling is a memory guard, not a latency one — the query's own timeout bounds the parse — and it is overridable, so a graph that outgrows the default cannot silently disable injection with no signal that it stopped working. The default is justified by measurement on both runtimes rather than inherited by one from the other, and an override that is not a plausible byte count — non-numeric, or numeric but beyond what the comparison can hold — falls back to the default, so the guard cannot end up present and inert. <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
+- The size ceiling is a memory guard, not a latency one, and is overridable, so a graph that outgrows the default cannot silently disable injection.
+- An implausible override falls back to the default, so the guard cannot be present and inert. <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
 - The hook reads the graph JSON directly (no MCP round-trip).
-- Claude and Pi carry separate implementations because their injection surfaces differ — a UserPromptSubmit hook returning `additionalContext` against a pre-agent-loop event returning a turn message — while the keyword rule, ranking weights, node cap, rendered shape and sentinel semantics are the same in both. The Pi side skips synthetic prompts, which the hook runtime never delivers.
+- Claude and Pi carry separate implementations for differing injection surfaces, while the keyword rule, ranking weights, node cap, rendered shape and sentinel semantics are the same in both.
+- The Pi side skips synthetic prompts, which the hook runtime never delivers.
 - The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.
 - Keyword extraction strips all non-alphanumeric characters and filters to words of 4+ characters to avoid noise.
 
@@ -390,20 +392,18 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. No context is injected for a session that did not resume from compaction, so sessions that never lost context pay nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::SOURCE --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC3: stays silent unless the session started from compaction) -->
 4. Each extract contributes a bounded number of bytes to the injected context. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: caps each extract) -->
 5. Content dropped by that bound is marked as truncated, with the extract's source path retained so the remainder stays reachable. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC5: marks the truncation and keeps the source path) -->
-6. The Pi runtime covers the same boundary at its own compaction event, selecting and bounding the same extracts and delivering them as a message persisted in the session, and never inside a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) -->
+6. The Pi runtime covers the same boundary at its own compaction event, selecting and bounding the same extracts and delivering them as a message persisted in the session, and never inside a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureFilenameAt --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC6: selects a filename produced by Pi capture alongside Claude extracts) -->
 
 **Constraints:**
 
-- Only the narrative and decision sections of an extract are injected; the remaining sections are reachable through the emitted source path.
-- The injected text is framed as a record of what happened, not as instructions, so a prior session cannot issue directives to a later one.
+- Only the narrative and decision sections are injected; the rest is reachable through the emitted source path.
+- The injected text is framed as a record, not instructions, so a prior session cannot direct a later one.
 - The hook plugin is advanced-session-only by manifest declaration; standard sessions never receive it.
-- The hook is fail-safe: any error exits silently with no output and never blocks a session.
-- A `## ` line inside a fenced block is content, not a heading. Fence delimiters are matched by run length rather than toggled on any backtick line, so an inner fence cannot close an outer one and leave every later heading unrecognised.
-- The per-extract bound is spent in encoded bytes and cut on a character boundary, because that is what the context actually costs. The truncation notice is spent from that same bound, and is dropped rather than carried when the bound is too small to hold it — the bound is the guarantee, the notice is not. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC4: holds the bound even when the cap cannot fit the marker) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: a nonsensical cap carries nothing rather than everything) -->
+- A heading inside a fenced block is content, not a section heading.
+- The per-extract bound is a byte bound and is never exceeded; the truncation notice is spent from it and dropped when it cannot fit. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC4: holds the bound even when the cap cannot fit the marker) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: a nonsensical cap carries nothing rather than everything) -->
 - Two extracts sharing a capture instant are ordered by name descending, so the two runtimes agree on a tie. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC2: breaks a shared instant on the name, descending) -->
-- The Pi delivery is fail-silent as a whole, not only in its reads: it runs inside the runtime's compaction dispatch, so a failure anywhere in the handler is swallowed rather than raised into the session. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (swallows a delivery failure instead of throwing into the compaction dispatch) -->
-- Claude and Pi carry separate implementations because their injection surfaces differ — a SessionStart hook returning `additionalContext` against a compaction event delivering a session message — while the selection, bounds and injected wording are the same in both.
-- The Pi extension is fail-safe on the same terms: an unreadable extract store leaves the session untouched.
+- Both runtimes are fail-safe: an error anywhere — including inside Pi's compaction dispatch — is swallowed with no output and never blocks the session. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (swallows a delivery failure instead of throwing into the compaction dispatch) -->
+- Claude and Pi carry separate implementations for differing injection surfaces; the selection, bounds and injected wording are identical.
 
 **Priority:** P1
 
@@ -532,3 +532,5 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Verification:** Automated test ([Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js))
 
 **Status:** Implemented
+
+---

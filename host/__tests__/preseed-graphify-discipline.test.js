@@ -1,7 +1,6 @@
-// Verifies the structural delivery for REQ-AGENT-024 AC2 and the
-// REQ-AGENT-091 AC1 hook asset: files are preseeded in advanced mode and
-// executable scripts retain their mode bits. Behavioral hook wiring is covered
-// by entrypoint-graphify-hooks.test.js.
+// Verifies the structural delivery for REQ-AGENT-024 AC2 and REQ-AGENT-091:
+// the remaining graph-first discipline is preseeded in advanced mode, while the
+// retired startup hook is absent. Behavioral wiring is covered separately.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, statSync } from 'node:fs';
@@ -36,17 +35,21 @@ describe('graphify preseed - advanced-mode discipline (REQ-AGENT-024)', () => {
     assert.ok(existsSync(path), 'SKILL.md must exist in preseed/agents/claude/skills/graphify/');
   });
 
-  it('REQ-AGENT-091 AC1: SessionStart hook script exists and is executable', () => {
+  it('retired graphify SessionStart hook is absent from source and manifest', () => {
     const path = resolve(
       repoRoot,
       'preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh'
     );
-    assert.ok(existsSync(path), 'graphify-session-start.sh must exist');
-    const mode = statSync(path).mode & 0o111;
-    assert.ok(mode !== 0, 'graphify-session-start.sh must have execute bits set');
+    assert.equal(existsSync(path), false, 'graphify-session-start.sh must stay retired');
+    const manifest = JSON.parse(readPreseed('manifest.json'));
+    assert.equal(
+      manifest['plugins/graphify/scripts/graphify-session-start.sh'],
+      undefined,
+      'the retired hook must not be delivered by the preseed manifest'
+    );
   });
 
-  it('REQ-AGENT-091 AC2: graph-first-nudge.sh exists and is executable', () => {
+  it('REQ-AGENT-091 AC1: graph-first-nudge.sh exists and is executable', () => {
     const path = resolve(
       repoRoot,
       'preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh'
@@ -74,11 +77,6 @@ describe('graphify preseed - advanced-mode discipline (REQ-AGENT-024)', () => {
       modesFor('skills/graphify/SKILL.md'),
       ['advanced'],
       'SKILL.md must be advanced-only'
-    );
-    assert.deepEqual(
-      modesFor('plugins/graphify/scripts/graphify-session-start.sh'),
-      ['advanced'],
-      'SessionStart hook script must be advanced-only'
     );
     assert.deepEqual(
       modesFor('plugins/graphify/scripts/graph-first-nudge.sh'),

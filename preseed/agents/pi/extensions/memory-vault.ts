@@ -18,6 +18,7 @@ import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   buildPublicExtractionRequest,
+  captureFilenameAt,
   captureTimestamp,
   compactMessages,
   extractionDue,
@@ -295,7 +296,7 @@ function createMemoryRequest(input: {
     sessionId: input.session,
     promptCount: input.promptCount,
     captureTimestamp: timestamp,
-    captureFilename: `${timestamp}-${input.session}.md`,
+    captureFilename: captureFilenameAt(timestamp, input.session),
     transcript,
   };
   writeJsonAtomic(memoryExecutionVarsPath(input.paths, input.session, request.requestId), request);

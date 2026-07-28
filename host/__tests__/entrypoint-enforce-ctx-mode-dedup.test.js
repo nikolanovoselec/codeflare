@@ -201,11 +201,9 @@ describe('entrypoint settings.json hook merge - enforce-ctx-mode.sh dedup', () =
 
 // Reproduces the prod accumulation observed in production verification of
 // PR #367: vault-monitor-hook.sh registered 2x on UserPromptSubmit and the
-// graphify hooks (graphify-clone-prompt.sh, graphify-session-start.sh)
-// registered 10x each. Without the extended MANAGED_HOOKS_REGEX, the merge
-// preserves every prior copy because the prune regex only knew about
-// codeflare-(hooks|memory)/scripts/ + enforce-ctx-mode.sh + context-mode
-// invocations.
+// graphify hooks registered 10x each. The fixture retains old startup-hook
+// copies to verify retirement prunes them without touching user SessionStart
+// hooks. Without the managed-hook regex, all persisted copies survive.
 function accumulatedVaultGraphifySettingsFixture() {
   const vaultHook = 'bash /home/user/.claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh';
   const memoryHook = 'bash /home/user/.claude/plugins/codeflare-memory/scripts/memory-capture.sh';
@@ -258,13 +256,12 @@ function accumulatedVaultGraphifySettingsFixture() {
   });
 }
 
-// Canonical advanced-mode config with one copy of each managed hook on its
-// canonical matcher (mirrors what entrypoint.sh assembles into SETTINGS_CONFIG).
+// Canonical advanced-mode config after startup-hook retirement. The remaining
+// managed hooks are re-applied; the merge must prune old startup registrations.
 function advancedVaultGraphifySettingsConfig() {
   const vaultHook = 'bash /home/user/.claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh';
   const memoryHook = 'bash /home/user/.claude/plugins/codeflare-memory/scripts/memory-capture.sh';
   const graphifyClone = 'bash /home/user/.claude/plugins/graphify/scripts/graphify-clone-prompt.sh';
-  const graphifyStart = 'bash /home/user/.claude/plugins/graphify/scripts/graphify-session-start.sh';
   return {
     skipDangerousModePermissionPrompt: true,
     hooks: {
@@ -281,12 +278,6 @@ function advancedVaultGraphifySettingsConfig() {
         {
           matcher: 'Bash',
           hooks: [{ type: 'command', command: graphifyClone }],
-        },
-      ],
-      SessionStart: [
-        {
-          matcher: 'startup',
-          hooks: [{ type: 'command', command: graphifyStart }],
         },
       ],
     },
@@ -328,16 +319,15 @@ describe('entrypoint settings.json hook merge - vault + graphify dedup', () => {
     );
   });
 
-  it('graphify-session-start.sh duplicated 10x collapses to exactly 1 on SessionStart[startup]', () => {
+  it('retires every persisted graphify SessionStart registration', () => {
     const merged = runJqMerge(accumulatedVaultGraphifySettingsFixture(), advancedVaultGraphifySettingsConfig());
-    const ss = merged?.hooks?.SessionStart ?? [];
-    const startupMatcher = ss.find((e) => e.matcher === 'startup');
-    assert.ok(startupMatcher, 'SessionStart startup matcher must exist after merge');
-    const startCount = startupMatcher.hooks.filter((h) => h.command.includes('graphify-session-start.sh')).length;
+    const commands = (merged?.hooks?.SessionStart ?? []).flatMap((entry) =>
+      (entry.hooks ?? []).map((hook) => hook.command),
+    );
     assert.equal(
-      startCount,
-      1,
-      `expected exactly 1 graphify-session-start.sh entry, got ${startCount}`,
+      commands.filter((command) => command.includes('graphify-session-start.sh')).length,
+      0,
+      `retired startup registrations must be pruned: ${JSON.stringify(commands)}`,
     );
   });
 
@@ -386,5 +376,51 @@ describe('entrypoint settings.json hook merge - vault + graphify dedup', () => {
       'user hook at /opt/.../graphify/scripts/ must survive (no plugins/ anchor matched)');
     assert.match(allCmds, /\/home\/user\/custom\/codeflare-vault\/scripts\/not-ours\.sh/,
       'user hook outside ~/.claude/plugins/ must survive');
+  });
+});
+
+describe('entrypoint settings.json hook merge - context-mode-cache-heal prune', () => {
+  // An older context-mode self-installed this SessionStart hook by bare quoted
+  // path. It repairs symlinks under ~/.claude/plugins/cache/, which this product
+  // never populates, so it has only ever surfaced as a hook error. Its object is
+  // retired from R2 in the same release; the registration has to go with it, or
+  // the merge would preserve a command pointing at a file that no longer exists.
+  const cacheHeal = '"/home/user/.claude/hooks/context-mode-cache-heal.mjs"';
+  const userSessionHook = 'bash /home/user/scripts/my-session-start.sh';
+
+  function settingsWithCacheHeal() {
+    return JSON.stringify({
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: 'command', command: cacheHeal }] },
+          { matcher: '', hooks: [{ type: 'command', command: userSessionHook }] },
+        ],
+      },
+    });
+  }
+
+  it('prunes the bare-path cache-heal registration', () => {
+    const merged = runJqMerge(settingsWithCacheHeal(), advancedContextModeSettingsConfig());
+    const commands = (merged?.hooks?.SessionStart ?? []).flatMap((entry) =>
+      (entry.hooks ?? []).map((hook) => hook.command),
+    );
+    assert.equal(
+      commands.filter((cmd) => cmd.includes('context-mode-cache-heal')).length,
+      0,
+      `cache-heal registration must not survive the merge: ${JSON.stringify(commands)}`,
+    );
+  });
+
+  it('keeps a user-authored SessionStart hook while pruning it', () => {
+    // The prune is a regex over command strings, so the risk it carries is
+    // collateral: a user's own SessionStart hook must be untouched by it.
+    const merged = runJqMerge(settingsWithCacheHeal(), advancedContextModeSettingsConfig());
+    const commands = (merged?.hooks?.SessionStart ?? []).flatMap((entry) =>
+      (entry.hooks ?? []).map((hook) => hook.command),
+    );
+    assert.ok(
+      commands.includes(userSessionHook),
+      `user SessionStart hook must survive: ${JSON.stringify(commands)}`,
+    );
   });
 });

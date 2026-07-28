@@ -134,7 +134,7 @@ function runLayDown({ r2SseDisabled, sessionMode = 'default', seedModes = ['defa
 }
 
 describe('REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh lay_down_agent_seed_preseed)', () => {
-  it('Governed Mode: copies the baked tree into $USER_HOME and makes hooks executable', () => {
+  it('Governed Mode: copies the baked tree into $USER_HOME', () => {
     const { code, stderr, home } = runLayDown({ r2SseDisabled: true, sessionMode: 'default' });
     assert.equal(code, 0, `lay-down exited non-zero: ${stderr}`);
     const hook = join(home, '.claude/hooks/cap.mjs');
@@ -142,8 +142,6 @@ describe('REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh la
     assert.ok(existsSync(hook), 'hook not laid down');
     assert.ok(existsSync(skill), 'skill not laid down');
     assert.equal(readFileSync(skill, 'utf8'), '# default skill\n', 'skill content not laid down verbatim');
-    // +x on the hook (mode bits & 0o111 set).
-    assert.ok((statSync(hook).mode & 0o111) !== 0, 'hook not made executable');
   });
 
   it('does NOT lay down anything outside Governed Mode (R2_SSE_DISABLED unset)', () => {
@@ -342,6 +340,7 @@ function runRcloneFilterWiring() {
   const script = [
     'set -euo pipefail',
     `USER_HOME='${home}'`,
+    `USER_CLAUDE_DIR='${join(home, '.claude')}'`,
     `HOME='${home}'`,
     "R2_BUCKET_NAME='bucket'",
     `RCLONE_CONFIG='${join(home, 'rclone.conf')}'`,

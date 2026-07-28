@@ -6,6 +6,7 @@ Complete API endpoint reference for the Codeflare Worker.
 
 ## Contents
 
+- [Conventions](#conventions)
 - [Session Management](#session-management)
 - [Container Lifecycle](#container-lifecycle)
 - [Terminal](#terminal)
@@ -33,6 +34,8 @@ Complete API endpoint reference for the Codeflare Worker.
 
 ---
 
+## Conventions
+
 ### Common Response Headers
 
 | Header | Description |
@@ -51,9 +54,9 @@ Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AU
 
 Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, error, code }` instead of the standard `{ error, code }`.
 
-### Session Management
+## Session Management
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | List sessions |
 | POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) | Create session (rate limited; under enterprise mode `agentType` outside the wizard-governed allowlist is rejected 400) |
@@ -65,29 +68,29 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | GET | `/api/sessions/:id/status` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) | Get session and container status |
 | GET | `/api/sessions/batch-status` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6 | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode); optional query param `includePreseedCheck=true` adds `preseedNeedsUpgrade: boolean` (omitted otherwise; hash mismatch OR, under enterprise, stored sessionMode not yet advanced) for auto-upgrade detection on initial dashboard load |
 
-### Container Lifecycle
+## Container Lifecycle
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) | Start container (non-blocking) |
 | POST | `/api/container/destroy` | Session cookie | [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Destroy container (SIGKILL) |
 | GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC2, AC3 | Poll startup progress |
 | GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Health check |
 
-### Terminal
+## Terminal
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | WS | `/api/terminal/:compoundId/ws` | Session cookie | [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-SESSION-012](../../sdd/spec/session-lifecycle.md#req-session-012-wake-loop-prevention) | Terminal WebSocket (compoundId format: `sessionId-terminalId`); raw terminal input/output plus JSON control frames for resize authority (`focus`, `resize`), process name, and terminal restore. Focus claims are cleared when a pane loses focus before open. |
 | GET | `/api/terminal/:sessionId/status` | Session cookie | [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry) | Connection status |
 
 **Terminal frame contract:** Client→server sends raw PTY input or JSON control frames `{type:"focus"}`, `{type:"resize", cols, rows}`, or `{type:"kill"}`. Server→client sends raw PTY output or JSON frames `{type:"restore", state}` and `{type:"process-name", terminalId, processName}`. <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: host/src/session.ts::attach --> <!-- @impl: host/src/session.ts::start --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @impl: web-ui/src/stores/terminal.ts::dispose -->
 
-### Vault
+## Vault
 
 The in-container SilverBullet editor is reached through the Worker proxy. Under [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) the SilverBullet app is served under a **bucket-stable** path `/api/vault/<token>/` (token = opaque 32-hex `SHA-256(salt+bucketName)`, no PII), so the IndexedDB names persist across sessions; the session-keyed `/api/vault/:sid/` path is an entry that sets `cf_vault_sid` and 302-redirects to the token path.
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/vault/:sid/` | Session cookie | [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) | Entry: validates auth + tier, sets HttpOnly `cf_vault_sid` cookie, 302s to `/api/vault/<token>/`. Retains default security headers. |
 | GET | `/api/vault/:sid/status` | Session cookie | [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger) AC1 | JSON readiness probe `{ vaultReady }`. Retains full default security headers (CSP + `X-Frame-Options: DENY`). |
@@ -96,11 +99,11 @@ The in-container SilverBullet editor is reached through the Worker proxy. Under 
 | GET | `/api/vault/<token>/.codeflare-bootstrap` | Session cookie | [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1, [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) | Bootstrap hop: registers native SW, posts bucket-derived key via `set-encryption-key`, sets `codeflare_vault_bootstrap` cookie, redirects to token URL. |
 | GET | `/api/vault/<token>/.vault-key` | Session cookie | [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC5 | Returns `{ key }` JSON (bucket-derived HKDF key) for in-memory key recovery by the grafted SW. `Cache-Control: no-store`. |
 
-### Browser IDE
+## Browser IDE
 
 The in-container OpenVSCode Server (full VS Code editor) is reached through the Worker proxy. Unlike the Vault, the IDE is **session-keyed** ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable)): OpenVSCode runs with `--server-base-path=/api/vscode/<sessionId>`, so it is base-path native — the Worker and host forward the path **unchanged** (no `/vault`-style strip, no HTML base-href graft) and its service-worker scope is session-specific. The sessionId in the URL is the sole container selector; there is no bucket-stable path.
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) | Session-keyed OpenVSCode proxy, parsed before Hono so WebSocket upgrades pass through. Path forwarded unchanged. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal + vault). |
 
@@ -116,9 +119,9 @@ The in-container OpenVSCode Server (full VS Code editor) is reached through the 
 
 The pre-Hono, pre-auth 400 keeps the full default security-header set; every other response gets the relaxed set above.
 
-### User Management
+## User Management
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1, [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC4 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`, `allowedAgents` — the creation-selectable agent set, wizard-governed under enterprise mode) |
 | POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC2 | Mark guided setup as visited (sets KV flag) |
@@ -128,35 +131,35 @@ The pre-Hono, pre-auth 400 keeps the full default security-header set; every oth
 | DELETE | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Remove allowed user (admin only) |
 | PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Update user tier/role (admin only) |
 
-### Auth (SaaS Mode)
+## Auth (SaaS Mode)
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/auth/providers` | varies | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) | List configured IdPs (public, no auth) |
+| GET | `/api/auth/providers` | varies | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-013](../../sdd/spec/authentication.md#req-auth-013-custom-branded-login-page) | List configured IdPs (public, no auth) |
 | GET | `/api/auth/status` | varies | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | Auth status (tier, email, role, turnstile key, session/billing state) |
 | GET | `/api/auth/tiers` | varies | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Subscribable tier configs (requires identity) |
-| GET | `/api/auth/onboarding-config` | varies | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) | Onboarding page config (turnstile key) |
+| GET | `/api/auth/onboarding-config` | varies | [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) | Onboarding page config (turnstile key) |
 | POST | `/api/auth/subscribe` | varies | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) | Self-service tier selection (rate-limited 3/min) |
 | POST | `/api/auth/request-access` | varies | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Request access with Turnstile (rate-limited 3/hr) |
 | POST | `/api/auth/contact-team` | varies | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Enterprise tier inquiry email (rate-limited 1/hr) |
 
-### Usage
+## Usage
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/usage` | Session cookie | [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | Current user's real-time usage (Timekeeper DO with KV fallback) |
 
-### Admin
+## Admin
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/admin/tiers` | Admin role | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Get current tier config (admin only) |
 | PUT | `/api/admin/tiers` | Admin role | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Update tier config (admin only, 8-tier array) |
 | PUT | `/api/users/max-users` | Admin role | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Set max users capacity cap (admin only) |
 
-### Billing
+## Billing
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | POST | `/api/billing/checkout` | Session cookie | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment), [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004-paid-tiers-integrate-with-stripe-checkout) | Create Stripe Checkout Session for paid tier (rate-limited 5/min) |
 | GET | `/api/billing/status` | Session cookie | [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching), [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | Live billing state from Stripe (subscription, period, status) |
@@ -164,19 +167,19 @@ The pre-Hono, pre-auth 400 keeps the full default security-header set; every oth
 | POST | `/api/billing/switch` | Session cookie | [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching) | Deep-link portal for plan change confirmation (rate-limited 5/min) |
 | POST | `/public/stripe/webhook` | None (Stripe HMAC) | [REQ-SUB-005](../../sdd/spec/subscription.md#req-sub-005-trial-is-compute-based-not-time-based), [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern), [REQ-SUB-021](../../sdd/spec/subscription.md#req-sub-021-billing-cycle-alignment) | Stripe webhook handler (unauthenticated, HMAC-verified, rate-limited 100/min, body capped at 1 MiB via `bodyLimit` middleware -- CF-004) |
 
-### Deploy Keys
+## Deploy Keys
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Get encrypted deploy credentials (masked) |
 | PUT | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Save/update deploy credentials (GitHub PAT, CF API token) |
 | DELETE | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Erase all deploy credentials |
 
-### GitHub Integration
+## GitHub Integration
 
 The GitHub panel (Connect, repository list, clone). Mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github` (documented in its own table below). The repo-panel routes (`/status`, `/repos`, `/clone`) are available in every mode (`githubFeatureEnabled` is always true); the **advanced-session entitlement** for the panel is enforced in the dashboard frontend, matching the Vault ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). **Connect/disconnect are decoupled from the panel** — `/connect`, its callback, and `/disconnect` are `authMiddleware`-only (any authenticated user), so they work from Guided Setup + the Settings accordion even when the panel is hidden. The token is never returned to the browser — `/repos` proxies GitHub server-side.
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/github/status` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | Connection state (`enabled`, `configured`, `connected`, `login`, `source`); never the token |
 | GET | `/api/github/repos` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | The user's accessible repos (owner + collaborator + org member), server-side proxy; `?page=<n>` paginates, 50/page (rate-limited 60/min); `401 NOT_CONNECTED` when no token |
@@ -186,32 +189,32 @@ The GitHub panel (Connect, repository list, clone). Mounted at `/api/github` (`s
 
 The OAuth callback is mounted separately under `/auth/github` (`src/routes/github-auth.ts`, registered via `app.route('/auth/github', githubAuthRoutes)` in `src/index.ts`) — it is **not** an `/api/github` route:
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/auth/github/connect/callback` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Connect-GitHub callback (distinct from SaaS-login `/auth/github/callback`): re-derives identity from the live session, verifies the bucket-bound OAuth state, exchanges the code, persists the repo token to deploy-keys; never mints a session cookie. GitHub App/OAuth App registers this exact URL. |
 
 The **new-session** clone path is not a GitHub route: `POST /api/sessions` accepts an optional `clone: { repo, ref? }` field ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)) that clones the repo into the workspace before the agent process starts.
 
-### Cloudflare Integration
+## Cloudflare Integration
 
 Per-user "Connect to Cloudflare" OAuth (non-enterprise only). Mounted at `/api/cloudflare` (`src/routes/cloudflare.ts`); the OAuth callback is mounted separately under `/auth/cloudflare` (`src/routes/cloudflare-auth.ts`). All routes are `authMiddleware`-only (any authenticated user) and **not** tier-gated — connect is reachable from Guided Setup + the Settings accordion. `getCloudflareProvider` returns null in **enterprise**, so every route fails closed there (`503 CLOUDFLARE_NOT_CONFIGURED`). The token is never returned to the browser ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)).
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/cloudflare/status` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connection state (`configured`, `connected`, `accountId`, `source`); when connected without a selected account, also the accessible `accounts`; never the token |
 | GET | `/api/cloudflare/connect` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Start the OAuth authorize flow (302 to `dash.cloudflare.com/oauth2/auth`); `?tier=minimal\|recommended\|advanced` maps to the OAuth scope (always incl. `offline_access`); `503 CLOUDFLARE_NOT_CONFIGURED` when no client configured (rate-limited 20/min) |
 | POST | `/api/cloudflare/account` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Select the account `{accountId}` for a connected token; `400 ACCOUNT_INVALID` when the token cannot access it (rate-limited 20/min) |
 | POST | `/api/cloudflare/disconnect` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Revoke at Cloudflare and clear the stored token (rate-limited 20/min) |
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback; redirects with `?cloudflare=connected\|select-account\|denied\|expired\|unavailable\|error`. |
 
 The Connect-Cloudflare callback re-derives identity from the live session, verifies the bucket-bound single-use OAuth state, exchanges the code, persists the token, and auto-selects the account when exactly one is accessible; otherwise it redirects to a picker. It never mints a session cookie. The OAuth client registers this exact URL.
 
-### Public (Unauthenticated)
+## Public (Unauthenticated)
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/public/auth/providers` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) | Auth providers (outside CF Access gate) |
 | GET | `/public/onboarding-config` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) | Turnstile site key + onboarding status |
@@ -229,23 +232,23 @@ curl -fsS https://codeflare.ch/public/auth/providers \
 
 The response is `{ "providers": [...] }`. Each provider contains `id`, `type`, and `name`; direct GitHub mode also includes `loginUrl`.
 
-### Discoverability Documents
+## Discoverability Documents
 
 Served at the deployment root by the Worker (in `src/index.ts`, before the setup-completion gate so crawlers reach them on a fresh instance). The response depends on deployment mode; content is built by pure functions in `src/lib/seo.ts`, with the canonical origin hardcoded to `https://codeflare.ch` so integration/staging hosts never advertise themselves as canonical.
 
-| Method | Endpoint | Public mode (SaaS / onboarding) | Private mode (default / enterprise) | Implements |
-|--------|----------|----------|----------|------------|
-| GET | `/robots.txt` | `200` — allows the marketing surface, excludes `/app /api /auth /setup`, points at `/sitemap.xml`; `/login` remains crawlable so its `noindex` response directive is observed | `200` — disallow-all | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-008](../../sdd/spec/landing.md#req-landing-008-login-crawler-exclusion-controls) |
-| GET | `/sitemap.xml` | `200` — canonical marketing routes (login excluded, it is noindex) | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-008](../../sdd/spec/landing.md#req-landing-008-login-crawler-exclusion-controls) |
-| GET | `/llms.txt` | `200` — llmstxt.org-convention product summary | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
+| Method | Path | Auth | Public mode (SaaS / onboarding) | Private mode (default / enterprise) | Implements |
+|--------|------|------|----------|----------|------------|
+| GET | `/robots.txt` | None | `200` — allows the marketing surface, excludes `/app /api /auth /setup`, points at `/sitemap.xml`; `/login` remains crawlable so its `noindex` response directive is observed | `200` — disallow-all | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-008](../../sdd/spec/landing.md#req-landing-008-login-crawler-exclusion-controls) |
+| GET | `/sitemap.xml` | None | `200` — canonical marketing routes (login excluded, it is noindex) | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-008](../../sdd/spec/landing.md#req-landing-008-login-crawler-exclusion-controls) |
+| GET | `/llms.txt` | None | `200` — llmstxt.org-convention product summary | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
 
 Every `/login` asset response also carries `X-Robots-Tag: noindex, nofollow`; the sitemap omits that route ([REQ-LANDING-008](../../sdd/spec/landing.md#req-landing-008-login-crawler-exclusion-controls)).
 
-### Setup
+## Setup
 
 The setup wizard configures a fresh Codeflare deployment. It provisions Cloudflare resources (R2 credentials, DNS records, Access applications) and stores the resulting configuration in Workers KV so the application can serve requests.
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) | Run the setup wizard (streams NDJSON progress) |
 | GET | `/api/setup/status` | Public | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) | Whether setup is complete (always public) |
@@ -254,7 +257,7 @@ The setup wizard configures a fresh Codeflare deployment. It provisions Cloudfla
 
 Conditional auth: before `setup:complete` is set in KV, every Setup endpoint except `/api/setup/status` is publicly reachable through the CSRF-gated bootstrap window (see [AD10](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation)). Once setup is marked complete, the same endpoints require an admin-role session.
 
-#### When Setup Runs
+### When Setup Runs
 
 | Scenario | Auth requirement | Entry point |
 |---|---|---|
@@ -263,7 +266,7 @@ Conditional auth: before `setup:complete` is set in KV, every Setup endpoint exc
 
 The conditional auth middleware in `src/routes/setup/index.ts` checks `KV.get('setup:complete')` on every request. When the value is `"true"`, the request must pass through `authMiddleware` and `requireAdmin` before reaching the configure handler.
 
-#### Request Format
+### Request Format
 
 ```
 POST /api/setup/configure
@@ -286,19 +289,19 @@ Validation rules (enforced by Zod before streaming starts):
 
 The Cloudflare API token is read from the `CLOUDFLARE_API_TOKEN` environment binding, not from the request body.
 
-#### Configuration Steps
+### Configuration Steps
 
 The configure endpoint runs steps sequentially, streaming progress over NDJSON.
 
 **Step 1 -- `get_account`**
 
-**Source:** `src/routes/setup/account.ts`
+Source: `src/routes/setup/account.ts`
 
 Calls `GET /accounts` on the Cloudflare API to retrieve the account ID associated with the API token. The first account in the response is used.
 
 **Step 2 -- `derive_r2_credentials`**
 
-**Source:** `src/routes/setup/credentials.ts`
+Source: `src/routes/setup/credentials.ts`
 
 Derives S3-compatible R2 credentials from the existing API token without needing extra permissions:
 
@@ -307,7 +310,7 @@ Derives S3-compatible R2 credentials from the existing API token without needing
 
 **Step 3 -- `set_secrets`**
 
-**Source:** `src/routes/setup/secrets.ts`
+Source: `src/routes/setup/secrets.ts`
 
 Sets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Worker secrets via `PUT /accounts/{id}/workers/scripts/{name}/secrets`.
 
@@ -319,7 +322,7 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 
 **Step 4 -- `configure_custom_domain`**
 
-**Source:** `src/routes/setup/custom-domain.ts`
+Source: `src/routes/setup/custom-domain.ts`
 
 1. **Zone resolution** -- looks up the Cloudflare zone ID by trying progressively shorter domain suffixes (supports ccTLDs like `.co.uk`).
 2. **DNS upsert** -- creates or updates a proxied CNAME record pointing the custom domain to `{workerName}.{accountSubdomain}.workers.dev`.
@@ -327,7 +330,7 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 
 **Step 5 -- `create_access_app`**
 
-**Source:** `src/routes/setup/access.ts`
+Source: `src/routes/setup/access.ts`
 
 **When GitHub OIDC is NOT configured** (default, or a session-OIDC mode -- SaaS or onboarding -- without `OAUTH_CLIENT_ID`):
 1. Upserts two Cloudflare Access groups scoped to the worker name:
@@ -343,13 +346,13 @@ CF Access groups and policies are not created - the Worker handles authenticatio
 
 **Step 6 -- `configure_turnstile` (conditional)**
 
-**Source:** `src/routes/setup/turnstile.ts`
+Source: `src/routes/setup/turnstile.ts`
 
 Runs only when the `ONBOARDING_LANDING_PAGE` env var is active OR SaaS mode is enabled. Creates or updates a Turnstile widget in `managed` mode for the custom domain (and the workers.dev hostname). Stores the site key and secret in KV.
 
 **Enterprise steps (conditional, `ENTERPRISE_MODE` only)**
 
-**Source:** `src/routes/setup/index.ts`
+Source: `src/routes/setup/index.ts`
 
 Each runs only when its field is present in the request body, so unrelated reconfigures stay quiet:
 
@@ -366,7 +369,7 @@ Each runs only when its field is present in the request body, so unrelated recon
 
 Writes final KV state and marks setup as complete.
 
-#### NDJSON Stream Contract
+### NDJSON Stream Contract
 
 The response uses content type `application/x-ndjson`. Each line is a self-contained JSON object terminated by `\n`.
 
@@ -435,7 +438,7 @@ If another configure run is already in progress, the stream immediately emits:
 
 No step progress messages are sent in this case.
 
-#### Error Recovery
+### Error Recovery
 
 **Per-step retry**
 
@@ -470,7 +473,7 @@ Before starting, the handler checks for an existing lock:
 
 The client can simply re-submit the same `POST /api/setup/configure` request. All steps are idempotent -- they create-or-update resources rather than assuming a clean slate. If a previous run partially completed, the retry will update existing resources and continue.
 
-#### KV State Management
+### KV State Management
 
 The following KV keys are written during setup. All keys use the `setup:` prefix.
 
@@ -498,7 +501,7 @@ The following KV keys are written during setup. All keys use the `setup:` prefix
 
 User records are stored separately under the `user:{email}` key pattern with a JSON value containing `addedBy`, `addedAt`, `role` (`"admin"` or `"user"`), `subscriptionTier` (8 values), and legacy `accessTier`. Usage tracking data is stored at `timekeeper:{bucketName}`. Tier configuration is at `tiers:config`.
 
-#### Authentication
+### Authentication
 
 **First-time setup**
 
@@ -513,7 +516,7 @@ Once `setup:complete` is `"true"`, the conditional auth middleware requires:
 
 This applies to `POST /api/setup/configure`, `GET /api/setup/detect-token`, and `GET /api/setup/prefill`. The `GET /api/setup/status` endpoint is always public.
 
-#### Helper Endpoints
+### Helper Endpoints
 
 **`GET /api/setup/status`**
 
@@ -547,7 +550,7 @@ Under `ENTERPRISE_MODE` the response additionally carries the stored enterprise 
 {"adminUsers": ["alice@example.com"], "allowedUsers": [], "activeAgents": ["pi"], "configurableAgents": ["copilot", "pi"]}
 ```
 
-#### Rate Limiting
+### Rate Limiting
 
 | Endpoint | Window | Max requests | Key prefix |
 |---|---|---|---|
@@ -558,13 +561,13 @@ Under `ENTERPRISE_MODE` the response additionally carries the stored enterprise 
 
 Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the shared `setupRateLimiter` (5/min, key prefix `setup-configure`) applied as middleware. The effective limit is 5/min for these endpoints during the setup flow.
 
-### Storage (R2 File Browser)
+## Storage (R2 File Browser)
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/storage/browse` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | List objects in R2 prefix |
 | POST | `/api/storage/upload` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser), [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Upload file |
-| GET | `/api/storage/download` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser), [REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads) | Download file as an attachment; with `?disposition=inline` serves it inline for in-browser viewing (XSS-safe content-type + nosniff) |
+| GET | `/api/storage/download` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser), [REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads), [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable) | Download file as an attachment; with `?disposition=inline` serves it inline for in-browser viewing (XSS-safe content-type + nosniff). View-only storage on: attachment `403 DOWNLOADS_DISABLED`, non-viewable blob `403` even inline |
 | POST | `/api/storage/delete` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | Delete objects by key and/or prefix (server-side bulk delete) |
 | GET | `/api/storage/preview` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | Preview file content (text files inline, others return metadata only) |
 | GET | `/api/storage/stats` | Session cookie | [REQ-STOR-006](../../sdd/spec/storage.md#req-stor-006-storage-quota-enforced-per-tier-at-session-start), [REQ-STOR-014](../../sdd/spec/storage.md#req-stor-014-r2-storage-stats-caching) | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
@@ -575,7 +578,7 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | POST | `/api/storage/upload/complete` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Complete multipart upload |
 | POST | `/api/storage/upload/abort` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Abort multipart upload |
 
-### Preferences
+## Preferences
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
@@ -599,7 +602,7 @@ Under enterprise mode, the response's `sessionMode` is always `'advanced'`. GET 
 
 `PATCH` also coerces a supplied `sessionMode` to stored `'advanced'`, so a stale client cannot persist a downgrade or reconcile a live bucket to default mode. Omitting `sessionMode` leaves the stored preference unchanged. This keeps advanced-gated Browser IDE and Vault controls visible for JIT-provisioned enterprise users. See [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2.
 
-### LLM API Keys
+## LLM API Keys
 
 GET `/api/llm-keys` - returns masked keys (`****` + last 4 chars), never full keys.
 PUT `/api/llm-keys` - set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
@@ -607,15 +610,15 @@ DELETE `/api/llm-keys` - removes all LLM keys from KV.
 
 Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected only as `CODEFLARE_OPENAI_API_KEY` / `CODEFLARE_GEMINI_API_KEY`; `entrypoint.sh` maps them back to bare provider env names only inside the scoped `consult-llm-mcp` server config for Claude (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`). The LLM Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
 
-### Public (Onboarding)
+## Public (Onboarding)
 
 GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited; onboarding mode only)
 
-### Public (Landing)
+## Public (Landing)
 
 The landing contact surface ([REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)). Both endpoints are gated on SaaS **or** onboarding mode and return `404` in default/enterprise mode.
 
-#### GET `/public/contact-config`
+### GET `/public/contact-config`
 
 Exposes only the public Turnstile site key for the landing form widget.
 
@@ -625,7 +628,7 @@ Exposes only the public Turnstile site key for the landing form widget.
 
 `turnstileSiteKey` is `null` when no site key is configured.
 
-#### POST `/public/contact`
+### POST `/public/contact`
 
 Demo-request submission: Turnstile-verified, relayed to all admin users as email (reply-to set to the submitter), and **never persisted** — the only KV writes on this path are rate-limiter bookkeeping. Rate-limited to **5 requests/minute per client IP** (`contact-submit` bucket).
 
@@ -649,9 +652,9 @@ Responses:
 - `503` — `CONTACT_NOT_CONFIGURED` / `CONTACT_NO_ADMIN_RECIPIENT`: Turnstile/Resend secrets absent or no admin recipient configured (same degradation contract as the waitlist).
 - `404` — neither SaaS nor onboarding mode is active.
 
-### Health
+## Health
 
-| Method | Endpoint | Auth | Implements | Description |
+| Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/health` | None (auth-exempt - no `CONTAINER_AUTH_TOKEN` required) | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
 | GET | `/api/health` | Session cookie | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Worker-proxied alias for `/health` |

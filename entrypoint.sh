@@ -648,6 +648,17 @@ initial_sync_from_r2() {
     fi
 }
 
+# Entries in ~/.claude/hooks/ are registered by bare path and spawned through their
+# shebang, so they must stay executable. R2 stores object content, not POSIX modes,
+# so any sync that rewrites one drops the exec bit and every later invocation fails
+# with "Permission denied" until something restores it. Repairing only at boot left
+# the bit stripped for up to a whole daemon cycle, so this also runs after each
+# successful bisync. Idempotent; non-fatal when the directory is absent.
+repair_hook_exec_bits() {
+    find "$USER_CLAUDE_DIR/hooks" -maxdepth 2 \
+        \( -name '*.mjs' -o -name '*.sh' \) -type f -exec chmod 0755 {} + 2>/dev/null || true
+}
+
 # REQ-STOR-017 / AD90: lay down the image-baked agent seed for the session's mode into
 # $USER_HOME before the initial R2 sync. Only in Governed Mode (R2_SSE_DISABLED=true),
 # where the subsequent --checksum sync can prove the laid-down files match R2 and skip
@@ -668,10 +679,10 @@ lay_down_agent_seed_preseed() {
     echo "[entrypoint] Governed Mode: laying down baked agent seed (mode=${mode}) before initial sync" | tee -a /tmp/sync.log
     # The bake tree mirrors the R2 key layout rooted at $USER_HOME (.claude/, .pi/agent/,
     # .gemini/, .codex/, .copilot/, .config/opencode/), so one copy lands every agent home.
+    # cp -rp preserves modes, and the bake contains no .claude/hooks/ tree because
+    # the seed has no key under it - the exec-bit repair that used to follow this
+    # copy was left over from when it did, and could never match anything.
     cp -rp "$bake/." "$USER_HOME/"
-    # Seed hooks arrive as plain files; the CLI execs ~/.claude/hooks/*.mjs directly, so
-    # restore +x (mirrors the post-sync chmod). Idempotent; non-fatal if the dir is absent.
-    find "$USER_HOME/.claude/hooks" -maxdepth 2 -name '*.mjs' -type f -exec chmod 0755 {} + 2>/dev/null || true
     echo "[entrypoint] Baked agent seed laid down" | tee -a /tmp/sync.log
 }
 
@@ -844,6 +855,9 @@ bisync_with_r2() {
     # Auto-clean conflict artifacts after successful bisync
     if [ $RESULT -eq 0 ]; then
         find /home/user -name "*.conflict*" -type f -delete 2>/dev/null || true
+        # A sync that rewrote a hook from R2 dropped its exec bit; restore it here so
+        # the window is seconds rather than the rest of the daemon cycle.
+        repair_hook_exec_bits
     fi
     return $RESULT
 }
@@ -3196,9 +3210,6 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     fi
     # graphify hooks (advanced session mode + plugin manifest present).
     # Implements REQ-AGENT-023 AC3 + AC4:
-    #   - SessionStart (matcher "startup") injects context if a graph
-    #     exists in cwd, or a build-suggestion reminder for code repos
-    #     without a graph. Never auto-builds.
     #   - PostToolUse on Bash + the two MCP shell tools detects
     #     `git clone` / `gh repo clone` and injects an AskUserQuestion
     #     triage directive. Idempotent per cloned dir.
@@ -3218,9 +3229,6 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
         # variants (custom-tier users where `cd` happens inside ctx_execute
         # shells that Claude Code's session cwd never sees).
         GRAPHIFY_HOOKS=$(jq -n --arg dir "$PLUGIN_DIR" '{
-          SessionStart: [
-            {matcher:"startup",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-session-start.sh")}]}
-          ],
           PostToolUse: [
             {matcher:"Bash",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
             {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
@@ -3239,7 +3247,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
             from_entries
           )
         ')
-        echo "[entrypoint] Advanced mode: graphify hooks added (SessionStart + PostToolUse on clone + PreToolUse graph-first nudge)"
+        echo "[entrypoint] Advanced mode: graphify hooks added (PostToolUse on clone + PreToolUse graph-first nudge)"
     fi
     # Hardening: validate SETTINGS_CONFIG is well-formed JSON before it
     # reaches the settings.json merge below. The literal heredoc-style
@@ -3271,8 +3279,15 @@ if [ -f "$SETTINGS_FILE" ]; then
     # vault)|graphify)/scripts/ (anchored on the literal `plugins/` segment
     # so unrelated future directories with the same basename cannot match),
     # references enforce-ctx-mode.sh (both the legacy ~/.claude/hooks/ path
-    # and the current ~/.claude/plugins/context-mode/scripts/ path), OR is
-    # a context-mode hook invocation (any of: bare `context-mode`,
+    # and the current ~/.claude/plugins/context-mode/scripts/ path),
+    # references context-mode-cache-heal.mjs (a SessionStart hook an older
+    # context-mode self-installed by bare path; it repairs symlinks under
+    # ~/.claude/plugins/cache/, which this product never populates because
+    # context-mode is installed from npm and registered as an MCP server
+    # directly, so it is inert here and only ever surfaced as a hook error.
+    # Its object is retired from R2 in the same release, and the registration
+    # is pruned here so deleting the file cannot leave a dangling command),
+    # OR is a context-mode hook invocation (any of: bare `context-mode`,
     # `bunx context-mode@*`, or `npx -y context-mode@*` for legacy compat
     # with sessions that still have stale settings.json from before the
     # build-time install landed). Adding to MANAGED_HOOKS_REGEX must
@@ -3289,7 +3304,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
-                select((.command // "") | test("plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/|enforce-ctx-mode\\.sh|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
+                select((.command // "") | test("plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/|enforce-ctx-mode\\.sh|context-mode-cache-heal\\.mjs|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
               ] as $user |
               [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}
@@ -3330,15 +3345,14 @@ if [ -f "$SETTINGS_FILE" ]; then
     fi
 fi
 
-# Ensure any .mjs hook files in ~/.claude/hooks/ are executable. The CLI
-# self-installs context-mode-cache-heal.mjs as a SessionStart hook with mode
-# 0644, then calls it via shebang (#!/usr/bin/env node). /bin/sh refuses to
-# exec a non-executable file with "Permission denied", which surfaces in the
-# UI as "SessionStart:resume hook error". Defensive chmod every entrypoint
-# run so the bug cannot survive a bisync round-trip.
-if [ -d "$USER_CLAUDE_DIR/hooks" ]; then
-    find "$USER_CLAUDE_DIR/hooks" -maxdepth 2 -name '*.mjs' -type f -exec chmod 0755 {} +
-fi
+# Ensure hook files in ~/.claude/hooks/ are executable. context-mode self-installs
+# context-mode-cache-heal.mjs as a SessionStart hook and calls it via its shebang
+# (#!/usr/bin/env node); /bin/sh refuses to exec a non-executable file with
+# "Permission denied", surfacing in the UI as "SessionStart hook error". The bit is
+# lost on the restore from R2, which carries content but not POSIX modes. Repair on
+# every entrypoint run; bisync_with_r2 repeats it after each sync, which is what
+# actually survives a round-trip mid-session.
+repair_hook_exec_bits
 
 # Enable plugins (silently skipped if plugin files absent in default mode).
 # context-mode and graphify are conditionally enabled via the preseed-plugin gates.

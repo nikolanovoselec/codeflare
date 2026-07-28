@@ -121,7 +121,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. When the payment provider is configured, the direct-subscribe endpoint rejects paid tiers with a clear "checkout required" error; only the free tier remains directly subscribable. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (POST /auth/subscribe) -->
+1. When the payment provider is configured, the direct-subscribe endpoint rejects paid tiers with a clear "checkout required" error; only the free tier remains directly subscribable. <!-- @impl: src/routes/auth.ts::isStripeConfigured --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (POST /auth/subscribe) -->
 2. The checkout endpoint creates a hosted checkout session pre-populated with the visitor's email and the tier/mode metadata, and returns the externally-hosted checkout URL. <!-- @impl: src/lib/stripe.ts::createCheckoutSession --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-IPCountry) / REQ-SUB-004 (Stripe checkout session creation)) -->
 3. After payment, the provider sends a checkout-completed webhook that records the checkout outcome and triggers an authoritative state sync. <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
 4. The frontend polls the auth-status endpoint after the checkout redirect on a fixed interval with no bounded total wait (the poll has no deadline and continues until activation is observed) so subscription activation feels immediate to the user. <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-004 AC4: post-checkout activation polling) --> <!-- @manual -->
@@ -450,7 +450,7 @@ Tiers, billing, usage tracking, and quotas.
 2. The state-sync routine fetches the latest subscription (with price items expanded) directly from the payment provider. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
 3. A last-synced timestamp guard prevents stale webhooks from overwriting newer state. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) -->
 4. Persisted updates are built from the fetched snapshot; the persisted tier is updated only when price tier-metadata is present, so absent metadata preserves the existing tier. The subscribed mode is resolved per AC6. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) -->
-5. Writes use a read-merge-write helper (`updateUserRecord`) that preserves unrelated fields; cross-webhook safety comes from the signal-and-sync design — each webhook re-fetches authoritative subscription state from Stripe, so a lost concurrent merge self-heals on the next sync. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
+5. Writes use a read-merge-write operation that preserves unrelated fields; cross-webhook safety comes from the signal-and-sync design — each webhook re-fetches authoritative subscription state from Stripe, so a lost concurrent merge self-heals on the next sync. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
 6. On any mode change, the agent-config reconciler runs to seed the new mode's config set - recreating the new mode's skills and removing the previous mode's - and the session-mode preference (the UI mode) flips. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-recreate on downgrade) -->
 7. On subscription termination, after resetting the persisted tier to free, the agent-config reconciler runs with the default mode to restore Standard configs. <!-- @impl: src/routes/stripe-webhook.ts::handleSubscriptionDeleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
 
@@ -611,7 +611,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-021: Billing Cycle Alignment
 
-**Intent:** New paid subscriptions are billed on the 1st of each UTC calendar month so that recurring charges and monthly quota resets happen on the same date, eliminating the mid-cycle quota refresh that previously gave users roughly twice the paid quota between two billing charges.
+**Intent:** New paid subscriptions are billed on the first day of each UTC month so recurring charges and monthly quota resets share one boundary.
 
 **Applies To:** User
 
@@ -633,3 +633,5 @@ Tiers, billing, usage tracking, and quotas.
 **Verification:** Automated test
 
 **Status:** Implemented
+
+---

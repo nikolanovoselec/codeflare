@@ -36,9 +36,10 @@ The enterprise-only binding procedure, Gateway policy preparation, verification 
 
 **Prerequisites:** Run from the repository root with the production `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` exported, then confirm `npx wrangler whoami` names the production account. In the incident record, capture the failed user-flow step and its expected result before rollback.
 
-**Command:** List successful production workflow runs and Worker deployments. Choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, then pass its exact ID to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/):
+**Command:** Record the version currently serving traffic first — it is both the version the incident is about and the baseline the post-rollback check compares against. Then list successful production workflow runs and Worker deployments, choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, and pass it to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/). The Worker is named `codeflare` (`wrangler.toml`), and `rollback` takes the **version** ID that `versions view` confirms, not a deployment ID:
 
 ```sh
+npx wrangler deployments status
 gh run list --workflow deploy.yml --branch main --status success --limit 10
 npx wrangler deployments list
 npx wrangler versions view <CANDIDATE_VERSION_ID>
@@ -138,7 +139,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 ## Specification Coverage
 
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - AIG_GATEWAY_URL and AIG_TOKEN pushed as Worker secrets at deploy time (AC1)
-- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress: runtime-KV toggle (no new GH var/secret), enterprise-only deploy-injected VPC binding, rollback = toggle OFF (AC8)
+- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress: runtime-KV toggle (no new GH var/secret), enterprise-only deploy-injected VPC binding, rollback = toggle OFF
 - [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline) - Deploy workflow trigger and pre-deploy pipeline
 - [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) - Docker image build, vulnerability scan, and registry push
 - [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) - Deploy command and post-deploy hooks

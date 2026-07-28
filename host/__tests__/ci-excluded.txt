@@ -2,13 +2,12 @@
 # Lines starting with # and blank lines are ignored by both the lane's selection
 # step and host-test-inventory.test.js. A blanket rationale is how twelve files
 # ended up excluded by proximity for months; a reason per file is auditable.
-# Seven entries remain: of the original fourteen, six returned to the lane and
-# one (skill-sdd-init-contract.test.js) was deleted as prose-pinning theater.
+# Six entries remain: of the original fourteen, six returned to the lane and
+# two retired behavior/prose tests were deleted.
 
-# Shell out to the graphify binary and its python3 module, which exist only
-# inside the codeflare image.
+# Shells out to the graphify Python module, which exists only inside the
+# codeflare image.
 entrypoint-graphify-mcp.test.js
-graphify-session-start.test.js
 
 # Drives the SDD review-spawn hook against real git upstream state (@{u}) and a
 # gh PR context. The runner checkout is a detached merge ref with no upstream,

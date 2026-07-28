@@ -381,8 +381,8 @@ nudge and the turn-end gate agree on which lanes a push requires. The advanced
 context-mode plugin keeps only `README.md` for MCP/indexing registration and prunes
 stale deny-gates. The graphify plugin includes plugin.json, README, and
 graphify-mcp-lazy.py in default+advanced mode; advanced mode adds
-graphify-active-repo.sh, graphify-session-start.sh, graphify-clone-prompt.sh,
-graph-first-nudge.sh, safe-graphify-update.sh, and local-graphify-labels.sh.
+graphify-active-repo.sh, graphify-clone-prompt.sh, graph-first-nudge.sh,
+safe-graphify-update.sh, and local-graphify-labels.sh.
 
 Graphify tools ship as the native extension `extensions/graphify-native.ts` rather
 than through the MCP adapter — a Pi-native first-class choice. Pi still consumes
@@ -487,7 +487,7 @@ AC6 and [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-
 AC6.
 
 At invocation, `/review` prefers the Git repository containing the command cwd,
-including a linked worktree, then falls back to remembered active-repository state.
+including a linked worktree, then falls back to remembered active-repository state. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::recallActiveRepo -->
 An executable resolver validates the root without changing valid path whitespace or
 the process cwd, and the command dispatches nothing when neither source resolves. `/sdd clean` rejects invalid
 scope flags and sends the resolved work-set contract. The active-repository extension
@@ -515,6 +515,7 @@ This implements
 [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch),
 [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
+[REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up),
 [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection),
 [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context),
 [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract),
@@ -535,7 +536,8 @@ submits its zero-or-one JSON request unchanged once. The dedicated agent runs on
 attached monitor. Review acknowledgement has no CI condition, and interruption is
 intentionally not recovered automatically. This implements
 [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring),
-[REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), and
+[REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
+[REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), and
 [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent).
 
 Pi extraction is driven by `prompts/memory-agent-prompt.md` and `prompts/vault-extract-prompt.md`. The root reads Pi's durable transcript, filters synthetic prompts, creates request-specific snapshots, and emits visible public background requests instead of using the private subagent service.
@@ -546,9 +548,13 @@ Generated agents and emitted requests use provider-neutral medium reasoning, Bas
 
 `memory-vault.ts` owns delivery and high-water state. `/tmp/.memory-counter/<sessionId>.vars` and `vault-extract.pi.vars` are active request-ID pointers for reload discovery.
 
-`memory-inject.ts` is the Pi counterpart of the Claude `memory-context-inject.sh` hook: on the first real prompt of a session it extracts keywords from that prompt, scores the unified graph's nodes against them, and returns the top matches as a turn message from `before_agent_start` — the event that sits where the hook's `additionalContext` sits. Keyword rule, ranking weights, node cap, rendered shape and the atomic one-shot sentinel under `/tmp/.memory-counter/` are identical to the hook's; a query that matches nothing leaves the sentinel unspent so a later prompt can still inject. It skips child sessions and synthetic prompts, which the hook runtime never delivers. The unified graph is the only source either runtime queries: at the moment this fires no per-repo graph exists yet, and once one does the merger has already folded it into the unified graph, so a repo graph is never a substitute — only a smaller subset. The graph is parsed whole, so a size ceiling guards memory rather than latency, and it is a lever (`MEMORY_INJECT_MAX_GRAPH_BYTES`) so a graph that outgrows the default cannot silently disable injection. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
+`memory-inject.ts` is the Pi counterpart of the Claude `memory-context-inject.sh` hook: on the first real prompt of a session it extracts keywords from that prompt, scores the unified graph's nodes against them, and returns the top matches as a turn message from `before_agent_start` — the event that sits where the hook's `additionalContext` sits. Keyword rule, ranking weights, node cap, rendered shape and the atomic one-shot sentinel under `/tmp/.memory-counter/` are identical to the hook's; a query that matches nothing leaves the sentinel unspent so a later prompt can still inject. It skips child sessions and synthetic prompts, which the hook runtime never delivers. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
 
-`post-compaction-recall.ts` covers the compaction boundary that first-prompt injection cannot reach, the Pi counterpart of the Claude `post-compaction-recall.sh` hook described above. It listens on `session_compact` and sends the digest as a custom message with `display` off, delivered as a follow-up without triggering a turn, so the recall persists in the session rather than surviving a single request. Child sessions are skipped on the same header check `memory-vault.ts` uses: a subagent's narrow context must not receive whole-session history. Selection, bounds and injected wording are held identical to the Claude hook; the two runtimes carry separate implementations only because their injection surfaces differ. The whole handler is fail-silent — a failure in the child-session check, the digest build or the delivery is swallowed rather than raised, because it runs inside Pi's dispatch at the compaction boundary, where the session is least able to absorb a throw, for a feature that is a convenience. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall -->
+The unified graph is the only source either runtime queries: at the moment this fires no per-repo graph exists yet, and once one does the merger has already folded it into the unified graph, so a repo graph is never a substitute — only a smaller subset. The graph is parsed whole, so a size ceiling guards memory rather than latency, and it is a lever (`MEMORY_INJECT_MAX_GRAPH_BYTES`) so a graph that outgrows the default cannot silently disable injection. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject -->
+
+`post-compaction-recall.ts` covers the compaction boundary that first-prompt injection cannot reach, the Pi counterpart of the Claude `post-compaction-recall.sh` hook described above. It listens on `session_compact` and sends the digest as a custom message with `display` off, delivered as a follow-up without triggering a turn, so the recall persists in the session rather than surviving a single request. Child sessions are skipped on the same header check `memory-vault.ts` uses: a subagent's narrow context must not receive whole-session history. Selection, bounds and injected wording are held identical to the Claude hook; the two runtimes carry separate implementations only because their injection surfaces differ. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall -->
+
+The whole handler is fail-silent — a failure in the child-session check, the digest build or the delivery is swallowed rather than raised, because it runs inside Pi's dispatch at the compaction boundary, where the session is least able to absorb a throw, for a feature that is a convenience. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall -->
 
 Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. The [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) owns the child-visible location and legacy migration details.
 
@@ -799,12 +805,33 @@ session extracts from `~/Vault/Raw/Sessions/`
 It exists because compaction keeps the session id, so the first-prompt sentinel
 in `memory-context-inject.sh` is already claimed and that hook cannot fire again
 — leaving the agent resuming from a summary with prior decisions and identifiers
-gone. Recency is the instant an extract was captured, parsed out of the ISO-8601
-timestamp and UTC offset its filename carries: mtime is unusable because the
+gone.
+
+Recency is the instant an extract was captured, parsed out of the ISO-8601
+timestamp and UTC offset its filename carries. Claude and Pi both emit
+`YYYY-MM-DDTHH-MM-SS±HHMM-<8-character-session-id>.md`, so either runtime's
+captures enter the same selection. Modification time is unusable because the
 vault round-trips through rclone bisync, which rewrites it, and the name read as
 text is unusable because a UTC-offset change puts a later capture behind an
 earlier one. `PostCompact` is not used: it carries no decision control and
-cannot return `additionalContext`.
+cannot return `additionalContext` ([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts) AC2).
+
+Three mechanics in the digest builder are load-bearing and identical in both
+runtimes. Section headings are recognised only outside fenced blocks, and fences
+are matched by backtick run length rather than toggled on any backtick line — an
+inner fence would otherwise close its parent, after which every later heading
+goes unrecognised and the Decisions section the recall exists to carry is
+silently dropped.
+
+The per-extract cap is spent in encoded bytes and cut on a
+character boundary, because bytes are what the context actually costs; the
+truncation notice is paid out of that same budget and dropped rather than
+carried when the remainder cannot hold it, so the cap is never exceeded in order
+to announce that it was reached ([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts) AC4–AC5).
+
+Extracts sharing a capture instant are ordered by name descending, so both
+runtimes resolve a tie the same way instead of
+inheriting whatever order the filesystem offered ([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts)).
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 
@@ -886,15 +913,9 @@ See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-
 
 ## Graphify ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
 
-### SessionStart context injection ([REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) AC1)
+### Graph-first soft nudge ([REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) AC1)
 
-In advanced session mode, `graphify-session-start.sh` injects structural context from the knowledge graph as `additionalContext` on session start. Three-tier fallback:
-
-1. **Tier 1 (god-nodes):** If `graphify-out/graph.json` exists and `python3` is available, computes the 15 highest-degree nodes directly from the graph JSON and injects them with degree counts. The agent sees the architectural spine before its first tool call.
-2. **Tier 2 (report preamble):** If the god-nodes query fails (e.g., empty graph), falls back to the first 80 lines of `GRAPH_REPORT.md`.
-3. **Tier 3 (build suggestion):** If no graph exists but the cwd contains code files, injects a suggestion to build one via `/graphify`.
-
-All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__graphify__get_node`, etc.). The hook never auto-builds a graph.
+In advanced session mode, `graph-first-nudge.sh` gives a non-blocking reminder before grep-class tool calls when a repository graph exists. Matchers cover native `Grep`/`Glob` and the context-mode grep equivalents. Prompt-aware first-turn memory remains owned by [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt); no prompt-independent graphify startup summary is installed.
 
 ### Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
 
@@ -1261,6 +1282,7 @@ Pi CI is not part of review completion or acknowledgement. After either eligible
 - [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) - PR-Boundary Review Agent Dispatch
 - [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) - Pi Settled Review Handoff
 - [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan) - Unified Pi PR-Boundary Launch Plan
+- [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up) - Pi PR-Boundary Missing-Launch Follow-Up
 - [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) - rpiv-todo Session Isolation
 - [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection) - Pi Review Range Selection
 - [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) - User-Invoked Pi Review Repository Context

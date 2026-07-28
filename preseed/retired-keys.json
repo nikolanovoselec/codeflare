@@ -1,5 +1,5 @@
 {
-  "_comment": "One-time historical backlog: keys AGENTS_SEEDED_CONFIGS shipped before provenance markers existed, so no marker can prove ownership. Compiled once by walking all 181 revisions of src/lib/agent-seed.generated.ts. FROZEN - never append. Keys retired after the marker shipped are reclaimed by the stale-marker sweep instead. Runtime-managed paths (.claude/plugins/cache/**, installed_plugins.json) were reviewed out.",
+  "_comment": "One-time historical backlog: keys AGENTS_SEEDED_CONFIGS shipped before provenance markers existed, so no marker can prove ownership. Compiled once by walking all 181 revisions of src/lib/agent-seed.generated.ts. A key retired after the marker shipped never belongs here - it carries a stale marker and the sweep reclaims it without an enumeration. Runtime-managed paths (.claude/plugins/cache/**, installed_plugins.json) were reviewed out. Appended to only for a product-generated orphan the walk could not have found because it was never a seeded key: written into the container home by automation and carried to R2 by rclone, which strips the marker, leaving it indistinguishable from a user file to the sweep and so unreachable by every other mechanism. Each such entry must be shown to be product-generated rather than user-authored before it is added - .claude/hooks/enforce-ctx-mode.sh shipped as preseed/agents/claude/plugins/context-mode/scripts/enforce-ctx-mode.sh (#313, removed in #443) and its stale registration is already pruned by MANAGED_HOOKS_REGEX, and .claude/hooks/context-mode-cache-heal.mjs is written by context-mode's own installer to repair symlinks under .claude/plugins/cache/, which this product never populates - its registration is pruned in the same release so removing the object cannot leave a dangling hook command.",
   "keys": [
     ".agents/skills/api-design/SKILL.md",
     ".agents/skills/backend-patterns/SKILL.md",
@@ -56,6 +56,8 @@
     ".claude/commands/test-coverage.md",
     ".claude/commands/verify.md",
     ".claude/hooks/block-attributed-commits.sh",
+    ".claude/hooks/context-mode-cache-heal.mjs",
+    ".claude/hooks/enforce-ctx-mode.sh",
     ".claude/hooks/memory-agent-prompt.md",
     ".claude/hooks/memory-capture.sh",
     ".claude/plugins/codeflare-hooks/scripts/lib/inert-source-delta.mjs",

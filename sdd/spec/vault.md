@@ -31,7 +31,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### Domain Dependencies
 
 - **Memory** -- Reuses the memory-capture UserPromptSubmit hook and its per-user counter state. The capture agent writes its synthesis output into the vault (the legacy MCP server-memory subsystem has been removed); the dedup-gate marker contract is unchanged.
-- **Storage** -- Vault persistence is provided by the existing bisync to R2. The vault tree is added to the shared sync filter set, ordered before the global `graphify-out` exclude so first-match semantics keep vault content synced.
+- **Storage** -- Vault persistence is provided by the existing bisync to R2. The vault tree is included in the shared sync filter set, ordered before the global `graphify-out` exclude so first-match semantics keep vault content synced.
 - **Session Lifecycle** -- The shutdown-bisync reliability work ([REQ-VAULT-006](#req-vault-006-shutdown-bisync-completes-vault-writes-before-sigkill)) coordinates the orchestrator destroy budget with the final-sync watchdog so vault edits made in the last seconds before shutdown reach R2 instead of being silently lost.
 - **Subscription** -- Vault features (preseed entries, editor supervisor) are gated to Pro session mode via the manifest's mode filter.
 
@@ -70,7 +70,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-002: Conversation captures land in the vault as markdown
 
-**Intent:** The capture agent writes one markdown file per 15-prompt batch into `Raw/Sessions/`, replacing the previous MCP-memory write path. Captures appear in `mcp__graphify__*` queries the same turn they are written.
+**Intent:** The capture agent writes one markdown file per 15-prompt batch into `Raw/Sessions/`, and each capture becomes graph-queryable in the same turn.
 
 **Applies To:** User
 
@@ -286,7 +286,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-009: Vault writes succeed end-to-end for SilverBullet attachment uploads
 
-**Intent:** SilverBullet's drag-drop attachment upload (PUT `/api/vault/<sid>/Inbox/<file>`) must succeed when the user is authenticated, regardless of whether the browser's fetch implementation set the Origin header. The previous code path required Origin to be present and allowlisted before synthesising the CSRF guard header, so a service-worker-controlled fetch or a same-origin fetch that omitted Origin landed at the auth chain without X-Requested-With and was rejected. PDF uploads from the SB Inbox plug repeatedly surfaced this as a 401 to the user.
+**Intent:** SilverBullet drag-and-drop uploads must succeed for an authenticated user even when a same-origin or service-worker-controlled request omits the Origin header.
 
 **Applies To:** User
 
@@ -400,7 +400,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-013: SilverBullet subpath adapter
 
-**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response so the editor's relative asset references resolve back through the subpath proxy. The companion native-service-worker contract (registration short-circuit, key delivery, precache) is [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker).
+**Intent:** SilverBullet served under the per-session vault proxy must resolve every relative asset through that proxy rather than the Worker root. The companion native-service-worker contract is [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker).
 
 **Applies To:** User
 
@@ -521,7 +521,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 1. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive SilverBullet's native service worker from the Worker (vendored verbatim, AD69). Cold-boot encryption rides the native worker's own `set-encryption-key`/`get-encryption-key` handlers, fed by the bootstrap-hop page ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1). <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-017 AC1 (native SW served, AD69)) -->
 2. The short-circuit selector requires GET method, exact path match for the service-worker script, and the browser-only `Service-Worker` request header (a Fetch-spec forbidden header not settable from page JavaScript); cookie presence is not checked and does not affect the match. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerRegistration --> <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerRegistration / REQ-VAULT-017 (native SW short-circuit selector)) -->
 3. The native service worker is version-locked and hash-guarded identically across sessions; bootstrap postMessage supplies its per-session encryption key, which never enters the script body. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (CF-045: vault-native-sw direct unit tests) -->
-4. The native worker precaches the shell `/` via `cache.addAll` during install. The shell-path redirect is suppressed for Service-Worker-context fetches (`Sec-Fetch-Mode` present and not `navigate`), so the precache resolves against the real shell instead of a 302. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC4/AC5, AD69)) -->
+4. The native worker precaches the shell `/` during installation. The shell-path redirect is suppressed for Service-Worker-context fetches (`Sec-Fetch-Mode` present and not `navigate`), so the precache resolves against the real shell instead of a 302. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC4/AC5, AD69)) -->
 5. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the bootstrap-hop redirect (fail-safe), so a real first navigation never boots without the encryption key wired. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerContextFetch / REQ-VAULT-017 AC4/AC5 (SW precache vs navigation)) -->
 
 **Notes:** Documented in [AD69](../../documentation/decisions/README.md) and the [vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass). Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-006](enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6).
@@ -542,7 +542,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-025: SilverBullet native service worker runtime graft
 
-**Intent:** The served native SilverBullet service worker ([REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker)) runs with codeflare's `graftVaultKeyRecovery` runtime patch applied: it suppresses expected startup-only log noise, guards the sync engine against a not-yet-ready or unreachable in-container SilverBullet server, and neuters the worker's proactive key flush so the encryption key survives idle/backgrounding (AD69). The graft is a deterministic string transform over the vendored bytes; the verbatim upstream body and its SHA-256 drift guard are unchanged.
+**Intent:** The served native SilverBullet service worker ([REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker)) must suppress expected startup noise, tolerate an unavailable in-container server, and retain its encryption key through idle or backgrounding without altering unrelated upstream behavior.
 
 **Applies To:** User
 
@@ -681,6 +681,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Status:** Implemented
 
+---
+
 ### REQ-VAULT-021: Bucket-stable vault URL and bucket-derived key
 
 **Intent:** SilverBullet is served under a bucket-stable URL and its local cache is encrypted with a bucket-derived key, so the client `sb_data_*` (index) and SW `sb_files_*` DB names are identical across sessions for one user — the mechanism that makes cross-session vault persistence possible in the first place.
@@ -689,7 +691,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The SilverBullet app is served under a bucket-stable URL `/api/vault/<token>/`, where the token is a deterministic, opaque hash of the user's R2 bucket name, so the served `location.href` — and thus the SB IndexedDB names — are identical across sessions. <!-- @impl: src/lib/vault-bucket-token.ts::getVaultBucketToken --> <!-- @test: src/__tests__/lib/vault-bucket-token.test.ts (getVaultBucketToken (REQ-VAULT-021)) -->
+1. The SilverBullet app is served under a bucket-stable URL `/api/vault/<token>/`, where the token is a deterministic, opaque hash of the user's R2 bucket name, so the served location — and thus the SB IndexedDB names — is identical across sessions. <!-- @impl: src/lib/vault-bucket-token.ts::getVaultBucketToken --> <!-- @test: src/__tests__/lib/vault-bucket-token.test.ts (getVaultBucketToken (REQ-VAULT-021)) -->
 2. The session-keyed path `/api/vault/<sid>/` is an entry that sets a routing cookie and 302-redirects to the bucket-stable URL; the session id for bucket-stable requests is read from that cookie, never the URL. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (the session-keyed entry path sets cf_vault_sid and 302s to the bucket-stable URL) -->
 3. Route dispatch distinguishes the 32-hex bucket token from an 8-24-char session id unambiguously (length-disjoint patterns). <!-- @impl: src/routes/vault/validation.ts::validateVaultRoute --> <!-- @test: src/__tests__/routes/vault-bucket-routing.test.ts (parses a 32-hex first segment as the bucket token serving path) -->
 4. A bucket-stable request whose token is not the authenticated user's bucket is rejected (403 VAULT_BUCKET_MISMATCH); one with no routing cookie is rejected (409 VAULT_NO_SESSION). <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (rejects a bucket-stable request whose token is not the authed bucket (403)) -->
@@ -776,7 +778,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-026: Vault-extract change detection survives container restart (content-hash manifest)
 
-**Intent:** A returning session does not re-extract the whole vault. Change detection compares file content (sha256), not mtimes, so the R2 restore that rewrites every vault file's mtime to download-time cannot trigger a full re-extraction (previously ~200k tokens / ~20 min per session).
+**Intent:** A returning session extracts only vault files whose content changed, regardless of modification times rewritten during R2 restore.
 
 **Applies To:** System
 
