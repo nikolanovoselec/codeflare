@@ -501,7 +501,7 @@ export function captureTimestamp(tz?: string): string {
 }
 
 export function captureFilenameAt(timestamp: string, sid: string): string {
-  return `${timestamp}-${sid.slice(0, 8)}.md`;
+  return `${timestamp}-${sid.slice(-8)}.md`;
 }
 
 export function captureFilename(sid: string, tz?: string): string {

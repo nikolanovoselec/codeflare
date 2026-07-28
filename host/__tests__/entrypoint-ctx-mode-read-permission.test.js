@@ -12,7 +12,7 @@ const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8
 function extractReadPermissionBlock() {
   const start = entrypoint.indexOf('# Grant context-mode unrestricted file reads.');
   if (start === -1) throw new Error('Read(/**) permission block start not found');
-  const end = entrypoint.indexOf('# Ensure any .mjs hook files in ~/.claude/hooks/ are executable.', start);
+  const end = entrypoint.indexOf('# Ensure hook files in ~/.claude/hooks/ are executable.', start);
   if (end === -1) throw new Error('Read(/**) permission block end not found');
   return entrypoint.slice(start, end);
 }

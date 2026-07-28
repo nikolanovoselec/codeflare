@@ -16,7 +16,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { chmodSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,6 +45,28 @@ function runRepair(claudeDir) {
   const script = `set -eu\nUSER_CLAUDE_DIR="${claudeDir}"\n${extractFunction('repair_hook_exec_bits')}\nrepair_hook_exec_bits\n`;
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
   return result.status;
+}
+
+function runSuccessfulBisync(home) {
+  const claudeDir = join(home, '.claude');
+  const recoveryFile = join(home, 'recovery-filters.txt');
+  writeFileSync(recoveryFile, '');
+  const script = [
+    'set -euo pipefail',
+    `USER_HOME=${JSON.stringify(home)}`,
+    `USER_CLAUDE_DIR=${JSON.stringify(claudeDir)}`,
+    "R2_BUCKET_NAME='bucket'",
+    `RCLONE_CONFIG=${JSON.stringify(join(home, 'rclone.conf'))}`,
+    `RECOVERY_FILTER_FILE=${JSON.stringify(recoveryFile)}`,
+    'RCLONE_FILTERS=()',
+    'pgrep() { return 1; }',
+    'rclone() { return 0; }',
+    'find() { if [ "${1:-}" = "/home/user" ]; then return 0; fi; command find "$@"; }',
+    extractFunction('repair_hook_exec_bits'),
+    extractFunction('bisync_with_r2'),
+    'bisync_with_r2 ""',
+  ].join('\n');
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
 }
 
 describe('entrypoint repair_hook_exec_bits', () => {
@@ -81,16 +103,19 @@ describe('entrypoint repair_hook_exec_bits', () => {
     assert.equal(runRepair(join(home, '.claude')), 0);
   });
 
-  it('runs on the post-sync path, not only at boot', () => {
-    // The boot-only repair is what left the bit stripped for a whole daemon
-    // cycle. bisync_with_r2 is the single choke point every sync goes through -
-    // the periodic round, the vanished-file retry, and the final sync on stop -
-    // so the repair belongs in its success branch.
-    const bisync = extractFunction('bisync_with_r2');
-    const successBranch = bisync.slice(bisync.indexOf('if [ $RESULT -eq 0 ]; then'));
-    assert.ok(
-      successBranch.includes('repair_hook_exec_bits'),
-      'a successful bisync must repair hook exec bits it may have just stripped',
-    );
+  it('repairs and can execute a hook after a successful bisync', () => {
+    const home = mkdtempSync(join(tmpdir(), 'hook-exec-bisync-'));
+    const hooks = join(home, '.claude', 'hooks');
+    const hook = join(hooks, 'cache-heal.mjs');
+    mkdirSync(hooks, { recursive: true });
+    writeFileSync(hook, '#!/usr/bin/env node\nprocess.exit(0);\n', { mode: 0o644 });
+    chmodSync(hook, 0o644);
+
+    const result = runSuccessfulBisync(home);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(modeOf(hook), '755');
+    const execution = spawnSync(hook, { encoding: 'utf8' });
+    assert.equal(execution.status, 0, execution.stderr);
   });
 });

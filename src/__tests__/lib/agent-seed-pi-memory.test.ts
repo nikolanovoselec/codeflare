@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
-import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_MAX_TOTAL_CHARS, MEMORY_CAPTURE_MAX_TURN_CHARS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, selectTurns, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { captureFilename, captureFilenameAt, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_MAX_TOTAL_CHARS, MEMORY_CAPTURE_MAX_TURN_CHARS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, selectTurns, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -26,7 +26,17 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
 
   it('REQ-MEM-001 AC4: captureFilename matches Claude\'s timestamp and short session-ID shape', () => {
     const fn = captureFilename('019fa5d1-04cc-7b7f-8fd7-b58a8c4dda6c');
-    expect(fn).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}[+-]\d{4}-019fa5d1\.md$/);
+    expect(fn).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}[+-]\d{4}-8c4dda6c\.md$/);
+  });
+
+  it('REQ-MEM-001 AC4: same-second UUIDv7 sessions with a shared timestamp prefix get distinct filenames', () => {
+    const timestamp = '2026-07-28T03-04-30+0200';
+    const first = captureFilenameAt(timestamp, '019fa5d1-04cc-7b7f-8fd7-b58a8c4dda6c');
+    const second = captureFilenameAt(timestamp, '019fa5d1-1234-7abc-8def-1234567890ab');
+
+    expect(first).toBe(`${timestamp}-8c4dda6c.md`);
+    expect(second).toBe(`${timestamp}-567890ab.md`);
+    expect(first).not.toBe(second);
   });
 
   it('REQ-MEM-001: sessionId sanitizes special characters to underscores', () => {

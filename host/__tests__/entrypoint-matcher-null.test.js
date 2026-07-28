@@ -62,39 +62,33 @@ const MANAGED_CFG = {
 };
 
 describe('entrypoint settings.json hooks merge - matcher null guard', () => {
-  it('coerces matcher: null to "" for SessionStart entries written by Claude Code', () => {
-    // Claude Code self-installs context-mode-cache-heal.mjs as a SessionStart
-    // hook with matcher: null. The Claude Code settings parser then errors:
-    // "Expected string, but received null". The merge must normalize.
+  it('normalizes matcher: null while pruning the retired managed SessionStart hook', () => {
     const existing = {
       hooks: {
         SessionStart: [{
           matcher: null,
-          hooks: [{
-            type: 'command',
-            command: '"/home/user/.claude/hooks/context-mode-cache-heal.mjs"',
-          }],
+          hooks: [
+            {
+              type: 'command',
+              command: '"/home/user/.claude/hooks/context-mode-cache-heal.mjs"',
+            },
+            {
+              type: 'command',
+              command: '/some/user/session-start-hook',
+            },
+          ],
         }],
       },
     };
 
     const merged = runMerge(existing, MANAGED_CFG);
 
-    assert.ok(merged.hooks.SessionStart, 'SessionStart should be preserved');
-    assert.equal(
-      merged.hooks.SessionStart.length,
-      1,
-      'one matcher group expected'
-    );
-    assert.equal(
-      merged.hooks.SessionStart[0].matcher,
-      '',
-      'matcher null must be normalized to empty string'
-    );
-    // The user hook itself must survive (not stripped as a "managed" hook).
-    assert.equal(
-      merged.hooks.SessionStart[0].hooks[0].command,
-      '"/home/user/.claude/hooks/context-mode-cache-heal.mjs"'
+    assert.equal(merged.hooks.SessionStart.length, 1, 'one user matcher group expected');
+    assert.equal(merged.hooks.SessionStart[0].matcher, '', 'matcher null must normalize to an empty string');
+    assert.deepEqual(
+      merged.hooks.SessionStart[0].hooks.map((hook) => hook.command),
+      ['/some/user/session-start-hook'],
+      'the retired managed hook must be pruned without deleting an unrelated user hook',
     );
   });
 
