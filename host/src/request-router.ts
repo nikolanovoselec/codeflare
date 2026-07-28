@@ -29,13 +29,13 @@ import type { SessionManager } from './session-manager.js';
 import type { ActivityTracker, Logger, WsEvent } from './types.js';
 
 /**
- * When the current OpenVSCode warming episode started, so the warming page can
+ * When the current Browser IDE warming episode started, so the warming page can
  * show elapsed time and eventually give up. Module-level because one container
  * serves exactly one session; cleared on the first successful upstream response.
  */
 let vscodeWarmingSince: number | undefined;
 
-/** A localhost upstream the host proxies to (SilverBullet / OpenVSCode). */
+/** A localhost upstream the host proxies to (SilverBullet / code-server). */
 export interface ProxyTarget {
   host: string;
   port: number;
@@ -72,6 +72,88 @@ function filterProxyHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHtt
     if (v !== undefined) out[k] = v as string | string[];
   }
   return out;
+}
+
+function singleHeader(value: string | string[] | undefined): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * code-server enforces Origin against its externally visible host. The Worker
+ * replaces all client forwarding metadata after auth; this hop accepts only
+ * those canonical values, removes every spoofable forwarding/hop header, and
+ * presents the canonical external Host while preserving the allowlisted caller
+ * Origin for code-server's independent comparison.
+ */
+function vscodeProxyHeaders(
+  headers: http.IncomingHttpHeaders,
+  target: ProxyTarget,
+): http.OutgoingHttpHeaders {
+  const connectionTokens = new Set(
+    (singleHeader(headers.connection) ?? '')
+      .split(',')
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const out: http.OutgoingHttpHeaders = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (connectionTokens.has(lower)
+      || lower === 'connection' || lower === 'keep-alive' || lower === 'transfer-encoding'
+      || lower === 'upgrade' || lower === 'proxy-authenticate' || lower === 'proxy-authorization'
+      || lower === 'te' || lower === 'trailer' || lower === 'authorization' || lower === 'host'
+      || lower === 'forwarded' || lower.startsWith('x-forwarded-') || lower === 'origin') continue;
+    if (value !== undefined) out[name] = value as string | string[];
+  }
+
+  const suppliedHost = singleHeader(headers['x-forwarded-host']);
+  const suppliedProto = singleHeader(headers['x-forwarded-proto']);
+  let canonicalHost = `${target.host}:${target.port}`;
+  let canonicalProto = 'http';
+  if (suppliedHost && (suppliedProto === 'http' || suppliedProto === 'https')) {
+    try {
+      const external = new URL(`${suppliedProto}://${suppliedHost}`);
+      if (external.pathname === '/' && !external.username && !external.password) {
+        canonicalHost = external.host;
+        canonicalProto = suppliedProto;
+      }
+    } catch {
+      // The internal fallback keeps direct authenticated host probes usable;
+      // production Worker requests always carry validated canonical values.
+    }
+  }
+
+  out.Host = canonicalHost;
+  out['X-Forwarded-Host'] = canonicalHost;
+  out['X-Forwarded-Proto'] = canonicalProto;
+  const suppliedOrigin = singleHeader(headers.origin);
+  if (suppliedOrigin) out.Origin = suppliedOrigin;
+  return out;
+}
+
+function rewriteVscodeResponseHeaders(
+  headers: http.IncomingHttpHeaders,
+  sessionId: string,
+): http.OutgoingHttpHeaders {
+  const prefix = `/api/vscode/${sessionId}`;
+  const location = singleHeader(headers.location);
+  const serviceWorkerAllowed = singleHeader(headers['service-worker-allowed']);
+  const rewriteCookie = (cookie: string): string => cookie.replace(
+    /(;\s*path=)\/(;|$)/i,
+    `$1${prefix}/$2`,
+  );
+  return {
+    ...headers,
+    ...(location?.startsWith('/') && !location.startsWith('//')
+      ? { location: `${prefix}${location}` }
+      : {}),
+    ...(headers['set-cookie']
+      ? { 'set-cookie': headers['set-cookie'].map(rewriteCookie) }
+      : {}),
+    ...(serviceWorkerAllowed?.startsWith('/')
+      ? { 'service-worker-allowed': `${prefix}${serviceWorkerAllowed}` }
+      : {}),
+  };
 }
 
 export function createRequestHandler(deps: RequestRouterDeps): (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> {
@@ -461,13 +543,10 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       return;
     }
 
-    // Browser IDE HTTP proxy -> OpenVSCode Server at OPENVSCODE_HOST:OPENVSCODE_PORT.
-    // Forward the path UNCHANGED (no strip): OpenVSCode runs with
-    // --server-base-path=/api/vscode/<sid> and expects its own path. The first
-    // request lazily triggers the supervisor to launch the server; while it is
-    // still warming, connect errors map to 503 VSCODE_WARMING. The injected
-    // container-auth Authorization header (validated above) is stripped before
-    // forwarding to the in-container app.
+    // Browser IDE HTTP proxy -> code-server at OPENVSCODE_HOST:OPENVSCODE_PORT.
+    // The public session path remains visible in the browser; this trusted hop
+    // strips only the exact current-session prefix and canonicalizes the proxy
+    // identity code-server uses for Origin enforcement.
     if (isVscodePath(pathname)) {
       // Advanced-mode only (REQ-IDE-003): a non-advanced session never arms the
       // supervisor, so return a clear NON-refreshing page instead of triggering a
@@ -478,21 +557,30 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         res.end(disabled.body);
         return;
       }
+      const sessionId = process.env.SESSION_ID;
+      const upstreamPath = vscodeUpstreamPath(pathname, sessionId);
+      if (upstreamPath === null || !sessionId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid Browser IDE session path', code: 'INVALID_VSCODE_PATH' }));
+        return;
+      }
       requestOpenvscodeStart();
-      const upstreamPath = vscodeUpstreamPath(pathname);
       const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
       const upstreamReq = http.request({
         host: deps.openvscode.host,
         port: deps.openvscode.port,
         method,
         path: upstreamPath + search,
-        headers: filterProxyHeaders(req.headers),
+        headers: vscodeProxyHeaders(req.headers, deps.openvscode),
       }, (upstreamRes) => {
         // Reached the server, so this warming episode is over. Clearing it means
         // a later cold start (supervisor restart) gets its own full clock rather
         // than inheriting an expired one and giving up immediately.
         vscodeWarmingSince = undefined;
-        res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+        res.writeHead(
+          upstreamRes.statusCode ?? 502,
+          rewriteVscodeResponseHeaders(upstreamRes.headers, sessionId),
+        );
         upstreamRes.pipe(res);
       });
       upstreamReq.on('error', (err) => {

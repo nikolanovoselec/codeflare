@@ -1262,26 +1262,26 @@ start_silverbullet_supervisor() {
 }
 
 # ============================================================================
-# OpenVSCode Server supervisor (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003)
+# Browser IDE supervisor (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003)
 #
-# Runs the browser IDE (OpenVSCode Server) on 127.0.0.1:13337 against the
-# session's ~/workspace, reached from the codeflare UI through the Worker proxy
-# at /api/vscode/:sid/. Localhost-only -- the Worker is the auth boundary.
+# Runs code-server on 127.0.0.1:13337 against the session's ~/workspace, reached
+# from the Codeflare UI through the Worker proxy at /api/vscode/:sid/. It stays
+# loopback-only; the Worker and container bearer chain are the auth boundary.
 #
 # LAZY START: the server is NOT launched at boot. The supervisor waits until
 # init is complete AND the host has recorded a first /api/vscode request (the
 # trigger file host/src/vscode-proxy.ts writes), so sessions that never open the
 # IDE never pay for it. Supervised by a restart loop like SilverBullet.
 #
-# SESSION ISOLATION: --server-base-path=/api/vscode/<SESSION_ID> makes OpenVSCode
-# build its own asset + service-worker URLs under the per-session path, so each
-# session's editor is isolated (the deliberate opposite of the bucket-stable
-# vault). --server-data-dir is ephemeral under /tmp (never R2-synced), so no
-# server state leaks across sessions.
+# SESSION ISOLATION: the browser retains /api/vscode/<SESSION_ID>, while the host
+# strips only that exact prefix before code-server. --user-data-dir and the fixed
+# extension inventory are ephemeral under /tmp and /opt respectively, so editor
+# state cannot leak across session containers. Private openvscode function and
+# environment names remain intentionally during this bounded migration.
 # ============================================================================
 
 # Process-tree cleanup helpers are top-level so both PID 1's shutdown path and
-# each lazy OpenVSCode supervisor generation use exactly the same TERM/wait/KILL
+# each lazy Browser IDE supervisor generation use exactly the same TERM/wait/KILL
 # behavior. Optional identity arguments prevent a stale pidfile from signaling a
 # reused PID; a generation token also reaches detached Pi and Claude children.
 walk_kill() {
@@ -1396,9 +1396,9 @@ kill_pidfile_subtree() {
     _wait_then_kill_pid "$pid"
 }
 
-# Gate: may the IDE launch yet? Requires a resolved session id (so the base path
-# is correct), a completed init, and a first-request trigger. Fail-safe: with no
-# session id, never launch (a base-path mismatch would 404 anyway).
+# Gate: may the IDE launch yet? Requires a resolved session id (so the host can
+# strip the exact public prefix), a completed init, and a first-request trigger.
+# Fail-safe: with no session id, never launch.
 # REQ-IDE-003 AC1, REQ-IDE-002.
 _openvscode_should_launch() {
     [ -n "${SESSION_ID:-}" ] \
@@ -1445,19 +1445,19 @@ _openvscode_extensions_dir() {
     esac
 }
 
-# Seed OpenVSCode User settings for EVERY agent kind before launch: the base
-# workspace settings (auto-trust + no extension recommendations) for pi/none,
-# and the full official-Claude config projection (which also carries the base
-# settings) for claude. A preparation failure fails closed at the call site and
-# refuses the launch. REQ-IDE-005 AC1, REQ-IDE-009.
+# Seed Browser IDE User settings for EVERY agent kind before launch. The
+# preparation helper retains its private OpenVSCode name and writes settings at
+# <data-root>/data/User; code-server receives <data-root>/data as its exact
+# --user-data-dir. A preparation failure fails closed. REQ-IDE-005, REQ-IDE-009.
 _openvscode_prepare_agent() {
     /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh "$2" "$1"
 }
 
-# Launch OpenVSCode Server once in the foreground (the supervisor loop wraps this
-# in a restart loop). Session-isolated base path, workspace folder, ephemeral
-# per-container data dir; no connection token (the Worker is the auth boundary).
-# REQ-IDE-001, REQ-IDE-002, REQ-IDE-005 AC1+AC2.
+# Launch code-server once in the foreground (the retained private supervisor
+# wraps this in a restart loop). The host strips the exact public session prefix,
+# so code-server serves root paths on loopback. Its own auth is disabled only
+# because the Worker + container bearer boundary already authenticated the
+# request. Editor state remains ephemeral under /tmp. REQ-IDE-001/002/005/009.
 _openvscode_launch_once() {
     local sidebar_agent extensions_dir data_dir
     local -a proposed_api_args=()
@@ -1473,17 +1473,18 @@ _openvscode_launch_once() {
     fi
 
     CODEFLARE_SIDEBAR_AGENT="$sidebar_agent" \
-    exec "${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}" \
-        --host "${OPENVSCODE_HOST:-127.0.0.1}" \
-        --port "${OPENVSCODE_PORT:-13337}" \
-        --server-base-path "/api/vscode/${SESSION_ID}" \
-        --without-connection-token \
-        --default-folder "${OPENVSCODE_WORKSPACE:-$HOME/workspace}" \
-        --server-data-dir "$data_dir" \
+    exec "${OPENVSCODE_BIN:-/usr/local/bin/code-server}" \
+        --bind-addr "127.0.0.1:${OPENVSCODE_PORT:-13337}" \
+        --auth none \
+        --disable-telemetry \
+        --disable-update-check \
+        --disable-proxy \
+        --disable-getting-started-override \
+        --disable-workspace-trust \
+        --user-data-dir "$data_dir/data" \
         --extensions-dir "$extensions_dir" \
         "${proposed_api_args[@]}" \
-        --telemetry-level off \
-        --accept-server-license-terms
+        "${OPENVSCODE_WORKSPACE:-$HOME/workspace}"
 }
 
 # Supervisor loop: wait for the gate, launch each restart in a fresh process
@@ -1544,14 +1545,14 @@ _openvscode_supervise_loop() {
 }
 
 start_openvscode_supervisor() {
-    local OVSC_BIN="${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}"
+    local OVSC_BIN="${OPENVSCODE_BIN:-/usr/local/bin/code-server}"
 
     if [ ! -x "$OVSC_BIN" ]; then
-        echo "[entrypoint] WARNING: openvscode-server not found at $OVSC_BIN; browser IDE unavailable" >&2
+        echo "[entrypoint] WARNING: code-server not found at $OVSC_BIN; browser IDE unavailable" >&2
         return 0
     fi
 
-    echo "[entrypoint] Arming OpenVSCode supervisor (lazy-start on first /api/vscode request)..."
+    echo "[entrypoint] Arming Browser IDE supervisor (code-server, lazy-start on first /api/vscode request)..."
 
     # setsid creates a new session + process group so the shutdown handler can
     # kill the supervisor AND its openvscode child in one kill_pidfile_subtree
@@ -1565,7 +1566,7 @@ start_openvscode_supervisor() {
 
     OPENVSCODE_SUPERVISOR_PID=$!
     echo "$OPENVSCODE_SUPERVISOR_PID" > /tmp/openvscode.pid
-    echo "[entrypoint] OpenVSCode supervisor armed with PID $OPENVSCODE_SUPERVISOR_PID"
+    echo "[entrypoint] Browser IDE supervisor armed with PID $OPENVSCODE_SUPERVISOR_PID"
 }
 
 # ============================================================================
@@ -1575,7 +1576,7 @@ shutdown_handler() {
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
 
-    # Kill background daemons via identity-aware PID files. OpenVSCode's
+    # Kill background daemons via identity-aware PID files. The Browser IDE's
     # current generation goes first so its detached Pi/Claude children are
     # reaped before the supervisor itself is stopped.
     # Kill the background init subshell FIRST. It wraps establish_bisync_baseline
@@ -3477,7 +3478,7 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
         # Each daemon has its own retry + recovery; a dead daemon means
         # zero sync (or zero vault ingestion) for the entire session.
         start_sync_daemon
-        # Vault monitor, SilverBullet, and OpenVSCode supervisors are
+        # Vault monitor, SilverBullet, and Browser IDE supervisors are
         # advanced-mode-only (REQ-MEM-006 AC1, REQ-AGENT-005 AC2, REQ-IDE-003).
         # The workspace sync daemon above always runs; only these are gated.
         if [ "${SESSION_MODE:-default}" = "advanced" ]; then

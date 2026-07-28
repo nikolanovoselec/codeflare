@@ -14,10 +14,12 @@ import { parse as parseYaml } from 'yaml';
 
 import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
+import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
+const SHADOW_PINS_WORKFLOW = join(REPO, '.github/workflows/bump-shadow-pins.yml');
 
 let work: string;
 
@@ -96,6 +98,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const patterns = flattenPatterns(filters.ide);
 
     expect(matchesAny('openvscode/agent-sidebar/src/extension.ts', patterns)).toBe(true);
+    expect(matchesAny('scripts/ci/smoke-openvscode-sidebar-image.mjs', patterns)).toBe(true);
     expect(matchesAny('preseed/agents/pi/extensions/sidebar-approval.ts', patterns)).toBe(true);
     expect(matchesAny('.github/workflows/test.yml', patterns)).toBe(true);
     expect(matchesAny('documentation/lanes/container.md', patterns)).toBe(false);
@@ -164,6 +167,60 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
     const requiredJobs = Array.isArray(summaryJob.needs) ? summaryJob.needs : [summaryJob.needs];
     expect(requiredJobs).toEqual(expect.arrayContaining(['browser-ide', 'browser-ide-image']));
+  });
+});
+
+describe('REQ-OPS-020 AC3+AC4: code-server shadow-pin ownership', () => {
+  it('routes code-server bumps through one dedicated fail-closed updater', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const job = workflow.jobs['code-server'];
+
+    expect(job).toBeDefined();
+    expect(workflow.jobs['openvscode-server']).toBeUndefined();
+    const commands = (job.steps ?? []).map((step) => step.run ?? '').join('\n');
+    expect(commands.match(/node scripts\/ci\/update-code-server-pins\.mjs Dockerfile/g)).toHaveLength(1);
+  });
+
+  it('updates every coupled runtime pin and invalidates the checksum atomically', () => {
+    const source = [
+      'CODE_SERVER_VERSION="4.1.0"',
+      'CODE_SERVER_SHA256="old"',
+      'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
+      'CODE_SERVER_CODE_VERSION="1.1.0"',
+      'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+    ].join('\n');
+
+    expect(updateCodeServerPins(source, {
+      codeServerVersion: '4.130.0',
+      codeServerCommit: '3333333333333333333333333333333333333333',
+      codeVersion: '1.130.0',
+      vscodeCommit: '4444444444444444444444444444444444444444',
+    })).toBe([
+      'CODE_SERVER_VERSION="4.130.0"',
+      'CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY"',
+      'CODE_SERVER_COMMIT="3333333333333333333333333333333333333333"',
+      'CODE_SERVER_CODE_VERSION="1.130.0"',
+      'CODE_SERVER_VSCODE_COMMIT="4444444444444444444444444444444444444444"',
+    ].join('\n'));
+  });
+
+  it('fails closed for malformed metadata or an incomplete Dockerfile contract', () => {
+    const pins = {
+      codeServerVersion: '4.130.0',
+      codeServerCommit: '3'.repeat(40),
+      codeVersion: '1.130.0',
+      vscodeCommit: '4'.repeat(40),
+    };
+    expect(() => updateCodeServerPins('CODE_SERVER_VERSION="4.1.0"', pins)).toThrow(/exactly one Dockerfile match/);
+    expect(() => updateCodeServerPins([
+      'CODE_SERVER_VERSION="4.1.0"',
+      'CODE_SERVER_SHA256="old"',
+      'CODE_SERVER_COMMIT="1"',
+      'CODE_SERVER_CODE_VERSION="1.1.0"',
+      'CODE_SERVER_VSCODE_COMMIT="2"',
+    ].join('\n'), { ...pins, codeVersion: 'release prose' })).toThrow(/valid release versions/);
   });
 });
 

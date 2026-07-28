@@ -1,7 +1,7 @@
 {
   "name": "codeflare-agent-sidebar",
   "displayName": "Codeflare Pi Chat",
-  "description": "Codeflare-owned native Pi Chat participant for OpenVSCode Server",
+  "description": "Codeflare-owned native Pi Chat participant for the Browser IDE",
   "version": "0.0.0",
   "publisher": "codeflare",
   "private": true,

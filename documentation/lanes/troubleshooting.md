@@ -22,7 +22,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### Browser IDE Repeatedly Disconnects with WebSocket Code 1009
 
-**Symptom:** OpenVSCode connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
+**Symptom:** The Browser IDE connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
 
 **Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC6).
 
@@ -36,23 +36,23 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** The session may be non-advanced, tab 1 may not contain an exact supported command, the wrong immutable inventory may be selected, Pi's extension-qualified proposal may be absent, or the official Claude package may have failed identity/host validation.
 
-**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and `/opt/codeflare/openvscode/extensions/{pi,claude,none}`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports both host-discovered extension IDs, `DEFAULT_NATIVE_PI_OK`, and `OFFICIAL_CLAUDE_OK`.
+**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and `/opt/codeflare/openvscode/extensions/{pi,claude,none}`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports `host_discovery` for Pi and Claude, an empty inventory, `DEFAULT_NATIVE_PI_OK`, `OFFICIAL_CLAUDE_OK`, cold readiness, process count, and RSS.
 
 ### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
 
 **Symptom:** Codeflare Pi reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
 
-**Cause:** `Language model unavailable` means OpenVSCode rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
+**Cause:** `Language model unavailable` means the pinned Code OSS host rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
 
 **Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes vendor `codeflare-pi-rpc`, and complete-image smoke confirms a hidden default model whose generation path rejects. Do not sign into Copilot. For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
 
 ### Official Claude panel fails ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
 
-**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, cannot connect to editor context, or OpenVSCode's native Chat/Copilot setup appears in a Claude session.
+**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, cannot connect to editor context, or code-server's unrelated native Chat/Copilot setup appears in a Claude session.
 
 **Cause:** The exact official extension or bundled linux-x64 binary may be missing, the temporary config/settings preparation may have failed, approved credentials/routing may be unavailable, or Anthropic's loopback IDE MCP lock directory may have been rejected. Anthropic's package contributes a separate Claude Code webview rather than a native Chat participant, so a visible native Chat setup means the managed `chat.disableAIFeatures` setting was not restored before launch.
 
-**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings contain `chat.disableAIFeatures: true`, the isolated `CLAUDE_CONFIG_DIR`, unrestricted `bypassPermissions` mode, dangerous permission skipping, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Use the Claude Code panel with a selection or an `@` reference. Generic Accounts authentication is outside the Claude integration; Codeflare adds no credential bridge. Never enable bypass permissions or expose the MCP port.
+**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, code-server User settings contain `chat.disableAIFeatures: true`, the isolated `CLAUDE_CONFIG_DIR`, unrestricted `bypassPermissions` mode, dangerous permission skipping, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Use the Claude Code panel with a selection or an `@` reference. Generic Accounts authentication is outside the Claude integration; Codeflare adds no credential bridge. Keep the approved `bypassPermissions` configuration internal to the isolated session, and never expose the MCP port.
 
 ### Browser IDE agent leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle))
 
@@ -60,7 +60,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** Request or launch-generation cleanup did not converge before replacement.
 
-**Fix:** Do not delete pidfiles first. Stop or restart OpenVSCode and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
+**Fix:** Do not delete pidfiles first. Stop or restart the Browser IDE and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
 
 See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 

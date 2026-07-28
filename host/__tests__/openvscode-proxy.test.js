@@ -36,23 +36,32 @@ describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () =
   });
 });
 
-describe('vscodeUpstreamPath / REQ-IDE-001 (forward UNCHANGED, no strip)', () => {
-  it('returns the path verbatim -- OpenVSCode is base-path native', () => {
-    assert.equal(vscodeUpstreamPath('/api/vscode/abcd1234/stable/out/main.js'), '/api/vscode/abcd1234/stable/out/main.js');
-    assert.equal(vscodeUpstreamPath('/api/vscode/abcd1234/'), '/api/vscode/abcd1234/');
-    assert.equal(vscodeUpstreamPath('/api/vscode'), '/api/vscode');
+describe('vscodeUpstreamPath / REQ-IDE-001 AC3 (exact session prefix strip)', () => {
+  const SID = 'abcd1234';
+
+  it('REQ-IDE-001 AC3: strips exactly /api/vscode/<expected-session> for code-server', () => {
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/stable/out/main.js`, SID), '/stable/out/main.js');
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/`, SID), '/');
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}`, SID), '/');
   });
 
-  it('does NOT strip the prefix (the load-bearing contrast with the vault)', () => {
-    // A vault-style strip would return '/abcd1234/x'; the IDE MUST keep the
-    // full path so OpenVSCode's --server-base-path=/api/vscode/<sid> matches.
-    assert.notEqual(vscodeUpstreamPath('/api/vscode/abcd1234/x'), '/abcd1234/x');
-    assert.equal(vscodeUpstreamPath('/api/vscode/abcd1234/x'), '/api/vscode/abcd1234/x');
+  it('REQ-IDE-001 AC3: rejects missing, mismatched, and lookalike session prefixes', () => {
+    const rejected = [
+      null,
+      undefined,
+      '/api/vscode',
+      '/api/vscode/',
+      '/api/vscode/other-session/x',
+      `/api/vscode/${SID}x/x`,
+      `/api/vscodex/${SID}/x`,
+      `/api/vscode/${SID}%2Fx`,
+    ];
+    assert.deepEqual(rejected.map((pathname) => vscodeUpstreamPath(pathname, SID)), rejected.map(() => null));
   });
 
-  it('falls back to /api/vscode/ for a missing pathname', () => {
-    assert.equal(vscodeUpstreamPath(null), '/api/vscode/');
-    assert.equal(vscodeUpstreamPath(undefined), '/api/vscode/');
+  it('REQ-IDE-001 AC3: transforms only the pathname so query bytes remain caller-owned', () => {
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/x`, SID), '/x');
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/x?token=a%2Fb&token=two+words`, SID), null);
   });
 });
 

@@ -517,20 +517,21 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Zoxide, yazi, lazygit, and SilverBullet each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @manual -->
 2. Actionlint and Antigravity each have a dedicated release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
-3. OpenVSCode, the official Claude Open VSX extension, and supported agent CLI pins each have a dedicated bump job whose PR runs Browser IDE compatibility smoke; the owned extension's npm dependencies remain Dependabot-owned. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::openvscode-server --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
-4. A Dockerfile bump invalidates its SHA256 until an operator verifies it; actionlint instead resolves the release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
-5. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
-6. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, and browser-run-mcp each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @manual -->
+3. code-server, the official Claude extension, and supported agent CLIs each have a dedicated bump job whose compatibility PR runs the owned verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-020 AC3+AC4: code-server shadow-pin ownership) -->
+4. A code-server bump derives embedded Code from the immutable release gitlink and invalidates its artifact checksum for operator review. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-020 AC3+AC4: code-server shadow-pin ownership) -->
+5. A Dockerfile bump invalidates its SHA256 until an operator verifies it; actionlint instead resolves the release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
+6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
+7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, and browser-run-mcp each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @manual -->
 
 **Notes:** Workflow execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md).
 
-**Constraints:** None.
+**Constraints:** The owned Browser IDE extension's npm dependencies remain Dependabot-owned.
 
 **Priority:** P2
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Manual check plus automated code-server job-ownership contract
 
 **Status:** Implemented
 

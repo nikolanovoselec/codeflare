@@ -18,9 +18,11 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = '/opt/codeflare/openvscode';
+const CODE_SERVER_ROOT = '/opt/code-server';
 const EXTENSION_NAME = 'codeflare-agent-sidebar';
 
 async function main() {
+  const codeServerRuntime = await verifyCodeServerRuntime();
   const inventoriesRoot = join(ROOT, 'extensions');
   assert.deepEqual((await readdir(inventoriesRoot)).sort(), ['claude', 'none', 'pi']);
   assert.deepEqual(await readdir(join(inventoriesRoot, 'none')), []);
@@ -71,9 +73,38 @@ async function main() {
     extensionHash,
     nativeChat,
     officialClaude,
+    codeServerRuntime,
     claudeVersion,
     piVersion,
   })}\n`);
+}
+
+async function verifyCodeServerRuntime() {
+  const expected = JSON.parse(await readFile(join(CODE_SERVER_ROOT, 'codeflare-provenance.json'), 'utf8'));
+  const runtimePackage = JSON.parse(await readFile(join(CODE_SERVER_ROOT, 'package.json'), 'utf8'));
+  const codePackage = JSON.parse(await readFile(join(CODE_SERVER_ROOT, 'lib', 'vscode', 'package.json'), 'utf8'));
+  const product = JSON.parse(await readFile(join(CODE_SERVER_ROOT, 'lib', 'vscode', 'product.json'), 'utf8'));
+  assert.match(expected.codeServerVersion, /^\d+\.\d+\.\d+$/);
+  assert.match(expected.codeVersion, /^\d+\.\d+\.\d+$/);
+  assert.match(expected.codeServerCommit, /^[0-9a-f]{40}$/);
+  assert.match(expected.vscodeCommit, /^[0-9a-f]{40}$/);
+  assert.equal(runtimePackage.version, expected.codeServerVersion);
+  assert.equal(runtimePackage.commit, expected.codeServerCommit);
+  assert.equal(codePackage.version, expected.codeVersion);
+  assert.equal(product.codeServerVersion, expected.codeServerVersion);
+  assert.equal(product.commit, expected.codeServerCommit);
+  assert.equal(await readlink('/usr/local/bin/code-server'), '/opt/code-server/bin/code-server');
+  await assert.rejects(lstat('/usr/local/bin/openvscode-server'), { code: 'ENOENT' });
+  await assert.rejects(lstat('/opt/openvscode-server'), { code: 'ENOENT' });
+
+  const versionOutput = execFileSync('/usr/local/bin/code-server', ['--version'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+  }).trim();
+  assert.match(versionOutput, new RegExp(expected.codeServerVersion.replaceAll('.', '\\.')));
+  assert.match(versionOutput, new RegExp(expected.codeVersion.replaceAll('.', '\\.')));
+  assert.match(versionOutput, new RegExp(expected.codeServerCommit));
+  return { ...expected, versionOutput };
 }
 
 async function verifyPackagedNativeChat(extensionRoot) {

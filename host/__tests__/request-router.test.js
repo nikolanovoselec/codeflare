@@ -63,7 +63,7 @@ function getText(port, path, headers = {}) {
     const req = http.request({ host: '127.0.0.1', port, path, headers }, (res) => {
       let body = '';
       res.on('data', (c) => { body += c; });
-      res.on('end', () => resolve({ status: res.statusCode, body }));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
     });
     req.on('error', reject);
     req.end();
@@ -125,6 +125,96 @@ describe('request router seam (server.ts decomposition)', () => {
   });
 });
 
+describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', () => {
+  const auth = { authorization: 'Bearer seam-test-token' };
+  const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+  const savedMode = process.env.SESSION_MODE;
+  const savedSessionId = process.env.SESSION_ID;
+  const servers = [];
+  const SID = 'expected-session';
+  let proxyPort;
+  let upstreamRequests;
+
+  const listen = async (handler) => {
+    const server = http.createServer(handler);
+    servers.push(server);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    return server.address().port;
+  };
+
+  before(async () => {
+    process.env.CONTAINER_AUTH_TOKEN = 'seam-test-token';
+    process.env.SESSION_MODE = 'advanced';
+    process.env.SESSION_ID = SID;
+    upstreamRequests = [];
+    const upstreamPort = await listen((req, res) => {
+      upstreamRequests.push({ url: req.url, headers: { ...req.headers } });
+      res.writeHead(302, {
+        Location: '/login?next=%2Fstable%2Fout%2Fmain.js',
+        'Set-Cookie': 'code-server-session=abc; Path=/; HttpOnly',
+        'Service-Worker-Allowed': '/',
+      });
+      res.end();
+    });
+    proxyPort = await listen(createRequestHandler(
+      makeDeps({ openvscode: { host: '127.0.0.1', port: upstreamPort } }).deps,
+    ));
+  });
+
+  after(async () => {
+    if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+    if (savedMode === undefined) delete process.env.SESSION_MODE;
+    else process.env.SESSION_MODE = savedMode;
+    if (savedSessionId === undefined) delete process.env.SESSION_ID;
+    else process.env.SESSION_ID = savedSessionId;
+    for (const server of servers) {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
+  it('strips only the expected session prefix, preserves query bytes, and sends canonical headers', async () => {
+    const query = '?resource=a%2Fb&resource=two+words&empty=&bare';
+    const response = await getText(proxyPort, `/api/vscode/${SID}/stable/out/main.js${query}`, {
+      ...auth,
+      origin: 'https://codeflare.ch',
+      forwarded: 'for=203.0.113.9;host=evil.example;proto=http',
+      'x-forwarded-host': 'codeflare.ch',
+      'x-forwarded-proto': 'https',
+    });
+
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.location, `/api/vscode/${SID}/login?next=%2Fstable%2Fout%2Fmain.js`);
+    assert.deepEqual(response.headers['set-cookie'], [`code-server-session=abc; Path=/api/vscode/${SID}/; HttpOnly`]);
+    assert.equal(response.headers['service-worker-allowed'], `/api/vscode/${SID}/`);
+    assert.deepEqual(upstreamRequests, [{
+      url: `/stable/out/main.js${query}`,
+      headers: {
+        origin: 'https://codeflare.ch',
+        'x-forwarded-host': 'codeflare.ch',
+        'x-forwarded-proto': 'https',
+        host: 'codeflare.ch',
+        connection: 'close',
+      },
+    }]);
+  });
+
+  it('rejects a mismatched session prefix without contacting code-server', async () => {
+    const beforeCount = upstreamRequests.length;
+    const response = await getText(proxyPort, '/api/vscode/other-session/stable/out/main.js', {
+      ...auth,
+      origin: 'https://codeflare.ch',
+      'x-forwarded-host': 'codeflare.ch',
+      'x-forwarded-proto': 'https',
+    });
+
+    assert.equal(response.status, 400);
+    assert.equal(upstreamRequests.length, beforeCount);
+  });
+});
+
 // The host-side half of REQ-IDE-003 AC3. `vscodeWarmingResponse` is unit-tested
 // against a given elapsed number in openvscode-proxy.test.js; what only the
 // router can prove is where that number comes from. A meta refresh cannot count
@@ -135,6 +225,7 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
   const auth = { authorization: 'Bearer seam-test-token' };
   const savedToken = process.env.CONTAINER_AUTH_TOKEN;
   const savedMode = process.env.SESSION_MODE;
+  const savedSessionId = process.env.SESSION_ID;
   const realNow = Date.now;
   const servers = [];
   let now = 1_700_000_000_000;
@@ -152,6 +243,7 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
   before(async () => {
     process.env.CONTAINER_AUTH_TOKEN = 'seam-test-token';
     process.env.SESSION_MODE = 'advanced';
+    process.env.SESSION_ID = 'warming-session';
     Date.now = () => now;
 
     const upstreamPort = await listen((_req, res) => {
@@ -172,6 +264,8 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
     else process.env.CONTAINER_AUTH_TOKEN = savedToken;
     if (savedMode === undefined) delete process.env.SESSION_MODE;
     else process.env.SESSION_MODE = savedMode;
+    if (savedSessionId === undefined) delete process.env.SESSION_ID;
+    else process.env.SESSION_ID = savedSessionId;
     for (const server of servers) {
       server.close();
       await once(server, 'close');
@@ -179,7 +273,7 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
   });
 
   it('carries one elapsed clock across warming reloads and stops refreshing past the bound', async () => {
-    const first = await getText(refusingPort, '/api/vscode/sess-a/', auth);
+    const first = await getText(refusingPort, '/api/vscode/warming-session/', auth);
     assert.equal(first.status, 503);
     assert.equal(elapsedSeconds(first.body), 0);
     assert.ok(hasMetaRefresh(first.body), 'a warming page must reload itself');
@@ -187,26 +281,26 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
     // A second reload of the same episode reports the accumulated wait, not a
     // fresh zero: the clock outlives the request that started it.
     now += 5_000;
-    const later = await getText(refusingPort, '/api/vscode/sess-a/', auth);
+    const later = await getText(refusingPort, '/api/vscode/warming-session/', auth);
     assert.equal(later.status, 503);
     assert.equal(elapsedSeconds(later.body), 5);
 
     now += VSCODE_WARMING_GIVE_UP_MS;
-    const gaveUp = await getText(refusingPort, '/api/vscode/sess-a/', auth);
+    const gaveUp = await getText(refusingPort, '/api/vscode/warming-session/', auth);
     assert.equal(gaveUp.status, 504);
     assert.ok(!hasMetaRefresh(gaveUp.body), 'past the bound the page must stop reloading');
   });
 
   it('starts a fresh clock after the editor answers, so a later cold start is not born expired', async () => {
     // Reaching the editor ends the episode whatever state the clock was in.
-    const reached = await getText(servingPort, '/api/vscode/sess-b/', auth);
+    const reached = await getText(servingPort, '/api/vscode/warming-session/', auth);
     assert.equal(reached.status, 200);
     assert.equal(reached.body, UPSTREAM_BODY);
 
     // Long enough after that success to have blown any inherited budget: the
     // next cold start must still get the full warming window, not an instant 504.
     now += 10 * VSCODE_WARMING_GIVE_UP_MS;
-    const restarted = await getText(refusingPort, '/api/vscode/sess-b/', auth);
+    const restarted = await getText(refusingPort, '/api/vscode/warming-session/', auth);
     assert.equal(restarted.status, 503);
     assert.equal(elapsedSeconds(restarted.body), 0);
     assert.ok(hasMetaRefresh(restarted.body), 'a restarted episode must reload itself again');

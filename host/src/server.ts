@@ -84,11 +84,11 @@ const SILVERBULLET: ProxyTarget = {
   port: parseInt(process.env.SILVERBULLET_PORT ?? '3030', 10),
 };
 
-// OpenVSCode Server supervisor binds on 127.0.0.1:13337 inside the container
-// (see entrypoint.sh:start_openvscode_supervisor). The /api/vscode HTTP + WS
-// branches proxy to it, forwarding the path UNCHANGED because OpenVSCode
-// runs with --server-base-path=/api/vscode/<sid>. Localhost-only by design —
-// the auth boundary is the Worker proxy at /api/vscode/:sid/.
+// The code-server supervisor binds on 127.0.0.1:13337 inside the container
+// (see entrypoint.sh:start_openvscode_supervisor; private legacy name retained).
+// The /api/vscode HTTP + WS branches strip only the exact current-session prefix
+// before proxying. Localhost-only by design — the auth boundary is the Worker
+// proxy and container bearer chain at /api/vscode/:sid/.
 const OPENVSCODE: ProxyTarget = {
   host: process.env.OPENVSCODE_HOST ?? '127.0.0.1',
   port: parseInt(process.env.OPENVSCODE_PORT ?? '13337', 10),

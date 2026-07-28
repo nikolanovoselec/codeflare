@@ -9,9 +9,10 @@ import { createMockKV } from '../helpers/mock-kv';
  * handleVscodeRequest threads requests through the same session-safe guards
  * the vault reuses (origin -> authenticate -> tier -> session ownership ->
  * container health -> WS rate limit -> container.fetch), then forwards the
- * path UNCHANGED to the base-path-native OpenVSCode server. This suite drives
- * the full chain so a regression in the guard ORDER, the branch outcomes, or
- * the forward-unchanged contract cannot ship green.
+ * external session URL unchanged to the authenticated container host. The host
+ * owns the exact session-prefix strip before code-server. This suite drives the
+ * full chain so guard ordering, query bytes, or canonical proxy identity cannot
+ * regress silently.
  *
  * Mock strategy mirrors vault-auth-chain.test.ts: stub the I/O boundaries
  * (authenticateRequest, isAllowedOrigin, getContainer, container health) but
@@ -123,15 +124,36 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     return validateVscodeRoute(request);
   }
 
-  it('REQ-IDE-001: forwards to the container with the path UNCHANGED when the auth chain passes', async () => {
-    const request = vscodeRequest();
+  it('REQ-IDE-001 AC3: forwards the external path and exact query with canonical host identity', async () => {
+    const query = '?resource=a%2Fb&resource=two+words&empty=&bare';
+    const request = vscodeRequest(`/api/vscode/${SID}/stable/out/main.js${query}`, {
+      Forwarded: 'for=203.0.113.9;host=evil.example;proto=http',
+      'X-Forwarded-Host': 'evil.example',
+      'X-Forwarded-Proto': 'http',
+    });
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
     expect(response.status).toBe(200);
     expect(mockContainerFetch).toHaveBeenCalledTimes(1);
-    // base-path-native: the forwarded request keeps the full /api/vscode/<sid>/...
-    // path (NOT rewritten to /vscode/... the way the vault rewrites to /vault).
+
     const forwarded = mockContainerFetch.mock.calls[0][0] as Request;
-    expect(new URL(forwarded.url).pathname).toBe(`/api/vscode/${SID}/stable/out/main.js`);
+    const forwardedUrl = new URL(forwarded.url);
+    expect(forwardedUrl.pathname).toBe(`/api/vscode/${SID}/stable/out/main.js`);
+    expect(forwardedUrl.search).toBe(query);
+    expect(forwarded.headers.get('Origin')).toBe('https://codeflare.ch');
+    expect(forwarded.headers.get('Forwarded')).toBeNull();
+    expect(forwarded.headers.get('X-Forwarded-Host')).toBe('codeflare.ch');
+    expect(forwarded.headers.get('X-Forwarded-Proto')).toBe('https');
+  });
+
+  it('REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently', async () => {
+    const request = vscodeRequest(undefined, { Origin: 'https://allowed-alias.example' });
+
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+
+    expect(response.status).toBe(200);
+    const forwarded = mockContainerFetch.mock.calls[0][0] as Request;
+    expect(forwarded.headers.get('Origin')).toBe('https://allowed-alias.example');
+    expect(forwarded.headers.get('X-Forwarded-Host')).toBe('codeflare.ch');
   });
 
   it('REQ-IDE-001: returns 401 AUTH_FAILED when authenticateRequest throws AuthError', async () => {
@@ -247,9 +269,9 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-001: the warming parameter never reaches the base-path-native server', async () => {
-    // OpenVSCode receives its own URL unchanged, so on any request the redirect
-    // above does not cover, the parameter is still stripped before forwarding.
+  it('REQ-IDE-001: the warming parameter never reaches the container host', async () => {
+    // The parameter belongs to the Worker warming page, so on any request the
+    // redirect above does not cover it is still stripped before forwarding.
     const request = new Request(`https://codeflare.ch/api/vscode/${SID}/x?cf_since=${Date.now()}`, {
       method: 'POST',
       headers: new Headers({ Origin: 'https://codeflare.ch' }),
@@ -258,6 +280,29 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(response.status).toBe(200);
     const forwarded = mockContainerFetch.mock.calls[0][0] as Request;
     expect(new URL(forwarded.url).searchParams.has('cf_since')).toBe(false);
+  });
+
+  it('REQ-IDE-001 AC3: a WebSocket caller preserves the external path and exact query for the host strip', async () => {
+    const query = '?reconnect=a%2Fb&reconnect=two+words&empty=&bare';
+    const request = new Request(`https://codeflare.ch/api/vscode/${SID}/ws${query}`, {
+      headers: new Headers({
+        Origin: 'https://codeflare.ch',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'Sec-Fetch-Mode': 'websocket',
+      }),
+    });
+    const rr = route(request);
+    expect(rr.isWebSocket).toBe(true);
+
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, rr);
+
+    expect(response.status).toBe(200);
+    const forwarded = mockContainerFetch.mock.calls[0][0] as Request;
+    expect(new URL(forwarded.url).pathname).toBe(`/api/vscode/${SID}/ws`);
+    expect(new URL(forwarded.url).search).toBe(query);
+    expect(forwarded.headers.get('X-Forwarded-Host')).toBe('codeflare.ch');
+    expect(forwarded.headers.get('X-Forwarded-Proto')).toBe('https');
   });
 
   it('REQ-IDE-001: an unhealthy container still answers a WebSocket upgrade with 503 CONTAINER_NOT_READY', async () => {

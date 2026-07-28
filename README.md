@@ -62,8 +62,8 @@ Every session comes pre-loaded with your choice of agent:
 **The IDE.**
 
 - Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side within one session).
-- **VS Code in the browser** *(Pro sessions)* — one click in the header opens a full OpenVSCode editor on that session's workspace, in a new tab, behind the same authentication as everything else.
-- Pi and Claude get a separate editor sidebar: strict no-session RPC for Pi and an embedded Claude CLI terminal with native prompts. It never attaches to terminal tab 1; unsupported agents load no extension.
+- **VS Code in the browser** *(Pro sessions)* — one click in the header opens a full code-server editor on that session's workspace, in a new tab, behind the same authentication as everything else.
+- Pi and Claude get editor-native integrations: strict no-session native Chat for Pi and Anthropic's official Claude panel with loopback IDE context. Neither attaches to terminal tab 1; unsupported agents load no extension.
 - The editor lazy-starts on first open (a warming page retries until it's ready), restarts automatically after an interruption, and stops with the session — zero cost until you use it.
 - **MultiView** — view several running sessions side by side in one workspace. It's a virtual view over sessions you already have: no new session is created, and no existing session's lifecycle is affected.
 - One isolated container per session — agents can't escape their sandbox.

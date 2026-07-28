@@ -1,9 +1,9 @@
-// Real behavioral tests for the OpenVSCode supervisor in entrypoint.sh
+// Real behavioral tests for the Browser IDE supervisor in entrypoint.sh
 // (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003, REQ-IDE-005, REQ-IDE-008).
 //
 // Per tdd-discipline / engineering-constitution mandate 2 we do NOT match
 // source text: we EXTRACT the real shell functions, RUN them with a stubbed
-// openvscode-server binary + temp flag/trigger files, and assert on observable
+// code-server binary + temp flag/trigger files, and assert on observable
 // side effects (exit codes, captured launch args, whether/how many times the
 // stub was invoked, whether a pidfile-tracked process is killed). Mirrors the
 // extract-and-run harness in entrypoint-vault-boot.test.js.
@@ -60,14 +60,14 @@ function mkTmp(prefix) {
 
 // Write an executable stub that records each invocation's args, then exits.
 function writeStub(dir, argsFile) {
-  const stub = join(dir, 'openvscode-server');
+  const stub = join(dir, 'code-server');
   writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" >> "${argsFile}"\nprintf -- '---\\n' >> "${argsFile}"\nexit 0\n`);
   chmodSync(stub, 0o755);
   return stub;
 }
 
 function writeSelectionStub(dir, argsFile) {
-  const stub = join(dir, 'openvscode-server');
+  const stub = join(dir, 'code-server');
   writeFileSync(stub, `#!/usr/bin/env bash\nprintf 'agent=%s\\n' "\${CODEFLARE_SIDEBAR_AGENT-<unset>}" > "${argsFile}"\nprintf '%s\\n' "$@" >> "${argsFile}"\nexit 0\n`);
   chmodSync(stub, 0o755);
   return stub;
@@ -170,7 +170,7 @@ describe('_openvscode_should_launch / REQ-IDE-003 AC1 (lazy-start gate)', () => 
   });
 });
 
-describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated launch command)', () => {
+describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated code-server launch command)', () => {
   let dir, argsFile, workspace;
   beforeEach(() => {
     dir = mkTmp('ovsc-launch-');
@@ -180,39 +180,76 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('passes --server-base-path=/api/vscode/<SESSION_ID>, the ephemeral /tmp data dir, the workspace, and no connection token', () => {
+  it('REQ-IDE-001 + REQ-IDE-002: launches code-server with the exact production flags and ephemeral settings layout', () => {
     const stub = writeStub(dir, argsFile);
-    // OPENVSCODE_DATA_DIR is intentionally NOT set, so the real default applies.
+    // OPENVSCODE_DATA_DIR is intentionally unset so the retained private
+    // namespace's production default is exercised.
     const r = runBash(`${openvscodeLaunchScript()}\n_openvscode_launch_once`, {
       OPENVSCODE_BIN: stub,
+      OPENVSCODE_HOST: '0.0.0.0',
       SESSION_ID: 'abcd1234',
       OPENVSCODE_WORKSPACE: workspace,
     });
+
     assert.equal(r.status, 0);
-    const args = readFileSync(argsFile, 'utf8').split('\n');
-    // Session isolation: the base path carries the session id (REQ-IDE-002).
-    assert.ok(args.includes('--server-base-path'), 'has --server-base-path flag');
-    assert.ok(args.includes('/api/vscode/abcd1234'), 'base path is /api/vscode/<sid>');
-    // Ephemeral, never-synced data dir under /tmp -- the real default (REQ-IDE-002/003 AC6).
-    assert.ok(args.includes('--server-data-dir'), 'has --server-data-dir flag');
-    assert.ok(args.includes('/tmp/openvscode-data'), 'data dir defaults to the ephemeral /tmp path (never R2-synced)');
-    // Worker is the auth boundary -> no connection token.
-    assert.ok(args.includes('--without-connection-token'), 'runs without a connection token');
-    // Opens the session workspace.
-    assert.ok(args.includes('--default-folder'), 'has --default-folder flag');
-    assert.ok(args.includes(workspace), 'opens the workspace folder');
-    // Bound to localhost only.
-    assert.ok(args.includes('127.0.0.1'), 'binds localhost');
+    assert.deepEqual(readFileSync(argsFile, 'utf8').trim().split('\n'), [
+      '--bind-addr',
+      '127.0.0.1:13337',
+      '--auth',
+      'none',
+      '--disable-telemetry',
+      '--disable-update-check',
+      '--disable-proxy',
+      '--disable-getting-started-override',
+      '--disable-workspace-trust',
+      '--user-data-dir',
+      '/tmp/openvscode-data/data',
+      '--extensions-dir',
+      '/opt/codeflare/openvscode/extensions/claude',
+      workspace,
+      '---',
+    ]);
   });
 
-  it('REQ-IDE-005 AC1 + REQ-IDE-009: every agent kind prepares IDE settings before OpenVSCode launches', () => {
+  it('REQ-IDE-002 AC2: separate session launches use independent workspace and editor-state roots', () => {
+    const observed = [];
+    for (const sessionId of ['session-a', 'session-b']) {
+      const sessionDir = join(dir, sessionId);
+      const sessionWorkspace = join(sessionDir, 'workspace');
+      const sessionData = join(sessionDir, 'editor-data');
+      const sessionArgs = join(sessionDir, 'args.log');
+      mkdirSync(sessionWorkspace, { recursive: true });
+      const stub = writeStub(sessionDir, sessionArgs);
+
+      const r = runBash(`${openvscodeLaunchScript()}\n_openvscode_launch_once`, {
+        OPENVSCODE_BIN: stub,
+        OPENVSCODE_WORKSPACE: sessionWorkspace,
+        OPENVSCODE_DATA_DIR: sessionData,
+        SESSION_ID: sessionId,
+      });
+
+      assert.equal(r.status, 0);
+      observed.push(readFileSync(sessionArgs, 'utf8').trim().split('\n'));
+    }
+
+    const userDataRoots = observed.map((args) => args[args.indexOf('--user-data-dir') + 1]);
+    assert.deepEqual(userDataRoots, [
+      join(dir, 'session-a', 'editor-data', 'data'),
+      join(dir, 'session-b', 'editor-data', 'data'),
+    ]);
+    assert.ok(observed[0].includes(join(dir, 'session-a', 'workspace')));
+    assert.ok(observed[1].includes(join(dir, 'session-b', 'workspace')));
+  });
+
+  it('REQ-IDE-005 AC1 + REQ-IDE-009: every agent kind prepares IDE settings before code-server launches', () => {
     const cases = [
       { label: 'claude (legacy default)', config: undefined, kind: 'claude' },
       { label: 'pi', config: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]), kind: 'pi' },
       { label: 'none (unsupported)', config: JSON.stringify([{ id: '1', command: 'codex', label: 'Terminal 1' }]), kind: 'none' },
     ];
     for (const { label, config, kind } of cases) {
-      const stub = writeStub(dir, join(dir, `args-${kind}.log`));
+      const launchArgsFile = join(dir, `args-${kind}.log`);
+      const stub = writeStub(dir, launchArgsFile);
       const prepared = join(dir, `prepared-${kind}.log`);
       const dataDir = join(dir, `openvscode-data-${kind}`);
       const script = `${openvscodeLaunchScript({ stubAgentPreparation: false })}
@@ -232,11 +269,15 @@ _openvscode_launch_once`;
       assert.equal(r.status, 0, `${label} should launch`);
       // The seed runs for the selected kind (kind|dataDir), proving pi and none
       // are seeded too, not just claude.
-      assert.equal(readFileSync(prepared, 'utf8'), `${kind}|${dataDir}\n`, `${label} seeds settings for kind=${kind}`);
+      assert.equal(readFileSync(prepared, 'utf8'), `${kind}|${dataDir}\n`, `${label} seeds settings at the Browser IDE data root`);
+      const args = readFileSync(launchArgsFile, 'utf8').trim().split('\n');
+      const userDataFlag = args.indexOf('--user-data-dir');
+      assert.notEqual(userDataFlag, -1, `${label} passes code-server's --user-data-dir`);
+      assert.equal(args[userDataFlag + 1], join(dataDir, 'data'), `${label} launches against the settings directory prepared under <root>/data/User`);
     }
   });
 
-  it('REQ-IDE-009: IDE settings preparation failure prevents OpenVSCode launch', () => {
+  it('REQ-IDE-009: IDE settings preparation failure prevents code-server launch', () => {
     const stub = writeStub(dir, argsFile);
     const script = `${openvscodeLaunchScript({ stubAgentPreparation: false })}
 _openvscode_prepare_agent() { return 37; }
@@ -744,38 +785,37 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
   });
 });
 
-// The sidebar extension is compiled against the API surface its own runtime
-// exposes. openvscode-server ships well behind upstream VS Code (1.109.5 is the
-// newest gitpod release), so npm always offers a newer @types/vscode than any
-// server we can run. Taking it types the extension against APIs the runtime
-// lacks and moves the failure from build time to activation time.
-//
-// The two pins are guarded to different depths, because they drift for
-// different reasons. @types/vscode tracks a VS Code release exactly, so it is
-// held to the server's minor. @types/node is published on DefinitelyTyped's own
-// cadence and its minor moves independently of any Node release, so only the
-// major is an invariant worth asserting -- holding it to engines.node's minor
-// would fail on bumps that carry no risk.
+// These are established build/config contract tests: the package manifest is
+// the extension's declared API floor and the Dockerfile pin is the embedded Code
+// host supplied by code-server. The host may be newer than the floor because a
+// matching @types/vscode release is not always published, but it may never be
+// older. Exact proposal compatibility remains a complete-image activation check.
+// @types/node is published on DefinitelyTyped's own cadence, so only its major
+// is required to match the pinned builder Node.
 const sidebarPkg = () =>
   JSON.parse(readFileSync(resolve(__dirname, '../../openvscode/agent-sidebar/package.json'), 'utf8'));
 const versionMinor = (version) => version.replace(/^[^\d]*/, '').split('.').slice(0, 2).join('.');
 const versionMajor = (version) => version.replace(/^[^\d]*/, '').split('.')[0];
 
 describe('agent-sidebar type pins track the runtime they describe', () => {
-  it('pins @types/vscode to the openvscode-server release baked into the image', () => {
+  it('REQ-IDE-005 AC6: keeps the extension API floor at or below code-server embedded Code', () => {
     const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
     const pkg = sidebarPkg();
-    const server = dockerfile.match(/OPENVSCODE_VERSION="([\d.]+)"/);
-    assert.ok(server, 'Dockerfile must pin an explicit OPENVSCODE_VERSION');
-    assert.equal(
-      versionMinor(pkg.devDependencies['@types/vscode']),
-      versionMinor(server[1]),
-      '@types/vscode minor must match the Dockerfile OPENVSCODE_VERSION'
+    const embeddedCode = dockerfile.match(/CODE_SERVER_CODE_VERSION="([\d.]+)"/);
+    assert.ok(embeddedCode, 'Dockerfile must pin code-server embedded Code explicitly');
+
+    const asComparableMinor = (version) => {
+      const [major, minor] = versionMinor(version).split('.').map(Number);
+      return major * 10_000 + minor;
+    };
+    const hostFloor = asComparableMinor(embeddedCode[1]);
+    assert.ok(
+      hostFloor >= asComparableMinor(pkg.devDependencies['@types/vscode']),
+      'embedded Code must provide every API exposed by @types/vscode',
     );
-    assert.equal(
-      versionMinor(pkg.engines.vscode),
-      versionMinor(server[1]),
-      'engines.vscode minor must match the Dockerfile OPENVSCODE_VERSION'
+    assert.ok(
+      hostFloor >= asComparableMinor(pkg.engines.vscode),
+      'embedded Code must satisfy the extension engines.vscode floor',
     );
   });
 
