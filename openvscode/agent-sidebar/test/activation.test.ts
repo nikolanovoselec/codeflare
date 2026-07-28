@@ -11,6 +11,14 @@ const host = vi.hoisted(() => ({
   warnings: [] as string[],
 }));
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    realpath: async (path: string) => path.endsWith('/symlink.ts') ? '/etc/hosts' : path,
+  };
+});
+
 vi.mock('vscode', () => ({
   Uri: {
     file: (fsPath: string) => ({ fsPath, scheme: 'file' }),
@@ -90,7 +98,7 @@ test('REQ-IDE-005 AC5: native Pi registers an account-free panel model that reje
   assert.equal(subscriptions.length, 4);
 });
 
-test('REQ-IDE-005 AC8: explorer review attaches one workspace file to Codeflare Pi native Chat', async () => {
+test('REQ-IDE-011 AC1: explorer review attaches one workspace file to Codeflare Pi native Chat', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
@@ -109,7 +117,7 @@ test('REQ-IDE-005 AC8: explorer review attaches one workspace file to Codeflare 
   assert.deepEqual(host.warnings, []);
 });
 
-test('REQ-IDE-005 AC8: explorer review rejects resources outside the workspace', async () => {
+test('REQ-IDE-011 AC1: explorer review rejects resources outside the workspace', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
@@ -117,6 +125,19 @@ test('REQ-IDE-005 AC8: explorer review rejects resources outside the workspace',
 
   assert.ok(host.commandHandler);
   await host.commandHandler({ fsPath: '/tmp/outside.ts', scheme: 'file' });
+
+  assert.equal(host.executedCommand, undefined);
+  assert.equal(host.warnings.length, 1);
+});
+
+test('REQ-IDE-011 AC1: explorer review rejects a symlink alias before opening native Chat', async () => {
+  activate({
+    extensionUri: { fsPath: '/extension' },
+    subscriptions: [],
+  } as never);
+
+  assert.ok(host.commandHandler);
+  await host.commandHandler({ fsPath: '/home/user/workspace/symlink.ts', scheme: 'file' });
 
   assert.equal(host.executedCommand, undefined);
   assert.equal(host.warnings.length, 1);
