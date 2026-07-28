@@ -43,6 +43,17 @@ describe('engineering constitution preseed', () => {
     );
   });
 
+  it('REQ-AGENT-080 AC6: authorizes reviewers only for an emitted post-boundary plan', () => {
+    assert.match(
+      piConstitution,
+      /authoritative head already pushed to the protected-base PR[\s\S]+never unpublished local `HEAD`/,
+    );
+    assert.match(
+      piGitWorkflow,
+      /Unpublished local commits are never PR-boundary review heads[\s\S]+only from the boundary plan emitted after an eligible push or protected-base PR creation/,
+    );
+  });
+
   it('delivers exactly the compact policy in both generated Pi modes', () => {
     const expected = `${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}\n`;
     for (const mode of ['default', 'advanced']) {

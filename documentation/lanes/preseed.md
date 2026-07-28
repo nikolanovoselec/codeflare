@@ -229,7 +229,7 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After an eligible Git action it emits a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → TRIAGE + ACK → FIX`. Reviewer calls start together; CI starts immediately afterward without waiting.
+Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). Unpublished local commits are not review heads and never authorize pre-push reviewers; only the plan emitted after an eligible push or protected-base PR creation does. After that Git action the extension emits a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → TRIAGE + ACK → FIX`. Reviewer calls start together; CI starts immediately afterward without waiting.
 
 ```bash
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
