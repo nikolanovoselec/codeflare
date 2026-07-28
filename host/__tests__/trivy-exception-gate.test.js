@@ -131,6 +131,7 @@ describe('Trivy bounded exception gate', () => {
     assert.equal(scan.with.format, 'json');
     assert.equal(scan.with.output, '/tmp/trivy-result.json');
     assert.equal(scan.with['exit-code'], 0);
+    assert.equal(scan.with['ignore-unfixed'], true);
     assert.equal(scan.with.trivyignores, '.trivyignore');
     assert.equal(gate.name, 'Enforce vulnerability scan and bounded exceptions');
     assert.equal(gate.run, 'node scripts/ci/validate-trivy-result.mjs /tmp/trivy-result.json');

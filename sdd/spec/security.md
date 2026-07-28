@@ -338,7 +338,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 3. The deploy pipeline fails before push if the scan finds an unexcepted fixable HIGH/CRITICAL vulnerability or if a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, path, package, installed version, fixed version, or severity. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 4. Scanning occurs after image build and before push to the container registry; a pushed image is therefore always scanned-green at push time. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
-5. Vulnerabilities with no available upstream fix are excluded from the deployment gate automatically. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+5. Vulnerabilities with no available upstream fix are excluded from the deployment gate automatically. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
 
 **Constraints:**
 
@@ -350,7 +350,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-OPS-001](operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Manual check
+**Verification:** Automated test ([Trivy bounded exception gate](../../host/__tests__/trivy-exception-gate.test.js)); remaining scan behavior verified manually
 
 **Status:** Implemented
 
