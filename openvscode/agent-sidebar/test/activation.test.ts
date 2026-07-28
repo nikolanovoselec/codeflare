@@ -98,7 +98,7 @@ test('REQ-IDE-005 AC5: native Pi registers an account-free panel model that reje
   assert.equal(subscriptions.length, 4);
 });
 
-test('REQ-IDE-011 AC2: explorer review attaches one workspace file to Codeflare Pi native Chat', async () => {
+test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare Pi ask mode', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
@@ -117,7 +117,7 @@ test('REQ-IDE-011 AC2: explorer review attaches one workspace file to Codeflare 
   assert.deepEqual(host.warnings, []);
 });
 
-test('REQ-IDE-011 AC3: explorer review rejects resources outside the workspace', async () => {
+test('REQ-IDE-011 AC4: explorer review rejects resources outside the workspace', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
@@ -130,7 +130,7 @@ test('REQ-IDE-011 AC3: explorer review rejects resources outside the workspace',
   assert.equal(host.warnings.length, 1);
 });
 
-test('REQ-IDE-011 AC3: explorer review rejects a symlink alias before opening native Chat', async () => {
+test('REQ-IDE-011 AC4: explorer review rejects a symlink alias before opening native Chat', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
