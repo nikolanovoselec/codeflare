@@ -200,6 +200,9 @@ async function verifyPackagedNativeChat(extensionRoot) {
     },
   });
   let extension;
+  const reviewPath = '/home/user/workspace/codeflare-review-smoke.ts';
+  await mkdir('/home/user/workspace', { recursive: true });
+  await writeFile(reviewPath, 'export const reviewSmoke = true;\n');
 
   try {
     Module._load = function load(request, parent, isMain) {
@@ -222,7 +225,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
     );
     assert.equal(await hostModelProvider.provideTokenCount(), 0);
     assert.equal(typeof reviewFile, 'function', 'packaged extension did not register file review');
-    const reviewResource = uri('/home/user/workspace/src/app.ts');
+    const reviewResource = uri(reviewPath);
     await reviewFile(reviewResource);
     assert.equal(executedCommand?.id, 'workbench.action.chat.open');
     assert.deepEqual(executedCommand?.options.attachFiles.map((file) => file.fsPath), [reviewResource.fsPath]);
@@ -238,6 +241,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   } finally {
     await extension?.deactivate?.();
     Module._load = originalLoad;
+    await rm(reviewPath, { force: true });
   }
 }
 

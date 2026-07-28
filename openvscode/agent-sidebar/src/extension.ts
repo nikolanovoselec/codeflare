@@ -4,7 +4,6 @@ import {
   commands,
   lm,
   window,
-  workspace,
   type CancellationToken,
   type ChatContext,
   type ChatRequest,
@@ -21,7 +20,10 @@ import {
 } from './pi/native-chat.ts';
 import { NodePiProcessSpawner, PiRpcBackend } from './pi/node-rpc-backend.ts';
 import { VsCodeApprovalHost } from './pi/vscode-approval-host.ts';
-import { collectNativePiPromptInput } from './pi/vscode-native-chat.ts';
+import {
+  canonicalWorkspaceFilePath,
+  collectNativePiPromptInput,
+} from './pi/vscode-native-chat.ts';
 
 const PARTICIPANT_ID = 'codeflare.pi';
 const REVIEW_FILE_COMMAND = 'codeflare.pi.reviewFile';
@@ -99,11 +101,12 @@ async function openFileReview(resource: Uri | undefined): Promise<void> {
     await window.showWarningMessage('Review with Codeflare is available only for workspace files.');
     return;
   }
-  const file = Uri.file(resource.fsPath);
-  if (!workspace.getWorkspaceFolder(file)) {
+  const canonicalPath = await canonicalWorkspaceFilePath(resource);
+  if (!canonicalPath) {
     await window.showWarningMessage('Review with Codeflare is available only for workspace files.');
     return;
   }
+  const file = Uri.file(canonicalPath);
   await commands.executeCommand(OPEN_CHAT_COMMAND, {
     query: '@codeflare Review the attached file. Report concrete correctness, security, and maintainability findings with line references.',
     attachFiles: [file],

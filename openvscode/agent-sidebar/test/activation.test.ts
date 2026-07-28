@@ -117,7 +117,7 @@ test('REQ-IDE-011 AC1: explorer review attaches one workspace file to Codeflare 
   assert.deepEqual(host.warnings, []);
 });
 
-test('REQ-IDE-011 AC1: explorer review rejects resources outside the workspace', async () => {
+test('REQ-IDE-011 AC2: explorer review rejects resources outside the workspace', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
@@ -130,7 +130,7 @@ test('REQ-IDE-011 AC1: explorer review rejects resources outside the workspace',
   assert.equal(host.warnings.length, 1);
 });
 
-test('REQ-IDE-011 AC1: explorer review rejects a symlink alias before opening native Chat', async () => {
+test('REQ-IDE-011 AC2: explorer review rejects a symlink alias before opening native Chat', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
