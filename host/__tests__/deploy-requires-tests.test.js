@@ -17,11 +17,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
+import { parse as parseYaml } from 'yaml';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const WORKFLOWS = join(ROOT, '.github', 'workflows');
 const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
+const deployWorkflow = parseYaml(deployYml);
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 
 // Jobs that check out a ref, build, or deploy. Every one must be unreachable
@@ -249,12 +251,12 @@ describe('manual deploys cannot skip tests', () => {
   });
 
   it('fails the outcome when no deployment occurred', () => {
-    const outcomeJob = jobBlock('outcome');
-    const checkout = outcomeJob.indexOf('uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
-    const kernel = outcomeJob.indexOf('node scripts/ci/assert-deploy-outcome.mjs "$DEPLOY"');
-    assert.notEqual(checkout, -1, 'the clean outcome runner must check out the decision kernel');
-    assert.match(outcomeJob.slice(checkout, kernel), /persist-credentials: false/);
-    assert.ok(kernel > checkout, 'the outcome job must check out before executing the behaviorally tested decision kernel');
+    const steps = deployWorkflow.jobs.outcome.steps;
+    const kernelIndex = steps.findIndex((step) => step.run?.includes('node scripts/ci/assert-deploy-outcome.mjs "$DEPLOY"'));
+    assert.ok(kernelIndex > 0, 'the outcome job must execute the behaviorally tested decision kernel after setup');
+    const checkout = steps[kernelIndex - 1];
+    assert.equal(checkout.uses, 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
+    assert.equal(checkout.with?.['persist-credentials'], false);
     for (const [result, expected] of [['success', 0], ['skipped', 1], ['failure', 1], ['cancelled', 1]]) {
       const outcome = spawnSync(process.execPath, [OUTCOME_GATE, result], { encoding: 'utf8' });
       assert.equal(outcome.status, expected, result);
