@@ -46,7 +46,7 @@ describe('Trivy bounded exception gate', () => {
     assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*opt\/other\/tool/s);
   });
 
-  it('rejects missing, fixed, or version-drifted reviewed findings', () => {
+  it('rejects missing or installed-version-drifted reviewed findings', () => {
     assert.throws(() => validateTrivyResult(report([report().Results[0]])), /missing reviewed finding.*lazygit/s);
     assert.throws(
       () => validateTrivyResult(report([
@@ -55,6 +55,27 @@ describe('Trivy bounded exception gate', () => {
       ])),
       /unexpected HIGH\/CRITICAL finding.*v0\.39\.0/s,
     );
+  });
+
+  it('rejects duplicate findings and fixed-version or severity drift', () => {
+    const cases = [
+      report([
+        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability(), vulnerability()] },
+        report().Results[1],
+      ]),
+      report([
+        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ FixedVersion: '0.39.1' })] },
+        report().Results[1],
+      ]),
+      report([
+        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ Severity: 'CRITICAL' })] },
+        report().Results[1],
+      ]),
+    ];
+
+    for (const input of cases) {
+      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+    }
   });
 
   it('rejects every unrelated HIGH or CRITICAL finding', () => {
