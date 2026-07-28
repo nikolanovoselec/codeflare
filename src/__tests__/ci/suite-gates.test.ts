@@ -105,6 +105,17 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(matchesAny('documentation/lanes/container.md', patterns)).toBe(false);
   });
 
+  it('audits production lockfiles without depending on restored node_modules trees', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: { quality: { steps: Array<{ name?: string; run?: string; 'working-directory'?: string }> } };
+    };
+    const audits = workflow.jobs.quality.steps.filter((step) => step.name?.startsWith('Security audit'));
+    expect(audits).toEqual([
+      { name: 'Security audit (backend)', run: 'npm audit --package-lock-only --audit-level=high --omit=dev' },
+      { name: 'Security audit (frontend)', run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'working-directory': 'web-ui' },
+    ]);
+  });
+
   it('registers every owned extension test file for fail-closed report reconciliation', () => {
     expect(SUITES).toContainEqual({
       name: 'browser-ide',
