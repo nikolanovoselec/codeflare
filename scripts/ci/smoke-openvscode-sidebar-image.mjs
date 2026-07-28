@@ -114,6 +114,11 @@ async function verifyCodeServerRuntime() {
   assert.equal(await readlink('/usr/local/bin/code-server'), '/opt/code-server/bin/code-server');
   await assert.rejects(lstat('/usr/local/bin/openvscode-server'), { code: 'ENOENT' });
   await assert.rejects(lstat('/opt/openvscode-server'), { code: 'ENOENT' });
+  await assert.rejects(
+    lstat(join(CODE_SERVER_ROOT, 'lib', 'vscode', 'extensions', 'copilot')),
+    { code: 'ENOENT' },
+    'the Browser IDE image must not retain code-server\'s bundled GitHub Copilot extension',
+  );
 
   const versionOutput = execFileSync('/usr/local/bin/code-server', ['--version'], {
     encoding: 'utf8',
