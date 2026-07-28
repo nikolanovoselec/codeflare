@@ -14,7 +14,9 @@ An absent `TAB_CONFIG` keeps the existing Claude default. Malformed JSON, duplic
 
 ## Native Pi Chat
 
-The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned host's default native Chat participant. The extension retains one hidden, account-free, panel-only compatibility model for the native participant's model-entry contract; it cannot generate responses, and complete-image plus deployed activation validate it against the pinned Code OSS host. Pi never reads `request.model` or sends inference through that provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
+The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned host's default native Chat participant. The extension retains one hidden, account-free, panel-only compatibility model for the native participant's model-entry contract; it cannot generate responses, and complete-image plus deployed activation validate it against the pinned Code OSS host. Code OSS 1.130 accepts an implicit participant default only under its reserved `copilot` vendor key, which the shim uses solely as an internal selector without invoking GitHub Copilot or authorization. The image removes code-server's bundled GitHub Copilot extension entirely.
+
+Pi never reads `request.model` or sends inference through that provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
 
 Every request receives bounded native Chat history plus the active workspace document, selected text, open workspace documents, diagnostics, and explicit references. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 512 KiB.
 

@@ -225,6 +225,9 @@ RUN CODE_SERVER_VERSION="4.130.0" && \
       --arg vscodeCommit "$CODE_SERVER_VSCODE_COMMIT" \
       '{codeServerVersion:$codeServerVersion,codeServerCommit:$codeServerCommit,codeVersion:$codeVersion,vscodeCommit:$vscodeCommit}' \
       > /opt/code-server/codeflare-provenance.json && \
+    test -d /opt/code-server/lib/vscode/extensions/copilot && \
+    rm -rf /opt/code-server/lib/vscode/extensions/copilot && \
+    test ! -e /opt/code-server/lib/vscode/extensions/copilot && \
     /usr/local/bin/code-server --version && \
     test ! -e /usr/local/bin/openvscode-server && \
     test ! -e /opt/openvscode-server && \

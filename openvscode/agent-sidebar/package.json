@@ -29,7 +29,7 @@
   "contributes": {
     "languageModelChatProviders": [
       {
-        "vendor": "codeflare-pi-rpc",
+        "vendor": "copilot",
         "displayName": "Codeflare Pi (Local RPC)"
       }
     ],

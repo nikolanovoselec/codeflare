@@ -21,7 +21,11 @@ import { VsCodeApprovalHost } from './pi/vscode-approval-host.ts';
 import { collectNativePiPromptInput } from './pi/vscode-native-chat.ts';
 
 const PARTICIPANT_ID = 'codeflare.pi';
-const HOST_MODEL_VENDOR = 'codeflare-pi-rpc';
+// Code OSS 1.130 resolves a participant's implicit default only from its
+// reserved fallback vendor. This is an internal selection key, not a GitHub
+// Copilot integration: the model remains hidden, account-free, and inert.
+const HOST_MODEL_VENDOR = 'copilot';
+const HOST_MODEL_FAMILY = 'codeflare-pi-rpc';
 const CHAT_LOCATION_PANEL = 1 as const;
 const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
   readonly isDefault: Readonly<Record<typeof CHAT_LOCATION_PANEL, true>>;
@@ -29,7 +33,7 @@ const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
 } = Object.freeze({
   id: 'host-compatibility',
   name: 'Codeflare Pi',
-  family: HOST_MODEL_VENDOR,
+  family: HOST_MODEL_FAMILY,
   version: '1',
   maxInputTokens: 1,
   maxOutputTokens: 1,
