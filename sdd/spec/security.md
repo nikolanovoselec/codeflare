@@ -596,7 +596,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-021: HSTS coverage on redirect response paths
 
-**Intent:** The HSTS header coverage in [REQ-SEC-008](#req-sec-008-security-headers-on-every-response) AC1 must extend to every redirect emission path. Without a dedicated helper, redirects emitted from `Response.redirect()` or middleware shortcuts would drop the security header set the global middleware applies.
+**Intent:** The HSTS coverage in [REQ-SEC-008](#req-sec-008-security-headers-on-every-response) AC1 must extend to every direct or middleware redirect path.
 
 **Applies To:** User
 

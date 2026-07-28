@@ -1343,7 +1343,7 @@ None.
 
 ### REQ-AGENT-043: Graphify Build Mode Dispatch
 
-**Intent:** Before a `/graphify` build dispatches extraction work, the user must explicitly choose whether to build a graph and which scope to build. Claude keeps the upstream AST-only vs Full semantic choice. Pi offers Architecture graph, Full repo AST-only, Full repo semantic, or no graph update. In Pi, uncached semantic extraction must use running-session Pi `Agent` subagents that inherit the current main-session model; community labels are written by the active Pi main session to `.graphify_labels.json`; official Graphify CLI/module flows own AST extraction, cache merge, graph build, clustering, report generation, and visualization, while label application regenerates report/html from existing graph community assignments.
+**Intent:** Before graph extraction begins, the user chooses whether to build a graph and at what supported scope. Each runtime presents its supported modes, semantic work uses runtime-native workers, and official Graphify flows own graph generation and derived outputs.
 
 **Applies To:** Agent
 
@@ -1564,7 +1564,7 @@ None.
 
 ### REQ-AGENT-050: Pi-Native `/review` Workflow Skill
 
-**Intent:** Pi users running `/review` must get the same multi-perspective review workflow that Claude users get from `commands/review.md`. Because Claude slash commands do not deploy to Pi, the `/review` command must inject a dedicated Pi-native review skill rather than the PR-boundary enforcement pipeline.
+**Intent:** Pi users running `/review` must get the same multi-perspective workflow as Claude users through a dedicated Pi-native review skill, separate from PR-boundary enforcement.
 
 **Applies To:** User
 
@@ -1623,7 +1623,7 @@ None.
 
 ### REQ-AGENT-052: Pi Commit-Attribution and Local-Build Hook Hardening
 
-**Intent:** Pi's PreToolUse guards that block AI attribution and local builds must cover the same surfaces and detection set as the canonical Claude hooks, so an attributed commit, PR, issue, release, or tag cannot slip through a previously-unguarded subcommand and a local build is not silently allowed.
+**Intent:** Pi's PreToolUse guards that block AI attribution and local builds must cover the same surfaces and detection set as the canonical Claude hooks, so no attributed commit, PR, issue, release, or tag can slip through any subcommand and a local build is not silently allowed.
 
 **Applies To:** Agent
 
@@ -1931,7 +1931,7 @@ None.
 
 ### REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 
-**Intent:** One always-on engineering constitution is hardwired into every preseed-managed agent so its four mandates are applied to all planning and coding without being restated each task: (1) no overengineering, (2) behavioral tests only — no theater or text-matching, (3) reusable/composable components and best practices, (4) SDD + TDD enforced (failing behavioral test first, every change traces to a REQ, specs/anchors/docs move with the code, nothing left `Partial`). It also imposes a **plan gate** (every plan must restate the four mandates as concrete success criteria) and a **done gate** (confirm them before declaring work complete). The preseed is the single source of truth; the per-user `~/.claude` copy is a downstream seed artifact.
+**Intent:** One always-on engineering constitution is hardwired into every preseed-managed agent so its four mandates are applied to all planning and coding without being restated each task: (1) no overengineering, (2) behavioral tests only — no theater or text-matching, (3) reusable/composable components and best practices, (4) SDD + TDD enforced (failing behavioral test first, every change traces to a REQ, specs/anchors/docs move with the code, nothing left `Partial`). It also imposes a **plan gate** (every plan must restate the four mandates as concrete success criteria) and a **done gate** (confirm them before declaring work complete). The preseed is the single source of truth; each per-user copy is a downstream seed artifact.
 
 **Applies To:** Agent
 

@@ -611,7 +611,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-021: Billing Cycle Alignment
 
-**Intent:** New paid subscriptions are billed on the 1st of each UTC calendar month so that recurring charges and monthly quota resets happen on the same date, eliminating the mid-cycle quota refresh that previously gave users roughly twice the paid quota between two billing charges.
+**Intent:** New paid subscriptions are billed on the first day of each UTC month so recurring charges and monthly quota resets share one boundary.
 
 **Applies To:** User
 

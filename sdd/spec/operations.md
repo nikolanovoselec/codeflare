@@ -377,7 +377,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-014: Container binding and scaling from image
 
-**Intent:** After the image is pushed, the deploy workflow patches the registry URI into `wrangler.toml`, applies the resource tier and max-instance count, and offers cache-buster control over the AI agent layer. The bound Durable Object container is what user sessions land on.
+**Intent:** After the image is pushed, deployment binds it to the configured resource tier and instance limit, with cache-buster control over the agent layer; user sessions land on that bound container.
 
 **Applies To:** User
 

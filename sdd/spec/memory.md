@@ -227,7 +227,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-009: Vault graph accumulates monotonically across extractions
 
-**Intent:** Every vault writer - the vault-extract and memory-capture pipelines, on both the Claude and Pi runtimes - must add new nodes to the unified global graph's vault contribution without destroying nodes from prior passes. All four converge on a single cumulative `vault-graph.json` maintained by the shared `merge-vault-graph.py`; `--as user_vault` replace-semantics means anything less than the cumulative graph fed to `graphify global add` wipes prior vault knowledge.
+**Intent:** Every vault writer, across extraction and capture in both agent runtimes, must add new nodes to one cumulative vault contribution without destroying knowledge from prior passes.
 
 **Applies To:** System
 
@@ -288,7 +288,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-011: Session-mode storage, resolution, and propagation
 
-**Intent:** The mechanics behind the user-observable behavior in [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode): how the mode value is stored, defaulted, clamped against the billing tier, propagated into `settings.json`, and reconciled into the preseed file set without trampling user content.
+**Intent:** The session mode behind [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode) must be stored, defaulted, clamped against billing entitlement, and reconciled into agent configuration without trampling user content.
 
 **Applies To:** User
 

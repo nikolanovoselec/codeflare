@@ -70,7 +70,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-002: Conversation captures land in the vault as markdown
 
-**Intent:** The capture agent writes one markdown file per 15-prompt batch into `Raw/Sessions/`, replacing the previous MCP-memory write path. Captures appear in `mcp__graphify__*` queries the same turn they are written.
+**Intent:** The capture agent writes one markdown file per 15-prompt batch into `Raw/Sessions/`, and each capture becomes graph-queryable in the same turn.
 
 **Applies To:** User
 
@@ -286,7 +286,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-009: Vault writes succeed end-to-end for SilverBullet attachment uploads
 
-**Intent:** SilverBullet's drag-drop attachment upload (PUT `/api/vault/<sid>/Inbox/<file>`) must succeed when the user is authenticated, regardless of whether the browser's fetch implementation set the Origin header. The previous code path required Origin to be present and allowlisted before synthesising the CSRF guard header, so a service-worker-controlled fetch or a same-origin fetch that omitted Origin landed at the auth chain without X-Requested-With and was rejected. PDF uploads from the SB Inbox plug repeatedly surfaced this as a 401 to the user.
+**Intent:** SilverBullet drag-and-drop uploads must succeed for an authenticated user even when a same-origin or service-worker-controlled request omits the Origin header.
 
 **Applies To:** User
 
@@ -400,7 +400,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-013: SilverBullet subpath adapter
 
-**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response so the editor's relative asset references resolve back through the subpath proxy. The companion native-service-worker contract (registration short-circuit, key delivery, precache) is [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker).
+**Intent:** SilverBullet served under the per-session vault proxy must resolve every relative asset through that proxy rather than the Worker root. The companion native-service-worker contract is [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker).
 
 **Applies To:** User
 
@@ -542,7 +542,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-025: SilverBullet native service worker runtime graft
 
-**Intent:** The served native SilverBullet service worker ([REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker)) runs with codeflare's `graftVaultKeyRecovery` runtime patch applied: it suppresses expected startup-only log noise, guards the sync engine against a not-yet-ready or unreachable in-container SilverBullet server, and neuters the worker's proactive key flush so the encryption key survives idle/backgrounding (AD69). The graft is a deterministic string transform over the vendored bytes; the verbatim upstream body and its SHA-256 drift guard are unchanged.
+**Intent:** The served native SilverBullet service worker ([REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker)) must suppress expected startup noise, tolerate an unavailable in-container server, and retain its encryption key through idle or backgrounding without altering unrelated upstream behavior.
 
 **Applies To:** User
 
@@ -778,7 +778,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-026: Vault-extract change detection survives container restart (content-hash manifest)
 
-**Intent:** A returning session does not re-extract the whole vault. Change detection compares file content (sha256), not mtimes, so the R2 restore that rewrites every vault file's mtime to download-time cannot trigger a full re-extraction (previously ~200k tokens / ~20 min per session).
+**Intent:** A returning session extracts only vault files whose content changed, regardless of modification times rewritten during R2 restore.
 
 **Applies To:** System
 

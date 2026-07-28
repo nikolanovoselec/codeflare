@@ -558,7 +558,7 @@ None.
 
 ### REQ-SESSION-019: Final-sync drain endpoint authentication
 
-**Intent:** Every Durable-Object-side drain to the in-container final-sync endpoint must authenticate with the container auth token, because the raw `port.fetch` bypasses the DO's public `fetch()` override that otherwise injects the Authorization header; an unauthenticated drain is rejected at the host auth gate and the session tears down with the last edits unsynced.
+**Intent:** Every Durable-Object-side final-sync request must authenticate with the container token so teardown cannot lose the user's last edits at the host authorization boundary.
 
 **Applies To:** User
 

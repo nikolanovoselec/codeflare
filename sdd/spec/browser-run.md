@@ -227,7 +227,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ### REQ-BROWSER-008: Browser Rendering token interception (never in the container)
 
-**Intent:** The admin Browser Rendering token must never reside in the (untrusted) container, even though browser-run's MCP servers and the Pi extension call the Cloudflare Browser Rendering REST API + CDP WebSocket from inside it. The container runs in authed mode on a non-secret placeholder; the real token is injected worker-side at the `api.cloudflare.com` boundary, scoped to the one wizard-configured account's `/browser-rendering/*` path. This supersedes REQ-BROWSER-007's original "token permitted in the container" posture.
+**Intent:** The admin Browser Rendering token must never reside in the (untrusted) container, even though browser-run's MCP servers and the Pi extension call the Cloudflare Browser Rendering REST API + CDP WebSocket from inside it. The container runs in authed mode on a non-secret placeholder; the real token is injected worker-side at the `api.cloudflare.com` boundary, scoped to the one wizard-configured account's `/browser-rendering/*` path.
 
 **Applies To:** System
 

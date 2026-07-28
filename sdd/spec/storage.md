@@ -148,7 +148,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-005: Graceful Shutdown Performs Final Sync
 
-**Intent:** When a container is stopped or evicted, unsaved local changes must be pushed to R2 before the process exits. This REQ covers the entrypoint SIGTERM-trap final bisync, which is now a best-effort BACKSTOP: the authoritative final sync is the awaited live drain the Durable Object runs before signalling stop, specified in [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) (the platform SIGKILLs the container ~3s after stop, so the trap alone cannot guarantee completion). The trap still runs, still gated on the bisync-initialized marker, and still watchdogged as below.
+**Intent:** When a container is stopped or evicted, unsaved local changes must reach R2 before exit. The awaited live drain in [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) is authoritative, while the signal-triggered final sync remains a bounded best-effort backstop.
 
 **Applies To:** User
 
@@ -475,7 +475,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-017: Faster startup sync — bisync HEAD-storm fix + Governed Mode preseed bake
 
-**Intent:** Startup and steady-state sync must not waste time on avoidable R2 round-trips, and startup must not re-pay work the image already did. Three costs are addressed: (a) the steady-state bisync issued one HEAD per object to read its mtime metadata (the dominant sync cost, ~2,900 HEADs/cycle on a populated bucket); (b) the blocking initial sync re-downloads the entire agent seed (~627 files, ~9 MB — about half of a populated bucket) every boot, because the container filesystem is ephemeral and the seed lives only in R2; and (c) the Pi extension jiti prewarm cache misses every session, re-transpiling the first-party extensions (~2.4s on the advanced set) even though the image already baked them. Cost (a) is fixed with server-modtime bisync; (b) is eliminated in Governed Mode by laying down an image-baked seed locally and letting a content-checksum sync transfer only the user's deltas; (c) is fixed because jiti keys its cache on *where* a file sits as well as its bytes, so the image warms the cache at the real runtime agent dir and the entrypoint relays the managed extension content over the synced tree in all modes, making both the path and content halves match. Persisted sync must also be unable to restore retired managed Pi extensions.
+**Intent:** Startup and steady-state sync must avoid unnecessary R2 round-trips, reuse image-baked seed and transpilation work, and never restore retired managed Pi extensions.
 
 **Applies To:** User
 
