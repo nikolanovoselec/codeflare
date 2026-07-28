@@ -31,7 +31,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### Domain Dependencies
 
 - **Memory** -- Reuses the memory-capture UserPromptSubmit hook and its per-user counter state. The capture agent writes its synthesis output into the vault (the legacy MCP server-memory subsystem has been removed); the dedup-gate marker contract is unchanged.
-- **Storage** -- Vault persistence is provided by the existing bisync to R2. The vault tree is added to the shared sync filter set, ordered before the global `graphify-out` exclude so first-match semantics keep vault content synced.
+- **Storage** -- Vault persistence is provided by the existing bisync to R2. The vault tree is included in the shared sync filter set, ordered before the global `graphify-out` exclude so first-match semantics keep vault content synced.
 - **Session Lifecycle** -- The shutdown-bisync reliability work ([REQ-VAULT-006](#req-vault-006-shutdown-bisync-completes-vault-writes-before-sigkill)) coordinates the orchestrator destroy budget with the final-sync watchdog so vault edits made in the last seconds before shutdown reach R2 instead of being silently lost.
 - **Subscription** -- Vault features (preseed entries, editor supervisor) are gated to Pro session mode via the manifest's mode filter.
 
