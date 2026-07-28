@@ -452,7 +452,7 @@ None.
 2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail) --> <!-- @manual -->
 3. Tab-1 PTY pre-warm is gated on the init-complete signal, so it never starts before initial state restore is in place. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readiness gate)) -->
 4. The host terminal server rejects terminal WebSocket upgrades with a retriable ("try again later") close code and a human-readable container-warming reason until both the init-complete signal is observed and the pre-warm session is registered. <!-- @impl: host/src/server.ts::initFlagObserved --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (handleWebSocketUpgrade) -->
-5. The image bakes a pre-transpiled (jiti) cache for the full Pi extension set at build time warmed via a throwaway `pi` run with the package list derived from the preseed `package.json`, the build failing if the cache comes out empty. <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (Pi startup warm-up: baked jiti cache) --> <!-- @manual -->
+5. The image bakes a pre-transpiled cache for the full Pi extension set at build time warmed via a throwaway `pi` run with the package list derived from the preseed `package.json`, the build failing if the cache comes out empty. <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (Pi startup warm-up: baked jiti cache) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -564,7 +564,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every Durable-Object-side drain request to the final-sync endpoint authenticates with the container auth token. The drains use a raw `port.fetch`, which bypasses the DO's public fetch override the only place the auth header is otherwise injected. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Every Durable-Object-side drain request to the final-sync endpoint authenticates with the container auth token, including requests that bypass the public proxy path. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:** None.
 
