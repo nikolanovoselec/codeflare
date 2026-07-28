@@ -541,130 +541,44 @@ jobs:
       - name: Check against the budget
         run: node scripts/ci/check-bundle-size.mjs /tmp/wrangler-dry-run.log
 
-  coverage:
-    name: Coverage (${{ matrix.slug }})
+  coverage-backend:
+    name: Coverage (backend)
     needs: changes
-    # Coverage is per-process, so a sharded run gives each shard a view of only
-    # its own slice; enforcing thresholds needs the whole suite in one process.
-    # That is why this lane is keyed on event name rather than the `full` flag.
-    #
-    # It DOES run on pull_request. It originally did not, on the theory that the
-    # push-to-main run enforced it before deploy so a regression could not reach
-    # production. True, but it made the failure worse: `coverage` is in
-    # `summary.needs`, so a dip turns `test` red on main AFTER the merge, and
-    # deploy.yml gates on that conclusion — production then silently does not
-    # deploy, with the commit already merged. A gate that can only fire once the
-    # change is unrevertable-in-place is not a gate, it is an outage. Measured
-    # cost of running it here is ~2 min wall clock in parallel with lanes that
-    # already take ~1 min, at roughly one PR a day.
-    #
-    # Still NOT on merge_group: nothing requires it there, and the queue is off.
-    #
-    # Until this existed the thresholds in both vitest configs were decoration:
-    # declared, never executed. Same class as a test that cannot fail.
     if: >-
-      github.event_name == 'pull_request' ||
-      github.event_name == 'push' ||
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch'
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - slug: backend
-            directory: .
-            key-prefix: root
-          - slug: frontend
-            directory: web-ui
-            key-prefix: webui
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/coverage-suite
         with:
-          node-version: '22'
+          working-directory: .
+          key-prefix: root
+          slug: backend
+          tolerate-pool-crash: 'true'
 
-      - uses: ./.github/actions/install-deps
+  coverage-frontend:
+    name: Coverage (frontend)
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.webui == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          directory: ${{ matrix.directory }}
-          key-prefix: ${{ matrix.key-prefix }}
+          persist-credentials: false
 
-      - name: Create assets directory (wrangler.toml requires web-ui/dist)
-        run: mkdir -p web-ui/dist
-
-      - name: Run the suite with coverage
-        # Unsharded and unmerged: vitest applies the thresholds from the suite's
-        # own config, so the enforcement lives with the numbers instead of being
-        # restated here.
-        working-directory: ${{ matrix.directory }}
-        env:
-          NO_COLOR: '1'
-        run: |
-          # GitHub runs steps as `bash -e {0}` — NO pipefail. Without this line
-          # `vitest | tee` reports tee's exit status, so a failed threshold check
-          # passes the step: the first version of this lane reported success while
-          # printing "Coverage for lines (0%) does not meet global threshold (53%)".
-          set -o pipefail
-          status=0
-          npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
-
-          # POSITIVE proof the coverage reporter ran. Every check below this point
-          # decides on the ABSENCE of a failure string, so without this a run that
-          # died before emitting coverage — an istanbul provider error, a config
-          # fault, the teardown crash racing the report — would satisfy all of
-          # them and go green having enforced nothing. That is the exact
-          # "declared, never executed" state this lane was written to end, so it
-          # is asserted rather than assumed. Both matrix entries emit istanbul's
-          # / v8's `text` table, whose first body row starts with "All files". Same
-          # tolerance as render-coverage-summary.mjs uses for the same line.
-          if ! grep -qE '^[[:space:]]*All files[[:space:]]*\|' /tmp/coverage.log; then
-            echo "::error::no coverage table was produced — thresholds were never evaluated"
-            exit 1
-          fi
-
-          # A real test failure is fatal, and must be detected on its own. The
-          # workerd teardown crash fires after EVERY passing backend run
-          # (vitest.config.ts), so its fingerprint is present essentially always
-          # — tolerating a non-zero status merely because the fingerprint is
-          # there would tolerate every failure, which is what the first version
-          # of this block did.
-          if grep -qE '^ *Tests +.*failed' /tmp/coverage.log; then
-            echo "::error::tests failed during the coverage run"
-            exit 1
-          fi
-
-          # A threshold miss is the verdict this lane exists for: always fatal,
-          # never masked by the crash tolerance below. Matched loosely enough to
-          # survive a future per-glob threshold, whose message reads
-          # `does not meet "src/lib/**" threshold` rather than `global`.
-          if grep -qE 'does not meet .*threshold' /tmp/coverage.log; then
-            echo "::error::coverage thresholds not met (see the table above)"
-            exit 1
-          fi
-
-          # Only now is the poisoned exit status safe to forgive: the table was
-          # produced, no test failed, and thresholds were evaluated. Listed in
-          # execution order — the test-failure check runs first because with
-          # reportOnFailure on, failing tests depress coverage, so a threshold
-          # miss reported ahead of them names the symptom instead of the cause.
-          if [ "$status" -ne 0 ]; then
-            if grep -qF '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/coverage.log; then
-              echo "::warning::tolerating the known workerd teardown crash (coverage table and thresholds both verified above)"
-            else
-              echo "::error::coverage run failed with status $status and no known-crash fingerprint"
-              exit "$status"
-            fi
-          fi
-
-      - name: Publish the coverage table
-        if: always()
-        env:
-          SLUG: ${{ matrix.slug }}
-        run: node scripts/ci/render-coverage-summary.mjs /tmp/coverage.log "$SLUG" >> "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/coverage-suite
+        with:
+          working-directory: web-ui
+          key-prefix: webui
+          slug: frontend
 
   frontend-tests:
     name: Frontend tests (${{ matrix.slug }})
@@ -923,15 +837,25 @@ jobs:
       needs.browser-ide.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: write # shared type=gha BuildKit cache warms the later deploy build
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
       - name: Build complete image
         env:
           IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
-        run: docker build --tag "$IMAGE" .
+        run: |
+          docker buildx build --platform linux/amd64 \
+            --cache-from "type=gha,scope=container-image-linux-amd64" \
+            --cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true" \
+            --load \
+            --tag "$IMAGE" .
 
       - name: Verify packaged native Pi Chat and official Claude
         env:
@@ -1189,7 +1113,8 @@ jobs:
       - typecheck
       - workflow-audit
       - bundle-size
-      - coverage
+      - coverage-backend
+      - coverage-frontend
       - backend-tests
       - frontend-tests
       - landing-tests
@@ -1217,10 +1142,10 @@ jobs:
           # decided the lane was unaffected. When it did not run (FULL=true:
           # merge_group, schedule, dispatch) every lane was supposed to execute,
           # so a skip means a gating expression is wrong — and silently passing
-          # it is how a merge queue ends up green having run nothing. The two
-          # lanes below opt out by design.
+          # it is how a merge queue ends up green having run nothing. Dependency
+          # review alone opts out because it is defined only for pull requests.
           if [ "$FULL" = "true" ]; then
-            EXPECTED_SKIPS='coverage dependency-review'
+            EXPECTED_SKIPS='dependency-review'
             SKIPPED=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "skipped") | .key')
             for lane in $SKIPPED; do
               case " $EXPECTED_SKIPS " in
@@ -1261,6 +1186,30 @@ jobs:
              "landing":"${{ needs.landing-tests.result }}",
              "browser-ide":"${{ needs.browser-ide.result }}"}
         run: node scripts/ci/check-suite-completeness.mjs /tmp/test-artifacts "$LANES"
+
+      - name: Write exact tested-tree receipt
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          tested_commit=$(git rev-parse HEAD)
+          tested_tree=$(git rev-parse 'HEAD^{tree}')
+          jq -n \
+            --arg repository "$REPOSITORY" \
+            --arg runId "$RUN_ID" \
+            --arg testedCommit "$tested_commit" \
+            --arg testedTree "$tested_tree" \
+            '{repository:$repository,runId:$runId,testedCommit:$testedCommit,testedTree:$testedTree}' \
+            > /tmp/pr-checks-receipt.json
+
+      - name: Upload exact tested-tree receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-checks-receipt-${{ github.run_id }}
+          path: /tmp/pr-checks-receipt.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Publish test-result table
         # Reporting only — the aggregate step above already decided the

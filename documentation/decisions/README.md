@@ -3213,13 +3213,13 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 
 **Decision:**
 
-- PR Checks split into parallel lanes gated by a `dorny/paths-filter` `changes` job: quality, typecheck, two `vitest --shard` backend jobs, frontend, landing, host, and dependency-review.
+- PR Checks split into parallel lanes gated by a `dorny/paths-filter` `changes` job: quality, typecheck, sharded backend/frontend tests, path-specific backend/frontend coverage, landing, host, Browser IDE, and dependency-review.
 - A `summary` job keeps the required `test` status context; skipped lanes pass, failed or cancelled lanes fail.
 - The teardown-crash guard becomes one composite action (since renamed `.github/actions/vitest-suite`, which every suite now runs through) gated by the vitest JSON report (since renamed `scripts/ci/check-vitest-report.mjs`); reporter-prose grepping is gone.
 - Non-zero exits are accepted only with a parsed report showing >0 tests, 0 failures, and the exact crash fingerprint — missing or corrupt reports fail closed.
-- Deploy stages into `prepare` → (`build-worker` ∥ `container`) → `deploy`, drops the in-deploy test re-run, uploads secrets via one `wrangler secret bulk` call, and prunes the registry via `scripts/ci/prune-registry.mjs`.
+- Deploy stages into `prepare` → (`build-worker` ∥ `container`) → `deploy`, drops test re-runs after verification, uploads secrets via one `wrangler secret bulk` call, and prunes the registry via `scripts/ci/prune-registry.mjs`. Manual dispatch may reuse an explicit successful PR Checks run only when its uploaded checked-out-tree receipt equals the deploy tree; otherwise checks run inline.
 - The `/health` smoke check and the public `/health` route were both removed later; the deploy currently performs no post-deploy verification.
-- Container build/scan/push moves to the reusable `container-image.yml`, parameterized by registry (`registry: dockerhub` dispatch input replaces `deploy-dockerhub.yml`).
+- Container build/scan/push moves to the reusable `container-image.yml`, parameterized by registry (`registry: dockerhub` dispatch input replaces `deploy-dockerhub.yml`). PR complete-image verification and deployment share one BuildKit cache scope while preserving separate image outputs.
 - Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned image.
 - A COPY-coverage guard disables reuse when the hash list goes stale; the weekly salt bounds agent-`@latest` and CVE-verdict staleness at seven days.
 - The scripted e2e suite is deleted rather than repaired; the k6 stress suites move to `stress/` and keep the deploy-time service-auth secret + KV service-user seeding. `zizmor.yml` audits the workflows themselves (SARIF, informational).

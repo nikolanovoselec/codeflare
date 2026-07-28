@@ -13,11 +13,11 @@ run-name: "Deploy ${{ ((github.event_name == 'workflow_run' || github.ref == 're
 # develop (or any other branch) can still be triggered on demand.
 #
 # Topology:
-#   verify ── prepare ──┬── build-worker (frontend + landing dist artifact) ──┬── deploy
-#                       └── container (reusable container-image.yml:          │
-#                           input-hash reuse gate → build → scan → push)    ──┘
-# verify runs PR Checks only on manual dispatch; on workflow_run it is skipped
-# because that gate already guarantees a green PR Checks run for this exact SHA.
+#   verify-existing OR verify ── prepare ──┬── build-worker ──┬── deploy
+#                                          └── container ─────┘
+# Manual dispatch validates an explicit PR Checks tested-tree receipt when one
+# is supplied, otherwise verify runs PR Checks inline. On workflow_run both are
+# skipped because that trigger already guarantees a green run for the exact SHA.
 # deploy = wrangler config mutations + wrangler deploy + bulk secrets +
 # registry prune.
 #
@@ -55,6 +55,11 @@ on: # zizmor: ignore[dangerous-triggers]
           - cloudflare
           - dockerhub
         default: cloudflare
+      verified_run_id:
+        description: 'Optional successful PR Checks run for this exact deploy tree; invalid receipts fail closed'
+        type: string
+        required: false
+        default: ''
 
 concurrency:
   group: deploy-${{ ((github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
@@ -92,17 +97,60 @@ permissions:
 #   head_repository.full_name == github.repository -- and only from this repo, never a fork
 
 jobs:
-  # A workflow_run deploy is by definition gated on a green PR Checks for the
-  # same SHA. A manual dispatch was not: it shipped whatever the branch tip was,
-  # untested. Running PR Checks inline is what makes the two paths equal — and
-  # it beats looking for an earlier green run, because PR Checks does not fire
-  # on pushes to develop at all, so most integration deploys would have had no
-  # run to find. Skipped on workflow_run (the gate already ran); every
-  # downstream job requires `verify.result == 'skipped'` on that path, so a skip
-  # can never be mistaken for a pass.
+  # A workflow_run deploy is already gated on green PR Checks. Manual dispatch
+  # either validates an explicit successful run for this SHA AND the exact Git
+  # tree that run checked out, or falls back to running PR Checks inline. The
+  # tree receipt matters for pull_request runs: Actions can check out a synthetic
+  # merge commit even when run.head_sha names the branch head.
+  verify-existing:
+    name: Validate existing PR Checks
+    if: github.event_name == 'workflow_dispatch' && inputs.verified_run_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      verified: ${{ steps.accept.outputs.verified }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download tested-tree receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.verified_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo "::error::verified_run_id must be numeric"; exit 1; }
+          rm -rf /tmp/pr-checks-receipt
+          mkdir -p /tmp/pr-checks-receipt
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "pr-checks-receipt-${RUN_ID}" --dir /tmp/pr-checks-receipt
+
+      - name: Validate exact head and tested tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.verified_run_id }}
+        run: |
+          set -euo pipefail
+          tree=$(git rev-parse 'HEAD^{tree}')
+          node scripts/ci/validate-pr-checks-run.mjs \
+            "$RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$tree" \
+            /tmp/pr-checks-receipt/pr-checks-receipt.json
+
+      - id: accept
+        run: echo 'verified=true' >> "$GITHUB_OUTPUT"
+
   verify:
     name: PR Checks
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.verified_run_id == ''
+    permissions:
+      contents: read
+      actions: write # called complete-image job writes the shared BuildKit cache
     uses: ./.github/workflows/test.yml
     with:
       # Keeps this deploy's inline verify in its own concurrency group. Without
@@ -113,12 +161,17 @@ jobs:
 
   prepare:
     name: Resolve deploy target
-    needs: verify
+    needs: [verify-existing, verify]
     if: >-
       !cancelled() && (
-      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
+      (github.event_name == 'workflow_dispatch'
+       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
+        || (needs.verify.result == 'skipped'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'true'))) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
+       && needs.verify-existing.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository))
@@ -171,12 +224,17 @@ jobs:
 
   build-worker:
     name: Build worker assets
-    needs: [verify, prepare]
+    needs: [verify-existing, verify, prepare]
     if: >-
       !cancelled() && (
-      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
+      (github.event_name == 'workflow_dispatch'
+       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
+        || (needs.verify.result == 'skipped'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'true'))) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
+       && needs.verify-existing.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository))
@@ -233,12 +291,17 @@ jobs:
 
   container:
     name: Container image
-    needs: [verify, prepare]
+    needs: [verify-existing, verify, prepare]
     if: >-
       !cancelled() && (
-      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
+      (github.event_name == 'workflow_dispatch'
+       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
+        || (needs.verify.result == 'skipped'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'true'))) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
+       && needs.verify-existing.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository))
@@ -267,12 +330,17 @@ jobs:
 
   deploy:
     name: Deploy worker
-    needs: [verify, prepare, build-worker, container]
+    needs: [verify-existing, verify, prepare, build-worker, container]
     if: >-
       !cancelled() && (
-      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
+      (github.event_name == 'workflow_dispatch'
+       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
+        || (needs.verify.result == 'skipped'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'true'))) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
+       && needs.verify-existing.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository))
@@ -646,7 +714,7 @@ jobs:
   # happened.
   outcome:
     name: Deploy outcome
-    needs: [verify, prepare, build-worker, container, deploy]
+    needs: [verify-existing, verify, prepare, build-worker, container, deploy]
     # Carries the same gate as every other job, for the same reason. With a bare
     # `always()` this fired on workflow_run completions where PR Checks went RED:
     # the five gated jobs correctly skipped, and this job then failed the run
@@ -655,20 +723,25 @@ jobs:
     # misleading red Deploy. `!cancelled()` rather than `always()` for the reason
     # stated in the header: cancelling a deploy must actually stop it.
     #
-    # `verify.result == 'cancelled'` is listed too, and only here. verify calls
-    # test.yml as a reusable workflow, and a called workflow inherits the
-    # CALLER's context — so two manual dispatches of the same ref land in one
-    # concurrency group and the second cancels the first's verify. 'cancelled'
-    # satisfies neither branch below, so without this the first run skipped every
-    # job INCLUDING this backstop and a dispatched deploy silently did nothing.
+    # Cancelled verification dependencies are listed too, and only here. Inline
+    # verify calls test.yml as a reusable workflow, and a called workflow inherits
+    # the caller's context; explicit-run validation can also be cancelled with the
+    # deploy. A cancelled gate satisfies neither success branch, so this backstop
+    # must still report that no deploy happened.
     # `!cancelled()` does not cover it: that tests the run's own state, not a
     # dependency's.
     if: >-
       !cancelled() && (
-      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'success') ||
-      (github.event_name == 'workflow_dispatch' && needs.verify.result == 'cancelled') ||
+      (github.event_name == 'workflow_dispatch'
+       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
+        || (needs.verify.result == 'skipped'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'true'))) ||
+      (github.event_name == 'workflow_dispatch'
+       && (needs.verify.result == 'cancelled' || needs.verify-existing.result == 'cancelled')) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
+       && needs.verify-existing.result == 'skipped'
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository))

@@ -21,7 +21,7 @@ const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 
 // Jobs that check out a ref, build, or deploy. Every one must be unreachable
-// unless the code was verified. `verify` is excluded because it IS the gate.
+// unless the code was verified. `verify` and `verify-existing` are excluded because they ARE the mutually exclusive gates.
 const GATED_JOBS = ['prepare', 'build-worker', 'container', 'deploy', 'outcome'];
 
 /** Returns the raw YAML block for a top-level job. */
@@ -65,6 +65,11 @@ describe('manual deploys cannot skip tests', () => {
     const gate = condition('verify');
     assert.match(gate, /github\.event_name == 'workflow_dispatch'/, 'the verify job must run on manual dispatch');
     assert.match(gate, /inputs\.verified_run_id == ''/, 'inline verification must be the fallback when no run id is supplied');
+  });
+
+  it('publishes the actual checked-out tree as a reusable verification receipt', () => {
+    assert.match(testYml, /git rev-parse 'HEAD\^\{tree\}'/, 'the receipt must identify the tested tree, not only event metadata');
+    assert.match(testYml, /pr-checks-receipt-\$\{\{ github\.run_id \}\}/, 'the receipt artifact must be bound to its run id');
   });
 
   it('validates an existing PR Checks run before reusing it', () => {

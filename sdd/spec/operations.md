@@ -33,14 +33,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-3. The deploy pipeline runs as staged jobs: verify gates a manual dispatch on an inline PR Checks run, prepare resolves the target, worker assets and the container image build in parallel, deploy applies config and secrets, and outcome fails a run that deployed nothing. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-4. Dependencies are cached between runs for faster pipeline execution. <!-- @manual -->
-5. Frontend and landing assets are built once and handed to the deploy job as an artifact; no deployment step runs unless the gating PR Checks run for the same SHA ended green (tests are not re-run in-deploy). <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+3. The deploy pipeline runs as staged jobs: verification accepts an explicit successful PR Checks run only after its tested-tree receipt matches the deploy tree, otherwise manual dispatch runs PR Checks inline; prepare resolves the target, worker assets and the container image build in parallel, deploy applies config and secrets, and outcome fails a run that deployed nothing. <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (exact-head PR Checks run validation) -->
+4. Dependencies and complete-image BuildKit layers are cached between runs; PR complete-image checks and deployment builds use one cache scope. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status) -->
+5. Frontend and landing assets are built once and handed to the deploy job as an artifact; no deployment step runs unless inline checks passed or an explicit successful PR Checks run for the same SHA tested the same Git tree (tests are not re-run in-deploy). <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (exact-head PR Checks run validation) -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 
 **Constraints:**
 
-- Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration.
+- Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration. A supplied verification run id fails closed if its repository, workflow, head, required summary, receipt identity, or tested tree differs.
 - The CI runner label is configurable to support self-hosted runners.
 - Concurrent dispatches are kept legible and independent by [REQ-OPS-026](#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified).
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
@@ -108,7 +108,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
 - All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
 - The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the report and reconciliation gates in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) — not serialization — are what keep the result trustworthy.
-- Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
+- Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence); backend and frontend coverage run only when their path filter is affected or the workflow is a full run.
 
 **Priority:** P0
 
@@ -599,10 +599,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The lane asserts the coverage reporter produced its summary table before evaluating anything else, so a run that died before emitting coverage fails instead of passing on the absence of a failure string. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
-2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
-3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
-4. The known teardown-crash fingerprint is tolerated only after the table, test-failure, and threshold checks have all passed. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
+1. The shared coverage action asserts the reporter produced its summary table before evaluating anything else, so a run that died before emitting coverage fails instead of passing on the absence of a failure string. <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (path-gates backend and frontend coverage through one reusable action) -->
+2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (path-gates backend and frontend coverage through one reusable action) -->
+3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (path-gates backend and frontend coverage through one reusable action) -->
+4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (path-gates backend and frontend coverage through one reusable action) -->
 
 **Constraints:**
 

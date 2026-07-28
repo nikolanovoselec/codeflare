@@ -151,11 +151,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(imageJob.permissions?.actions).toBe('write');
     expect(imageCommands).toContain('docker buildx build');
     expect(imageCommands).toContain('--cache-from "type=gha,scope=container-image-linux-amd64"');
-    expect(imageCommands).toContain('--cache-to "type=gha,mode=max,scope=container-image-linux-amd64"');
+    expect(imageCommands).toContain('--cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true"');
     expect(imageCommands).toContain('--load');
     const deployImageWorkflow = readFileSync(join(REPO, '.github/workflows/container-image.yml'), 'utf8');
     expect(deployImageWorkflow).toContain('--cache-from "type=gha,scope=container-image-linux-amd64"');
-    expect(deployImageWorkflow).toContain('--cache-to "type=gha,mode=max,scope=container-image-linux-amd64"');
+    expect(deployImageWorkflow).toContain('--cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true"');
     expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
     // Identity and pinning shape, not the digest itself: what AC7 protects is
     // which actions this job may run -- adding a login or push action has to

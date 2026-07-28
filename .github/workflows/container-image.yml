@@ -244,8 +244,8 @@ jobs:
           # so the Trivy scan step and the push step that follow can
           # reference it by tag, unchanged.
           docker buildx build --platform linux/amd64 \
-            --cache-from "type=gha,scope=${REGISTRY}" \
-            --cache-to "type=gha,mode=max,scope=${REGISTRY}" \
+            --cache-from "type=gha,scope=container-image-linux-amd64" \
+            --cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true" \
             --load \
             --label "org.opencontainers.image.revision=${REF}" \
             -t "${IMAGE_NAME}:${TAG}" .
