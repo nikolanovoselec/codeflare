@@ -11,7 +11,7 @@
 // "Run the real thing" per tdd-discipline.md: extracts the actual shell function
 // from entrypoint.sh and runs it against a temp tree, then asserts the resulting
 // file modes. If the find expression stops matching, or the repair is dropped
-// from the post-sync path, these fail.
+// from the boot or post-sync path, these fail.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,6 +45,24 @@ function runRepair(claudeDir) {
   const script = `set -eu\nUSER_CLAUDE_DIR="${claudeDir}"\n${extractFunction('repair_hook_exec_bits')}\nrepair_hook_exec_bits\n`;
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
   return result.status;
+}
+
+function extractBootRepair() {
+  const start = entrypoint.indexOf('# Ensure hook files in ~/.claude/hooks/ are executable.');
+  assert.notEqual(start, -1, 'boot repair start not found in entrypoint.sh');
+  const end = entrypoint.indexOf('# Enable plugins', start);
+  assert.notEqual(end, -1, 'boot repair end not found in entrypoint.sh');
+  return entrypoint.slice(start, end);
+}
+
+function runBootRepair(home) {
+  const script = [
+    'set -eu',
+    `USER_CLAUDE_DIR=${JSON.stringify(join(home, '.claude'))}`,
+    extractFunction('repair_hook_exec_bits'),
+    extractBootRepair(),
+  ].join('\n');
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
 }
 
 function runSuccessfulBisync(home) {
@@ -101,6 +119,20 @@ describe('entrypoint repair_hook_exec_bits', () => {
     // that never create the directory; a failure here would abort the caller.
     const home = mkdtempSync(join(tmpdir(), 'hook-exec-absent-'));
     assert.equal(runRepair(join(home, '.claude')), 0);
+  });
+
+  it('repairs a restored hook on the boot path before plugin setup', () => {
+    const home = mkdtempSync(join(tmpdir(), 'hook-exec-boot-'));
+    const hooks = join(home, '.claude', 'hooks');
+    const hook = join(hooks, 'cache-heal.mjs');
+    mkdirSync(hooks, { recursive: true });
+    writeFileSync(hook, '#!/usr/bin/env node\nprocess.exit(0);\n', { mode: 0o644 });
+    chmodSync(hook, 0o644);
+
+    const result = runBootRepair(home);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(modeOf(hook), '755');
   });
 
   it('repairs and can execute a hook after a successful bisync', () => {
