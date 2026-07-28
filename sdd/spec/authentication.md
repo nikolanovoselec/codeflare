@@ -505,10 +505,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/admin/users` shows all users grouped by tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) -->
-2. Admin can search, approve pending users, change tiers, delete users (triggers full cleanup: KV + R2 + sessions + scoped tokens). <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) -->
-3. User count vs capacity displayed. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) -->
-4. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve / Block (`blocked` tier) control, and the bulk action approves all pending users to that same full-access tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) -->
+1. `/admin/users` shows all users grouped by tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with users in multiple tiers and confirm every user appears under the correct tier heading. -->
+2. An admin can search displayed users, approve pending users, change tiers, and request user deletion. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
+3. Deleting a user triggers full cleanup of KV state, R2 data, sessions, and scoped tokens. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) -->
+4. The admin page displays the user count against configured capacity. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with a configured capacity and confirm the current and maximum user counts are displayed. -->
+5. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve / Block (`blocked` tier) control, and the bulk action approves all pending users to that same full-access tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
+
+**Notes:** UI behavior in AC1, AC2, AC4, and AC5 lacks automated behavioral coverage; backend user mutation and cleanup remain covered.
 
 **Constraints:**
 
@@ -521,7 +524,7 @@ None.
 
 **Verification:** Automated test ([Integration test](../../src/__tests__/routes/users.test.ts))
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
