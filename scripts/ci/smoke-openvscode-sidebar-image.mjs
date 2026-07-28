@@ -143,11 +143,17 @@ async function verifyPackagedNativeChat(extensionRoot) {
   assert.equal(participant?.isDefault, true);
   assert.equal(participant?.isSticky, true);
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
+  assert.deepEqual(manifest.contributes?.menus?.['editor/context'], [{
+    command: 'codeflare.pi.reviewFile',
+    group: '1_chat@6',
+    when: "resourceScheme == 'file'",
+  }]);
   assert.equal(manifest.contributes?.views, undefined);
 
   const require = createRequire(import.meta.url);
   const Module = require('node:module');
   const originalLoad = Module._load;
+  let activeEditorUri;
   let executedCommand;
   let handler;
   let hostModelProvider;
@@ -184,7 +190,9 @@ async function verifyPackagedNativeChat(extensionRoot) {
       },
     },
     window: {
-      activeTextEditor: undefined,
+      get activeTextEditor() {
+        return activeEditorUri ? { document: { uri: activeEditorUri } } : undefined;
+      },
       showWarningMessage: async () => undefined,
       showTextDocument: async () => undefined,
     },
@@ -226,7 +234,8 @@ async function verifyPackagedNativeChat(extensionRoot) {
     assert.equal(await hostModelProvider.provideTokenCount(), 0);
     assert.equal(typeof reviewFile, 'function', 'packaged extension did not register file review');
     const reviewResource = uri(reviewPath);
-    await reviewFile(reviewResource);
+    activeEditorUri = reviewResource;
+    await reviewFile();
     assert.equal(executedCommand?.id, 'workbench.action.chat.open');
     assert.deepEqual(executedCommand?.options.attachFiles.map((file) => file.fsPath), [reviewResource.fsPath]);
     assert.match(executedCommand?.options.query, /^@codeflare\b/);

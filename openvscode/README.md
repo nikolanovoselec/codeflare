@@ -18,7 +18,7 @@ The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned h
 
 Pi never reads `request.model` or sends inference through that provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
 
-Right-click a workspace file in Explorer and select **Review with Codeflare** to attach that file and submit a review directly to the Codeflare Pi native Chat participant. Files outside the workspace and symbolic-link aliases are rejected before Chat opens.
+Right-click a workspace file in Explorer or inside its active editor and select **Review with Codeflare** to attach that file and submit a review directly to the Codeflare Pi native Chat participant. Files outside the workspace and symbolic-link aliases are rejected before Chat opens.
 
 Every request receives bounded native Chat history plus the active workspace document, selected text, open workspace documents, diagnostics, and explicit references. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 512 KiB.
 
@@ -42,4 +42,4 @@ The required `browser-ide` lane performs dependency and license checks for owned
 
 This constrained development container does not run builds or tests locally. Use GitHub Actions and an exact reviewed integration deployment.
 
-See [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-011](../sdd/spec/browser-ide.md#req-ide-011-explorer-file-review-with-codeflare), [AD114](../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [Container](../documentation/lanes/container.md#code-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-native-agents).
+See [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-011](../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [AD114](../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [Container](../documentation/lanes/container.md#code-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-native-agents).

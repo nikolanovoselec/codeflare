@@ -30,13 +30,13 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
 
-### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent))
+### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](../../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare))
 
-**Symptom:** A Pi session shows Copilot setup instead of Codeflare in the main Chat, a Claude session has no Anthropic Spark panel, or an unsupported agent unexpectedly has an agent extension.
+**Symptom:** A Pi session shows Copilot setup instead of Codeflare in the main Chat, an editor right-click shows upstream **Code Review** but not **Review with Codeflare**, a Claude session has no Anthropic Spark panel, or an unsupported agent unexpectedly has an agent extension.
 
-**Cause:** The session may be non-advanced, tab 1 may not contain an exact supported command, the wrong immutable inventory may be selected, Pi's extension-qualified proposal may be absent, or the official Claude package may have failed identity/host validation.
+**Cause:** The session may be non-advanced, tab 1 may not contain an exact supported command, the wrong immutable inventory may be selected, Pi's extension-qualified proposal may be absent, or the official Claude package may have failed identity/host validation. A container already running during image deployment keeps its old filesystem and menu contributions until that session restarts.
 
-**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and `/opt/codeflare/openvscode/extensions/{pi,claude,none}`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports `host_discovery` for Pi and Claude, an empty inventory, `DEFAULT_NATIVE_PI_OK`, `OFFICIAL_CLAUDE_OK`, cold readiness, process count, and RSS.
+**Fix:** Reproduce in a fresh or restarted session, then inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, `/opt/codeflare/openvscode/extensions/{pi,claude,none}`, and `/opt/code-server/lib/vscode/extensions/copilot`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; the bundled Copilot directory must be absent; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports `host_discovery` for Pi and Claude, an empty inventory, `DEFAULT_NATIVE_PI_OK`, `OFFICIAL_CLAUDE_OK`, cold readiness, process count, and RSS.
 
 ### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
 

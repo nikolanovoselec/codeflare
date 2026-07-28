@@ -3,7 +3,7 @@ import { afterEach, test, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
   activeEditorUri: undefined as { fsPath: string; scheme: string } | undefined,
-  commandHandler: undefined as ((resource?: { fsPath: string; scheme: string }) => Promise<void>) | undefined,
+  commandHandler: undefined as ((resource?: unknown) => Promise<void>) | undefined,
   commandId: undefined as string | undefined,
   executedCommand: undefined as { id: string; options: Record<string, unknown> } | undefined,
   participantId: undefined as string | undefined,
@@ -30,7 +30,7 @@ vi.mock('vscode', () => ({
     executeCommand: async (id: string, options: Record<string, unknown>) => {
       host.executedCommand = { id, options };
     },
-    registerCommand: (id: string, handler: (resource?: { fsPath: string; scheme: string }) => Promise<void>) => {
+    registerCommand: (id: string, handler: (resource?: unknown) => Promise<void>) => {
       host.commandId = id;
       host.commandHandler = handler;
       return { dispose() {} };
@@ -134,6 +134,21 @@ test('REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Co
   assert.equal(host.executedCommand?.id, 'workbench.action.chat.open');
   assert.deepEqual(host.executedCommand?.options.attachFiles, [host.activeEditorUri]);
   assert.match(String(host.executedCommand?.options.query), /^@codeflare\b/);
+  assert.equal(host.executedCommand?.options.mode, 'ask');
+  assert.deepEqual(host.warnings, []);
+});
+
+test('REQ-IDE-011 AC2+AC3: editor review ignores a malformed command argument and uses the active file', async () => {
+  activate({
+    extensionUri: { fsPath: '/extension' },
+    subscriptions: [],
+  } as never);
+
+  host.activeEditorUri = { fsPath: '/home/user/workspace/src/editor.ts', scheme: 'file' };
+  assert.ok(host.commandHandler);
+  await host.commandHandler({ unexpected: true });
+
+  assert.deepEqual(host.executedCommand?.options.attachFiles, [host.activeEditorUri]);
   assert.equal(host.executedCommand?.options.mode, 'ask');
   assert.deepEqual(host.warnings, []);
 });

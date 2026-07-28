@@ -62,6 +62,13 @@
           "group": "1_chat@1",
           "when": "resourceScheme == 'file' && !explorerResourceIsFolder"
         }
+      ],
+      "editor/context": [
+        {
+          "command": "codeflare.pi.reviewFile",
+          "group": "1_chat@6",
+          "when": "resourceScheme == 'file'"
+        }
       ]
     }
   },

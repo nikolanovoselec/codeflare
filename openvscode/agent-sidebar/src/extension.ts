@@ -74,7 +74,7 @@ export function activate(context: ExtensionContext): void {
   );
   const reviewFile = commands.registerCommand(
     REVIEW_FILE_COMMAND,
-    (resource?: Uri) => openFileReview(resource),
+    (resource?: unknown) => openFileReview(resource),
   );
   participant.iconPath = Uri.joinPath(context.extensionUri, 'media', 'agent.svg');
   activeRuntime = runtime;
@@ -92,16 +92,19 @@ export async function deactivate(): Promise<void> {
   await runtime?.dispose();
 }
 
-async function openFileReview(resource: Uri | undefined): Promise<void> {
+async function openFileReview(resource: unknown): Promise<void> {
+  const selectedResource = isUriResource(resource)
+    ? resource
+    : window.activeTextEditor?.document.uri;
   if (
-    resource?.scheme !== 'file'
-    || typeof resource.fsPath !== 'string'
-    || resource.fsPath.length === 0
+    selectedResource?.scheme !== 'file'
+    || typeof selectedResource.fsPath !== 'string'
+    || selectedResource.fsPath.length === 0
   ) {
     await window.showWarningMessage('Review with Codeflare is available only for workspace files.');
     return;
   }
-  const canonicalPath = await canonicalWorkspaceFilePath(resource);
+  const canonicalPath = await canonicalWorkspaceFilePath(selectedResource);
   if (!canonicalPath) {
     await window.showWarningMessage('Review with Codeflare is available only for workspace files.');
     return;
@@ -112,6 +115,15 @@ async function openFileReview(resource: Uri | undefined): Promise<void> {
     attachFiles: [file],
     mode: 'ask',
   });
+}
+
+function isUriResource(value: unknown): value is Uri {
+  return typeof value === 'object'
+    && value !== null
+    && 'scheme' in value
+    && typeof value.scheme === 'string'
+    && 'fsPath' in value
+    && typeof value.fsPath === 'string';
 }
 
 class NativePiRuntime {
