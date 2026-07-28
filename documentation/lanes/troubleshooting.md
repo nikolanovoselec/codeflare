@@ -30,6 +30,22 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
 
+### Browser IDE URL exposes or accepts a workspace selector ([REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection))
+
+**Symptom:** The browser lands on `?folder=/home/user/workspace`, or a public `folder`, `workspace`, or `ew` query changes the opened workspace.
+
+**Cause:** The deployment predates clean fixed-workspace routing, or only one of the Worker/host defense-in-depth checks was updated.
+
+**Fix:** Use a fresh session on an image where the Worker and host both reject decoded selector keys, the private root hop injects the fixed folder, and redirect rewriting removes selectors. The normal public location is `/api/vscode/<sessionId>/`. This is not an OS sandbox; terminals, trusted extensions, and agents retain container filesystem access.
+
+### Browser IDE theme, Explorer state, or open files do not persist ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable))
+
+**Symptom:** A fresh session returns to default UI state, or unexpected IDE databases appear in persistent storage.
+
+**Cause:** code-server may not have been reaped before final sync, `~/.codeflare/ide-ui-state.json` may be absent or invalid, or the snapshot/filter allowlist may have drifted.
+
+**Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only that exact path survives the `~/.codeflare/**` R2 filter. Never sync `/tmp/openvscode-data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Managed inventory settings must be reapplied after restore.
+
 ### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](../../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare))
 
 **Symptom:** A Pi session shows Copilot setup instead of Codeflare in the main Chat, an editor right-click shows upstream **Code Review** but not **Review with Codeflare**, a Claude session has no Anthropic Spark panel, or an unsupported agent unexpectedly has an agent extension.
@@ -40,7 +56,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
 
-**Symptom:** Codeflare Pi reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
+**Symptom:** Codeflare reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
 
 **Cause:** `Language model unavailable` means the pinned Code OSS host rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
 
@@ -62,7 +78,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Do not delete pidfiles first. Stop or restart the Browser IDE and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
 
-See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
+See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 

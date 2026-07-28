@@ -12,6 +12,8 @@ import { WebSocket, WebSocketServer, type RawData } from 'ws';
 
 /** Default lazy-start trigger path the Browser IDE supervisor waits on. */
 export const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
+export const CODEFLARE_WORKSPACE_ROOT = '/home/user/workspace';
+const WORKSPACE_SELECTOR_KEYS = Object.freeze(['folder', 'workspace', 'ew']);
 
 // VS Code's remote protocol uses messages around 256 KiB. The terminal's
 // defensive 64 KiB cap therefore cannot be reused here: `ws` rejects an
@@ -118,8 +120,8 @@ export function isVscodePath(pathname: string | null | undefined): boolean {
 
 /**
  * Strip only `/api/vscode/<expectedSessionId>` for code-server. Query strings
- * are intentionally rejected here and remain caller-owned so their original
- * bytes can be appended unchanged. Any missing, mismatched, encoded, or
+ * are intentionally rejected here and remain caller-owned for the separate
+ * selector validation/request-target step. Any missing, mismatched, encoded, or
  * lookalike prefix fails closed before an upstream request is created.
  */
 export function vscodeUpstreamPath(
@@ -131,6 +133,43 @@ export function vscodeUpstreamPath(
   if (pathname === prefix) return '/';
   if (!pathname.startsWith(`${prefix}/`)) return null;
   return pathname.slice(prefix.length);
+}
+
+/**
+ * Build the exact loopback request target without exposing a workspace path in
+ * the browser. Public workspace selectors are never trusted, even when they name
+ * the fixed root. Only the root document receives the internal fixed selector;
+ * asset and protocol query bytes remain unchanged.
+ */
+export function vscodeUpstreamRequestTarget(
+  rawUrl: string | null | undefined,
+  upstreamPath: string,
+): string | null {
+  if (!rawUrl) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl, 'http://codeflare.invalid');
+  } catch {
+    return null;
+  }
+  if (WORKSPACE_SELECTOR_KEYS.some((key) => parsed.searchParams.has(key))) return null;
+  const queryIndex = rawUrl.indexOf('?');
+  const search = queryIndex === -1 ? '' : rawUrl.slice(queryIndex);
+  if (upstreamPath !== '/') return `${upstreamPath}${search}`;
+  const separator = search ? '&' : '?';
+  return `/${search}${separator}folder=${encodeURIComponent(CODEFLARE_WORKSPACE_ROOT)}`;
+}
+
+/** Rewrite a root-relative code-server redirect beneath the public session path. */
+export function rewriteVscodeLocation(location: string, sessionId: string): string {
+  if (!location.startsWith('/') || location.startsWith('//')) return location;
+  try {
+    const parsed = new URL(location, 'http://codeflare.invalid');
+    for (const key of WORKSPACE_SELECTOR_KEYS) parsed.searchParams.delete(key);
+    return `/api/vscode/${sessionId}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return `/api/vscode/${sessionId}/`;
+  }
 }
 
 /**

@@ -71,6 +71,7 @@ const logger = createLogger('vscode');
  * failure state that the page's own "reload to try again" cannot escape.
  */
 const WARM_PARAM = 'cf_since';
+const WORKSPACE_SELECTOR_KEYS = Object.freeze(['folder', 'workspace', 'ew']);
 const WARM_GIVE_UP_MS = 120_000;
 const WARM_REFRESH_SECONDS = 3;
 
@@ -167,6 +168,13 @@ export async function handleVscodeRequest(
       { status: 500, headers: jsonHeaders },
     );
   }
+  const requestUrl = new URL(request.url);
+  if (WORKSPACE_SELECTOR_KEYS.some((key) => requestUrl.searchParams.has(key))) {
+    return new Response(
+      JSON.stringify({ error: 'Browser IDE workspace selectors are not allowed', code: 'VSCODE_WORKSPACE_SELECTOR_FORBIDDEN' }),
+      { status: 400, headers: jsonHeaders },
+    );
+  }
 
   // Browser WS upgrade requires Origin; non-browser clients without
   // Sec-Fetch-Mode are exempted (matches terminal.ts / vault.ts).
@@ -208,7 +216,6 @@ export async function handleVscodeRequest(
     const { sessionKey } = ownershipResult;
 
     const container = getContainer(env.CONTAINER, containerId);
-    const requestUrl = new URL(request.url);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
     if (!warmProbe.healthy) {
       // A WebSocket upgrade cannot render a page, so it keeps the machine-readable

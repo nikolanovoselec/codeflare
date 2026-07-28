@@ -3,7 +3,12 @@ import { lstat, mkdir, readFile, readlink, readdir, realpath, rename, rm, symlin
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { buildBaseOpenVscodeSettings, buildOpenVscodeSettings } from "./managed-settings.mjs";
+import {
+  MANAGED_OPENVSCODE_SETTING_KEYS,
+  buildBaseOpenVscodeSettings,
+  buildOpenVscodeSettings,
+  buildUnsupportedOpenVscodeSettings,
+} from "./managed-settings.mjs";
 
 export const MANAGED_SETTINGS_PATH = "/etc/codeflare/claude-sidebar/settings.json";
 
@@ -75,14 +80,30 @@ async function writeOpenVscodeUserSettings(serverDataRoot, settings) {
     throw new Error("OpenVSCode settings directory must not be redirected");
   }
   const existing = await lstatOrUndefined(settingsPath);
-  if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
-    throw new Error("OpenVSCode settings must be a real file");
+  if (existing && (!existing.isFile() || existing.isSymbolicLink() || existing.size > 256 * 1024)) {
+    throw new Error("OpenVSCode settings must be a bounded real file");
   }
+  let preserved = {};
+  if (existing) {
+    let parsed;
+    try {
+      parsed = JSON.parse(await readFile(settingsPath, "utf8"));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      parsed = {};
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("OpenVSCode settings must be a JSON object");
+    }
+    const managed = new Set(MANAGED_OPENVSCODE_SETTING_KEYS);
+    preserved = Object.fromEntries(Object.entries(parsed).filter(([key]) => !managed.has(key)));
+  }
+  const merged = { ...preserved, ...settings };
   const temporary = `${settingsPath}.tmp-${process.pid}-${randomUUID()}`;
   try {
     await writeFile(
       temporary,
-      `${JSON.stringify(settings, null, 2)}\n`,
+      `${JSON.stringify(merged, null, 2)}\n`,
       { encoding: "utf8", flag: "wx", mode: 0o600 },
     );
     await rename(temporary, settingsPath);
@@ -102,6 +123,11 @@ export async function prepareOpenVscodeSettings(options) {
 export async function prepareBaseOpenVscodeSettings(serverDataRoot) {
   const root = validateRoot(serverDataRoot, "OpenVSCode data");
   await writeOpenVscodeUserSettings(root, buildBaseOpenVscodeSettings());
+}
+
+export async function prepareUnsupportedOpenVscodeSettings(serverDataRoot) {
+  const root = validateRoot(serverDataRoot, "OpenVSCode data");
+  await writeOpenVscodeUserSettings(root, buildUnsupportedOpenVscodeSettings());
 }
 
 async function validatePreparedSidebarConfig(targetRoot) {
@@ -197,8 +223,12 @@ async function main() {
   // Absent kind defaults to claude for backward compatibility with the original
   // single-argument shim contract.
   const agentKind = process.argv[3] || "claude";
-  if (agentKind !== "claude") {
+  if (agentKind === "pi") {
     await prepareBaseOpenVscodeSettings(serverDataRoot);
+    return;
+  }
+  if (agentKind !== "claude") {
+    await prepareUnsupportedOpenVscodeSettings(serverDataRoot);
     return;
   }
   const managedSettings = await lstat(MANAGED_SETTINGS_PATH);

@@ -6,6 +6,7 @@ const host = vi.hoisted(() => ({
   commandHandler: undefined as ((resource?: unknown) => Promise<void>) | undefined,
   commandId: undefined as string | undefined,
   executedCommand: undefined as { id: string; options: Record<string, unknown> } | undefined,
+  contextValues: [] as Array<{ key: string; value: unknown }>,
   participantId: undefined as string | undefined,
   modelVendor: undefined as string | undefined,
   modelProvider: undefined as Record<string, (...args: never[]) => unknown> | undefined,
@@ -27,8 +28,12 @@ vi.mock('vscode', () => ({
   },
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   commands: {
-    executeCommand: async (id: string, options: Record<string, unknown>) => {
-      host.executedCommand = { id, options };
+    executeCommand: async (id: string, ...args: unknown[]) => {
+      if (id === 'setContext') {
+        host.contextValues.push({ key: String(args[0]), value: args[1] });
+        return;
+      }
+      host.executedCommand = { id, options: args[0] as Record<string, unknown> };
     },
     registerCommand: (id: string, handler: (resource?: unknown) => Promise<void>) => {
       host.commandId = id;
@@ -72,6 +77,7 @@ afterEach(async () => {
   host.commandHandler = undefined;
   host.commandId = undefined;
   host.executedCommand = undefined;
+  host.contextValues = [];
   host.participantId = undefined;
   host.modelVendor = undefined;
   host.modelProvider = undefined;
@@ -86,11 +92,13 @@ test('REQ-IDE-005 AC5: native Pi registers an account-free panel model that reje
   } as never);
 
   assert.equal(host.participantId, 'codeflare.pi');
+  assert.deepEqual(host.contextValues, [{ key: 'chatSetupCompleted', value: true }]);
   assert.equal(host.modelVendor, 'copilot');
   const provider = host.modelProvider;
   assert.ok(provider);
   const models = await provider.provideLanguageModelChatInformation() as Array<Record<string, unknown>>;
   assert.equal(models.length, 1);
+  assert.equal(models[0]?.name, 'Codeflare');
   assert.deepEqual(models[0]?.isDefault, { 1: true });
   assert.equal(models[0]?.isUserSelectable, false);
   assert.equal(models[0]?.requiresAuthorization, undefined);
@@ -102,7 +110,7 @@ test('REQ-IDE-005 AC5: native Pi registers an account-free panel model that reje
   assert.equal(subscriptions.length, 4);
 });
 
-test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare Pi ask mode', async () => {
+test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare ask mode', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
@@ -121,7 +129,7 @@ test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codefla
   assert.deepEqual(host.warnings, []);
 });
 
-test('REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Codeflare Pi ask mode', async () => {
+test('REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Codeflare ask mode', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],

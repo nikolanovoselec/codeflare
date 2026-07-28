@@ -139,6 +139,39 @@ describe('REQ-IDE-001 AC3: code-server WebSocket caller routing and proxy identi
     assert.equal(upstreamRequests.length, beforeCount);
   });
 
+  it('REQ-IDE-012: rejects public workspace selectors before opening a code-server socket', { timeout: 5000 }, async () => {
+    for (const query of ['?folder=/etc', '?workspace=/tmp/x.code-workspace', '?ew=true', '?%66older=/etc']) {
+      const beforeCount = upstreamRequests.length;
+      const client = new WebSocket(
+        `ws://127.0.0.1:${proxyPort}/api/vscode/${SID}/ws${query}`,
+        {
+          headers: {
+            Authorization: 'Bearer browser-ide-test-token',
+            Origin: 'https://codeflare.ch',
+            'X-Forwarded-Host': 'codeflare.ch',
+            'X-Forwarded-Proto': 'https',
+          },
+        },
+      );
+
+      const status = await new Promise((resolve, reject) => {
+        client.once('unexpected-response', (_request, response) => {
+          response.resume();
+          resolve(response.statusCode);
+        });
+        client.once('open', () => resolve(101));
+        client.once('error', (error) => {
+          if (error.message.includes('Unexpected server response')) return;
+          reject(error);
+        });
+      });
+
+      client.terminate();
+      assert.equal(status, 400);
+      assert.equal(upstreamRequests.length, beforeCount);
+    }
+  });
+
   it('REQ-IDE-001 AC7: rejects a mismatched session prefix before opening a code-server socket', { timeout: 5000 }, async () => {
     const beforeCount = upstreamRequests.length;
     const client = new WebSocket(

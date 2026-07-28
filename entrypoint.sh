@@ -350,6 +350,12 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .bashrc"
     --filter "- .bash_profile"
 
+    # Browser IDE continuity: one bounded, credential-free snapshot captured only
+    # after code-server is reaped. Everything else under ~/.codeflare is excluded.
+    --filter "+ .codeflare/"
+    --filter "+ .codeflare/ide-ui-state.json"
+    --filter "- .codeflare/**"
+
     # Package manager caches — regenerated on npm/bun install
     --filter "- .npm/**"
     --filter "- .bun/**"
@@ -1275,8 +1281,8 @@ start_silverbullet_supervisor() {
 #
 # SESSION ISOLATION: the browser retains /api/vscode/<SESSION_ID>, while the host
 # strips only that exact prefix before code-server. --user-data-dir and the fixed
-# extension inventory are ephemeral under /tmp and /opt respectively, so editor
-# state cannot leak across session containers. Private openvscode function and
+# extension inventory are ephemeral under /tmp and /opt respectively. Only the
+# bounded post-reap UI snapshot below crosses sessions; private openvscode function and
 # environment names remain intentionally during this bounded migration.
 # ============================================================================
 
@@ -1453,17 +1459,33 @@ _openvscode_prepare_agent() {
     /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh "$2" "$1"
 }
 
+_openvscode_restore_ui_state() {
+    python3 /opt/codeflare/openvscode/browser-ide-ui-state.py restore \
+        --data-root "$1" \
+        --snapshot "${OPENVSCODE_UI_STATE_PATH:-$HOME/.codeflare/ide-ui-state.json}" \
+        --workspace "${OPENVSCODE_WORKSPACE:-$HOME/workspace}"
+}
+
+_openvscode_capture_ui_state() {
+    python3 /opt/codeflare/openvscode/browser-ide-ui-state.py capture \
+        --data-root "$1" \
+        --snapshot "${OPENVSCODE_UI_STATE_PATH:-$HOME/.codeflare/ide-ui-state.json}" \
+        --workspace "${OPENVSCODE_WORKSPACE:-$HOME/workspace}"
+}
+
 # Launch code-server once in the foreground (the retained private supervisor
 # wraps this in a restart loop). The host strips the exact public session prefix,
 # so code-server serves root paths on loopback. Its own auth is disabled only
 # because the Worker + container bearer boundary already authenticated the
-# request. Editor state remains ephemeral under /tmp. REQ-IDE-001/002/005/009.
+# request. Live editor state remains ephemeral under /tmp; only the post-reap
+# REQ-IDE-002 UI allowlist persists. REQ-IDE-001/002/005/009/012.
 _openvscode_launch_once() {
     local sidebar_agent extensions_dir data_dir
     local -a proposed_api_args=()
     sidebar_agent="$(_openvscode_agent_kind)"
     extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
     data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
+    _openvscode_restore_ui_state "$data_dir"
     if ! _openvscode_prepare_agent "$sidebar_agent" "$data_dir"; then
         echo "[openvscode] IDE settings preparation failed; refusing launch" >&2
         return 1
@@ -1493,6 +1515,7 @@ _openvscode_launch_once() {
 # terminal state. REQ-IDE-003 AC4, REQ-IDE-008 AC4.
 _openvscode_supervise_loop() {
     local generation_pidfile current_pid="" current_start="" current_generation="" current_pgid="" exit_code
+    local data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
     generation_pidfile="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation-${BASHPID}.pid}"
 
     _openvscode_cleanup_current_generation() {
@@ -1508,6 +1531,7 @@ _openvscode_supervise_loop() {
                 return 1
             fi
         fi
+        _openvscode_capture_ui_state "$data_dir"
         rm -f "$generation_pidfile" "${generation_pidfile}.tmp"
         current_pid=""
         current_start=""
@@ -1560,7 +1584,7 @@ start_openvscode_supervisor() {
     # helpers available inside the fresh non-interactive setsid bash.
     export OPENVSCODE_GENERATION_PIDFILE="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
     export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree
-    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_launch_once _openvscode_supervise_loop
+    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_launch_once _openvscode_supervise_loop
     setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
         >> /tmp/openvscode.log 2>&1 &
 

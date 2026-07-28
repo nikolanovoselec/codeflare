@@ -66,6 +66,7 @@ async function main() {
 
   await verifyConfigProjection();
   await verifyOpenVscodeSettings();
+  await verifyUiStateHelper();
   const claudeVersion = execFileSync('/usr/local/bin/claude', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
   const piVersion = execFileSync('/usr/local/bin/pi', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
 
@@ -133,13 +134,20 @@ async function verifyCodeServerRuntime() {
 async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
+  assert.equal(manifest.displayName, 'Codeflare');
+  assert.deepEqual(manifest.activationEvents, [
+    'onStartupFinished',
+    'onChatParticipant:codeflare.pi',
+    'onCommand:codeflare.pi.reviewFile',
+  ]);
   assert.deepEqual(manifest.contributes?.languageModelChatProviders, [{
     vendor: 'copilot',
-    displayName: 'Codeflare Pi (Local RPC)',
+    displayName: 'Codeflare',
   }]);
   const [participant] = manifest.contributes?.chatParticipants ?? [];
   assert.equal(participant?.id, 'codeflare.pi');
   assert.equal(participant?.name, 'codeflare');
+  assert.equal(participant?.fullName, 'Codeflare');
   assert.equal(participant?.isDefault, true);
   assert.equal(participant?.isSticky, true);
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
@@ -155,6 +163,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   const originalLoad = Module._load;
   let activeEditorUri;
   let executedCommand;
+  const contextValues = new Map();
   let handler;
   let hostModelProvider;
   let reviewFile;
@@ -174,7 +183,13 @@ async function verifyPackagedNativeChat(extensionRoot) {
       },
     },
     commands: {
-      executeCommand: async (id, options) => { executedCommand = { id, options }; },
+      executeCommand: async (id, ...args) => {
+        if (id === 'setContext') {
+          contextValues.set(String(args[0]), args[1]);
+          return;
+        }
+        executedCommand = { id, options: args[0] };
+      },
       registerCommand: (id, candidate) => {
         assert.equal(id, 'codeflare.pi.reviewFile');
         reviewFile = candidate;
@@ -221,9 +236,11 @@ async function verifyPackagedNativeChat(extensionRoot) {
     const subscriptions = [];
     extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
+    assert.equal(contextValues.get('chatSetupCompleted'), true, 'packaged Pi inventory did not suppress Code OSS account setup actions');
     assert.equal(typeof hostModelProvider, 'object', 'packaged extension did not register its host compatibility model');
     const models = await hostModelProvider.provideLanguageModelChatInformation({}, {});
     assert.equal(models.length, 1);
+    assert.equal(models[0].name, 'Codeflare');
     assert.deepEqual(models[0].isDefault, { 1: true });
     assert.equal(models[0].isUserSelectable, false);
     assert.equal(models[0].requiresAuthorization, undefined);
@@ -312,6 +329,40 @@ async function verifyOpenVscodeSettings() {
     const settings = JSON.parse(await readFile(join(serverDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
     assert.deepEqual(settings, managed.buildOpenVscodeSettings(claudeConfigRoot));
     assert.equal(settings['chat.disableAIFeatures'], true);
+
+    const unsupportedDataRoot = join(root, 'unsupported-data');
+    await preparation.prepareUnsupportedOpenVscodeSettings(unsupportedDataRoot);
+    const unsupportedSettings = JSON.parse(await readFile(join(unsupportedDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
+    assert.deepEqual(unsupportedSettings, managed.buildUnsupportedOpenVscodeSettings());
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function verifyUiStateHelper() {
+  const helper = join(ROOT, 'browser-ide-ui-state.py');
+  const helperInfo = await stat(helper);
+  assert.equal(helperInfo.uid, 0);
+  assert.equal(helperInfo.mode & 0o222, 0);
+  assert.equal(helperInfo.mode & 0o111, 0o111);
+
+  const root = await mkdtemp(join(tmpdir(), 'ide-ui-state-image-smoke-'));
+  try {
+    const workspace = join(root, 'workspace');
+    const live = join(root, 'live');
+    const restored = join(root, 'restored');
+    const snapshot = join(root, 'persistent', 'ide-ui-state.json');
+    await mkdir(join(live, 'data', 'User'), { recursive: true });
+    await mkdir(workspace);
+    await writeFile(join(live, 'data', 'User', 'settings.json'), JSON.stringify({
+      'workbench.colorTheme': 'Default Dark Modern',
+      'github.copilot.token': 'must-not-persist',
+    }));
+    execFileSync('python3', [helper, 'capture', '--data-root', live, '--snapshot', snapshot, '--workspace', workspace]);
+    execFileSync('python3', [helper, 'restore', '--data-root', restored, '--snapshot', snapshot, '--workspace', workspace]);
+    const restoredSettings = JSON.parse(await readFile(join(restored, 'data', 'User', 'settings.json'), 'utf8'));
+    assert.deepEqual(restoredSettings, { 'workbench.colorTheme': 'Default Dark Modern' });
+    assert.doesNotMatch(await readFile(snapshot, 'utf8'), /copilot|must-not-persist/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

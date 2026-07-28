@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { createActivityTracker } from '../dist/activity-tracker.js';
-import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, VSCODE_WARMING_GIVE_UP_MS, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
+import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, rewriteVscodeLocation, vscodeUpstreamPath, vscodeUpstreamRequestTarget, requestOpenvscodeStart, VSCODE_WARMING_GIVE_UP_MS, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
 
 describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () => {
   it('matches the bare /api/vscode surface and everything below it', () => {
@@ -62,6 +62,45 @@ describe('vscodeUpstreamPath / REQ-IDE-001 AC7 (exact session prefix strip)', ()
   it('REQ-IDE-001 AC3: transforms only the pathname so query bytes remain caller-owned', () => {
     assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/x`, SID), '/x');
     assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/x?token=a%2Fb&token=two+words`, SID), null);
+  });
+});
+
+describe('vscodeUpstreamRequestTarget / REQ-IDE-012 (fixed clean workspace navigation)', () => {
+  it('injects the fixed workspace only into the loopback root request while preserving unrelated query bytes', () => {
+    assert.equal(
+      vscodeUpstreamRequestTarget('/api/vscode/sid/?resource=a%2Fb&empty=&bare', '/'),
+      '/?resource=a%2Fb&empty=&bare&folder=%2Fhome%2Fuser%2Fworkspace',
+    );
+    assert.equal(
+      vscodeUpstreamRequestTarget('/api/vscode/sid/stable.js?resource=a%2Fb&empty=&bare', '/stable.js'),
+      '/stable.js?resource=a%2Fb&empty=&bare',
+    );
+  });
+
+  it('rejects every public folder, workspace, and empty-window selector, including encoded and repeated keys', () => {
+    const rejected = [
+      '?folder=/etc',
+      '?folder=/home/user/workspace',
+      '?workspace=/tmp/escape.code-workspace',
+      '?ew=true',
+      '?%66older=/etc',
+      '?safe=1&folder=/etc&folder=/home/user/workspace',
+    ];
+    assert.deepEqual(
+      rejected.map((query) => vscodeUpstreamRequestTarget(`/api/vscode/sid/${query}`, '/')),
+      rejected.map(() => null),
+    );
+  });
+
+  it('removes upstream workspace selectors from the browser-visible redirect', () => {
+    assert.equal(
+      rewriteVscodeLocation('/?folder=%2Fhome%2Fuser%2Fworkspace', 'sid'),
+      '/api/vscode/sid/',
+    );
+    assert.equal(
+      rewriteVscodeLocation('/login?next=%2Fstable.js', 'sid'),
+      '/api/vscode/sid/login?next=%2Fstable.js',
+    );
   });
 });
 

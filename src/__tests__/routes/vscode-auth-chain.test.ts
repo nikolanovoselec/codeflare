@@ -145,6 +145,40 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(forwarded.headers.get('X-Forwarded-Proto')).toBe('https');
   });
 
+  it('REQ-IDE-012: rejects public workspace selectors before the container boundary', async () => {
+    for (const query of [
+      '?folder=/etc',
+      '?workspace=/tmp/escape.code-workspace',
+      '?ew=true',
+      '?%66older=/etc',
+      '?safe=1&folder=/etc&folder=/home/user/workspace',
+    ]) {
+      mockContainerFetch.mockClear();
+      const request = vscodeRequest(`/api/vscode/${SID}/${query}`);
+      const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+      expect(response.status).toBe(400);
+      expect((await response.json() as { code: string }).code).toBe('VSCODE_WORKSPACE_SELECTOR_FORBIDDEN');
+      expect(mockContainerFetch).not.toHaveBeenCalled();
+    }
+  });
+
+  it('REQ-IDE-012: rejects a WebSocket workspace selector before the container boundary', async () => {
+    const request = vscodeRequest(`/api/vscode/${SID}/ws?folder=/etc`, {
+      Upgrade: 'websocket',
+      Connection: 'Upgrade',
+      'Sec-WebSocket-Key': 'dGVzdC13ZWJzb2NrZXQta2V5',
+      'Sec-WebSocket-Version': '13',
+      'Sec-Fetch-Mode': 'websocket',
+    });
+    expect(route(request).isWebSocket).toBe(true);
+
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+
+    expect(response.status).toBe(400);
+    expect((await response.json() as { code: string }).code).toBe('VSCODE_WORKSPACE_SELECTOR_FORBIDDEN');
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
   it('REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently', async () => {
     const request = vscodeRequest(undefined, { Origin: 'https://allowed-alias.example' });
 

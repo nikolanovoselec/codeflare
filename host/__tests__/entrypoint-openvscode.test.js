@@ -77,16 +77,19 @@ function runBash(script, env = {}) {
   return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, ...env } });
 }
 
-function openvscodeLaunchScript({ stubAgentPreparation = true } = {}) {
+function openvscodeLaunchScript({ stubAgentPreparation = true, stubUiState = true } = {}) {
   const production = [
     extractOptionalFn('_openvscode_agent_kind'),
     extractOptionalFn('_openvscode_extensions_dir'),
     extractOptionalFn('_openvscode_prepare_agent'),
+    extractOptionalFn('_openvscode_restore_ui_state'),
     extractFn('_openvscode_launch_once'),
   ].filter(Boolean).join('\n');
-  return stubAgentPreparation
-    ? `${production}\n_openvscode_prepare_agent() { :; }`
-    : production;
+  return [
+    production,
+    stubAgentPreparation ? '_openvscode_prepare_agent() { :; }' : '',
+    stubUiState ? '_openvscode_restore_ui_state() { :; }' : '',
+  ].filter(Boolean).join('\n');
 }
 
 function openvscodeSupervisorScript() {
@@ -96,9 +99,11 @@ function openvscodeSupervisorScript() {
     extractKillHelpers(),
     extractFn('_openvscode_should_launch'),
     openvscodeLaunchScript(),
+    extractOptionalFn('_openvscode_capture_ui_state'),
+    '_openvscode_capture_ui_state() { :; }',
     extractFn('_openvscode_supervise_loop'),
     'export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
-    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_launch_once _openvscode_supervise_loop',
+    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_launch_once _openvscode_supervise_loop',
   ].join('\n');
 }
 
@@ -277,6 +282,31 @@ _openvscode_launch_once`;
     }
   });
 
+  it('REQ-IDE-002: restores safe UI state before managed settings and code-server launch', () => {
+    const stub = writeStub(dir, argsFile);
+    const events = join(dir, 'events.log');
+    const dataDir = join(dir, 'openvscode-data');
+    const script = `${openvscodeLaunchScript({ stubAgentPreparation: false, stubUiState: false })}
+_openvscode_restore_ui_state() { printf 'restore:%s\n' "$1" >> "$EVENTS"; }
+_openvscode_prepare_agent() { printf 'prepare:%s:%s\n' "$1" "$2" >> "$EVENTS"; }
+_openvscode_launch_once`;
+
+    const r = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: workspace,
+      OPENVSCODE_DATA_DIR: dataDir,
+      EVENTS: events,
+      SESSION_ID: 'abcd1234',
+    });
+
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(readFileSync(events, 'utf8').trim().split('\n'), [
+      `restore:${dataDir}`,
+      `prepare:claude:${dataDir}`,
+    ]);
+    assert.equal(existsSync(argsFile), true);
+  });
+
   it('REQ-IDE-009: IDE settings preparation failure prevents code-server launch', () => {
     const stub = writeStub(dir, argsFile);
     const script = `${openvscodeLaunchScript({ stubAgentPreparation: false })}
@@ -396,6 +426,33 @@ describe('OpenVSCode launch generations / REQ-IDE-008 AC4', () => {
     writeFileSync(trigger, '');
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('REQ-IDE-002: captures UI state only after the code-server generation exits', () => {
+    const events = join(dir, 'state-events.log');
+    const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
+printf 'server-start:%s\\n' "$$" >> "$EVENTS"
+trap 'printf "server-exit:%s\\n" "$$" >> "$EVENTS"' EXIT
+exit 17
+`);
+    const script = `${openvscodeSupervisorScript()}
+_openvscode_capture_ui_state() { printf 'capture:%s\n' "$1" >> "$EVENTS"; }
+export -f _openvscode_capture_ui_state
+timeout 1 bash -c '_openvscode_supervise_loop' || true`;
+
+    const result = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_DATA_DIR: join(dir, 'data'),
+      OPENVSCODE_REQUEST_TRIGGER: trigger,
+      CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234',
+      EVENTS: events,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const firstGeneration = readFileSync(events, 'utf8').trim().split('\n').slice(0, 3).map((line) => line.split(':')[0]);
+    assert.deepEqual(firstGeneration, ['server-start', 'server-exit', 'capture']);
+  });
 
   it('REQ-IDE-003 AC4 + REQ-IDE-008 AC4: each restart creates one separately identifiable launch generation', () => {
     const launchesFile = join(dir, 'launches.log');
@@ -782,6 +839,20 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.trim(), 'supervisor=dead managed=dead');
     assert.equal(existsSync(termLog), true, 'launch group receives TERM before bounded KILL');
+  });
+});
+
+describe('Browser IDE UI-state image packaging / REQ-IDE-002', () => {
+  it('packages the tested snapshot helper at the immutable entrypoint path', () => {
+    const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
+    assert.match(
+      dockerfile,
+      /COPY scripts\/browser-ide-ui-state\.py \/opt\/codeflare\/openvscode\/browser-ide-ui-state\.py/,
+    );
+    assert.match(
+      dockerfile,
+      /chmod 0555 \/opt\/codeflare\/openvscode\/browser-ide-ui-state\.py/,
+    );
   });
 });
 

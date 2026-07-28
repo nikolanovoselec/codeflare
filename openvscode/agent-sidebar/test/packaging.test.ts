@@ -108,18 +108,21 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1+AC6: contributes native Pi Chat and file
     };
   };
 
+  assert.equal(manifest.displayName, 'Codeflare');
   assert.deepEqual(manifest.activationEvents, [
+    'onStartupFinished',
     'onChatParticipant:codeflare.pi',
     'onCommand:codeflare.pi.reviewFile',
   ]);
   assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
   assert.deepEqual(manifest.contributes.languageModelChatProviders, [{
     vendor: 'copilot',
-    displayName: 'Codeflare Pi (Local RPC)',
+    displayName: 'Codeflare',
   }]);
   const [participant] = manifest.contributes.chatParticipants;
   assert.equal(participant?.id, 'codeflare.pi');
   assert.equal(participant?.name, 'codeflare');
+  assert.equal(participant?.fullName, 'Codeflare');
   assert.equal(participant?.isDefault, true);
   assert.equal(participant?.isSticky, true);
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);

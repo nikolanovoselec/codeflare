@@ -78,6 +78,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   mkdirSync(join(fx, 'Uploads'), { recursive: true });
   mkdirSync(join(fx, 'Temporary'), { recursive: true });
   mkdirSync(join(fx, '.graphify'), { recursive: true });
+  mkdirSync(join(fx, '.codeflare'), { recursive: true });
   mkdirSync(join(fx, 'workspace/repo/graphify-out'), { recursive: true });
   mkdirSync(join(fx, '.cache/rclone'), { recursive: true });
   mkdirSync(join(fx, '.config/rclone'), { recursive: true });
@@ -95,6 +96,8 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     'Uploads/a.txt': 'upload tray file',
     'Temporary/b.txt': 'temporary tray file',
     '.graphify/global-graph.json': 'ephemeral unified graph',
+    '.codeflare/ide-ui-state.json': '{"version":1}',
+    '.codeflare/private-runtime.json': 'must stay local',
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
     '.config/rclone/rclone.conf': 'r2 secrets config',
@@ -255,6 +258,14 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     for (const tray of ['Uploads/a.txt', 'Temporary/b.txt']) {
       assert.equal(adv[tray], 'INCLUDED', `${tray} must sync in advanced mode`);
       assert.equal(def[tray], 'INCLUDED', `${tray} must sync in default mode too`);
+    }
+  });
+
+  it('REQ-IDE-002: syncs only the bounded Browser IDE UI-state snapshot', () => {
+    for (const sessionMode of ['advanced', 'default']) {
+      const v = verdictUnder({ sessionMode, defaultDeny: false });
+      assert.equal(v['.codeflare/ide-ui-state.json'], 'INCLUDED');
+      assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
     }
   });
 

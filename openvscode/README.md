@@ -6,7 +6,7 @@ Codeflare gives the agent selected in terminal tab 1 an editor-native code-serve
 
 | Tab 1 | Immutable inventory | IDE experience |
 |---|---|---|
-| Exact `pi` | `/opt/codeflare/openvscode/extensions/pi` | Codeflare Pi is the default participant in code-server's main native Chat |
+| Exact `pi` | `/opt/codeflare/openvscode/extensions/pi` | **Codeflare** is the default participant in code-server's main native Chat |
 | Exact supported Claude command | `/opt/codeflare/openvscode/extensions/claude` | Anthropic's official Claude Code panel in the right sidebar |
 | Unsupported or invalid configuration | `/opt/codeflare/openvscode/extensions/none` | No agent extension |
 
@@ -14,11 +14,11 @@ An absent `TAB_CONFIG` keeps the existing Claude default. Malformed JSON, duplic
 
 ## Native Pi Chat
 
-The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned host's default native Chat participant. The extension retains one hidden, account-free, panel-only compatibility model for the native participant's model-entry contract; it cannot generate responses, and complete-image plus deployed activation validate it against the pinned Code OSS host. Code OSS 1.130 accepts an implicit participant default only under its reserved `copilot` vendor key, which the shim uses solely as an internal selector without invoking GitHub Copilot or authorization. The image removes code-server's bundled GitHub Copilot extension entirely.
+The Codeflare-owned workspace extension registers the stable private ID `codeflare.pi` as the pinned host's default native Chat participant, visibly named **Codeflare**. The extension retains one hidden, account-free, panel-only compatibility model for the native participant's model-entry contract; it cannot generate responses, and complete-image plus deployed activation validate it against the pinned Code OSS host. Code OSS 1.130 accepts an implicit participant default only under its reserved `copilot` vendor key, which the shim uses solely as an internal selector without invoking GitHub Copilot or authorization. The image removes code-server's bundled GitHub Copilot extension entirely.
 
 Pi never reads `request.model` or sends inference through that provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
 
-Right-click a workspace file in Explorer or inside its active editor and select **Review with Codeflare** to attach that file and submit a review directly to the Codeflare Pi native Chat participant. Files outside the workspace and symbolic-link aliases are rejected before Chat opens.
+The Pi inventory marks generic Chat setup complete on startup, suppressing Code OSS's account-backed **Code Review** action without disabling native Chat. Right-click a workspace file in Explorer or inside its active editor and select **Review with Codeflare** to attach that file and submit a review directly to Codeflare. Files outside the workspace and symbolic-link aliases are rejected before Chat opens.
 
 Every request receives bounded native Chat history plus the active workspace document, selected text, open workspace documents, diagnostics, and explicit references. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 512 KiB.
 
@@ -34,6 +34,12 @@ Anthropic's official extension runs its documented IDE MCP server on `127.0.0.1`
 
 The official package contributes its own Claude Code webview, not a code-server `chatParticipant` or language-model provider. Claude settings therefore disable the unrelated native Chat and Copilot setup before launch. Use the Claude Code panel with a selection or `@` reference. The upstream Accounts control may still offer manual authentication, but it is separate from Claude and Codeflare adds no credential request, bridge, export, persistence, or sync path.
 
+## Workspace selection and safe continuity
+
+The browser keeps a clean `/api/vscode/<sessionId>/` location. Public `folder`, `workspace`, and `ew` selectors are rejected independently by the Worker and container host for HTTP and WebSocket requests. Only the private loopback root request receives `folder=/home/user/workspace`; redirects remove selectors before they become browser-visible. This confines public workspace selection, not terminal, trusted-extension, or agent filesystem access.
+
+Live code-server state remains under `/tmp/openvscode-data`. After the launch generation is fully reaped, `browser-ide-ui-state.py` exports only theme, Explorer expansion, and canonical in-workspace open-file state into the atomic, maximum-1-MiB `~/.codeflare/ide-ui-state.json` snapshot. A later session reconstructs fresh workspace storage before managed inventory settings are reapplied. Raw databases, `workspaceStorage`, `globalStorage`, SecretStorage, Accounts authentication, chat history, logs, WAL, and SHM are never synced.
+
 ## Build and verification
 
 The owned Pi package is built under Node 22.21.1 for code-server's pinned Code OSS 1.130.0 host. It has no native addon or runtime npm dependency. The official Claude package is version- and checksum-pinned independently. Fixed staging validates both package identities, creates the Pi, Claude, and empty inventories atomically, rejects symbolic links and retained VSIX archives, and removes write permission.
@@ -42,4 +48,4 @@ The required `browser-ide` lane performs dependency and license checks for owned
 
 This constrained development container does not run builds or tests locally. Use GitHub Actions and an exact reviewed integration deployment.
 
-See [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-011](../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [AD114](../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [Container](../documentation/lanes/container.md#code-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-native-agents).
+See [REQ-IDE-002](../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-011](../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [REQ-IDE-012](../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection), [AD114](../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [Container](../documentation/lanes/container.md#code-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-native-agents).

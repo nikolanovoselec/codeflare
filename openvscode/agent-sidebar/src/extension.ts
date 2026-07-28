@@ -39,7 +39,7 @@ const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
   readonly isUserSelectable: false;
 } = Object.freeze({
   id: 'host-compatibility',
-  name: 'Codeflare Pi',
+  name: 'Codeflare',
   family: HOST_MODEL_FAMILY,
   version: '1',
   maxInputTokens: 1,
@@ -51,13 +51,17 @@ const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
 const HOST_COMPATIBILITY_PROVIDER: LanguageModelChatProvider = Object.freeze({
   provideLanguageModelChatInformation: () => [HOST_COMPATIBILITY_MODEL],
   provideLanguageModelChatResponse: async () => {
-    throw new Error('Codeflare Pi host compatibility model cannot generate responses');
+    throw new Error('Codeflare host compatibility model cannot generate responses');
   },
   provideTokenCount: async () => 0,
 });
 let activeRuntime: NativePiRuntime | undefined;
 
 export function activate(context: ExtensionContext): void {
+  // Code OSS contributes account-backed setup actions (including "Code Review")
+  // only while chat setup is incomplete. Codeflare owns an account-free native
+  // participant, so mark that compatibility setup complete without disabling Chat.
+  void commands.executeCommand('setContext', 'chatSetupCompleted', true);
   const runtime = new NativePiRuntime();
   const hostModelProvider = lm.registerLanguageModelChatProvider(
     HOST_MODEL_VENDOR,
@@ -148,7 +152,7 @@ class NativePiRuntime {
         },
         cancellation,
         createBackend: () => {
-          if (this.#disposed) throw new Error('Codeflare Pi Chat is disposed');
+          if (this.#disposed) throw new Error('Codeflare Chat is disposed');
           backend = createBackend();
           this.#active.add(backend);
           return backend;

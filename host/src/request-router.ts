@@ -19,7 +19,9 @@ import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clo
 import { stripVaultPrefix } from './vault-proxy.js';
 import {
   isVscodePath,
+  rewriteVscodeLocation,
   vscodeUpstreamPath,
+  vscodeUpstreamRequestTarget,
   requestOpenvscodeStart,
   vscodeModeAllowed,
   vscodeWarmingResponse,
@@ -145,7 +147,7 @@ function rewriteVscodeResponseHeaders(
   return {
     ...headers,
     ...(location?.startsWith('/') && !location.startsWith('//')
-      ? { location: `${prefix}${location}` }
+      ? { location: rewriteVscodeLocation(location, sessionId) }
       : {}),
     ...(headers['set-cookie']
       ? { 'set-cookie': headers['set-cookie'].map(rewriteCookie) }
@@ -564,13 +566,18 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         res.end(JSON.stringify({ error: 'Invalid Browser IDE session path', code: 'INVALID_VSCODE_PATH' }));
         return;
       }
+      const upstreamTarget = vscodeUpstreamRequestTarget(req.url, upstreamPath);
+      if (upstreamTarget === null) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Browser IDE workspace selectors are not allowed', code: 'VSCODE_WORKSPACE_SELECTOR_FORBIDDEN' }));
+        return;
+      }
       requestOpenvscodeStart();
-      const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
       const upstreamReq = http.request({
         host: deps.openvscode.host,
         port: deps.openvscode.port,
         method,
-        path: upstreamPath + search,
+        path: upstreamTarget,
         headers: vscodeProxyHeaders(req.headers, deps.openvscode),
       }, (upstreamRes) => {
         // Reached the server, so this warming episode is over. Clearing it means

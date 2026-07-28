@@ -17,6 +17,7 @@ import {
   createVscodeWebSocketServer,
   isVscodePath,
   vscodeUpstreamPath,
+  vscodeUpstreamRequestTarget,
   requestOpenvscodeStart,
   vscodeModeAllowed,
 } from './vscode-proxy.js';
@@ -174,12 +175,15 @@ export function createUpgradeDispatcher(deps: UpgradeDispatcherDeps): UpgradeDis
     head: Buffer,
     upstreamPath: string,
   ): void {
-    const search = (req.url ?? '').includes('?')
-      ? '?' + (req.url ?? '').split('?').slice(1).join('?')
-      : '';
+    const upstreamTarget = vscodeUpstreamRequestTarget(req.url, upstreamPath);
+    if (upstreamTarget === null) {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      socket.destroy();
+      return;
+    }
 
     vscodeWss.handleUpgrade(req, socket, head, (clientWs) => {
-      const upstreamUrl = `ws://${deps.openvscode.host}:${deps.openvscode.port}${upstreamPath}${search}`;
+      const upstreamUrl = `ws://${deps.openvscode.host}:${deps.openvscode.port}${upstreamTarget}`;
       let upstream: WebSocket;
       try {
         upstream = new WebSocket(upstreamUrl, {

@@ -203,6 +203,35 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
     );
   });
 
+  it('REQ-IDE-012: keeps the browser URL clean while selecting the fixed loopback workspace', async () => {
+    const beforeCount = upstreamRequests.length;
+    const response = await getText(proxyPort, `/api/vscode/${SID}/`, {
+      ...auth,
+      origin: 'https://codeflare.ch',
+      'x-forwarded-host': 'codeflare.ch',
+      'x-forwarded-proto': 'https',
+    });
+
+    assert.equal(response.status, 302);
+    assert.equal(upstreamRequests.length, beforeCount + 1);
+    assert.equal(upstreamRequests.at(-1).url, '/?folder=%2Fhome%2Fuser%2Fworkspace');
+    assert.equal(response.headers.location, `/api/vscode/${SID}/login?next=%2Fstable%2Fout%2Fmain.js`);
+  });
+
+  it('REQ-IDE-012: rejects public workspace selectors before contacting code-server', async () => {
+    for (const query of ['?folder=/etc', '?workspace=/tmp/x.code-workspace', '?ew=true', '?%66older=/etc']) {
+      const beforeCount = upstreamRequests.length;
+      const response = await getText(proxyPort, `/api/vscode/${SID}/${query}`, {
+        ...auth,
+        origin: 'https://codeflare.ch',
+        'x-forwarded-host': 'codeflare.ch',
+        'x-forwarded-proto': 'https',
+      });
+      assert.equal(response.status, 400);
+      assert.equal(upstreamRequests.length, beforeCount);
+    }
+  });
+
   it('REQ-IDE-001 AC7: rejects a mismatched session prefix without contacting code-server', async () => {
     const beforeCount = upstreamRequests.length;
     const response = await getText(proxyPort, '/api/vscode/other-session/stable/out/main.js', {

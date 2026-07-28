@@ -1,7 +1,7 @@
 {
   "name": "codeflare-agent-sidebar",
-  "displayName": "Codeflare Pi Chat",
-  "description": "Codeflare-owned native Pi Chat participant for the Browser IDE",
+  "displayName": "Codeflare",
+  "description": "Codeflare native Chat participant for the Browser IDE",
   "version": "0.0.0",
   "publisher": "codeflare",
   "private": true,
@@ -15,6 +15,7 @@
     "workspace"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onChatParticipant:codeflare.pi",
     "onCommand:codeflare.pi.reviewFile"
   ],
@@ -31,15 +32,15 @@
     "languageModelChatProviders": [
       {
         "vendor": "copilot",
-        "displayName": "Codeflare Pi (Local RPC)"
+        "displayName": "Codeflare"
       }
     ],
     "chatParticipants": [
       {
         "id": "codeflare.pi",
         "name": "codeflare",
-        "fullName": "Codeflare Pi",
-        "description": "Codeflare Pi agent with workspace and editor context.",
+        "fullName": "Codeflare",
+        "description": "Codeflare agent with workspace and editor context.",
         "isDefault": true,
         "isSticky": true,
         "modes": [

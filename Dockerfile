@@ -256,7 +256,9 @@ RUN mkdir -p /etc/codeflare/claude-sidebar && \
     cmp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json
 
 COPY scripts/ci/smoke-openvscode-sidebar-image.mjs /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
-RUN chmod 0444 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
+COPY scripts/browser-ide-ui-state.py /opt/codeflare/openvscode/browser-ide-ui-state.py
+RUN chmod 0444 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs && \
+    chmod 0555 /opt/codeflare/openvscode/browser-ide-ui-state.py
 
 # REQ-STOR-017 / AD90: bake the agent-config seed tree into the image so a Governed Mode
 # (R2 SSE-C disabled) container can lay it down locally BEFORE the initial R2 sync — the

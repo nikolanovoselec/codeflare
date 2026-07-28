@@ -5,6 +5,7 @@ import {
   buildBaseOpenVscodeSettings,
   buildManagedSettings,
   buildOpenVscodeSettings,
+  buildUnsupportedOpenVscodeSettings,
 } from "../managed-settings.mjs";
 
 test("REQ-IDE-007 AC3: Claude uses unrestricted mode without permission hooks", () => {
@@ -60,6 +61,14 @@ test("REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore 
   assert.deepEqual(buildBaseOpenVscodeSettings(), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+  });
+});
+
+test("REQ-IDE-005: unsupported inventory suppresses native Chat and Copilot setup", () => {
+  assert.deepEqual(buildUnsupportedOpenVscodeSettings(), {
+    "security.workspace.trust.enabled": false,
+    "extensions.ignoreRecommendations": true,
+    "chat.disableAIFeatures": true,
   });
 });
 

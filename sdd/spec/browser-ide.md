@@ -7,14 +7,14 @@ A full code-server browser editor for an advanced running session. The editor op
 ### Key Concepts
 
 - **Browser IDE** -- The per-session code-server editor defined in the [glossary](glossary.md#glossary).
-- **Session isolation** -- Editor routing, browser storage, server state, and workspace selection belong to one session and are never shared through the user's storage identity.
+- **Session isolation** -- Editor routing, live databases, extension state, server state, and workspace selection belong to one session. Only a bounded, credential-free UI-preference snapshot is shared through the user's storage identity.
 - **Lazy start** -- The editor consumes resources only after an eligible user first opens it.
 - **Editor activity** -- Any message sent from the browser editor to the session counts as input for the same idle policy used by terminal input.
 
 ### Out of Scope
 
 - A separate editor deployment, container, authentication system, or origin.
-- Cross-session persistence of editor settings, extensions, or browser state.
+- Cross-session persistence of live editor databases, extension state, SecretStorage, authentication, chat history, logs, or arbitrary settings.
 - Desktop remote-development protocols or a graphical desktop surface.
 - Parsing the upstream editor protocol to classify messages.
 
@@ -63,29 +63,31 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-002: Session-isolated IDE, not bucket-stable
 
-**Intent:** Each session receives an independent editor for its own workspace; no editor identity or state is shared through the user's persistent-storage identity.
+**Intent:** Each session receives an independent live editor for its own workspace while a bounded, credential-free UI-preference snapshot follows the user across sessions.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Editor routing selects only the requested session and never substitutes a shared storage identity. <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute --> <!-- @test: src/__tests__/routes/vscode-validation.test.ts (REQ-IDE-002: a valid route result carries a sessionId and never a bucketToken) -->
-2. Opening different sessions yields independent workspace and editor state for each session. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-002 AC2: separate session launches use independent workspace and editor-state roots) -->
-3. Editor preferences and extension state are discarded when the session ends and never persist with workspace files. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-001 + REQ-IDE-002: launches code-server with the exact production flags and ephemeral settings layout) -->
+2. Opening different sessions yields independent workspace and live editor-state roots; restoring the safe snapshot does not reuse a live database. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-002 AC2: separate session launches use independent workspace and editor-state roots) -->
+3. Theme, Explorer expansion, and open-file state may persist only through one bounded allowlist snapshot; every restored file resource must resolve canonically inside `/home/user/workspace`. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: captures and restores only allowlisted theme, editor, and Explorer state) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: excludes allowlisted rows whose file resources escape directly or through a symlink) -->
 4. Launching from the header always opens the active session rather than another running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)) -->
+5. Live databases, WAL/SHM files, workspace storage, global extension state, SecretStorage, authentication, chat history, logs, and arbitrary settings never enter persistent sync; capture runs only after the editor generation is reaped and restore creates fresh storage before managed settings are reapplied. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeUserSettings --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-002: captures UI state only after the code-server generation exits) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002: syncs only the bounded Browser IDE UI-state snapshot) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002: settings preparation preserves theme but replaces stale managed inventory settings) -->
 
 **Constraints:**
 
 - The selected session remains visible in the editor location for the lifetime of the page.
-- Editor state does not become a bucket-level or account-level store.
+- The per-user snapshot at `~/.codeflare/ide-ui-state.json` is the only bucket-level IDE state; it is atomically written, capped at 1 MiB, and contains no raw database.
+- Managed Codeflare and Claude settings override restored preferences on every launch.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-VAULT-021](vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)
 
-**Verification:** Automated test ([Route isolation tests](../../src/__tests__/routes/vscode-validation.test.ts); [launch tests](../../host/__tests__/entrypoint-openvscode.test.js))
+**Verification:** Automated test ([Route isolation tests](../../src/__tests__/routes/vscode-validation.test.ts); [launch tests](../../host/__tests__/entrypoint-openvscode.test.js); [UI-state snapshot tests](../../host/__tests__/browser-ide-ui-state.test.js))
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -157,12 +159,13 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. IDE agent availability matches terminal tab 1 exactly: Pi selects the owned Pi inventory, Claude selects the official Claude inventory, and every unsupported, malformed, duplicate, ambiguous, or missing selection selects the empty inventory. <!-- @impl: entrypoint.sh::_openvscode_agent_kind --> <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-005 AC1+AC2: tab one selects only a fixed IDE agent inventory) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) -->
-2. A Pi session presents Codeflare Pi as code-server's default native Chat participant and presents no duplicate custom Pi webview. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1+AC6: contributes native Pi Chat and file review menus) -->
+2. A Pi session presents Codeflare as code-server's default native Chat participant and presents no duplicate custom Pi webview. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1+AC6: contributes native Pi Chat and file review menus) -->
 3. A Claude session keeps code-server's unrelated native Chat and Copilot setup disabled. <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup) -->
 4. Neither Pi nor Claude starts an agent process before a native Chat request or Claude panel request; every Pi request uses one fresh isolated backend. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC3: each native Chat request uses and reaps a fresh isolated Pi backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) --> <!-- @manual: Run the Browser IDE complete-image job and confirm both host inventories remain free of Pi or Claude agent processes before first use. -->
-5. A Pi session opens Codeflare Pi native Chat without an account-setup prompt or authorization flow. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_COMPATIBILITY_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: Dockerfile::rm -rf /opt/code-server/lib/vscode/extensions/copilot --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5: native Pi registers an account-free panel model that rejects generation) --> <!-- @manual: On the deployed integration image, open Codeflare Pi native Chat and complete one request without account or model setup in three fresh sessions. -->
+5. A Pi session opens Codeflare native Chat without an account-setup prompt or authorization flow. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_COMPATIBILITY_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: Dockerfile::rm -rf /opt/code-server/lib/vscode/extensions/copilot --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5: native Pi registers an account-free panel model that rejects generation) --> <!-- @manual: On the deployed integration image, open Codeflare native Chat and complete one request without account or model setup in three fresh sessions. -->
 6. The selected fixed inventory becomes available in the running editor. <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @manual: On the deployed integration image, confirm the selected Pi, Claude, or empty inventory on three fresh sessions. -->
-7. Codeflare Pi answers native Chat independently of the editor-selected model. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC7: native Pi context collection ignores the host-selected model) -->
+7. Codeflare answers native Chat independently of the editor-selected model. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC7: native Pi context collection ignores the host-selected model) -->
+8. The Pi inventory suppresses Code OSS's account-backed **Code Review** setup action while retaining **Review with Codeflare**. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/package.json::activationEvents --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5: native Pi registers an account-free panel model that rejects generation) --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @manual: On the deployed integration image, confirm the editor context menu contains Review with Codeflare and no Code Review action on three fresh Pi sessions. -->
 
 **Notes:** Native Pi and Claude activation awaits deployed pass@3 evidence.
 
@@ -337,22 +340,22 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-011: File review with Codeflare
 
-**Intent:** A Pi user can send one workspace file from Explorer or the active editor to Codeflare Pi for review without entering a separate account-backed workflow.
+**Intent:** A Pi user can send one workspace file from Explorer or the active editor to Codeflare for review without entering a separate account-backed workflow.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. A Pi session offers **Review with Codeflare** for an Explorer workspace file. <!-- @impl: openvscode/agent-sidebar/package.json::explorer/context --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1+AC6: contributes native Pi Chat and file review menus) -->
-2. Selecting either action attaches the chosen or active file to native Chat. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::openFileReview --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare Pi ask mode) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Codeflare Pi ask mode) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: editor review ignores a malformed command argument and uses the active file) -->
-3. Selecting either action submits a review request to the Codeflare Pi native Chat participant in ask mode. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::openFileReview --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare Pi ask mode) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Codeflare Pi ask mode) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: editor review ignores a malformed command argument and uses the active file) -->
+2. Selecting either action attaches the chosen or active file to native Chat. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::openFileReview --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare ask mode) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Codeflare ask mode) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: editor review ignores a malformed command argument and uses the active file) -->
+3. Selecting either action submits a review request to the Codeflare native Chat participant in ask mode. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::openFileReview --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare ask mode) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Codeflare ask mode) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: editor review ignores a malformed command argument and uses the active file) -->
 4. Outside-workspace resources are rejected before native Chat opens. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::canonicalWorkspaceFilePath --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC4: explorer review rejects resources outside the workspace) -->
 5. Symbolic-link-alias resources are rejected before native Chat opens. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::canonicalWorkspaceFilePath --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC5: explorer review rejects a symlink alias before opening native Chat) -->
 6. A Pi session offers **Review with Codeflare** in the active file editor's context menu. <!-- @impl: openvscode/agent-sidebar/package.json::editor/context --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1+AC6: contributes native Pi Chat and file review menus) -->
 
 **Constraints:**
 
-- The action reuses the native Codeflare Pi participant and canonical workspace boundary; it adds no comment controller, agent process, account provider, or Copilot integration.
+- The action reuses the native Codeflare participant and canonical workspace boundary; it adds no comment controller, agent process, account provider, or Copilot integration.
 - The review action is available only in the fixed Pi inventory.
 
 **Priority:** P2
@@ -362,5 +365,34 @@ A full code-server browser editor for an advanced running session. The editor op
 **Verification:** Automated test ([activation behavior](../../openvscode/agent-sidebar/test/activation.test.ts); complete-image smoke in `.github/workflows/test.yml`)
 
 **Status:** Implemented
+
+---
+
+### REQ-IDE-012: Fixed, clean Browser IDE workspace selection
+
+**Intent:** Public Browser IDE navigation cannot select another folder, workspace file, or empty window, and the browser URL does not expose the container workspace path.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The Worker rejects every public `folder`, `workspace`, or `ew` query before container access for HTTP and WebSocket requests, including encoded and repeated keys. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-012: rejects public workspace selectors before the container boundary) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-012: rejects a WebSocket workspace selector before the container boundary) -->
+2. The container host independently rejects the same selector set before opening an HTTP or WebSocket connection to code-server. <!-- @impl: host/src/vscode-proxy.ts::vscodeUpstreamRequestTarget --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-012: rejects public workspace selectors before contacting code-server) --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-IDE-012: rejects public workspace selectors before opening a code-server socket) -->
+3. Only the private loopback root request receives `folder=/home/user/workspace`; non-root protocol and asset requests preserve unrelated query bytes. <!-- @impl: host/src/vscode-proxy.ts::vscodeUpstreamRequestTarget --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamRequestTarget / REQ-IDE-012 (fixed clean workspace navigation)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-012: keeps the browser URL clean while selecting the fixed loopback workspace) -->
+4. Root-relative code-server redirects remain under `/api/vscode/<sessionId>/` and remove workspace selectors before becoming browser-visible. <!-- @impl: host/src/vscode-proxy.ts::rewriteVscodeLocation --> <!-- @impl: host/src/request-router.ts::rewriteVscodeResponseHeaders --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamRequestTarget / REQ-IDE-012 (fixed clean workspace navigation)) -->
+
+**Constraints:**
+
+- This confines public workspace selection and initial IDE navigation; it is not an operating-system sandbox. Terminals, trusted extensions, and agents retain their existing container filesystem access.
+- Worker and host validation remain independent defense-in-depth boundaries.
+- The fixed container path never appears in a browser-visible redirect or required public query.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable)
+
+**Verification:** Automated Worker and host HTTP/WebSocket tests plus deployed clean-URL verification on three fresh sessions
+
+**Status:** Partial
 
 ---
