@@ -785,40 +785,14 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
   });
 });
 
-// These are established build/config contract tests: the package manifest is
-// the extension's declared API floor and the Dockerfile pin is the embedded Code
-// host supplied by code-server. The host may be newer than the floor because a
-// matching @types/vscode release is not always published, but it may never be
-// older. Exact proposal compatibility remains a complete-image activation check.
 // @types/node is published on DefinitelyTyped's own cadence, so only its major
-// is required to match the pinned builder Node.
+// is required to match the pinned builder Node. The extension API floor is
+// checked against the installed Code runtime by the complete-image smoke.
 const sidebarPkg = () =>
   JSON.parse(readFileSync(resolve(__dirname, '../../openvscode/agent-sidebar/package.json'), 'utf8'));
-const versionMinor = (version) => version.replace(/^[^\d]*/, '').split('.').slice(0, 2).join('.');
 const versionMajor = (version) => version.replace(/^[^\d]*/, '').split('.')[0];
 
 describe('agent-sidebar type pins track the runtime they describe', () => {
-  it('REQ-IDE-005 AC6: keeps the extension API floor at or below code-server embedded Code', () => {
-    const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
-    const pkg = sidebarPkg();
-    const embeddedCode = dockerfile.match(/CODE_SERVER_CODE_VERSION="([\d.]+)"/);
-    assert.ok(embeddedCode, 'Dockerfile must pin code-server embedded Code explicitly');
-
-    const asComparableMinor = (version) => {
-      const [major, minor] = versionMinor(version).split('.').map(Number);
-      return major * 10_000 + minor;
-    };
-    const hostFloor = asComparableMinor(embeddedCode[1]);
-    assert.ok(
-      hostFloor >= asComparableMinor(pkg.devDependencies['@types/vscode']),
-      'embedded Code must provide every API exposed by @types/vscode',
-    );
-    assert.ok(
-      hostFloor >= asComparableMinor(pkg.engines.vscode),
-      'embedded Code must satisfy the extension engines.vscode floor',
-    );
-  });
-
   it('pins @types/node to the Node the image builds the extension with', () => {
     const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
     const pkg = sidebarPkg();

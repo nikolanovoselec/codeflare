@@ -271,7 +271,7 @@ export async function handleVscodeRequest(
       isWebSocket: !!isWebSocket,
     });
     const forwardedRequest = new Request(stripWarmParam(requestUrl), requestForAuth);
-    for (const name of [...forwardedRequest.headers.keys()]) {
+    for (const name of Array.from(forwardedRequest.headers.keys())) {
       const lower = name.toLowerCase();
       if (lower === 'forwarded' || lower.startsWith('x-forwarded-')) {
         forwardedRequest.headers.delete(name);

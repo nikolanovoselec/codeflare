@@ -43,6 +43,7 @@ async function main() {
   assert.equal(piManifest.version, '0.0.0');
   assert.equal(piManifest.main, './dist/extension.cjs');
   assert.equal(piManifest.engines.vscode, '^1.109.0');
+  assertExtensionApiFloor(piManifest, codeServerRuntime.codeVersion);
   assert.deepEqual(piManifest.extensionKind, ['workspace']);
   assert.equal(piManifest.capabilities.untrustedWorkspaces.supported, false);
   await assertImmutable(piRoot);
@@ -77,6 +78,23 @@ async function main() {
     claudeVersion,
     piVersion,
   })}\n`);
+}
+
+function assertExtensionApiFloor(manifest, codeVersion) {
+  const comparableMinor = (version) => {
+    const match = String(version).match(/^[^\d]*(\d+)\.(\d+)/);
+    assert.ok(match, `invalid VS Code API version: ${version}`);
+    return Number(match[1]) * 10_000 + Number(match[2]);
+  };
+  const hostMinor = comparableMinor(codeVersion);
+  assert.ok(
+    hostMinor >= comparableMinor(manifest.engines.vscode),
+    'embedded Code must satisfy the extension engines.vscode floor',
+  );
+  assert.ok(
+    hostMinor >= comparableMinor(manifest.devDependencies['@types/vscode']),
+    'embedded Code must provide every API exposed by @types/vscode',
+  );
 }
 
 async function verifyCodeServerRuntime() {
