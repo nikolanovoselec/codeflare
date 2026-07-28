@@ -440,11 +440,11 @@ The setup wizard auto-provisions a higher-precedence Access **bypass** app (`dec
 
 **Symptom:** Extraction emits repeated delivery messages, reaches `background-extraction-giveup`, or finishes without advancing the memory counter or Vault manifest.
 
-**Cause detail:** Pi treats the root transcript as delivery truth ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
+**Cause:** Pi treats the root transcript as delivery truth ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
 
 One emitted request remains pending until an exact public `subagent` call appears. Each failed exact call advances one reminder, only six failed calls reach GIVEUP, and a terminal notification cannot advance state without the required post-commit artifacts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies -->
 
-**Fix detail:** Correlate the visible “Extraction jobs ready” summary, its pretty-printed `<extraction-items-json>`, the exact public call, and `subagent-notification` by tool-use ID. Memory requires `/home/user/Vault/Raw/Sessions/<captureFilename>` plus its request chunk after graph publication; Vault requires its post-commit chunk and staged manifest hash. Do not delete counters or manifests manually.
+**Fix:** Correlate the visible “Extraction jobs ready” summary, its pretty-printed `<extraction-items-json>`, the exact public call, and `subagent-notification` by tool-use ID. Memory requires `/home/user/Vault/Raw/Sessions/<captureFilename>` plus its request chunk after graph publication; Vault requires its post-commit chunk and staged manifest hash. Do not delete counters or manifests manually.
 
 Current workers expose only Bash, use medium reasoning, stop after four turns, and cap noncritical visualization at 15 seconds. `VARS_FILE.transcript` is memory capture's complete input; `invalid INPUT_FILE: missing` identifies a stale mirror.
 

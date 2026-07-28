@@ -208,9 +208,13 @@ This satisfies [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterpri
 
 A random shared secret is generated per DO lifecycle and proxied requests from the DO to the container include it in the `Authorization: Bearer` header. The terminal server validates the token on all non-exempt paths (`checkContainerAuth` in `host/src/auth-check.ts`, invoked by `host/src/request-router.ts`). Internal paths (`/health`, `/activity`) are whitelisted because `collectMetrics()` calls them directly via the SDK's private TCP plumbing (`ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)`), never through the public `fetch()` override -- so no `Authorization` header is injected. The whitelist is safe because these two paths expose no user data and no mutable container state.
 
-**Threat model -- silent Unauthorized after DO wake (REQ-SEC-012 AC2/AC3):** Without lifecycle-scoped persistence, every DO wake from hibernation regenerates a fresh token while the container process retains the original value, breaking every subsequent proxied request with `{"error":"Unauthorized"}` until the user manually recreates the session. The terminal, vault, and every other in-container HTTP surface go silently unreachable.
+**Threat:** Without lifecycle-scoped persistence, every DO wake from hibernation regenerates a fresh token while the container process retains the original value, breaking proxied requests with `{"error":"Unauthorized"}` until the session is recreated; terminal, vault, and every in-container HTTP surface become unreachable ([REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle) AC2–AC3).
 
-**Mitigation:** The token is scoped to one DO lifecycle and survives hibernate/wake within that lifecycle; on `destroy()` it is cleared so the next session under the same DO ID starts fresh. Persistence mechanics (DO storage key, restore site, hibernate-window pinning, cleanup hook) live in [architecture.md](./architecture.md#container-do-container). The env-var name (`CONTAINER_AUTH_TOKEN`) is catalogued in [configuration.md](./configuration.md#container-environment).
+**Mitigation:** The token is scoped to one DO lifecycle and survives hibernate/wake within that lifecycle; on `destroy()` it is cleared so the next session under the same DO ID starts fresh. Persistence mechanics live in [architecture.md](./architecture.md#container-do-container); `CONTAINER_AUTH_TOKEN` is catalogued in [configuration.md](./configuration.md#container-environment).
+
+**Verification:** [Container lifecycle tests](../../src/__tests__/container/index.test.ts) and [host bearer-validation tests](../../host/__tests__/server-auth-check.test.js).
+
+**Implements:** [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle), [REQ-SEC-022](../../sdd/spec/security.md#req-sec-022-container-proxy-bearer-validation)
 
 ## Dual R2 Credential Architecture
 

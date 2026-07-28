@@ -515,6 +515,7 @@ This implements
 [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch),
 [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
+[REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up),
 [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection),
 [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context),
 [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract),
@@ -535,7 +536,8 @@ submits its zero-or-one JSON request unchanged once. The dedicated agent runs on
 attached monitor. Review acknowledgement has no CI condition, and interruption is
 intentionally not recovered automatically. This implements
 [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring),
-[REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), and
+[REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
+[REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), and
 [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent).
 
 Pi extraction is driven by `prompts/memory-agent-prompt.md` and `prompts/vault-extract-prompt.md`. The root reads Pi's durable transcript, filters synthetic prompts, creates request-specific snapshots, and emits visible public background requests instead of using the private subagent service.
@@ -810,20 +812,24 @@ timestamp and UTC offset its filename carries: mtime is unusable because the
 vault round-trips through rclone bisync, which rewrites it, and the name read as
 text is unusable because a UTC-offset change puts a later capture behind an
 earlier one. `PostCompact` is not used: it carries no decision control and
-cannot return `additionalContext`.
+cannot return `additionalContext` ([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts) AC2).
 
 Three mechanics in the digest builder are load-bearing and identical in both
 runtimes. Section headings are recognised only outside fenced blocks, and fences
 are matched by backtick run length rather than toggled on any backtick line — an
 inner fence would otherwise close its parent, after which every later heading
 goes unrecognised and the Decisions section the recall exists to carry is
-silently dropped. The per-extract cap is spent in encoded bytes and cut on a
+silently dropped.
+
+The per-extract cap is spent in encoded bytes and cut on a
 character boundary, because bytes are what the context actually costs; the
 truncation notice is paid out of that same budget and dropped rather than
 carried when the remainder cannot hold it, so the cap is never exceeded in order
-to announce that it was reached. Extracts sharing a capture instant are ordered
-by name descending, so both runtimes resolve a tie the same way instead of
-inheriting whatever order the filesystem offered.
+to announce that it was reached ([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts) AC4–AC5).
+
+Extracts sharing a capture instant are ordered by name descending, so both
+runtimes resolve a tie the same way instead of
+inheriting whatever order the filesystem offered ([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts)).
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 
@@ -1274,6 +1280,7 @@ Pi CI is not part of review completion or acknowledgement. After either eligible
 - [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) - PR-Boundary Review Agent Dispatch
 - [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) - Pi Settled Review Handoff
 - [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan) - Unified Pi PR-Boundary Launch Plan
+- [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up) - Pi PR-Boundary Missing-Launch Follow-Up
 - [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) - rpiv-todo Session Isolation
 - [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection) - Pi Review Range Selection
 - [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) - User-Invoked Pi Review Repository Context
