@@ -104,7 +104,7 @@ jobs:
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS="Dockerfile .dockerignore .trivyignore entrypoint.sh host openvscode preseed scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS="Dockerfile .dockerignore .trivyignore entrypoint.sh host openvscode preseed scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
 
           # Guard: every COPY source in the Dockerfile must be covered by
           # HASHED_PATHS — otherwise the reuse gate could serve a stale image
@@ -304,14 +304,19 @@ jobs:
           # Gate only on CVEs that have an available fix. Unfixed base-image
           # CVEs (blank Fixed Version, no upstream patch) cannot be remediated
           # by rebuilding and would otherwise block every deploy whenever the
-          # Trivy feed adds one. Fixable CVEs we consciously accept (e.g. fixed
-          # upstream but a vendored CLI hasn't rebuilt) stay listed in .trivyignore.
+          # Trivy feed adds one. The following step applies the only remaining
+          # bounded exception and rejects every other reported finding.
           ignore-unfixed: true
-          exit-code: 1
-          format: table
+          exit-code: 0
+          format: json
+          output: /tmp/trivy-result.json
           scanners: vuln
           trivyignores: .trivyignore
           timeout: 15m
+
+      - name: Enforce vulnerability scan and bounded exceptions
+        if: steps.reuse.outputs.reused != 'true'
+        run: node scripts/ci/validate-trivy-result.mjs /tmp/trivy-result.json
 
       - name: Generate an SBOM for the image
         if: steps.reuse.outputs.reused != 'true'

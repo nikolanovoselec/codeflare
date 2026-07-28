@@ -568,6 +568,8 @@ Unreachable means the vulnerable code path is never reached with attacker-contro
 
 Every entry carries an inline comment recording the affected package, the impact, and which conditions apply. The allowlist is reviewed monthly and entries are removed once a fix reaches the image. (Pre-existing entries for unfixed CVEs are now redundant with `ignore-unfixed` but are left in place as a documented record.)
 
+CVE-2026-56852 is narrower than a global ID suppression: Trivy emits its JSON findings to `scripts/ci/validate-trivy-result.mjs`, which accepts only x/text v0.38.0 in `usr/bin/gh` and v0.37.0 in `usr/local/bin/lazygit`. Missing, duplicate, fixed, version-drifted, differently located, or additional HIGH/CRITICAL findings fail the deployment. This keeps the exception tied to the two reviewed artifacts and forces a new decision when either upstream binary changes.
+
 ### Protected R2 Paths
 
 **`PROTECTED_PATHS` is now empty** (`[]` in `src/lib/constants.ts`). Previously, paths like `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json` were blocked from the web storage API. The protection was removed - all R2 paths are now accessible via browse, upload, and delete. The `validateKey()` function in `src/routes/storage/validation.ts` still checks the array but it's a no-op with an empty list.
