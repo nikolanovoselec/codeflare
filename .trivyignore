@@ -641,6 +641,16 @@ CVE-2026-48815
 # exposure profile as CVE-2026-27145 above.
 CVE-2026-39822
 
+# gh v2.96.0 and lazygit v0.63.1 are their latest immutable upstream releases,
+# but embed golang.org/x/text v0.38.0 and v0.37.0 respectively. CVE-2026-56852
+# lets malformed normalization input make norm.Iter loop indefinitely; impact is
+# a DoS of the invoked local CLI inside the session owner's ephemeral,
+# single-tenant container. It provides no container escape, cross-tenant path, or
+# privilege beyond the shell that user already controls. The fix exists in
+# x/text v0.39.0 but neither CLI has released a rebuild containing it. Remove
+# when the installed gh and pinned lazygit releases both embed x/text v0.39.0 or later.
+CVE-2026-56852
+
 # Browser IDE migration note (AD119): the OpenVSCode-specific vulnerability
 # acceptance was removed with that runtime. Fixable code-server findings must
 # surface in the deployment-gating Trivy scan and receive fresh, evidence-backed review before
