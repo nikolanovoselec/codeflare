@@ -12,7 +12,10 @@ const host = vi.hoisted(() => ({
 }));
 
 vi.mock('vscode', () => ({
-  Uri: { joinPath: (base: { fsPath?: string }, ...parts: string[]) => ({ fsPath: [base.fsPath, ...parts].join('/') }) },
+  Uri: {
+    file: (fsPath: string) => ({ fsPath, scheme: 'file' }),
+    joinPath: (base: { fsPath?: string }, ...parts: string[]) => ({ fsPath: [base.fsPath, ...parts].join('/') }),
+  },
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   commands: {
     executeCommand: async (id: string, options: Record<string, unknown>) => {
@@ -101,6 +104,7 @@ test('REQ-IDE-005 AC8: explorer review attaches one workspace file to Codeflare 
   assert.equal(host.executedCommand?.id, 'workbench.action.chat.open');
   assert.deepEqual(host.executedCommand?.options.attachFiles, [resource]);
   assert.match(String(host.executedCommand?.options.query), /^@codeflare\b/);
+  assert.equal(host.executedCommand?.options.mode, 'ask');
   assert.equal(host.executedCommand?.options.isPartialQuery, undefined);
   assert.deepEqual(host.warnings, []);
 });

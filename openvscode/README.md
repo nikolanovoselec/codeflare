@@ -18,6 +18,8 @@ The Codeflare-owned workspace extension registers `codeflare.pi` as the pinned h
 
 Pi never reads `request.model` or sends inference through that provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
 
+Right-click a workspace file in Explorer and select **Review with Codeflare** to attach that file and submit a review directly to the Codeflare Pi native Chat participant. Files outside the workspace are rejected.
+
 Every request receives bounded native Chat history plus the active workspace document, selected text, open workspace documents, diagnostics, and explicit references. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 512 KiB.
 
 Each request owns a fresh process generation. Pi streams assistant text and tool progress into native Chat, completes only at `agent_settled`, and is then reaped. Cancellation during startup prevents the prompt; after acceptance it sends Pi's correlated abort before cleanup. Sidebar Pi keeps its unrestricted built-in tools, and any extension confirmation auto-approves without opening an editor document or modal.

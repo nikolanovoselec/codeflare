@@ -15,7 +15,8 @@
     "workspace"
   ],
   "activationEvents": [
-    "onChatParticipant:codeflare.pi"
+    "onChatParticipant:codeflare.pi",
+    "onCommand:codeflare.pi.reviewFile"
   ],
   "enabledApiProposals": [
     "chatProvider",
@@ -47,7 +48,22 @@
           "agent"
         ]
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "codeflare.pi.reviewFile",
+        "title": "Review with Codeflare"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "codeflare.pi.reviewFile",
+          "group": "1_chat@1",
+          "when": "resourceScheme == 'file' && !explorerResourceIsFolder"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node ./esbuild.mjs",

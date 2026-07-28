@@ -1,7 +1,10 @@
 import {
   Uri,
   chat,
+  commands,
   lm,
+  window,
+  workspace,
   type CancellationToken,
   type ChatContext,
   type ChatRequest,
@@ -21,6 +24,8 @@ import { VsCodeApprovalHost } from './pi/vscode-approval-host.ts';
 import { collectNativePiPromptInput } from './pi/vscode-native-chat.ts';
 
 const PARTICIPANT_ID = 'codeflare.pi';
+const REVIEW_FILE_COMMAND = 'codeflare.pi.reviewFile';
+const OPEN_CHAT_COMMAND = 'workbench.action.chat.open';
 // Code OSS 1.130 resolves a participant's implicit default only from its
 // reserved fallback vendor. This is an internal selection key, not a GitHub
 // Copilot integration: the model remains hidden, account-free, and inert.
@@ -65,11 +70,16 @@ export function activate(context: ExtensionContext): void {
       cancellation,
     ),
   );
+  const reviewFile = commands.registerCommand(
+    REVIEW_FILE_COMMAND,
+    (resource?: Uri) => openFileReview(resource),
+  );
   participant.iconPath = Uri.joinPath(context.extensionUri, 'media', 'agent.svg');
   activeRuntime = runtime;
   context.subscriptions.push(
     hostModelProvider,
     participant,
+    reviewFile,
     { dispose: () => { void runtime.dispose(); } },
   );
 }
@@ -78,6 +88,27 @@ export async function deactivate(): Promise<void> {
   const runtime = activeRuntime;
   activeRuntime = undefined;
   await runtime?.dispose();
+}
+
+async function openFileReview(resource: Uri | undefined): Promise<void> {
+  if (
+    resource?.scheme !== 'file'
+    || typeof resource.fsPath !== 'string'
+    || resource.fsPath.length === 0
+  ) {
+    await window.showWarningMessage('Review with Codeflare is available only for workspace files.');
+    return;
+  }
+  const file = Uri.file(resource.fsPath);
+  if (!workspace.getWorkspaceFolder(file)) {
+    await window.showWarningMessage('Review with Codeflare is available only for workspace files.');
+    return;
+  }
+  await commands.executeCommand(OPEN_CHAT_COMMAND, {
+    query: '@codeflare Review the attached file. Report concrete correctness, security, and maintainability findings with line references.',
+    attachFiles: [file],
+    mode: 'ask',
+  });
 }
 
 class NativePiRuntime {

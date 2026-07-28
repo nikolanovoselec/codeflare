@@ -122,7 +122,7 @@ test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat parti
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
   assert.deepEqual(manifest.contributes.commands, [{
     command: 'codeflare.pi.reviewFile',
-    title: 'Review with Codeflare Pi',
+    title: 'Review with Codeflare',
   }]);
   assert.deepEqual(manifest.contributes.menus['explorer/context'], [{
     command: 'codeflare.pi.reviewFile',

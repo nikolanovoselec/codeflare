@@ -148,17 +148,30 @@ async function verifyPackagedNativeChat(extensionRoot) {
   const require = createRequire(import.meta.url);
   const Module = require('node:module');
   const originalLoad = Module._load;
+  let executedCommand;
   let handler;
   let hostModelProvider;
+  let reviewFile;
   const disposable = () => ({ dispose() {} });
   const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
   const vscode = new Proxy({
-    Uri: { joinPath: (base, ...parts) => uri(join(base.fsPath ?? base.path, ...parts)) },
+    Uri: {
+      file: (path) => uri(path),
+      joinPath: (base, ...parts) => uri(join(base.fsPath ?? base.path, ...parts)),
+    },
     DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
     chat: {
       createChatParticipant: (id, candidate) => {
         assert.equal(id, 'codeflare.pi');
         handler = candidate;
+        return disposable();
+      },
+    },
+    commands: {
+      executeCommand: async (id, options) => { executedCommand = { id, options }; },
+      registerCommand: (id, candidate) => {
+        assert.equal(id, 'codeflare.pi.reviewFile');
+        reviewFile = candidate;
         return disposable();
       },
     },
@@ -175,7 +188,11 @@ async function verifyPackagedNativeChat(extensionRoot) {
       showWarningMessage: async () => undefined,
       showTextDocument: async () => undefined,
     },
-    workspace: { textDocuments: [], openTextDocument: async () => ({}) },
+    workspace: {
+      getWorkspaceFolder: (resource) => resource.fsPath.startsWith('/home/user/workspace/') ? {} : undefined,
+      textDocuments: [],
+      openTextDocument: async () => ({}),
+    },
   }, {
     get(target, property, receiver) {
       assert.notEqual(property, 'authentication');
@@ -204,6 +221,13 @@ async function verifyPackagedNativeChat(extensionRoot) {
       /compatibility.*cannot generate|cannot generate.*compatibility/i,
     );
     assert.equal(await hostModelProvider.provideTokenCount(), 0);
+    assert.equal(typeof reviewFile, 'function', 'packaged extension did not register file review');
+    const reviewResource = uri('/home/user/workspace/src/app.ts');
+    await reviewFile(reviewResource);
+    assert.equal(executedCommand?.id, 'workbench.action.chat.open');
+    assert.deepEqual(executedCommand?.options.attachFiles.map((file) => file.fsPath), [reviewResource.fsPath]);
+    assert.match(executedCommand?.options.query, /^@codeflare\b/);
+    assert.equal(executedCommand?.options.mode, 'ask');
     await handler(
       { prompt: 'cancelled smoke', references: [] },
       { history: [] },
