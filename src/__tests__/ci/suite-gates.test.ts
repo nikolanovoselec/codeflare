@@ -179,8 +179,11 @@ describe('REQ-OPS-020 AC3+AC4: code-server shadow-pin ownership', () => {
 
     expect(job).toBeDefined();
     expect(workflow.jobs['openvscode-server']).toBeUndefined();
-    const commands = (job.steps ?? []).map((step) => step.run ?? '').join('\n');
-    expect(commands.match(/node scripts\/ci\/update-code-server-pins\.mjs Dockerfile/g)).toHaveLength(1);
+    const activeCommands = (job.steps ?? [])
+      .flatMap((step) => (step.run ?? '').split('\n'))
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+    expect(activeCommands.filter((line) => line === 'node scripts/ci/update-code-server-pins.mjs Dockerfile')).toHaveLength(1);
   });
 
   it('updates every coupled runtime pin and invalidates the checksum atomically', () => {
