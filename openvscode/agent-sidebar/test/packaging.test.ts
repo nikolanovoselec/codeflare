@@ -97,13 +97,18 @@ test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat parti
     enabledApiProposals: string[];
     contributes: {
       chatParticipants: Array<Record<string, unknown>>;
+      commands: Array<Record<string, unknown>>;
       languageModelChatProviders: Array<Record<string, unknown>>;
+      menus: { 'explorer/context': Array<Record<string, unknown>> };
       viewsContainers?: unknown;
       views?: unknown;
     };
   };
 
-  assert.deepEqual(manifest.activationEvents, ['onChatParticipant:codeflare.pi']);
+  assert.deepEqual(manifest.activationEvents, [
+    'onChatParticipant:codeflare.pi',
+    'onCommand:codeflare.pi.reviewFile',
+  ]);
   assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
   assert.deepEqual(manifest.contributes.languageModelChatProviders, [{
     vendor: 'copilot',
@@ -115,6 +120,15 @@ test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat parti
   assert.equal(participant?.isDefault, true);
   assert.equal(participant?.isSticky, true);
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
+  assert.deepEqual(manifest.contributes.commands, [{
+    command: 'codeflare.pi.reviewFile',
+    title: 'Review with Codeflare Pi',
+  }]);
+  assert.deepEqual(manifest.contributes.menus['explorer/context'], [{
+    command: 'codeflare.pi.reviewFile',
+    group: '1_chat@1',
+    when: "resourceScheme == 'file' && !explorerResourceIsFolder",
+  }]);
   assert.equal(manifest.contributes.viewsContainers, undefined);
   assert.equal(manifest.contributes.views, undefined);
 });
