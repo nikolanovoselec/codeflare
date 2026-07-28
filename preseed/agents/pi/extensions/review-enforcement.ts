@@ -332,6 +332,18 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "CI is independent of review acknowledgement.",
     ].join("\n"));
   }
+  const lastLaunchSection = sections.length - 1;
+  sections[lastLaunchSection] = [
+    sections[lastLaunchSection],
+    "",
+    "**After the final launch:** End this turn immediately.",
+    "",
+    "Do not run `sleep`, foreground waits, polling, resume an in-flight agent, or retrieve an in-flight result.",
+    "",
+    "Let native task notifications drive subsequent turns.",
+    "",
+    "After a terminal notification, public result retrieval is allowed only when the report is truncated or otherwise unavailable.",
+  ].join("\n");
   if (input.reviewers.length > 0) {
     order.push("TRIAGE + ACK", "FIX");
     sections.push([

@@ -26,6 +26,9 @@ After either eligible boundary succeeds — creating an open PR to `main`/`maste
    ```
 
 3. No stdout means no monitor. Otherwise submit the sole JSON object unchanged once through public `subagent`; CI is the last launch.
+
+After the final launch, end the turn immediately. Do not run `sleep`, foreground waits, polling, resume an in-flight agent, or retrieve an in-flight result. Let native task notifications drive subsequent turns. After a terminal notification, public result retrieval is allowed only when the report is truncated or otherwise unavailable.
+
 4. Wait for all required reviewers; CI is independent. In a tool-free response after every required reviewer has a correlated successful native notification or public result retrieval, publish one table with `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. Reject unsupported proposals, make no file or Git changes, and end the turn immediately.
 5. Agent-end enforcement acknowledges the reviewed head from live session state and queues the FIX follow-up; settled enforcement is the fallback. In that separate turn, apply only the accepted minimal fixes unless approval was requested.
 
