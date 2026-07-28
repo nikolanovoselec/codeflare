@@ -156,8 +156,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 3. The setup-status endpoint remains always public and never returns secrets. <!-- @manual: Call setup status without credentials before and after setup, confirm success, and inspect the complete response for absence of token or secret values. -->
 4. Authentication accepts either Cloudflare Access tokens or Worker-issued session credentials, verified through the shared auth middleware. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @manual: After completing setup, exercise a protected setup endpoint with each supported credential type and confirm the same admin gate is applied. -->
 
-**Notes:** The setup handlers are covered, but the post-setup route-level authentication and role gate lack behavioral integration tests.
-
 **Constraints:**
 
 - Admin role is resolved from the application's user record store, not from CF Access group membership, so the gate behaves identically across deployment modes.
@@ -169,7 +167,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Verification:** Manual check
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
