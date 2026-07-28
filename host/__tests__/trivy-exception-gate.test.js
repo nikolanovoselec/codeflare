@@ -78,6 +78,27 @@ describe('Trivy bounded exception gate', () => {
     }
   });
 
+  it('rejects target, vulnerability-ID, or package drift independently', () => {
+    const cases = [
+      report([
+        { Target: 'usr/bin/other', Vulnerabilities: [vulnerability()] },
+        report().Results[1],
+      ]),
+      report([
+        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ VulnerabilityID: 'CVE-2099-0001' })] },
+        report().Results[1],
+      ]),
+      report([
+        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ PkgName: 'other' })] },
+        report().Results[1],
+      ]),
+    ];
+
+    for (const input of cases) {
+      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+    }
+  });
+
   it('rejects every unrelated HIGH or CRITICAL finding', () => {
     const input = report([
       ...report().Results,
@@ -102,7 +123,10 @@ describe('Trivy bounded exception gate', () => {
     const steps = workflow.jobs.image.steps;
     const scanIndex = steps.findIndex((step) => step.name === 'Scan container image for vulnerabilities');
     const scan = steps[scanIndex];
-    const gate = steps[scanIndex + 1];
+    const gateIndex = scanIndex + 1;
+    const gate = steps[gateIndex];
+    const pushIndex = steps.findIndex((step) => step.name === 'Push image');
+    const push = steps[pushIndex];
 
     assert.equal(scan.with.format, 'json');
     assert.equal(scan.with.output, '/tmp/trivy-result.json');
@@ -110,5 +134,11 @@ describe('Trivy bounded exception gate', () => {
     assert.equal(scan.with.trivyignores, '.trivyignore');
     assert.equal(gate.name, 'Enforce vulnerability scan and bounded exceptions');
     assert.equal(gate.run, 'node scripts/ci/validate-trivy-result.mjs /tmp/trivy-result.json');
+    assert.ok(gateIndex < pushIndex, 'the fail-closed gate must run before image push');
+    assert.equal(gate.if, scan.if);
+    assert.equal(push.if, gate.if);
+    assert.equal(scan['continue-on-error'], undefined);
+    assert.equal(gate['continue-on-error'], undefined);
+    assert.equal(push['continue-on-error'], undefined);
   });
 });
