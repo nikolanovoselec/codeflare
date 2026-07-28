@@ -39,13 +39,13 @@ describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () =
 describe('vscodeUpstreamPath / REQ-IDE-001 AC7 (exact session prefix strip)', () => {
   const SID = 'abcd1234';
 
-  it('REQ-IDE-001 AC3: strips exactly /api/vscode/<expected-session> for code-server', () => {
+  it('REQ-IDE-001 AC7: strips exactly /api/vscode/<expected-session> for code-server', () => {
     assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/stable/out/main.js`, SID), '/stable/out/main.js');
     assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/`, SID), '/');
     assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}`, SID), '/');
   });
 
-  it('REQ-IDE-001 AC3: rejects missing, mismatched, and lookalike session prefixes', () => {
+  it('REQ-IDE-001 AC7: rejects missing, mismatched, and lookalike session prefixes', () => {
     const rejected = [
       null,
       undefined,
