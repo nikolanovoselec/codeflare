@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { captureFilename } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import {
   capBytes,
   captureInstant,
@@ -170,6 +171,19 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     // input a caller is most likely to get wrong.
     expect(capBytes('x'.repeat(600), -5)).toBe('');
     expect(capBytes('x'.repeat(600), 0)).toBe('');
+  });
+
+  it('AC6: selects a filename produced by Pi capture alongside Claude extracts', () => {
+    const piFilename = captureFilename('019fa5d1-04cc-7b7f-8fd7-b58a8c4dda6c', 'UTC');
+    const dir = extractsDir({
+      [piFilename]: extract('Pi capture'),
+      '2000-01-01T00-00-00+0000-claude.md': extract('old Claude capture'),
+    });
+
+    const content = buildRecall({ sessionsDir: dir, extractCount: 1, perFileBytes: 2600 })!;
+
+    expect(content).toContain('Pi capture');
+    expect(content).not.toContain('old Claude capture');
   });
 
   it('AC1: builds the digest newest-first, bounded by the extract count', () => {

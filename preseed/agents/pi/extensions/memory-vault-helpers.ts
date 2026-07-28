@@ -469,18 +469,43 @@ export function parseSessionMessages(content: string): any[] {
     .map((entry) => entry.message);
 }
 
+function formatCaptureTimestamp(now: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "longOffset",
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  const offsetName = value("timeZoneName");
+  const offset = offsetName === "GMT"
+    ? "+0000"
+    : offsetName.replace(/^GMT([+-]\d{2}):(\d{2})$/, "$1$2");
+  if (!/^[+-]\d{4}$/.test(offset)) throw new Error(`Unsupported timezone offset: ${offsetName}`);
+  return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}-${value("minute")}-${value("second")}${offset}`;
+}
+
 export function captureTimestamp(tz?: string): string {
   const now = new Date();
-  if (tz) {
-    try {
-      return now.toLocaleString("sv-SE", { timeZone: tz, hour12: false }).replace(" ", "T").replace(/[:.]/g, "-").slice(0, 19);
-    } catch { /* fall through to UTC */ }
+  try {
+    return formatCaptureTimestamp(now, tz ?? "UTC");
+  } catch {
+    return formatCaptureTimestamp(now, "UTC");
   }
-  return now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+}
+
+export function captureFilenameAt(timestamp: string, sid: string): string {
+  return `${timestamp}-${sid.slice(0, 8)}.md`;
 }
 
 export function captureFilename(sid: string, tz?: string): string {
-  return `${captureTimestamp(tz)}-${sid}.md`;
+  return captureFilenameAt(captureTimestamp(tz), sid);
 }
 
 export function isResumedSession(counterFileExists: boolean, messageCount: number): boolean {

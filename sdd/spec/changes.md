@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-28
+
+- **Pi session extracts now use the recall-compatible Claude filename shape** ([REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC4 and [REQ-MEM-019](memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts) AC6 remain Implemented). Pi wrote local capture time without its UTC offset and appended the full session UUID, while post-compaction recall accepts the timezone-bearing timestamp and short session suffix used by Claude. The resulting Pi file was classified as undated and sorted behind every parseable Claude extract, so the five-item window omitted a newer Pi-authored session. Pi now emits the same timezone-bearing timestamp plus eight-character session suffix, and today's existing Pi extract was renamed to that shape; no legacy parser fallback was added.
+
 ## 2026-07-27
 
 - **Cross-cutting follow-ups and responsive allocation now have one owner each** ([REQ-AGENT-110](agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), [REQ-GITHUB-012](github.md#req-github-012-responsive-github-and-storage-panel-allocation), and [REQ-MOB-019](mobile.md#req-mob-019-keyboard-mode-swipe-semantics) added; all Implemented). Missing-launch recovery moved out of the boundary launch-plan requirement, panel allocation moved out of face switching, and keyboard-mode swipe semantics moved out of scroll anchoring. Existing anchors and behavior moved intact; the parent requirements now describe only their original concern.

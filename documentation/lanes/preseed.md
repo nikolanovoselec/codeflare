@@ -808,7 +808,9 @@ in `memory-context-inject.sh` is already claimed and that hook cannot fire again
 gone.
 
 Recency is the instant an extract was captured, parsed out of the ISO-8601
-timestamp and UTC offset its filename carries: mtime is unusable because the
+timestamp and UTC offset its filename carries. Claude and Pi both emit
+`YYYY-MM-DDTHH-MM-SS±HHMM-<8-character-session-id>.md`, so either runtime's
+captures enter the same selection. Modification time is unusable because the
 vault round-trips through rclone bisync, which rewrites it, and the name read as
 text is unusable because a UTC-offset change puts a later capture behind an
 earlier one. `PostCompact` is not used: it carries no decision control and

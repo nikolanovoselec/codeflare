@@ -17,16 +17,16 @@ import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isR
 // REQ-BROWSER-003: Pi Native Browser Run Wrapper
 
 describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)', () => {
-  it('REQ-MEM-001 AC4: captureTimestamp produces ISO-shaped timestamp with timezone', () => {
+  it('REQ-MEM-001 AC4: captureTimestamp includes the resolved timezone offset', () => {
     const ts = captureTimestamp();
-    expect(ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
+    expect(ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}[+-]\d{4}$/);
     const tsUtc = captureTimestamp('UTC');
-    expect(tsUtc).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
+    expect(tsUtc).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\+0000$/);
   });
 
-  it('REQ-MEM-001 AC4: captureFilename includes session ID and timestamp', () => {
-    const fn = captureFilename('test-session');
-    expect(fn).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-test-session\.md$/);
+  it('REQ-MEM-001 AC4: captureFilename matches Claude\'s timestamp and short session-ID shape', () => {
+    const fn = captureFilename('019fa5d1-04cc-7b7f-8fd7-b58a8c4dda6c');
+    expect(fn).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}[+-]\d{4}-019fa5d1\.md$/);
   });
 
   it('REQ-MEM-001: sessionId sanitizes special characters to underscores', () => {
