@@ -220,8 +220,19 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(backend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
     expect(frontend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
 
-    const action = readFileSync(join(REPO, '.github/actions/coverage-suite/action.yml'), 'utf8');
-    expect(action).toContain('scripts/ci/check-coverage-result.mjs');
+    const action = parseYaml(readFileSync(join(REPO, '.github/actions/coverage-suite/action.yml'), 'utf8')) as {
+      runs: { steps: Array<{ name?: string; run?: string }> };
+    };
+    const runStep = action.runs.steps.find((step) => step.name === 'Run suite with coverage');
+    expect(runStep).toBeDefined();
+    const activeCommands = (runStep?.run ?? '')
+      .replace(/\\\n\s*/g, ' ')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+    expect(activeCommands).toContain(
+      'node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" /tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH"',
+    );
   });
 });
 

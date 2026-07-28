@@ -33,11 +33,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, deployment, and a final outcome that fails when nothing was deployed. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, and deployment. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 4. Complete-image verification and deployment reuse compatible cached dependency and image-build work across runs. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status) -->
 5. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-7. Manual deployment runs checks inline unless an explicitly selected successful PR Checks run has the same head and tested tree; deployment never proceeds without exactly one successful verification path. <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (exact-head PR Checks run validation) -->
+7. Manual deployment runs checks inline unless an explicitly selected successful PR Checks run has the same head and tested tree. <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (exact-head PR Checks run validation) -->
 
 **Constraints:**
 
@@ -45,6 +45,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - The CI runner label is configurable to support self-hosted runners.
 - Concurrent dispatches are kept legible and independent by [REQ-OPS-026](#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified).
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
+- Successful-path gating and no-op outcome failure live in [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate).
 
 **Priority:** P0
 
@@ -724,6 +725,29 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
 **Verification:** Automated test ([suite gates](../../src/__tests__/ci/suite-gates.test.ts)); complete-image Browser IDE lane
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-028: Deploy verification and outcome gate
+
+**Intent:** A deployment proceeds only after one authoritative verification path succeeds, and a run that deploys nothing cannot appear successful.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The deploy job runs only after exactly one authoritative verification path succeeds. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+2. The final outcome fails when no deployment occurred. <!-- @impl: .github/workflows/deploy.yml::outcome --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+
+**Constraints:** Cancelled verification cannot be treated as successful verification.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
+
+**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
 
 **Status:** Implemented
 
