@@ -130,7 +130,7 @@ test('REQ-IDE-011 AC4: explorer review rejects resources outside the workspace',
   assert.equal(host.warnings.length, 1);
 });
 
-test('REQ-IDE-011 AC4: explorer review rejects a symlink alias before opening native Chat', async () => {
+test('REQ-IDE-011 AC5: explorer review rejects a symlink alias before opening native Chat', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
