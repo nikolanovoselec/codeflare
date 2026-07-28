@@ -171,6 +171,7 @@ jobs:
               - *shared
               - 'openvscode/**'
               - 'preseed/agents/pi/**'
+              - 'scripts/browser-ide-ui-state.py'
               - 'scripts/ci/smoke-openvscode-sidebar-image.mjs'
             host:
               - *shared
@@ -186,6 +187,7 @@ jobs:
               - '.github/**'
               - 'host/**'
               - 'preseed/**'
+              - 'scripts/browser-ide-ui-state.py'
             workflows:
               - '.github/**'
 

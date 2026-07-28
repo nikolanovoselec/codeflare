@@ -93,6 +93,7 @@ test('staged Pi and Claude extension files are immutable', async () => {
 
 test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1+AC6: contributes native Pi Chat and file review menus', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+    displayName: string;
     activationEvents: string[];
     enabledApiProposals: string[];
     contributes: {

@@ -96,13 +96,16 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const filterSource = workflow.jobs.changes.steps.find((step) => step.id === 'filter')?.with?.filters;
     expect(filterSource).toBeTypeOf('string');
     const filters = parseYaml(filterSource!) as Record<string, unknown[]>;
-    const patterns = flattenPatterns(filters.ide);
+    const idePatterns = flattenPatterns(filters.ide);
+    const hostPatterns = flattenPatterns(filters.host);
 
-    expect(matchesAny('openvscode/agent-sidebar/src/extension.ts', patterns)).toBe(true);
-    expect(matchesAny('scripts/ci/smoke-openvscode-sidebar-image.mjs', patterns)).toBe(true);
-    expect(matchesAny('preseed/agents/pi/extensions/sidebar-approval.ts', patterns)).toBe(true);
-    expect(matchesAny('.github/workflows/test.yml', patterns)).toBe(true);
-    expect(matchesAny('documentation/lanes/container.md', patterns)).toBe(false);
+    expect(matchesAny('openvscode/agent-sidebar/src/extension.ts', idePatterns)).toBe(true);
+    expect(matchesAny('scripts/ci/smoke-openvscode-sidebar-image.mjs', idePatterns)).toBe(true);
+    expect(matchesAny('scripts/browser-ide-ui-state.py', idePatterns)).toBe(true);
+    expect(matchesAny('scripts/browser-ide-ui-state.py', hostPatterns)).toBe(true);
+    expect(matchesAny('preseed/agents/pi/extensions/sidebar-approval.ts', idePatterns)).toBe(true);
+    expect(matchesAny('.github/workflows/test.yml', idePatterns)).toBe(true);
+    expect(matchesAny('documentation/lanes/container.md', idePatterns)).toBe(false);
   });
 
   it('audits production lockfiles without depending on restored node_modules trees', () => {

@@ -62,9 +62,11 @@ Every session comes pre-loaded with your choice of agent:
 **The IDE.**
 
 - Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side within one session).
-- **VS Code in the browser** *(Pro sessions)* — one click in the header opens a full code-server editor on that session's fixed workspace, in a new tab, behind the same authentication as everything else. The public session URL stays clean and cannot select another workspace through query parameters.
-- Pi and Claude get editor-native integrations: account-free native Chat visibly named **Codeflare** for Pi, and Anthropic's official Claude panel with loopback IDE context. Neither attaches to terminal tab 1; unsupported agents load no extension. **Review with Codeflare** replaces the account-backed upstream Code Review action.
-- The editor lazy-starts on first open (a warming page retries until it's ready), restarts automatically after an interruption, and stops with the session — zero cost until you use it. Theme, Explorer expansion, and canonical in-workspace open files follow the user through a bounded snapshot; live databases, extension state, credentials, chat history, and logs remain ephemeral.
+- **VS Code in the browser** *(Pro sessions)* — opens code-server on the session's fixed workspace behind existing authentication. Worker and host reject public workspace selectors, keeping the URL clean ([REQ-IDE-001](sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-012](sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection)).
+- Pi and Claude get editor-native integrations without attaching to terminal tab 1: account-free Chat named **Codeflare** and the official Claude panel. Unsupported agents load no extension ([REQ-IDE-005](sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent)).
+- **Review with Codeflare** replaces the account-backed upstream Code Review action ([REQ-IDE-011](sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare)).
+- The editor lazy-starts on first open, restarts after interruption, and stops with the session, so it costs nothing until used.
+- Theme, Explorer expansion, and canonical in-workspace open files persist through a bounded snapshot. Databases, extension state, credentials, chat history, and logs remain ephemeral ([REQ-IDE-002](sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable)).
 - **MultiView** — view several running sessions side by side in one workspace. It's a virtual view over sessions you already have: no new session is created, and no existing session's lifecycle is affected.
 - One isolated container per session — agents can't escape their sandbox.
 - Persistent R2 storage with bisync every 15 minutes, a manual Sync-now button, and a final sync on stop. Sync conflicts are reconciled automatically on the next cycle.

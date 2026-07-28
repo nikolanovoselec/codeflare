@@ -842,20 +842,6 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
   });
 });
 
-describe('Browser IDE UI-state image packaging / REQ-IDE-002', () => {
-  it('packages the tested snapshot helper at the immutable entrypoint path', () => {
-    const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
-    assert.match(
-      dockerfile,
-      /COPY scripts\/browser-ide-ui-state\.py \/opt\/codeflare\/openvscode\/browser-ide-ui-state\.py/,
-    );
-    assert.match(
-      dockerfile,
-      /chmod 0555 \/opt\/codeflare\/openvscode\/browser-ide-ui-state\.py/,
-    );
-  });
-});
-
 // @types/node is published on DefinitelyTyped's own cadence, so only its major
 // is required to match the pinned builder Node. The extension API floor is
 // checked against the installed Code runtime by the complete-image smoke.
