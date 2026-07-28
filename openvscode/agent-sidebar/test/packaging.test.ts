@@ -91,7 +91,7 @@ test('staged Pi and Claude extension files are immutable', async () => {
   assert.notEqual((await stat(piFile)).ino, (await stat(claudeFile)).ino);
 });
 
-test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1: contributes native Pi Chat and Explorer review', async () => {
+test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1+AC6: contributes native Pi Chat and file review menus', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
     activationEvents: string[];
     enabledApiProposals: string[];
@@ -99,7 +99,10 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1: contributes native Pi Chat and Explorer
       chatParticipants: Array<Record<string, unknown>>;
       commands: Array<Record<string, unknown>>;
       languageModelChatProviders: Array<Record<string, unknown>>;
-      menus: { 'explorer/context': Array<Record<string, unknown>> };
+      menus: {
+        'editor/context': Array<Record<string, unknown>>;
+        'explorer/context': Array<Record<string, unknown>>;
+      };
       viewsContainers?: unknown;
       views?: unknown;
     };
@@ -128,6 +131,11 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1: contributes native Pi Chat and Explorer
     command: 'codeflare.pi.reviewFile',
     group: '1_chat@1',
     when: "resourceScheme == 'file' && !explorerResourceIsFolder",
+  }]);
+  assert.deepEqual(manifest.contributes.menus['editor/context'], [{
+    command: 'codeflare.pi.reviewFile',
+    group: '1_chat@6',
+    when: "resourceScheme == 'file'",
   }]);
   assert.equal(manifest.contributes.viewsContainers, undefined);
   assert.equal(manifest.contributes.views, undefined);

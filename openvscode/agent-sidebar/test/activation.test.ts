@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
+  activeEditorUri: undefined as { fsPath: string; scheme: string } | undefined,
   commandHandler: undefined as ((resource?: { fsPath: string; scheme: string }) => Promise<void>) | undefined,
   commandId: undefined as string | undefined,
   executedCommand: undefined as { id: string; options: Record<string, unknown> } | undefined,
@@ -50,7 +51,9 @@ vi.mock('vscode', () => ({
     },
   },
   window: {
-    activeTextEditor: undefined,
+    get activeTextEditor() {
+      return host.activeEditorUri ? { document: { uri: host.activeEditorUri } } : undefined;
+    },
     showWarningMessage: async (message: string) => { host.warnings.push(message); },
     showTextDocument: async () => undefined,
   },
@@ -65,6 +68,7 @@ import { activate, deactivate } from '../src/extension.ts';
 
 afterEach(async () => {
   await deactivate();
+  host.activeEditorUri = undefined;
   host.commandHandler = undefined;
   host.commandId = undefined;
   host.executedCommand = undefined;
@@ -114,6 +118,23 @@ test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codefla
   assert.match(String(host.executedCommand?.options.query), /^@codeflare\b/);
   assert.equal(host.executedCommand?.options.mode, 'ask');
   assert.equal(host.executedCommand?.options.isPartialQuery, undefined);
+  assert.deepEqual(host.warnings, []);
+});
+
+test('REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Codeflare Pi ask mode', async () => {
+  activate({
+    extensionUri: { fsPath: '/extension' },
+    subscriptions: [],
+  } as never);
+
+  host.activeEditorUri = { fsPath: '/home/user/workspace/src/editor.ts', scheme: 'file' };
+  assert.ok(host.commandHandler);
+  await host.commandHandler();
+
+  assert.equal(host.executedCommand?.id, 'workbench.action.chat.open');
+  assert.deepEqual(host.executedCommand?.options.attachFiles, [host.activeEditorUri]);
+  assert.match(String(host.executedCommand?.options.query), /^@codeflare\b/);
+  assert.equal(host.executedCommand?.options.mode, 'ask');
   assert.deepEqual(host.warnings, []);
 });
 
