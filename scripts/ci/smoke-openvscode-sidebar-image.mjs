@@ -129,7 +129,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
   assert.deepEqual(manifest.contributes?.languageModelChatProviders, [{
-    vendor: 'codeflare-pi-rpc',
+    vendor: 'copilot',
     displayName: 'Codeflare Pi (Local RPC)',
   }]);
   const [participant] = manifest.contributes?.chatParticipants ?? [];
@@ -160,7 +160,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
     languages: { getDiagnostics: () => [] },
     lm: {
       registerLanguageModelChatProvider: (vendor, provider) => {
-        assert.equal(vendor, 'codeflare-pi-rpc');
+        assert.equal(vendor, 'copilot');
         hostModelProvider = provider;
         return disposable();
       },

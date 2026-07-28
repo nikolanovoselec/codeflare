@@ -49,7 +49,7 @@ test('REQ-IDE-005 AC5: native Pi registers an account-free panel model that reje
   } as never);
 
   assert.equal(host.participantId, 'codeflare.pi');
-  assert.equal(host.modelVendor, 'codeflare-pi-rpc');
+  assert.equal(host.modelVendor, 'copilot');
   const provider = host.modelProvider;
   assert.ok(provider);
   const models = await provider.provideLanguageModelChatInformation() as Array<Record<string, unknown>>;

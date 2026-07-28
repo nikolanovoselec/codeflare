@@ -106,7 +106,7 @@ test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat parti
   assert.deepEqual(manifest.activationEvents, ['onChatParticipant:codeflare.pi']);
   assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
   assert.deepEqual(manifest.contributes.languageModelChatProviders, [{
-    vendor: 'codeflare-pi-rpc',
+    vendor: 'copilot',
     displayName: 'Codeflare Pi (Local RPC)',
   }]);
   const [participant] = manifest.contributes.chatParticipants;
