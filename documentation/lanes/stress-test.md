@@ -156,8 +156,8 @@ The test validates that:
 All scripts use a `think(min, max)` helper that adds realistic pauses between operations:
 
 ```js
-function think(min, max) {
-  sleep(min + Math.random() * (max - min));
+function think(minS, maxS) {
+  sleep(minS + Math.random() * (maxS - minS));
 }
 ```
 
@@ -221,7 +221,7 @@ Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-li
   - **HTTP requests:** `src/middleware/rate-limit.ts` (checkRateLimit skipped)
   - **WebSocket connections:** `src/routes/terminal.ts` (checkRateLimit skipped)
 
-**Production must never have `STRESS_TEST_MODE` set.** The flag should only be enabled on integration workers used for load testing.
+**Production must never have `STRESS_TEST_MODE` set.** Enable the flag only on integration workers used for load testing.
 
 ## Configuration Reference
 
