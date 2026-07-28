@@ -5,9 +5,10 @@
 // deployed whatever the branch tip was, with no test gate at all, which made
 // manual dispatch a silent bypass of every check in this repository.
 //
-// It is now gated on an inline `verify` job that calls PR Checks as a reusable
-// workflow. This test pins that arrangement, because the failure mode of losing
-// it is invisible: manual deploys keep working, they just stop being verified.
+// It is gated either by a validated successful exact-head PR Checks run or by
+// an inline `verify` job that calls PR Checks as a reusable workflow. This test
+// pins both paths, because the failure mode of losing either gate is invisible:
+// manual deploys keep working, they just stop being verified.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -61,11 +62,16 @@ describe('manual deploys cannot skip tests', () => {
       /uses: \.\/\.github\/workflows\/test\.yml/,
       "the verify job must call this repository's PR Checks, not a substitute"
     );
-    assert.match(
-      condition('verify'),
-      /github\.event_name == 'workflow_dispatch'/,
-      'the verify job must run on manual dispatch'
-    );
+    const gate = condition('verify');
+    assert.match(gate, /github\.event_name == 'workflow_dispatch'/, 'the verify job must run on manual dispatch');
+    assert.match(gate, /inputs\.verified_run_id == ''/, 'inline verification must be the fallback when no run id is supplied');
+  });
+
+  it('validates an existing PR Checks run before reusing it', () => {
+    const block = jobBlock('verify-existing');
+    assert.match(block, /actions: read/, 'exact-head run validation needs read-only Actions API access');
+    assert.match(block, /inputs\.verified_run_id != ''/, 'run reuse must be opt-in with an explicit run id');
+    assert.match(block, /validate-pr-checks-run\.mjs/, 'the workflow must validate the run rather than trust the input');
   });
 
   for (const name of GATED_JOBS) {
@@ -74,18 +80,34 @@ describe('manual deploys cannot skip tests', () => {
       const needs = jobBlock(name).match(/^ {4}needs: (.*)$/m);
       assert.ok(needs, `job "${name}" declares no needs, so it cannot see the verify result`);
       assert.match(needs[1], /\bverify\b/, `job "${name}" must depend on verify`);
+      assert.match(needs[1], /\bverify-existing\b/, `job "${name}" must depend on exact-head run validation`);
 
       assert.match(
         gate,
         /needs\.verify\.result == 'success'/,
-        `job "${name}" does not require a green verify — manual dispatch would deploy untested code`
+        `job "${name}" does not accept a green inline verify`
+      );
+      assert.match(
+        gate,
+        /needs\.verify-existing\.result == 'success'/,
+        `job "${name}" does not require successful existing-run validation`
+      );
+      assert.match(
+        gate,
+        /needs\.verify-existing\.outputs\.verified == 'true'/,
+        `job "${name}" trusts a supplied run id without a positive validator output`
       );
       // On workflow_run, verify is skipped by its own if:. Requiring the skip
       // explicitly means a *failed* verify can never be read as "not applicable".
       assert.match(
         gate,
         /needs\.verify\.result == 'skipped'/,
-        `job "${name}" must require verify to be skipped on the workflow_run path, not merely absent`
+        `job "${name}" must require verify to be skipped when another verification path is authoritative`
+      );
+      assert.match(
+        gate,
+        /needs\.verify-existing\.result == 'skipped'/,
+        `job "${name}" must require existing-run validation to be skipped when it is not authoritative`
       );
       // always() would run these jobs through a cancellation.
       assert.doesNotMatch(gate, /\balways\(\)/, `job "${name}" uses always(), so cancelling a deploy would not stop it`);

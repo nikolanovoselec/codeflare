@@ -121,6 +121,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         if?: string;
         needs?: string | string[];
         'continue-on-error'?: boolean;
+        permissions?: Record<string, string>;
         steps?: Array<{
           name?: string;
           if?: string;
@@ -147,7 +148,14 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const criticalSteps = imageSteps.filter((step) => step.name !== 'Upload image evidence');
     expect(criticalSteps.every((step) => step.if === undefined && step['continue-on-error'] !== true)).toBe(true);
     const imageCommands = imageSteps.flatMap((step) => step.run ?? []).join('\n');
-    expect(imageCommands).toContain('docker build --tag "$IMAGE" .');
+    expect(imageJob.permissions?.actions).toBe('write');
+    expect(imageCommands).toContain('docker buildx build');
+    expect(imageCommands).toContain('--cache-from "type=gha,scope=container-image-linux-amd64"');
+    expect(imageCommands).toContain('--cache-to "type=gha,mode=max,scope=container-image-linux-amd64"');
+    expect(imageCommands).toContain('--load');
+    const deployImageWorkflow = readFileSync(join(REPO, '.github/workflows/container-image.yml'), 'utf8');
+    expect(deployImageWorkflow).toContain('--cache-from "type=gha,scope=container-image-linux-amd64"');
+    expect(deployImageWorkflow).toContain('--cache-to "type=gha,mode=max,scope=container-image-linux-amd64"');
     expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
     // Identity and pinning shape, not the digest itself: what AC7 protects is
     // which actions this job may run -- adding a login or push action has to
@@ -157,6 +165,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const imageUses = imageSteps.flatMap((step) => step.uses ?? []);
     expect(imageUses.map((use) => use.split('@')[0])).toEqual([
       'actions/checkout',
+      'docker/setup-buildx-action',
       'actions/upload-artifact',
     ]);
     expect(imageUses.filter((use) => !/@[0-9a-f]{40}$/.test(use))).toEqual([]);
@@ -167,6 +176,28 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
     const requiredJobs = Array.isArray(summaryJob.needs) ? summaryJob.needs : [summaryJob.needs];
     expect(requiredJobs).toEqual(expect.arrayContaining(['browser-ide', 'browser-ide-image']));
+  });
+
+  it('path-gates backend and frontend coverage through one reusable action', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: Record<string, {
+        if?: string;
+        steps?: Array<{ uses?: string }>;
+      }>;
+    };
+    const backend = workflow.jobs['coverage-backend'];
+    const frontend = workflow.jobs['coverage-frontend'];
+
+    expect(workflow.jobs.coverage).toBeUndefined();
+    expect(backend.if).toContain("needs.changes.outputs.backend == 'true'");
+    expect(frontend.if).toContain("needs.changes.outputs.webui == 'true'");
+    expect(backend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
+    expect(frontend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
+
+    const action = readFileSync(join(REPO, '.github/actions/coverage-suite/action.yml'), 'utf8');
+    expect(action).toContain('no coverage table was produced');
+    expect(action).toContain('does not meet .*threshold');
+    expect(action).toContain('[vitest-pool]: Worker cloudflare-pool emitted error.');
   });
 });
 
