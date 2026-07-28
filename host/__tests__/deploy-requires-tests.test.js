@@ -249,11 +249,12 @@ describe('manual deploys cannot skip tests', () => {
   });
 
   it('fails the outcome when no deployment occurred', () => {
-    assert.match(
-      jobBlock('outcome'),
-      /node scripts\/ci\/assert-deploy-outcome\.mjs "\$DEPLOY"/,
-      'the outcome job must execute the behaviorally tested decision kernel'
-    );
+    const outcomeJob = jobBlock('outcome');
+    const checkout = outcomeJob.indexOf('uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
+    const kernel = outcomeJob.indexOf('node scripts/ci/assert-deploy-outcome.mjs "$DEPLOY"');
+    assert.notEqual(checkout, -1, 'the clean outcome runner must check out the decision kernel');
+    assert.match(outcomeJob.slice(checkout, kernel), /persist-credentials: false/);
+    assert.ok(kernel > checkout, 'the outcome job must check out before executing the behaviorally tested decision kernel');
     for (const [result, expected] of [['success', 0], ['skipped', 1], ['failure', 1], ['cancelled', 1]]) {
       const outcome = spawnSync(process.execPath, [OUTCOME_GATE, result], { encoding: 'utf8' });
       assert.equal(outcome.status, expected, result);
