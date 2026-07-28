@@ -19,6 +19,7 @@ import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pin
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
+const COVERAGE_GATE = join(REPO, 'scripts/ci/check-coverage-result.mjs');
 const SHADOW_PINS_WORKFLOW = join(REPO, '.github/workflows/bump-shadow-pins.yml');
 
 let work: string;
@@ -178,6 +179,31 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(requiredJobs).toEqual(expect.arrayContaining(['browser-ide', 'browser-ide-image']));
   });
 
+  it('fails closed on coverage evidence and bounds the backend crash exception', () => {
+    const table = ' All files | 100 | 100 | 100 | 100 |\n';
+    const crash = '[vitest-pool]: Worker cloudflare-pool emitted error.\n';
+    const cases = [
+      { name: 'complete success', log: table, status: 0, tolerate: false, expected: 0 },
+      { name: 'missing table', log: `Tests 1 passed\n${crash}`, status: 1, tolerate: true, expected: 1 },
+      { name: 'failed tests', log: `${table} Tests 1 failed | 2 passed\n${crash}`, status: 1, tolerate: true, expected: 1 },
+      { name: 'threshold miss', log: `${table}ERROR: Coverage for lines (79%) does not meet global threshold (80%)\n${crash}`, status: 1, tolerate: true, expected: 1 },
+      { name: 'bounded backend crash', log: `${table}${crash}`, status: 1, tolerate: true, expected: 0 },
+      { name: 'untolerated frontend crash', log: `${table}${crash}`, status: 1, tolerate: false, expected: 1 },
+      { name: 'unknown backend failure', log: table, status: 2, tolerate: true, expected: 2 },
+    ];
+
+    for (const fixture of cases) {
+      const log = join(work, `${fixture.name.replaceAll(' ', '-')}.log`);
+      writeFileSync(log, fixture.log);
+      const result = spawnSync(
+        process.execPath,
+        [COVERAGE_GATE, log, String(fixture.status), String(fixture.tolerate)],
+        { encoding: 'utf8' },
+      );
+      expect(result.status, fixture.name).toBe(fixture.expected);
+    }
+  });
+
   it('path-gates backend and frontend coverage through one reusable action', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: Record<string, {
@@ -195,9 +221,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(frontend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
 
     const action = readFileSync(join(REPO, '.github/actions/coverage-suite/action.yml'), 'utf8');
-    expect(action).toContain('no coverage table was produced');
-    expect(action).toContain('does not meet .*threshold');
-    expect(action).toContain('[vitest-pool]: Worker cloudflare-pool emitted error.');
+    expect(action).toContain('scripts/ci/check-coverage-result.mjs');
   });
 });
 

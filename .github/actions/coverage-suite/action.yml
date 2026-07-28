@@ -41,26 +41,8 @@ runs:
         status=0
         npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
 
-        if ! grep -qE '^[[:space:]]*All files[[:space:]]*\|' /tmp/coverage.log; then
-          echo "::error::no coverage table was produced — thresholds were never evaluated"
-          exit 1
-        fi
-        if grep -qE '^ *Tests +.*failed' /tmp/coverage.log; then
-          echo "::error::tests failed during the coverage run"
-          exit 1
-        fi
-        if grep -qE 'does not meet .*threshold' /tmp/coverage.log; then
-          echo "::error::coverage thresholds not met (see the table above)"
-          exit 1
-        fi
-        if [ "$status" -ne 0 ]; then
-          if [ "$TOLERATE_POOL_CRASH" = 'true' ] && grep -qF '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/coverage.log; then
-            echo "::warning::tolerating the known workerd teardown crash (coverage table and thresholds both verified above)"
-          else
-            echo "::error::coverage run failed with status $status"
-            exit "$status"
-          fi
-        fi
+        node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" \
+          /tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH"
 
     - name: Publish coverage table
       if: always()
