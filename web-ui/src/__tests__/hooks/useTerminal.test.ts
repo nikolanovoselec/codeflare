@@ -800,7 +800,7 @@ describe('useTerminal hook', () => {
       vi.useRealTimers();
     });
 
-    it('REQ-MOB-001 AC6: skips the keyboard refit (no fit, no PTY resize) when the container has zero visible height', async () => {
+    it('REQ-MOB-001 AC5: skips the keyboard refit (no fit, no PTY resize) when the container has zero visible height', async () => {
       vi.useFakeTimers();
 
       // Inactive / hidden pane: container reports zero height. The layout
@@ -843,7 +843,7 @@ describe('useTerminal hook', () => {
       vi.useRealTimers();
     });
 
-    it('should skip fitAddon.fit() in active-state effect when kbDebouncePending is true', async () => {
+    it('REQ-MOB-010 AC2: suppresses competing fits while a keyboard refit is pending', async () => {
       vi.useFakeTimers();
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
