@@ -39,10 +39,11 @@ A full code-server browser editor for an advanced running session. The editor op
 
 1. Malformed or missing session identifiers are rejected before container access. <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute --> <!-- @test: src/__tests__/routes/vscode-validation.test.ts (validateVscodeRoute (REQ-IDE-001, REQ-IDE-002)) -->
 2. Unauthenticated editor access is rejected, and requests from disallowed origins are forbidden. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
-3. Editor pages, assets, redirects, service workers, cookies, and sockets remain beneath the selected session's browser location, and a mismatched session path never reaches the editor. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @impl: host/src/vscode-proxy.ts::vscodeUpstreamPath --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-001 AC3: forwards the external path and exact query with canonical host identity) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently) --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamPath / REQ-IDE-001 AC3 (exact session prefix strip)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity) --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-IDE-001 AC3: code-server WebSocket caller routing and proxy identity) --> <!-- @manual: On the deployed integration image, verify redirects, service-worker scope, cookie paths, assets, and reconnect URLs remain under /api/vscode/<sessionId> on three fresh sessions. -->
+3. Editor pages, assets, redirects, service workers, cookies, and sockets remain beneath the selected session's browser location. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-001 AC3: forwards the external path and exact query with canonical host identity) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity) --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-IDE-001 AC3: code-server WebSocket caller routing and proxy identity) --> <!-- @manual: On the deployed integration image, verify redirects, service-worker scope, cookie paths, assets, and reconnect URLs remain under /api/vscode/<sessionId> on three fresh sessions. -->
 4. Editor content may be framed only by the same origin. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/early-return-security.test.ts (REQ-IDE-001 AC4: a vscode proxy response carries SAMEORIGIN + frame-ancestors CSP) -->
 5. A session not owned by the user is unavailable, and stopped or unhealthy sessions do not forward editor traffic. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
 6. Normal editor protocol messages of at least 256 KiB pass byte-for-byte without a payload-limit disconnect. <!-- @impl: host/src/vscode-proxy.ts::createVscodeWebSocketServer --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-001: accepts a 256 KiB binary protocol message intact without a 1009 close) -->
+7. A path for any session other than the selected session never reaches the editor. <!-- @impl: host/src/vscode-proxy.ts::vscodeUpstreamPath --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamPath / REQ-IDE-001 AC7 (exact session prefix strip)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-001 AC7: rejects a mismatched session prefix without contacting code-server) --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-IDE-001 AC7: rejects a mismatched session prefix before opening a code-server socket) -->
 
 **Constraints:**
 
@@ -160,8 +161,9 @@ A full code-server browser editor for an advanced running session. The editor op
 3. A Claude session keeps code-server's unrelated native Chat and Copilot setup disabled. <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup) -->
 4. Neither Pi nor Claude starts an agent process before a native Chat request or Claude panel request; every Pi request uses one fresh isolated backend. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC3: each native Chat request uses and reaps a fresh isolated Pi backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) --> <!-- @manual: Run the Browser IDE complete-image job and confirm both host inventories remain free of Pi or Claude agent processes before first use. -->
 5. A Pi session opens Codeflare Pi native Chat without an account-setup prompt or authorization flow. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_COMPATIBILITY_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5: native Pi registers an account-free panel model that rejects generation) -->
-6. The complete image discovers and activates each fixed inventory against the pinned host without proposal, identity, permission, account, or eager-process regression. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::assertExtensionApiFloor --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC6: refuses retained VSIX and substituted publisher or version metadata) --> <!-- @manual: Run the Browser IDE complete-image job and retain its actual code-server extension-discovery, proposal, package-identity, permission, process-laziness, readiness, RSS, process-count, and image-size evidence artifact. -->
 7. Codeflare Pi answers native Chat independently of the editor-selected model. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC7: native Pi context collection ignores the host-selected model) -->
+
+**Notes:** Former AC6 moved to [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility) AC1-AC6; AC7 retains its number to preserve existing evidence references.
 
 **Constraints:**
 
@@ -296,5 +298,37 @@ A full code-server browser editor for an advanced running session. The editor op
 **Verification:** Automated test ([Base settings tests](../../openvscode/claude/test/managed-settings.test.mjs); [base seed tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs); [all-kinds launch tests](../../host/__tests__/entrypoint-openvscode.test.js))
 
 **Status:** Implemented
+
+---
+
+### REQ-IDE-010: Pinned IDE inventory compatibility
+
+**Intent:** Every fixed IDE inventory remains compatible with the installed code-server host at the packaged-image boundary.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The complete image discovers the packaged Pi and Claude inventories, while the unsupported inventory remains empty. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) -->
+2. The installed Code host satisfies each extension API floor and admits the proposals required by the Pi inventory. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::assertExtensionApiFloor --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @manual: Retain the complete-image extension-discovery and proposal evidence artifact. -->
+3. Packaged Pi and Claude extensions retain their pinned publisher, package, and version identities without a staged VSIX. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-010 AC3: refuses retained VSIX and substituted publisher or version metadata) -->
+4. Each fixed inventory activates without an unexpected extension-permission requirement. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @manual: Retain the complete-image permission evidence before promotion. -->
+5. Activation introduces no code-server account requirement for either fixed inventory. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @manual: Retain the complete-image account evidence before promotion. -->
+6. Before first use, the complete-image process inventory contains no Pi or Claude agent process. <!-- @manual: Retain the complete-image process-laziness evidence before promotion. -->
+
+**Notes:** This requirement contains former REQ-IDE-005 AC6, split into independently verifiable compatibility dimensions.
+
+**Constraints:**
+
+- The exact upstream artifacts and fixed inventories remain unchanged at runtime.
+- Agent-process laziness remains behaviorally owned by [REQ-IDE-005](#req-ide-005-selected-native-ide-agent) AC4.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-OPS-027](operations.md#req-ops-027-code-server-coupled-pin-automation)
+
+**Verification:** Complete-image smoke in `.github/workflows/test.yml` plus packaged inventory tests
+
+**Status:** Partial
 
 ---

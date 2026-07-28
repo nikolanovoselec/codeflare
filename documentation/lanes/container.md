@@ -152,7 +152,7 @@ code-server receives `--auth none` only behind the Worker's Access/ownership cha
 
 **Idle activity ([REQ-IDE-004](../../sdd/spec/browser-ide.md#req-ide-004-resilient-editor-activity-transport)):** Every client-to-server editor frame refreshes the host's `lastInputAt` timestamp without protocol parsing. The authoritative `collectMetrics()` idle policy therefore treats continued editing as user input just like PTY keystrokes. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages -->
 
-**Selected native IDE agent ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle)):** `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed immutable extension directories. Invalid or unsupported configurations use the empty directory.
+**Selected native IDE agent ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility)):** `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed immutable extension directories. Invalid or unsupported configurations use the empty directory.
 
 Pi uses Codeflare's default native Chat participant. Each request snapshots bounded canonical-workspace editor context and native Chat history, then runs one fresh `/usr/local/bin/pi --mode rpc --no-session --no-themes` process. It streams assistant text and waits for `agent_settled` on normal completion; cancellation completes after the correlated abort and bounded generation reaping. It calls no VS Code authentication or language-model provider.
 
@@ -351,6 +351,7 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 ## Specification Coverage
 
 - [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Fixed native Pi, official Claude, and empty inventories
+- [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility) - Packaged compatibility of fixed inventories
 - [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor context and conversation isolation
 - [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted tools
 - [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent generation cleanup

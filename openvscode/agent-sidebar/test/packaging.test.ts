@@ -119,7 +119,7 @@ test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat parti
   assert.equal(manifest.contributes.views, undefined);
 });
 
-test('REQ-IDE-005 AC6: refuses retained VSIX and substituted publisher or version metadata', async () => {
+test('REQ-IDE-010 AC3: refuses retained VSIX and substituted publisher or version metadata', async () => {
   for (const forbidden of ['vsix', 'owned-publisher', 'official-publisher', 'official-version']) {
     const { source, claudeSource, target } = await fixture();
     if (forbidden === 'vsix') await writeFile(join(source, 'anthropic.vsix'), 'forbidden\n');

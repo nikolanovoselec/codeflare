@@ -36,7 +36,7 @@ describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () =
   });
 });
 
-describe('vscodeUpstreamPath / REQ-IDE-001 AC3 (exact session prefix strip)', () => {
+describe('vscodeUpstreamPath / REQ-IDE-001 AC7 (exact session prefix strip)', () => {
   const SID = 'abcd1234';
 
   it('REQ-IDE-001 AC3: strips exactly /api/vscode/<expected-session> for code-server', () => {

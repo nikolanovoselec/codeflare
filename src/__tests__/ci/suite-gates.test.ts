@@ -170,7 +170,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
   });
 });
 
-describe('REQ-OPS-020 AC3+AC4: code-server shadow-pin ownership', () => {
+describe('REQ-OPS-027: code-server coupled-pin automation', () => {
   it('routes code-server bumps through one dedicated fail-closed updater', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;

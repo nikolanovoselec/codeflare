@@ -391,8 +391,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Acceptance Criteria:**
 
 1. All proxied requests from the Worker to the container include the token as a bearer credential. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-022 AC1: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch) -->
-2. The container's terminal server validates the bearer credential on all non-exempt HTTP and WebSocket paths. <!-- @impl: host/src/auth-check.ts::checkContainerAuth --> <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: host/__tests__/server-auth-check.test.js (checkContainerAuth / REQ-SEC-022 (container proxy bearer validation)) --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-SEC-022: rejects a missing container bearer before opening a code-server socket) -->
+2. The container's terminal server validates the bearer credential on every non-exempt HTTP path. <!-- @impl: host/src/auth-check.ts::checkContainerAuth --> <!-- @test: host/__tests__/server-auth-check.test.js (checkContainerAuth / REQ-SEC-022 AC2 (container proxy bearer validation)) -->
 3. Only the health and activity paths are auth-exempt; both expose no user data and no mutable state. <!-- @impl: host/src/auth-check.ts::AUTH_EXEMPT_PATHS --> <!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-022 AC3: only /health and /activity are auth-exempt) -->
+4. The terminal server validates the bearer credential before routing every WebSocket upgrade. <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-SEC-022 AC4: rejects a missing container bearer before opening a code-server socket) -->
 
 **Constraints:**
 

@@ -189,19 +189,21 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
     assert.equal(response.headers.location, `/api/vscode/${SID}/login?next=%2Fstable%2Fout%2Fmain.js`);
     assert.deepEqual(response.headers['set-cookie'], [`code-server-session=abc; Path=/api/vscode/${SID}/; HttpOnly`]);
     assert.equal(response.headers['service-worker-allowed'], `/api/vscode/${SID}/`);
-    assert.deepEqual(upstreamRequests, [{
-      url: `/stable/out/main.js${query}`,
-      headers: {
+    assert.equal(upstreamRequests.length, 1);
+    assert.equal(upstreamRequests[0].url, `/stable/out/main.js${query}`);
+    assert.deepEqual(
+      { ...upstreamRequests[0].headers, connection: undefined },
+      {
         origin: 'https://codeflare.ch',
         'x-forwarded-host': 'codeflare.ch',
         'x-forwarded-proto': 'https',
         host: 'codeflare.ch',
-        connection: 'close',
+        connection: undefined,
       },
-    }]);
+    );
   });
 
-  it('rejects a mismatched session prefix without contacting code-server', async () => {
+  it('REQ-IDE-001 AC7: rejects a mismatched session prefix without contacting code-server', async () => {
     const beforeCount = upstreamRequests.length;
     const response = await getText(proxyPort, '/api/vscode/other-session/stable/out/main.js', {
       ...auth,

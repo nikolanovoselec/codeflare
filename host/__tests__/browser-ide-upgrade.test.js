@@ -78,6 +78,7 @@ describe('REQ-IDE-001 AC3: code-server WebSocket caller routing and proxy identi
 
   it('strips only the expected session prefix and preserves reconnect query bytes and canonical headers', { timeout: 5000 }, async () => {
     const query = '?reconnect=a%2Fb&reconnect=two+words&empty=&bare';
+    const upstreamConnection = once(upstreamWss, 'connection');
     const client = new WebSocket(
       `ws://127.0.0.1:${proxyPort}/api/vscode/${SID}/ws${query}`,
       {
@@ -93,6 +94,7 @@ describe('REQ-IDE-001 AC3: code-server WebSocket caller routing and proxy identi
 
     try {
       await once(client, 'open');
+      await upstreamConnection;
       assert.equal(upstreamRequests.length, 1);
       const observed = upstreamRequests[0];
       assert.equal(observed.url, `/ws${query}`);
@@ -107,7 +109,7 @@ describe('REQ-IDE-001 AC3: code-server WebSocket caller routing and proxy identi
     }
   });
 
-  it('REQ-SEC-022: rejects a missing container bearer before opening a code-server socket', { timeout: 5000 }, async () => {
+  it('REQ-SEC-022 AC4: rejects a missing container bearer before opening a code-server socket', { timeout: 5000 }, async () => {
     const beforeCount = upstreamRequests.length;
     const client = new WebSocket(
       `ws://127.0.0.1:${proxyPort}/api/vscode/${SID}/ws`,
@@ -137,7 +139,7 @@ describe('REQ-IDE-001 AC3: code-server WebSocket caller routing and proxy identi
     assert.equal(upstreamRequests.length, beforeCount);
   });
 
-  it('rejects a mismatched session prefix before opening a code-server socket', { timeout: 5000 }, async () => {
+  it('REQ-IDE-001 AC7: rejects a mismatched session prefix before opening a code-server socket', { timeout: 5000 }, async () => {
     const beforeCount = upstreamRequests.length;
     const client = new WebSocket(
       `ws://127.0.0.1:${proxyPort}/api/vscode/other-session/ws`,

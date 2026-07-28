@@ -517,13 +517,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Zoxide, yazi, lazygit, and SilverBullet each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @manual -->
 2. Actionlint and Antigravity each have a dedicated release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
-3. code-server, the official Claude extension, and supported agent CLIs each have a dedicated bump job whose compatibility PR runs the owned verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-020 AC3+AC4: code-server shadow-pin ownership) -->
-4. A code-server bump derives embedded Code from the immutable release gitlink and invalidates its artifact checksum for operator review. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-020 AC3+AC4: code-server shadow-pin ownership) -->
+3. The official Claude extension and supported agent CLIs each have a dedicated bump job whose compatibility PR runs the owned verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/dependabot.yml::updates -->
 5. A Dockerfile bump invalidates its SHA256 until an operator verifies it; actionlint instead resolves the release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
 6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
 7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, and browser-run-mcp each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @manual -->
 
-**Notes:** Workflow execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md).
+**Notes:** Workflow execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md). Former AC4 and the code-server clause of AC3 moved to [REQ-OPS-027](#req-ops-027-code-server-coupled-pin-automation); later AC numbers remain stable.
 
 **Constraints:** The owned Browser IDE extension's npm dependencies remain Dependabot-owned.
 
@@ -696,6 +695,35 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
 **Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-027: code-server coupled-pin automation
+
+**Intent:** A code-server release update preserves the immutable relationship between its artifact, embedded Code source, and compatibility evidence.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. code-server has a dedicated bump job whose compatibility PR runs the Browser IDE verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (routes code-server bumps through one dedicated fail-closed updater) -->
+2. The bump derives the embedded Code version and source commit from the immutable release gitlink. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (updates every coupled runtime pin and invalidates the checksum atomically) -->
+3. Updating the coupled pins invalidates the code-server artifact checksum for operator review. <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (updates every coupled runtime pin and invalidates the checksum atomically) -->
+
+**Notes:** AC1 contains the code-server clause from former REQ-OPS-020 AC3. AC2 and AC3 split former REQ-OPS-020 AC4.
+
+**Constraints:**
+
+- Release metadata is validated before it enters a write-enabled shell step.
+- A checksum placeholder cannot pass the container build.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** Automated test ([suite gates](../../src/__tests__/ci/suite-gates.test.ts)); complete-image Browser IDE lane
 
 **Status:** Implemented
 
