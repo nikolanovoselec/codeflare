@@ -20,6 +20,7 @@ import {
   COST,
   DOGFOOD,
   EGRESS,
+  EXECUTION,
   FAQ_ITEMS,
   FEATURE_TERMINALS,
   HERO,
@@ -36,6 +37,7 @@ import {
 } from '../content/site';
 
 const SECTION_ORDER = [
+  'execution',
   'shift',
   'method',
   'legacy',
@@ -128,9 +130,10 @@ describe('landing page composition (REQ-LANDING-001)', () => {
   });
 
   it('renders the full set of terminals, each armed for the proof reveal', () => {
-    // hero + 4 feature + method gate + legacy + boundary + operations gate + 2 context
-    // + board + orch + ledger + platform seed + ide editor + mcp + dogfood + inference mesh = 19.
-    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(19);
+    // hero + inference mesh + 2 execution faces + 4 feature + method gate + legacy
+    // + operations gate + boundary + 2 context + board + orch + ledger + platform seed
+    // + ide editor + mcp + dogfood = 21.
+    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(21);
   });
 });
 
@@ -351,13 +354,14 @@ describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
 });
 
 describe('inference mesh family hero (REQ-LANDING-005)', () => {
-  it('sits as a <header> directly after the primary hero and before the shift section', () => {
+  it('sits as a <header> directly after the primary hero and before the execution overview', () => {
     const main = body.querySelector('main')!;
     const children = Array.from(main.children);
     expect(children[0].classList.contains('hero')).toBe(true);
     expect(children[1].id).toBe(INFERENCE_MESH.id);
     expect(children[1].tagName).toBe('HEADER');
-    expect(children[2].id).toBe('shift');
+    expect(children[2].id).toBe(EXECUTION.id);
+    expect(children[3].id).toBe('shift');
   });
 
   it('renders the ~/inference chiplet and the plain white Inference Mesh name (no scramble)', () => {
@@ -424,6 +428,44 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     );
     expect(terminal.hasAttribute('data-ft-once')).toBe(false);
     expect(terminal.querySelector('.terminal-foot.tf-static')?.textContent).toContain(INFERENCE_MESH.terminal.foot);
+  });
+});
+
+describe('execution overview reel (REQ-LANDING-010)', () => {
+  it('orders Hero -> Inference Mesh -> Execution -> detailed sections while retaining Operations once', () => {
+    const children = Array.from(body.querySelector('main')!.children);
+    expect(children[0].classList.contains('hero')).toBe(true);
+    expect(children[1].id).toBe(INFERENCE_MESH.id);
+    expect(children[2].id).toBe(EXECUTION.id);
+    expect(children[3].id).toBe('shift');
+    expect(body.querySelectorAll('#operations')).toHaveLength(1);
+  });
+
+  it('server-renders two distinct complete transcripts before client enhancement', () => {
+    const reel = body.querySelector('#execution [data-execution-reel]')!;
+    const faces = reel.querySelectorAll('[data-execution-face]');
+    expect(faces).toHaveLength(2);
+    expect(faces[0].getAttribute('data-execution-face')).toBe('software');
+    expect(faces[1].getAttribute('data-execution-face')).toBe('infrastructure');
+
+    const runs = [EXECUTION.software, EXECUTION.infrastructure];
+    faces.forEach((face, index) => {
+      const expectedCount = runs[index].context.length + runs[index].events.length;
+      expect(face.querySelectorAll('[data-execution-line]')).toHaveLength(expectedCount);
+      expect(face.querySelectorAll('[data-execution-accessible-line]')).toHaveLength(expectedCount);
+      expect(face.querySelector('[data-execution-caret]')).not.toBeNull();
+    });
+  });
+
+  it('marks both infrastructure presentations as private preview without marking software', () => {
+    const reel = body.querySelector('#execution [data-execution-reel]')!;
+    expect(
+      reel.querySelector('[data-execution-face="software"] [data-private-preview]'),
+    ).toBeNull();
+    expect(
+      reel.querySelectorAll('[data-execution-face="infrastructure"] [data-execution-preview]'),
+    ).toHaveLength(1);
+    expect(body.querySelectorAll('#operations .section-head [data-private-preview]')).toHaveLength(1);
   });
 });
 
