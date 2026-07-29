@@ -741,7 +741,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The deploy job runs only after exactly one authoritative verification path succeeds. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (allows exactly one authoritative verification path to reach deploy) -->
 2. After an authoritative verification path succeeds, the final outcome job fails when no deployment occurred in a non-cancelled run. <!-- @impl: scripts/ci/assert-deploy-outcome.mjs::deployOutcome --> <!-- @impl: .github/workflows/deploy.yml::outcome --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (fails the outcome when no deployment occurred) -->
 
-**Constraints:** Cancelled verification cannot be treated as successful verification. Workflow cancellation remains cancelled and does not force the outcome job to run.
+**Constraints:** Cancelled verification cannot count as successful verification, and workflow cancellation remains cancelled without forcing the outcome job to run.
 
 **Priority:** P0
 
