@@ -778,6 +778,20 @@ svg {
   margin-left: auto;
 }
 
+/* The Execution pair remains two columns on tablets, where each terminal is
+   narrower than an ordinary desktop terminal. Keep every command/output row
+   visible there instead of relying on the phone-only shared wrapping rule. */
+.execution-terminal .terminal-body {
+  overflow-x: hidden;
+}
+
+.execution-terminal .t-line {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+
 .section-head > .preview-badge {
   margin-top: 1rem;
 }

@@ -9,6 +9,8 @@
  * matching copy strings. They double as the migration oracle: identical
  * structure proves the inline-to-component refactor preserved the page.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import IndexPage from '../pages/index.astro';
@@ -432,6 +434,16 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
 });
 
 describe('execution overview reel (REQ-LANDING-010)', () => {
+  it('wraps complete execution rows in the narrow two-column tablet layout', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8');
+    expect(css).toMatch(
+      /\.execution-terminal \.terminal-body\s*\{[^}]*overflow-x:\s*hidden;[^}]*\}/s,
+    );
+    expect(css).toMatch(
+      /\.execution-terminal \.t-line\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*break-word;[^}]*\}/s,
+    );
+  });
+
   it('orders Hero -> Inference Mesh -> Execution -> detailed sections', () => {
     const children = Array.from(body.querySelector('main')!.children);
     expect(children[0].classList.contains('hero')).toBe(true);
