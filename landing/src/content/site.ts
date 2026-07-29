@@ -113,10 +113,15 @@ export interface FeatureTerminal {
   loop?: string[];
 }
 
+export interface ExecutionLine extends TranscriptLine {
+  /** Human direction that must remain visible in the settled eight-row view. */
+  intent?: 'request' | 'approval';
+}
+
 export interface ExecutionRun {
   title: string;
   context: TranscriptLine[];
-  events: TranscriptLine[];
+  events: ExecutionLine[];
   foot: string[];
 }
 
@@ -320,25 +325,30 @@ export const EXECUTION = {
       { tone: 'ok', text: '✓ 428 symbols · 1,906 relations indexed' },
     ],
     events: [
-      { tone: 'cmd', text: '/plan implement Inference Mesh routing' },
-      { tone: 'agent', text: '✻ plan approved · 6 tasks' },
-      { tone: 'cmd', text: 'execute the approved plan' },
-      { tone: 'ok', text: '✓ implementation complete · 84 tests passed' },
-      { tone: 'cmd', text: '$ git push origin develop' },
       {
         tone: 'cmd',
-        text: '$ gh pr create --base main --head develop --title "feat: implement inference mesh"',
+        intent: 'request',
+        text: 'Clone nikolanovoselec/codeflare-inference-mesh and inspect develop before changing anything.',
       },
-      { tone: 'agent', text: '✻ PR #84 · review boundary launched · CI monitor attached' },
-      { tone: 'ok', text: '✓ code · spec · docs clean · PR Checks green' },
-      { tone: 'cmd', text: '$ gh pr merge 84 --merge' },
-      { tone: 'ok', text: '✓ merged into main' },
-      { tone: 'cmd', text: '$ git fetch origin && git switch develop' },
+      { tone: 'agent', text: '✻ repository ready · develop clean · graph current' },
       {
         tone: 'cmd',
-        text: '$ git reset --hard origin/main && git push --force-with-lease origin develop',
+        intent: 'request',
+        text: 'Planning mode: add Inference Mesh routing. Preserve the gateway contract and write tests first.',
       },
-      { tone: 'ok', text: '✓ develop aligned with main' },
+      { tone: 'agent', text: '✻ plan ready · 6 tasks · affected requirements linked' },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Approved. Execute the plan, push develop, and open the pull request.',
+      },
+      { tone: 'ok', text: '✓ 84 tests passed · PR #84 · reviews clean · CI green' },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'PR #84 is approved. Merge it, then reset develop to origin/main.',
+      },
+      { tone: 'ok', text: '✓ merged into main · develop aligned · evidence retained' },
     ],
     foot: ['PR #84 merged', 'CI green', 'develop synced'],
   } satisfies ExecutionRun,
@@ -366,25 +376,31 @@ export const EXECUTION = {
     events: [
       {
         tone: 'cmd',
-        text: '$ sudo tar -C / -czf /var/backups/nginx-CHG-4821.tgz etc/nginx',
+        intent: 'request',
+        text: 'SSH to prod-web-07 and diagnose the nginx crash. Do not change state.',
       },
-      { tone: 'ok', text: '✓ rollback snapshot · /var/backups/nginx-CHG-4821.tgz' },
-      { tone: 'cmd', text: '$ sudo apt-get update -qq' },
-      { tone: 'dim', text: 'Package lists refreshed · openssl and nginx upgrades available' },
+      { tone: 'agent', text: '✻ Access approved · signal 11 isolated · configuration unchanged' },
       {
         tone: 'cmd',
-        text: '$ sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --only-upgrade openssl nginx',
+        intent: 'request',
+        text: 'Plan the smallest rollback-safe repair. Run the playbook in check mode first.',
       },
-      { tone: 'ok', text: '✓ 2 packages upgraded · 0 removed · services pending restart' },
-      { tone: 'cmd', text: '$ sudo nginx -t' },
-      { tone: 'info', text: 'nginx: configuration file /etc/nginx/nginx.conf syntax is ok' },
-      { tone: 'cmd', text: '$ sudo systemctl restart nginx && systemctl is-active nginx' },
-      { tone: 'ok', text: 'active' },
+      {
+        tone: 'info',
+        text: 'ansible-playbook ops/nginx-recover.yml --limit prod-web-07 --check · 2 changes',
+      },
       {
         tone: 'cmd',
-        text: '$ curl -fsS -o /dev/null -w "%{http_code} %{time_total}s\\n" http://127.0.0.1/health',
+        intent: 'approval',
+        text: 'Approved. Snapshot the nginx configuration and execute CHG-4821.',
       },
-      { tone: 'ok', text: '200 0.018s' },
+      { tone: 'ok', text: '✓ rollback saved · playbook applied · 2 packages upgraded' },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Restart nginx, verify its configuration and local health, then report.',
+      },
+      { tone: 'ok', text: '✓ config valid · nginx active · health 200 in 0.018s · rollback ready' },
     ],
     foot: ['prod-web-07 healthy', 'CHG-4821', 'rollback ready'],
   } satisfies ExecutionRun,

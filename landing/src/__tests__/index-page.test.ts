@@ -455,7 +455,23 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect([...new Set(EXECUTION.infrastructure.context.map((line) => line.tone))]).toEqual(
       expect.arrayContaining(['cmd', 'ok', 'dim', 'warn', 'info']),
     );
-    expect(EXECUTION.infrastructure.events.slice(-8).some((line) => line.tone === 'info')).toBe(true);
+    expect(EXECUTION.infrastructure.events.some((line) => line.tone === 'info')).toBe(true);
+    for (const run of runs) {
+      expect(run.events).toHaveLength(8);
+      expect(run.events.map((line) => line.intent).filter(Boolean)).toEqual(
+        expect.arrayContaining(['request', 'approval']),
+      );
+      run.events.forEach((line, index) => {
+        if (index % 2 === 0) {
+          expect(line.tone).toBe('cmd');
+          expect(line.intent).toMatch(/^(request|approval)$/);
+          expect(line.text.startsWith('$')).toBe(false);
+        } else {
+          expect(line.tone).not.toBe('cmd');
+          expect(line.intent).toBeUndefined();
+        }
+      });
+    }
     faces.forEach((face, index) => {
       const terminal = face.querySelector('.terminal.execution-terminal[data-proof]')!;
       const feed = terminal.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
