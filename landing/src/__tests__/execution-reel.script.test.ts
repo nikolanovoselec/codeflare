@@ -1,66 +1,84 @@
 // @vitest-environment happy-dom
 /**
- * Behavioral DOM integration tests for REQ-LANDING-011 motion and
- * REQ-LANDING-012 accessibility. Each terminal owns one readable, one-shot
- * timeline; reduced motion and unsupported observers keep the complete SSR.
+ * Behavioral integration coverage for REQ-LANDING-011 motion and
+ * REQ-LANDING-012 accessibility. Execution composes the shared Transcript feed
+ * with proof.ts: a full five-line viewport rolls once per typed event.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-interface Fixture {
+const ROLL_FIRST_MS = 3_000;
+const PHASE_MS = 420;
+const TYPE_MS = 58;
+
+interface FeedLine {
+  tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn' | 'deny';
+  text: string;
+}
+
+interface FeedFixture {
   root: HTMLElement;
   software: HTMLElement;
   infrastructure: HTMLElement;
-  softwareContext: HTMLElement[];
-  softwareEvents: HTMLElement[];
-  infrastructureEvents: HTMLElement[];
+  softwareList: HTMLElement;
+  infrastructureList: HTMLElement;
+  softwareContext: FeedLine[];
+  softwareEvents: FeedLine[];
+  infrastructureContext: FeedLine[];
+  infrastructureEvents: FeedLine[];
 }
 
-function addFace(root: HTMLElement, name: 'software' | 'infrastructure') {
+function addFeed(
+  root: HTMLElement,
+  name: 'software' | 'infrastructure',
+): { face: HTMLElement; list: HTMLElement; context: FeedLine[]; events: FeedLine[] } {
+  const context = Array.from({ length: 5 }, (_, index): FeedLine => ({
+    tone: index % 2 === 0 ? 'cmd' : 'dim',
+    text: `${name}-context-${index}`,
+  }));
+  const events = Array.from({ length: 5 }, (_, index): FeedLine => ({
+    tone: index % 2 === 0 ? 'ok' : 'warn',
+    text: `${name}-event-${index}`,
+  }));
   const face = document.createElement('section');
+  face.dataset.proof = '';
   face.dataset.executionFace = name;
-  face.dataset.executionState = 'resolved';
-  const context: HTMLElement[] = [];
-  const events: HTMLElement[] = [];
-
-  for (let index = 0; index < 10; index += 1) {
-    const line = document.createElement('div');
-    line.dataset.executionLine = index < 5 ? 'context' : 'event';
-    const text = document.createElement('span');
-    text.dataset.executionText = '';
-    text.dataset.fullText = `${name}-line-${index}`;
-    text.textContent = text.dataset.fullText;
-    line.appendChild(text);
-    face.appendChild(line);
-    (index < 5 ? context : events).push(line);
+  const list = document.createElement('div');
+  list.dataset.roll = '';
+  list.dataset.feedContext = JSON.stringify(context);
+  list.dataset.feedEvents = JSON.stringify(events);
+  list.dataset.feedState = 'resolved';
+  for (const line of events) {
+    const row = document.createElement('span');
+    row.className = `t-line t-${line.tone}`;
+    row.textContent = line.text;
+    list.appendChild(row);
   }
-
-  const caret = document.createElement('span');
-  caret.dataset.executionCaret = '';
-  caret.dataset.active = 'false';
-  face.appendChild(caret);
+  face.appendChild(list);
   root.appendChild(face);
-  return { face, context, events };
+  return { face, list, context, events };
 }
 
-function buildFixture(): Fixture {
+function buildFixture(): FeedFixture {
   const root = document.createElement('div');
   root.dataset.executionReel = '';
-  root.dataset.executionState = 'resolved';
-  const software = addFace(root, 'software');
-  const infrastructure = addFace(root, 'infrastructure');
+  const software = addFeed(root, 'software');
+  const infrastructure = addFeed(root, 'infrastructure');
   document.body.appendChild(root);
   return {
     root,
     software: software.face,
     infrastructure: infrastructure.face,
+    softwareList: software.list,
+    infrastructureList: infrastructure.list,
     softwareContext: software.context,
     softwareEvents: software.events,
+    infrastructureContext: infrastructure.context,
     infrastructureEvents: infrastructure.events,
   };
 }
 
-function text(line: HTMLElement): HTMLElement {
-  return line.querySelector<HTMLElement>('[data-execution-text]')!;
+function visibleLines(list: HTMLElement): string[] {
+  return Array.from(list.children).map((line) => line.textContent ?? '');
 }
 
 function mockMatchMedia(prefersReducedMotion: boolean): void {
@@ -75,22 +93,17 @@ function mockMatchMedia(prefersReducedMotion: boolean): void {
   });
 }
 
-function removeIntersectionObserver(): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (window as any).IntersectionObserver;
-}
-
 function installIntersectionObserver(): {
   intersect: (target: Element) => void;
   observe: ReturnType<typeof vi.fn>;
   unobserve: ReturnType<typeof vi.fn>;
 } {
-  let callback: IntersectionObserverCallback = () => undefined;
+  const callbacks: IntersectionObserverCallback[] = [];
   const observe = vi.fn();
   const unobserve = vi.fn();
   class MockIntersectionObserver {
-    constructor(next: IntersectionObserverCallback) {
-      callback = next;
+    constructor(callback: IntersectionObserverCallback) {
+      callbacks.push(callback);
     }
     observe = observe;
     unobserve = unobserve;
@@ -106,10 +119,14 @@ function installIntersectionObserver(): {
     value: MockIntersectionObserver,
   });
   return {
-    intersect: (target: Element) => callback(
-      [{ isIntersecting: true, target } as IntersectionObserverEntry],
-      {} as IntersectionObserver,
-    ),
+    intersect: (target: Element) => {
+      for (const callback of callbacks) {
+        callback(
+          [{ isIntersecting: true, target } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        );
+      }
+    },
     observe,
     unobserve,
   };
@@ -118,6 +135,17 @@ function installIntersectionObserver(): {
 beforeEach(() => {
   document.body.innerHTML = '';
   vi.useFakeTimers();
+  Element.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
+    height: 150,
+    width: 500,
+    top: 0,
+    left: 0,
+    right: 500,
+    bottom: 150,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
 });
 
 afterEach(() => {
@@ -125,99 +153,86 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe('execution-reel.ts (REQ-LANDING-011/REQ-LANDING-012)', () => {
-  it('arms both terminals while preserving five readable context lines', async () => {
+describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
+  it('prepares both terminals as full five-line context viewports', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
-    await import('../scripts/execution-reel');
+    await import('../scripts/proof');
 
-    expect(observer.observe).toHaveBeenCalledTimes(2);
     expect(observer.observe).toHaveBeenCalledWith(fixture.software);
     expect(observer.observe).toHaveBeenCalledWith(fixture.infrastructure);
-    expect(fixture.root.classList.contains('is-ready')).toBe(true);
-    expect(fixture.softwareContext.map((line) => text(line).textContent)).toEqual(
-      fixture.softwareContext.map((line) => text(line).dataset.fullText),
+    expect(visibleLines(fixture.softwareList)).toEqual(fixture.softwareContext.map((line) => line.text));
+    expect(visibleLines(fixture.infrastructureList)).toEqual(
+      fixture.infrastructureContext.map((line) => line.text),
     );
-    expect(fixture.softwareEvents.every((line) => text(line).textContent === '')).toBe(true);
+    expect(fixture.softwareList.children).toHaveLength(5);
+    expect(fixture.infrastructureList.children).toHaveLength(5);
   });
 
-  it('types exactly five software events once without starting or clearing infrastructure', async () => {
+  it('slowly types five events while each event pushes the oldest visible line out', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
-    await import('../scripts/execution-reel');
+    await import('../scripts/proof');
     observer.intersect(fixture.software);
 
-    expect(observer.unobserve).toHaveBeenCalledWith(fixture.software);
-    vi.advanceTimersByTime(30);
-    const first = text(fixture.softwareEvents[0]);
-    expect(first.textContent!.length).toBeGreaterThan(0);
-    expect(first.textContent!.length).toBeLessThan(first.dataset.fullText!.length);
-
-    vi.advanceTimersByTime(15_000);
-    expect(fixture.software.dataset.executionState).toBe('complete');
-    expect(fixture.softwareEvents.map((line) => text(line).textContent)).toEqual(
-      fixture.softwareEvents.map((line) => text(line).dataset.fullText),
+    vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS);
+    expect(visibleLines(fixture.softwareList)[0]).toBe(fixture.softwareContext[1].text);
+    const typing = visibleLines(fixture.softwareList).at(-1)!;
+    expect(typing.length).toBeGreaterThan(0);
+    expect(typing.length).toBeLessThan(fixture.softwareEvents[0].text.length);
+    expect(visibleLines(fixture.infrastructureList)).toEqual(
+      fixture.infrastructureContext.map((line) => line.text),
     );
-    expect(fixture.software.querySelectorAll('.is-history')).toHaveLength(0);
-    expect(fixture.infrastructureEvents.every((line) => text(line).textContent === '')).toBe(true);
 
-    const settledTranscript = fixture.softwareEvents.map((line) => text(line).textContent);
-    const settledTimers = vi.getTimerCount();
-    observer.intersect(fixture.software);
-    vi.advanceTimersByTime(30);
-    expect(fixture.softwareEvents.map((line) => text(line).textContent)).toEqual(settledTranscript);
-    expect(fixture.software.dataset.executionState).toBe('complete');
-    expect(fixture.software.querySelector('[data-execution-caret]')?.getAttribute('data-active')).toBe('false');
-    expect(vi.getTimerCount()).toBe(settledTimers);
+    vi.advanceTimersByTime(60_000);
+    expect(visibleLines(fixture.softwareList)).toEqual(fixture.softwareEvents.map((line) => line.text));
+    expect(fixture.softwareList.dataset.feedState).toBe('complete');
+    expect(fixture.softwareList.querySelector('.t-caret')).toBeNull();
+    expect(fixture.softwareList.children).toHaveLength(5);
   });
 
-  it('starts the stacked infrastructure terminal only when that terminal enters view', async () => {
+  it('starts each stacked terminal independently and never restarts a completed feed', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
-    await import('../scripts/execution-reel');
+    await import('../scripts/proof');
     observer.intersect(fixture.software);
-    vi.advanceTimersByTime(15_000);
-    expect(fixture.root.dataset.executionState).toBe('running');
+    vi.advanceTimersByTime(60_000);
+    expect(fixture.softwareList.dataset.feedState).toBe('complete');
+    expect(fixture.infrastructureList.dataset.feedState).toBe('ready');
+
+    const settled = visibleLines(fixture.softwareList);
+    observer.intersect(fixture.software);
+    vi.advanceTimersByTime(5_000);
+    expect(visibleLines(fixture.softwareList)).toEqual(settled);
 
     observer.intersect(fixture.infrastructure);
-    vi.advanceTimersByTime(15_000);
-    expect(fixture.infrastructure.dataset.executionState).toBe('complete');
-    expect(fixture.root.dataset.executionState).toBe('complete');
-    expect(fixture.root.dataset.executionFlips).toBeUndefined();
-    expect(fixture.root.querySelector('[data-active="true"]')).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    expect(fixture.infrastructureList.dataset.feedState).toBe('complete');
+    expect(visibleLines(fixture.infrastructureList)).toEqual(
+      fixture.infrastructureEvents.map((line) => line.text),
+    );
   });
 
-  it('preserves both complete server-rendered transcripts under reduced motion', async () => {
+  it('keeps the complete resolved five-line event viewports under reduced motion', async () => {
     const fixture = buildFixture();
-    const original = fixture.root.textContent;
+    const softwareResolved = visibleLines(fixture.softwareList);
+    const infrastructureResolved = visibleLines(fixture.infrastructureList);
     mockMatchMedia(true);
     const observer = installIntersectionObserver();
 
-    await import('../scripts/execution-reel');
-    vi.advanceTimersByTime(30_000);
+    await import('../scripts/proof');
+    vi.advanceTimersByTime(60_000);
 
     expect(observer.observe).not.toHaveBeenCalled();
-    expect(fixture.root.classList.contains('is-ready')).toBe(false);
-    expect(fixture.root.textContent).toBe(original);
-    expect(fixture.root.dataset.executionState).toBe('resolved');
-  });
-
-  it('keeps the complete static transcripts when intersection observation is unavailable', async () => {
-    const fixture = buildFixture();
-    const original = fixture.root.textContent;
-    mockMatchMedia(false);
-    removeIntersectionObserver();
-
-    await import('../scripts/execution-reel');
-    vi.advanceTimersByTime(30_000);
-
-    expect(fixture.root.classList.contains('is-ready')).toBe(false);
-    expect(fixture.root.textContent).toBe(original);
+    expect(visibleLines(fixture.softwareList)).toEqual(softwareResolved);
+    expect(visibleLines(fixture.infrastructureList)).toEqual(infrastructureResolved);
+    expect(fixture.softwareList.dataset.feedState).toBe('resolved');
+    expect(fixture.infrastructureList.dataset.feedState).toBe('resolved');
   });
 });

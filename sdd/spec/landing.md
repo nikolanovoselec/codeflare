@@ -245,14 +245,14 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. Visitors encounter the primary Hero, then Inference Mesh, then the Execution overview before the detailed sections. <!-- @impl: landing/src/pages/index.astro::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (orders Hero -> Inference Mesh -> Execution -> detailed sections) -->
 2. The dedicated Operations presentation remains present exactly once in its detailed role. <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (retains the detailed Operations presentation exactly once) -->
-3. The Execution overview presents one software terminal and one infrastructure terminal, each with five context lines and five execution events. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/ExecutionReel.astro::execution-reel --> <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two complete five-context plus five-event terminals) -->
-4. Without JavaScript, complete semantic transcripts for both terminals remain readable in the server-rendered document. <!-- @impl: landing/src/components/ExecutionRun.astro::execution-terminal-body --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two complete five-context plus five-event terminals) -->
+3. The Execution overview presents one software terminal and one infrastructure terminal, each with five initial lines and five feed events composed through the shared Terminal and Transcript components. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/ExecutionReel.astro::execution-reel --> <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/index-page.test.ts (composes two shared Transcript feeds with full five-line resolved viewports) -->
+4. Without JavaScript, complete semantic transcripts and a populated resolved five-line viewport for both terminals remain readable in the server-rendered document. <!-- @impl: landing/src/components/Transcript.astro::data-feed-accessible-line --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/index-page.test.ts (composes two shared Transcript feeds with full five-line resolved viewports) -->
 5. The infrastructure terminal and the dedicated Operations detail section are marked `Private preview` at the product level. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/PreviewBadge.astro::preview-badge --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (marks both infrastructure presentations as private preview without marking software) -->
 
 **Constraints:**
 
-- Reuse the landing's shared terminal frame, semantic tones, typography, and spacing; do not introduce a second visual system.
-- The reel communicates real execution events without claiming to reproduce an exact CLI transcript.
+- Reuse the landing's shared Terminal, Transcript, semantic tones, typography, spacing, typing cadence, and rolling-row motion; do not introduce a second visual system.
+- Transcript content uses credible commands and concrete outputs an engineer would type or read; it contains no actor-label narration or invented product command.
 - Infrastructure copy exposes no non-public network implementation or provider-roadmap dependency.
 - The Execution section is a high-level overview only. Existing Method, Operations, Security, Context, Pipeline, Orchestration, Cost, Platform, IDE, and tooling sections retain their detailed roles.
 - The section may reframe the `#shift` lead to refer back to the overview but does not broadly rewrite later sections.
@@ -269,22 +269,22 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ### REQ-LANDING-011: Execution reel progressive motion
 
-**Intent:** Under normal motion, each Execution terminal adds one readable, bounded event sequence after it enters view and then settles without looping.
+**Intent:** Under normal motion, each full Execution transcript viewport slowly rolls in a bounded sequence of real command/output lines after its terminal enters view, then settles without looping.
 
 **Applies To:** Visitor
 
 **Acceptance Criteria:**
 
-1. Each terminal starts once when that terminal enters the viewport and does not restart on later intersections. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types exactly five software events once without starting or clearing infrastructure) -->
-2. Each armed terminal keeps five complete context lines visible before and during event typing. <!-- @impl: landing/src/scripts/execution-reel.ts::prepareTerminal --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (arms both terminals while preserving five readable context lines) -->
-3. Each terminal types exactly five event lines in order, retaining every completed line without scrolling or history removal. <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types exactly five software events once without starting or clearing infrastructure) -->
-4. Software and infrastructure timelines start independently without flipping or hiding either terminal. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (starts the stacked infrastructure terminal only when that terminal enters view) -->
-5. Both timelines stop after their fifth event, do not loop, and leave no active cursor. <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (starts the stacked infrastructure terminal only when that terminal enters view) -->
+1. Each terminal starts once when that terminal enters the viewport and does not restart on later intersections. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @impl: landing/src/scripts/proof.ts::startRoll --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (starts each stacked terminal independently and never restarts a completed feed) -->
+2. Before motion starts, each armed terminal is populated by five complete initial transcript lines rather than reserved empty rows. <!-- @impl: landing/src/scripts/proof.ts::prepareFeed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (prepares both terminals as full five-line context viewports) -->
+3. Each terminal types exactly five event lines in order; every new event reuses the shared rolling-row motion to push the oldest visible line out while keeping five populated rows. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @impl: landing/src/scripts/proof.ts::rollOnce --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (slowly types five events while each event pushes the oldest visible line out) -->
+4. Software and infrastructure feeds start independently without flipping or hiding either terminal. <!-- @impl: landing/src/scripts/proof.ts::startRoll --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (starts each stacked terminal independently and never restarts a completed feed) -->
+5. Both feeds stop after their fifth event, do not loop, and leave no active cursor. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (slowly types five events while each event pushes the oldest visible line out) -->
 
 **Constraints:**
 
-- Completed lines remain readable for the rest of the one-shot sequence; pacing favors comprehension over rapid activity.
-- Reuse the landing's motion tokens and permanent two-terminal layout.
+- Completed lines remain readable until later events push them out of the bounded viewport; pacing reuses the landing's slower 58 ms character cadence and favors comprehension.
+- Reuse the landing's shared Transcript feed, proof-row motion tokens, and permanent two-terminal layout.
 
 **Priority:** P1
 
@@ -304,8 +304,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (preserves both complete server-rendered transcripts under reduced motion) --> <!-- @manual -->
-2. Under reduced motion, both resolved terminals remain visible and readable. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (preserves both complete server-rendered transcripts under reduced motion) --> <!-- @manual -->
+1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/proof.ts::reduced --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps the complete resolved five-line event viewports under reduced motion) --> <!-- @manual -->
+2. Under reduced motion, both populated resolved terminals remain visible and readable. <!-- @impl: landing/src/scripts/proof.ts::reduced --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps the complete resolved five-line event viewports under reduced motion) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -331,8 +331,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The resolved reel is self-contained at a wide aspect suitable for GitHub GIF capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
-2. The reel provides meaningful first, transition, and final capture states. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @manual -->
-3. Reel content and sequencing are deterministic. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @manual -->
+2. The reel provides meaningful first, transition, and final capture states. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @manual -->
+3. Reel content and sequencing are deterministic. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @manual -->
 
 **Constraints:**
 
@@ -357,7 +357,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The reel remains readable and contained without horizontal page overflow at mobile, tablet, and desktop widths. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
-2. The reel's animation does not shift surrounding page content. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
+2. The shared rolling-row transition keeps the transcript viewport populated and does not shift surrounding page content. <!-- @impl: landing/src/scripts/proof.ts::rollOnce --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
 
 **Constraints:**
 

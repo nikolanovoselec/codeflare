@@ -146,12 +146,6 @@ const structuredData = {
           import '../scripts/feature-terminals';
         </script>
         <script>
-          // Wide Execution overview: one deterministic software-to-infrastructure
-          // sequence that appends terminal history and flips once. The complete
-          // two-run server render stands without JS and under reduced motion.
-          import '../scripts/execution-reel';
-        </script>
-        <script>
           // Proof-terminal last line (cursor mode): types the final transcript line in
           // when the terminal scrolls into view, then rests on it (reduced-motion safe;
           // the full server-rendered line stands otherwise).
@@ -162,10 +156,9 @@ const structuredData = {
           import '../scripts/splash';
         </script>
         <script>
-          // Proof artifacts (enforcement loop, review board, boundary path, ledger):
-          // plays each one's CSS sequence once when it scrolls into view. Content is
-          // fully legible without it (static final state); reduced-motion shows the
-          // final state instantly.
+          // Proof artifacts and Execution Transcript feeds: shared rolling rows
+          // push old content out while keeping each terminal full. Content is fully
+          // legible without motion; reduced-motion shows the resolved final state.
           import '../scripts/proof';
         </script>
         <script>

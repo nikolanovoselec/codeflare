@@ -444,7 +444,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(body.querySelectorAll('#operations')).toHaveLength(1);
   });
 
-  it('server-renders two complete five-context plus five-event terminals', () => {
+  it('composes two shared Transcript feeds with full five-line resolved viewports', () => {
     const reel = body.querySelector('#execution [data-execution-reel]')!;
     const faces = reel.querySelectorAll('[data-execution-face]');
     expect(faces).toHaveLength(2);
@@ -455,10 +455,15 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     faces.forEach((face, index) => {
       expect(runs[index].context).toHaveLength(5);
       expect(runs[index].events).toHaveLength(5);
-      expect(face.querySelectorAll('[data-execution-line="context"]')).toHaveLength(5);
-      expect(face.querySelectorAll('[data-execution-line="event"]')).toHaveLength(5);
-      expect(face.querySelectorAll('[data-execution-accessible-line]')).toHaveLength(10);
-      expect(face.querySelector('[data-execution-caret]')).not.toBeNull();
+      const body = face.querySelector('.terminal-body')!;
+      const feed = body.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
+      expect(feed).not.toBeNull();
+      expect(feed.querySelectorAll(':scope > .t-line')).toHaveLength(5);
+      expect(JSON.parse(feed.dataset.feedContext!)).toEqual(runs[index].context);
+      expect(JSON.parse(feed.dataset.feedEvents!)).toEqual(runs[index].events);
+      expect(face.querySelectorAll('[data-feed-accessible-line]')).toHaveLength(10);
+      expect(face.querySelector('.execution-terminal-body')).toBeNull();
+      expect(face.querySelector('[data-execution-line]')).toBeNull();
     });
   });
 

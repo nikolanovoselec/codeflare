@@ -1,8 +1,8 @@
 ---
 /**
- * Canonical Execution reel. The server render is a complete two-terminal grid.
- * Normal-motion enhancement types five events independently in each terminal;
- * the permanent side-by-side composition stacks only on mobile.
+ * Canonical Execution reel. Each side composes the shared Terminal + Transcript
+ * feed, and proof.ts rolls five realistic events through a full five-line
+ * viewport. The permanent side-by-side composition stacks only on mobile.
  */
 import { EXECUTION } from '../content/site';
 import ExecutionRun from './ExecutionRun.astro';
@@ -12,7 +12,6 @@ import ExecutionRun from './ExecutionRun.astro';
   class="execution-reel"
   data-execution-reel
   data-readme-reel="execution"
-  data-execution-state="resolved"
 >
   <div class="execution-stage">
     <div class="execution-card">

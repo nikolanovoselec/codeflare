@@ -113,18 +113,12 @@ export interface FeatureTerminal {
   loop?: string[];
 }
 
-export interface ExecutionLine {
-  actor: string;
-  tone: TranscriptLine['tone'];
-  text: string;
-}
-
 export interface ExecutionRun {
   title: string;
   label: string;
   preview?: string;
-  context: ExecutionLine[];
-  events: ExecutionLine[];
+  context: TranscriptLine[];
+  events: TranscriptLine[];
   foot: string[];
 }
 
@@ -298,9 +292,9 @@ export const TERMINAL = {
 };
 
 /**
- * Paired Execution overview shown before the detailed proof sections. Both
- * terminals are complete in the server render; normal motion independently
- * types five reserved event rows in each permanent terminal.
+ * Paired Execution overview shown before the detailed proof sections. Both use
+ * the shared resolved Transcript feed; normal motion restores five full context
+ * rows, then slowly types five events while pushing the oldest row out.
  */
 export const EXECUTION = {
   id: 'execution',
@@ -316,40 +310,40 @@ export const EXECUTION = {
     title: 'codeflare · software delivery',
     label: 'Software',
     context: [
-      { actor: 'you', tone: 'cmd', text: 'ship duplicate-payment protection to integration' },
-      { actor: 'intent', tone: 'dim', text: 'REQ-PAY-014 · AC3 · payments-service' },
-      { actor: 'session', tone: 'ok', text: 'ephemeral workspace ready · branch isolated' },
-      { actor: 'agent', tone: 'agent', text: 'mapped callers, tests, schema migration, and deploy path' },
-      { actor: 'guard', tone: 'dim', text: 'spec and test contracts loaded · merge stays human-owned' },
+      { tone: 'cmd', text: '$ git switch -c fix/idempotency' },
+      { tone: 'dim', text: "Switched to branch 'fix/idempotency'" },
+      { tone: 'cmd', text: '$ /sdd implement REQ-PAY-014' },
+      { tone: 'agent', text: '✻ mapped retries, schema, and tests' },
+      { tone: 'cmd', text: '$ npm test -- idempotency' },
     ],
     events: [
-      { actor: 'agent', tone: 'agent', text: 'editing payment service and schema migration' },
-      { actor: 'test', tone: 'warn', text: 'duplicate request still escapes · tracing transaction boundary' },
-      { actor: 'agent', tone: 'agent', text: 'corrected the boundary · behavioral suite green' },
-      { actor: 'review', tone: 'warn', text: 'unsafe retry edge found · corrected and re-verified' },
-      { actor: 'deploy', tone: 'ok', text: 'integration live · duplicate-payment flow verified end to end' },
+      { tone: 'warn', text: '✕ expected 1 charge, got 2 · test.ts:84' },
+      { tone: 'agent', text: '✻ added transaction-scoped lock' },
+      { tone: 'cmd', text: '$ npm test -- idempotency' },
+      { tone: 'ok', text: '✓ 10 tests passed · 0 failed' },
+      { tone: 'cmd', text: '$ git push -u origin fix/idempotency' },
     ],
-    foot: ['REQ-PAY-014', 'integration', 'governed'],
+    foot: ['PR #207', 'CI green', 'review clean'],
   } satisfies ExecutionRun,
   infrastructure: {
     title: 'codeflare · infrastructure operations',
     label: 'Infrastructure',
     preview: 'Private preview',
     context: [
-      { actor: 'identity', tone: 'ok', text: 't.anderson authenticated' },
-      { actor: 'target', tone: 'dim', text: 'prod-web-07 admitted by policy' },
-      { actor: 'window', tone: 'ok', text: 'maintenance window approved · playbook loaded' },
-      { actor: 'agent', tone: 'agent', text: 'discovered OS, services, packages, and disk state' },
-      { actor: 'plan', tone: 'dim', text: 'backup → drain → patch → restart → verify' },
+      { tone: 'cmd', text: 't.anderson@ops $ ssh prod-web-07' },
+      { tone: 'ok', text: '✓ Access approved · session recorded' },
+      { tone: 'cmd', text: '$ sudo apt-get update' },
+      { tone: 'dim', text: 'Get:1 jammy-security InRelease' },
+      { tone: 'cmd', text: '$ apt list --upgradable | grep openssl' },
     ],
     events: [
-      { actor: 'backup', tone: 'ok', text: 'recovery point recorded · rollback path confirmed' },
-      { actor: 'service', tone: 'agent', text: 'draining application traffic without dropped requests' },
-      { actor: 'agent', tone: 'agent', text: 'executing approved patch playbook' },
-      { actor: 'verify', tone: 'ok', text: 'host returned to service · health checks green' },
-      { actor: 'close', tone: 'ok', text: 'evidence stored · rollback ready · maintenance closed' },
+      { tone: 'dim', text: 'openssl 3.0.2-0ubuntu1.21 [upgradable]' },
+      { tone: 'cmd', text: '$ sudo apt install --only-upgrade openssl' },
+      { tone: 'ok', text: '✓ openssl 3.0.2-0ubuntu1.21 installed' },
+      { tone: 'cmd', text: '$ sudo systemctl restart payments-api' },
+      { tone: 'ok', text: '✓ payments-api.service · active (running)' },
     ],
-    foot: ['t.anderson', 'prod-web-07', 'governed'],
+    foot: ['prod-web-07', 'CHG-4821', 'rollback ready'],
   } satisfies ExecutionRun,
 };
 

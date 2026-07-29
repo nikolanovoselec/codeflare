@@ -1,7 +1,7 @@
 ---
 /**
  * Transcript: the "last line + scrolling cursor" terminal styler (styler 1).
- * Renders a .terminal-body of .t-line rows from typed content, in four modes
+ * Renders a .terminal-body of .t-line rows from typed content, in five modes
  * that share one component so the cursor / typing behaviour is defined once:
  *
  *   - 'cursor'      the LAST line is wrapped in [data-typeline] and carries a
@@ -16,6 +16,9 @@
  *                   four feature terminals.
  *   - 'roll-middle' first and last line pinned; the middle lines sit in a
  *                   [data-roll] list that proof.ts rolls (the dogfood proof).
+ *   - 'feed'        a five-line resolved viewport whose normal-motion state is
+ *                   prepared from `lines`; proof.ts rolls each `feed` line in,
+ *                   reusing the same row motion and transcript styling.
  *   - 'static'      plain lines, no caret, no roll.
  *
  * Default markup is the resolved state, fully legible with no JS and under
@@ -25,17 +28,42 @@ import type { TranscriptLine } from '../content/site';
 
 interface Props {
   lines: TranscriptLine[];
-  animate?: 'cursor' | 'typed' | 'roll-middle' | 'static';
+  animate?: 'cursor' | 'typed' | 'roll-middle' | 'feed' | 'static';
   /** animate='typed' only: the initial text of the typed command line. */
   typed?: string;
+  /** animate='feed' only: lines that replace the initial viewport in order. */
+  feed?: TranscriptLine[];
+  /** Accessible name for the complete initial + feed transcript. */
+  label?: string;
 }
-const { lines, animate = 'static', typed = '' } = Astro.props;
+const { lines, animate = 'static', typed = '', feed = [], label = 'Terminal transcript' } = Astro.props;
 const lastIndex = lines.length - 1;
+const resolvedFeed = feed.slice(-5);
 ---
 
 <div class="terminal-body">
   {
-    animate === 'roll-middle' ? (
+    animate === 'feed' ? (
+      <Fragment>
+        <ol class="sr-only" aria-label={label}>
+          {[...lines, ...feed].map((line) => (
+            <li data-feed-accessible-line>{line.text}</li>
+          ))}
+        </ol>
+        <div
+          class="transcript-feed"
+          data-roll
+          data-feed-context={JSON.stringify(lines)}
+          data-feed-events={JSON.stringify(feed)}
+          data-feed-state="resolved"
+          aria-hidden="true"
+        >
+          {resolvedFeed.map((line, i) => (
+            <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>
+          ))}
+        </div>
+      </Fragment>
+    ) : animate === 'roll-middle' ? (
       <Fragment>
         <span class={`t-line t-${lines[0].tone}`} style="--i:0">{lines[0].text}</span>
         <div data-roll>
