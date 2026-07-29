@@ -37,7 +37,8 @@ Codeflare gives agents a governed execution environment for software and infrast
 |---|---|
 | **Software delivery** | Explore repositories, implement requirements, run review workflows, work through pull requests, inspect CI, and verify changes against behavioral acceptance criteria. |
 | **Infrastructure operations** | Use SSH, `kubectl`, and target-native tools to patch servers, operate clusters, run migrations, configure appliances, and support incident response against approved targets. This capability is coming soon and currently in private preview. |
-| **Deployed-system verification** | Inspect logs and checks, verify live URLs, read rendered pages, and drive semantic browser checks against deployed applications. Deterministic assertions remain in CI. |
+| **End-to-end test automation** | Drive deployed user journeys in isolated Cloudflare Browser Run sessions through Chrome DevTools. Agents can test desktop and mobile viewports, interact with the application, capture screenshots, inspect rendered state, and judge each flow against its acceptance criteria. |
+| **Deployed-system verification** | Correlate browser results with logs, checks, live URLs, and deployment state. Deterministic assertions remain in CI alongside semantic browser validation. |
 | **Operational recovery** | Diagnose failed builds or deployments, inspect current state, apply bounded corrections, and use documented deployment and rollback procedures. |
 
 Cloudflare is the access fabric, not the infrastructure being managed. Codeflare uses the customer's Cloudflare Zero Trust environment to connect agents to approved servers, Kubernetes clusters, databases, internal services, and appliances. Those targets can live in a datacenter or cloud; Codeflare itself remains deployed in the customer's Cloudflare account.
@@ -70,7 +71,7 @@ Codeflare enforces governance through the delivery lifecycle:
 
 1. **Define intent:** requirements and acceptance criteria establish the approved outcome.
 2. **Implement:** agents work in the repository and use the team's existing tools and environments.
-3. **Test:** behavioral tests prove observable contracts rather than matching prompts or prose.
+3. **Test:** behavioral tests prove observable contracts in CI, while Browser Run and Chrome DevTools exercise deployed user journeys against their acceptance criteria.
 4. **Review:** specialist code, specification, documentation, security, and deep-behavior lanes inspect the exact change boundary.
 5. **Integrate:** GitHub pull requests, branch protection, and CI remain the authoritative change gate.
 6. **Deploy and verify:** agents can follow deployment workflows, inspect checks, and verify the live result in a real browser.
@@ -119,7 +120,7 @@ Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudfla
 
 - GitHub repository browsing, cloning, `git`, `gh`, pull-request, review, and CI workflows using the user's authorized permissions.
 - Standard infrastructure CLIs and target-native tools inside the session, including SSH and `kubectl`, with access governed through the customer's Cloudflare Zero Trust environment.
-- Cloudflare Browser Run read and interactive surfaces for rendered-page inspection and semantic deployed-app verification.
+- Cloudflare Browser Run and Chrome DevTools for end-to-end test automation, responsive viewport checks, screenshots, rendered-state inspection, and semantic deployed-app verification.
 - Bundled Cloudflare skills for the access fabric and Codeflare deployment, plus direct Workers, D1, R2, KV, and DNS operations for connected users in supported modes.
 
 ### Memory and project intelligence
