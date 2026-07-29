@@ -36,13 +36,11 @@ Codeflare gives agents a governed execution environment for software and infrast
 | Work domain | What agents can do |
 |---|---|
 | **Software delivery** | Explore repositories, implement requirements, run review workflows, work through pull requests, inspect CI, and verify changes against behavioral acceptance criteria. |
-| **Infrastructure operations** | Use SSH, `kubectl`, and target-native tools to patch servers, operate clusters, run migrations, configure appliances, and support incident response against approved targets. Identity-aware raw TCP access is coming soon and currently in private preview. |
+| **Infrastructure operations** | Use SSH, `kubectl`, and target-native tools to patch servers, operate clusters, run migrations, configure appliances, and support incident response against approved targets. This capability is coming soon and currently in private preview. |
 | **Deployed-system verification** | Inspect logs and checks, verify live URLs, read rendered pages, and drive semantic browser checks against deployed applications. Deterministic assertions remain in CI. |
 | **Operational recovery** | Diagnose failed builds or deployments, inspect current state, apply bounded corrections, and use documented deployment and rollback procedures. |
 
-Cloudflare is the access fabric, not the infrastructure being managed. Codeflare binds its Worker to [Workers VPC](https://developers.cloudflare.com/workers-vpc/configuration/vpc-networks/) with `network_id = "cf1:network"`. The binding reaches targets announced through [Cloudflare Mesh](https://developers.cloudflare.com/workers-vpc/examples/connect-to-cloudflare-mesh/), Cloudflare Tunnel, or Cloudflare WAN, using `fetch()` for HTTP and [`connect()`](https://developers.cloudflare.com/workers-vpc/api/) for raw TCP. Approved targets can live in a datacenter or cloud; Codeflare itself remains deployed in the customer's Cloudflare account.
-
-The missing capability is identity awareness for `connect()`. It is coming soon and currently in private preview. That capability will let SSH, Kubernetes, database, and appliance connections carry the session user's identity into the customer's Zero Trust policy and logs. General container internet access remains disabled.
+Cloudflare is the access fabric, not the infrastructure being managed. Codeflare uses the customer's Cloudflare Zero Trust environment to connect agents to approved servers, Kubernetes clusters, databases, internal services, and appliances. Those targets can live in a datacenter or cloud; Codeflare itself remains deployed in the customer's Cloudflare account.
 
 ---
 
@@ -91,7 +89,7 @@ Enterprise Codeflare is deployed inside the customer's Cloudflare account. That 
 | **Identity and authorization** | Cloudflare Access in the customer's account federates the corporate identity provider. Access JWTs, customer-managed user/admin groups, just-in-time admission, and live group checks govern entry and administration. |
 | **Inference routing** | Supported enterprise agent traffic is intercepted at the platform boundary and routed through the customer's Cloudflare AI Gateway. Global and per-group route catalogs constrain approved models, defaults, reasoning, and context windows. |
 | **Egress and DLP** | Optional strict egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway policies. Existing allow, block, isolation, and DLP policy remains customer-managed; missing configured egress fails closed. |
-| **Private infrastructure reach** | Workers VPC connects the Codeflare Worker to targets announced through Cloudflare Mesh, Tunnel, or WAN. Identity-aware `connect()` is coming soon and currently in private preview, adding per-user Zero Trust policy and attribution to raw TCP access. |
+| **Private infrastructure reach** *(coming soon, private preview)* | Connect agents to approved servers, clusters, databases, internal services, and appliances through the customer's Cloudflare Zero Trust policies. |
 | **Credential boundaries** | AI Gateway, enterprise GitHub, and Browser Rendering credentials are resolved and injected Worker-side rather than given directly to the container. The exact remaining credential set depends on deployment and storage mode; credential-free containers are not claimed universally. |
 | **Storage and encryption** | Workspace and Vault persistence use R2/KV in the customer's Cloudflare account. AES-256-GCM and SSE-C are optional; Governed Mode supports customer inspection through an explicit, verified storage-regime migration. |
 | **FinOps and route attribution** | AI Gateway metadata attributes supported model usage to the verified user and matched groups. Route policy constrains available capacity, while session containers scale to zero after stop. |
@@ -120,7 +118,7 @@ Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudfla
 ### Repository, infrastructure, and browser tools
 
 - GitHub repository browsing, cloning, `git`, `gh`, pull-request, review, and CI workflows using the user's authorized permissions.
-- Standard infrastructure CLIs and target-native tools inside the session. Workers VPC provides the network path; private-preview identity-aware `connect()` adds per-user Zero Trust policy and attribution for tools such as SSH and `kubectl`.
+- Standard infrastructure CLIs and target-native tools inside the session, including SSH and `kubectl`, with access governed through the customer's Cloudflare Zero Trust environment.
 - Cloudflare Browser Run read and interactive surfaces for rendered-page inspection and semantic deployed-app verification.
 - Bundled Cloudflare skills for the access fabric and Codeflare deployment, plus direct Workers, D1, R2, KV, and DNS operations for connected users in supported modes.
 
@@ -169,17 +167,16 @@ graph LR
     I --> AI[Customer's Cloudflare AI Gateway]
     I --> GW[Customer's Cloudflare Gateway policies]
     I --> P[Authorized GitHub and Cloudflare APIs]
-    W --> V[Workers VPC cf1:network binding]
-    V --> M[Cloudflare Mesh, Tunnel, and WAN routes]
-    M --> H[Approved infrastructure targets]
+    W --> Z[Customer's Cloudflare Zero Trust]
+    Z --> H[Approved infrastructure targets]
     W --> E[GitHub and Cloudflare operational evidence]
 ```
 
 The Worker owns authentication, routing, API boundaries, session records, and browser-to-container proxying. Each session Durable Object owns one container lifecycle. The host inside that container runs terminal processes, agent tooling, synchronization, and code-server. R2/KV in the customer's Cloudflare account retain only the state selected for persistence.
 
-In enterprise mode, supported LLM and credential-bearing traffic uses Worker-side interceptors so sensitive coordinates and tokens can remain outside the agent runtime. Optional strict egress covers direct HTTP and HTTPS traffic through the customer's Cloudflare Gateway policies and denies raw TCP and UDP.
+In enterprise mode, supported LLM and credential-bearing traffic uses Worker-side interceptors so sensitive coordinates and tokens can remain outside the agent runtime. Optional strict egress covers outbound web traffic through the customer's Cloudflare Gateway policies.
 
-Workers VPC exposes `fetch()` for HTTP and `connect()` for raw TCP over the `cf1:network` binding. The identity-aware `connect()` capability, coming soon and currently in private preview, adds the session user's identity to raw TCP policy and attribution. GitHub remains the source-change and approval system; GitHub Actions and Cloudflare provide deployment and runtime evidence.
+Private infrastructure connectivity uses Workers VPC and Cloudflare Mesh under the customer's Zero Trust policies. This capability is coming soon and currently in private preview. GitHub remains the source-change and approval system; GitHub Actions and Cloudflare provide deployment and runtime evidence.
 
 See [Architecture](documentation/lanes/architecture.md), [Authentication](documentation/lanes/authentication.md), [Security](documentation/lanes/security.md), [Container](documentation/lanes/container.md), and the [Enterprise Mode specification](sdd/spec/enterprise-mode.md).
 
@@ -187,7 +184,7 @@ See [Architecture](documentation/lanes/architecture.md), [Authentication](docume
 
 ## Deployment models
 
-1. **Enterprise:** customer-operated, single-tenant, unlimited Pro mode with billing bypass, Cloudflare Access groups, supported-agent inference interception, route policy, optional strict Gateway egress, Governed Mode, Workers VPC connectivity, and private-preview identity-aware raw TCP access.
+1. **Enterprise:** customer-operated, single-tenant, unlimited Pro mode with billing bypass, Cloudflare Access groups, supported-agent inference interception, route policy, optional strict Gateway egress, Governed Mode, and private-preview infrastructure access through Cloudflare Zero Trust.
 2. **Default/self-operated:** single-tenant deployment with unlimited users and Pro sessions using the standard Access setup. Fork the repository, add two deployment secrets, and run the setup wizard.
 3. **SaaS:** optional multi-tenant mode with subscriptions, tiered plans, just-in-time provisioning, approval workflow, and per-user usage metering.
 
@@ -286,8 +283,8 @@ Full details and residual risks are documented in [Security](documentation/lanes
 - **Ephemerality:** stopping a session tears down processes and transient state. It reduces standing persistence but cannot reverse synchronized files or external operations.
 - **Credential handling:** the master deployment token never enters containers. Enterprise model, GitHub, and Browser Rendering credentials can remain Worker-side; other modes and configurations may inject user-authorized credentials.
 - **Inference:** only supported, allowlisted enterprise agent traffic is intercepted. Unknown provider hosts and invalid gateway configuration fail closed rather than bypassing the configured route.
-- **Egress:** optional strict enterprise egress applies the customer's existing Cloudflare Gateway policies to direct HTTP and HTTPS traffic. Raw TCP and UDP are denied in the current implementation. Codeflare neither creates nor weakens the customer's policies.
-- **Private infrastructure reach:** Workers VPC reaches targets announced through Cloudflare Mesh, Tunnel, or WAN. Identity-aware `connect()` is coming soon and currently in private preview; it adds per-user policy and attribution without turning the binding into a broad VPN or enabling general raw internet access.
+- **Egress:** optional strict enterprise egress applies the customer's existing Cloudflare Gateway policies to outbound web traffic. Codeflare neither creates nor weakens the customer's policies.
+- **Private infrastructure reach:** coming soon and currently in private preview, this capability connects agents only to targets approved through the customer's Cloudflare Zero Trust policies. It does not provide unrestricted network access.
 - **Storage:** optional encryption protects KV secrets and R2 objects. Governed Mode intentionally changes R2 encryption behavior for customer inspection through a gated migration.
 - **Application and supply chain:** security headers, rate limits, input validation, CodeQL, dependency review, SBOM/attestation, Trivy, fuzzing, and external penetration probes protect release and runtime boundaries.
 
