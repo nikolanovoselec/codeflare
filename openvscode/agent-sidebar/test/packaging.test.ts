@@ -91,7 +91,7 @@ test('staged Pi and Claude extension files are immutable', async () => {
   assert.notEqual((await stat(piFile)).ino, (await stat(claudeFile)).ino);
 });
 
-test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1+AC6: contributes native Pi Chat and file review menus', async () => {
+test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1: contributes native Pi Chat and file review menus', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
     displayName: string;
     activationEvents: string[];

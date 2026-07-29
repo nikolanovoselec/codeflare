@@ -282,7 +282,7 @@ _openvscode_launch_once`;
     }
   });
 
-  it('REQ-IDE-002: restores safe UI state before managed settings and code-server launch', () => {
+  it('REQ-IDE-016 AC2: restores safe UI state before managed settings and code-server launch', () => {
     const stub = writeStub(dir, argsFile);
     const events = join(dir, 'events.log');
     const dataDir = join(dir, 'openvscode-data');
@@ -427,7 +427,7 @@ describe('OpenVSCode launch generations / REQ-IDE-008 AC4', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-002: captures UI state only after the code-server generation exits', () => {
+  it('REQ-IDE-016 AC1: captures UI state only after the code-server generation exits', () => {
     const events = join(dir, 'state-events.log');
     const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
 printf 'server-start:%s\\n' "$$" >> "$EVENTS"

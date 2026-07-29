@@ -84,7 +84,7 @@ afterEach(async () => {
   host.warnings = [];
 });
 
-test('REQ-IDE-005 AC5: native Pi registers an account-free panel model that rejects generation', async () => {
+test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1: native Pi registers account-free Chat and suppresses account setup actions', async () => {
   const subscriptions: Array<{ dispose(): void }> = [];
   activate({
     extensionUri: { fsPath: '/extension' },
@@ -129,7 +129,7 @@ test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codefla
   assert.deepEqual(host.warnings, []);
 });
 
-test('REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Codeflare ask mode', async () => {
+test('REQ-IDE-014 AC3+AC4: editor review attaches the active file and submits Codeflare ask mode', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
@@ -146,7 +146,7 @@ test('REQ-IDE-011 AC2+AC3: editor review attaches the active file and submits Co
   assert.deepEqual(host.warnings, []);
 });
 
-test('REQ-IDE-011 AC2+AC3: editor review ignores a malformed command argument and uses the active file', async () => {
+test('REQ-IDE-014 AC2: editor review ignores a malformed command argument and uses the active file', async () => {
   activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],

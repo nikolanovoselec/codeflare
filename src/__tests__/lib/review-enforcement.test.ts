@@ -1250,8 +1250,11 @@ describe('Pi review reminder and settled enforcement', () => {
     await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: 'origin/a\norigin/b\n' }))).resolves.toBeUndefined();
   });
 
-  it('REQ-AGENT-036: performs no PR query when the transcript has no settled boundary', async () => {
+  it('REQ-AGENT-036 + REQ-AGENT-080 AC6: an unpublished local commit emits no launch plan without a boundary', async () => {
     const fixture = makeReviewFixture();
+    write(fixture.repo, 'src/unpublished.ts', 'export {};\n');
+    git(fixture.repo, 'add', 'src/unpublished.ts');
+    git(fixture.repo, 'commit', '-m', 'unpublished local commit');
     const { registerReviewEnforcement } = await plannedEnforcement();
     const harness = makeHarness(fixture.repo, fixture.sessionFile);
     let queries = 0;
@@ -1296,7 +1299,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-058: one boundary lifecycle retries bounded PR-head propagation and emits one plan', async () => {
+  it('REQ-AGENT-058 + REQ-AGENT-080 AC6: an eligible pushed boundary emits one authoritative launch plan', async () => {
     const fixture = makeReviewFixture();
     const staleHead = fixture.head;
     write(fixture.repo, 'src/review-follow-up.ts', 'export {};\n');
@@ -1552,7 +1555,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: delayed completion acknowledges the reviewed PR head after reload and new local work', async () => {
+  it('REQ-AGENT-053/055/074 + REQ-AGENT-080 AC6: delayed completion acknowledges the pushed review head, not unpublished local work', async () => {
     const fixture = makeReviewFixture();
     const initialHarness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,

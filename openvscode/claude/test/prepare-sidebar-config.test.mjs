@@ -170,7 +170,7 @@ test("REQ-IDE-006 AC1+AC2: projection replaces source settings with the fixed ma
   assert.equal(MANAGED_SETTINGS_PATH, "/etc/codeflare/claude-sidebar/settings.json");
 });
 
-test("REQ-IDE-002: settings preparation preserves theme but replaces stale managed inventory settings", async () => {
+test("REQ-IDE-002 AC3 + REQ-IDE-016 AC2: settings preparation preserves theme but replaces stale managed inventory settings", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const settingsDirectory = join(serverDataRoot, "data", "User");

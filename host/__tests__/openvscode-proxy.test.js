@@ -65,7 +65,7 @@ describe('vscodeUpstreamPath / REQ-IDE-001 AC7 (exact session prefix strip)', ()
   });
 });
 
-describe('vscodeUpstreamRequestTarget / REQ-IDE-012 (fixed clean workspace navigation)', () => {
+describe('vscodeUpstreamRequestTarget / REQ-IDE-015 (fixed clean workspace navigation)', () => {
   it('injects the fixed workspace only into the loopback root request while preserving unrelated query bytes', () => {
     assert.equal(
       vscodeUpstreamRequestTarget('/api/vscode/sid/?resource=a%2Fb&empty=&bare', '/'),
@@ -104,7 +104,7 @@ describe('vscodeUpstreamRequestTarget / REQ-IDE-012 (fixed clean workspace navig
   });
 });
 
-describe('projectVscodeWorkbenchWorkspace / REQ-IDE-012 AC5+AC6+AC7 (clean fixed workbench configuration)', () => {
+describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed workbench configuration)', () => {
   const html = (config) => `<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="${JSON.stringify(config).replaceAll('"', '&quot;')}"><title>Code</title>`;
   const configuration = (document) => JSON.parse(
     document.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1].replaceAll('&quot;', '"'),

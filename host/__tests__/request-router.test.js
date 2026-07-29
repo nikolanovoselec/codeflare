@@ -203,7 +203,7 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
     );
   });
 
-  it('REQ-IDE-012: keeps the browser URL clean while selecting the fixed loopback workspace', async () => {
+  it('REQ-IDE-015 AC1+AC2: keeps the browser URL clean while selecting the fixed loopback workspace', async () => {
     const beforeCount = upstreamRequests.length;
     const response = await getText(proxyPort, `/api/vscode/${SID}/`, {
       ...auth,
@@ -246,7 +246,7 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
   });
 });
 
-describe('REQ-IDE-012 AC5+AC6+AC7: root workbench configuration projection', () => {
+describe('REQ-IDE-015 AC5+AC6+AC7: root workbench configuration projection', () => {
   const auth = { authorization: 'Bearer seam-test-token' };
   const savedToken = process.env.CONTAINER_AUTH_TOKEN;
   const savedMode = process.env.SESSION_MODE;

@@ -13,7 +13,6 @@ const repoRoot = resolve(__dirname, '../..');
 const claudeDir = resolve(repoRoot, 'preseed/agents/claude');
 const piDir = resolve(repoRoot, 'preseed/agents/pi');
 const piConstitution = readFileSync(resolve(piDir, 'rules/engineering-constitution.md'), 'utf8');
-const piGitWorkflow = readFileSync(resolve(piDir, 'rules/git-workflow.md'), 'utf8');
 const generatedSource = readFileSync(resolve(repoRoot, 'src/lib/agent-seed.generated.ts'), 'utf8');
 const generatedDocuments = parseGeneratedSeed(generatedSource);
 
@@ -40,17 +39,6 @@ describe('engineering constitution preseed', () => {
       manifest['rules/engineering-constitution.md']?.modes,
       ['default', 'advanced'],
       'Pi constitution must be present in Standard and Pro modes',
-    );
-  });
-
-  it('REQ-AGENT-080 AC6: authorizes reviewers only for an emitted post-boundary plan', () => {
-    assert.match(
-      piConstitution,
-      /authoritative head already pushed to the protected-base PR[\s\S]+never unpublished local `HEAD`/,
-    );
-    assert.match(
-      piGitWorkflow,
-      /Unpublished local commits are never PR-boundary review heads[\s\S]+only from the boundary plan emitted after an eligible push or protected-base PR creation/,
     );
   });
 
