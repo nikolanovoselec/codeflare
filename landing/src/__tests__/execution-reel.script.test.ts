@@ -230,7 +230,7 @@ describe('execution-reel.ts (REQ-LANDING-011/REQ-LANDING-012)', () => {
     ).toBe(true);
   });
 
-  it('leaves animation inactive under reduced motion', async () => {
+  it('does not arm the JavaScript enhancement under reduced motion', async () => {
     const fixture = buildFixture();
     mockMatchMedia(true);
     removeIntersectionObserver();
@@ -245,7 +245,7 @@ describe('execution-reel.ts (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.root.querySelector('[data-active="true"]')).toBeNull();
   });
 
-  it('keeps both resolved transcripts readable under reduced motion', async () => {
+  it('preserves both server-rendered transcripts under reduced motion', async () => {
     const fixture = buildFixture();
     const originalSoftware = fixture.software.textContent;
     const originalInfrastructure = fixture.infrastructure.textContent;

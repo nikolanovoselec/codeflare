@@ -237,7 +237,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ### REQ-LANDING-010: Execution overview reel
 
-**Intent:** Immediately after the Hero family, the landing shows Codeflare as the place where software delivery and approved infrastructure operations are performed, using one wide, event-level truthful execution reel that can later serve as the canonical source for a GitHub README animation.
+**Intent:** Immediately after the Hero family, the landing shows Codeflare as the place where software delivery and approved infrastructure operations are performed, using one wide, event-level truthful execution reel.
 
 **Applies To:** Visitor
 
@@ -247,24 +247,23 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 2. The dedicated Operations presentation remains present exactly once in its detailed role. <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (retains the detailed Operations presentation exactly once) -->
 3. The Execution overview visibly distinguishes one software face from one infrastructure face, each with its own execution events. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/ExecutionReel.astro::execution-reel --> <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two distinct complete transcripts before client enhancement) -->
 4. Without JavaScript, complete semantic transcripts for both faces remain readable in the server-rendered document. <!-- @impl: landing/src/components/ExecutionRun.astro::execution-terminal-body --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two distinct complete transcripts before client enhancement) -->
-5. The infrastructure face and the dedicated Operations detail section are marked `Private preview` at the product level without exposing non-public network implementation or provider-roadmap dependencies. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/PreviewBadge.astro::preview-badge --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (marks both infrastructure presentations as private preview without marking software) -->
-6. The resolved reel is self-contained at a wide aspect suitable for later deterministic GitHub GIF capture, with meaningful first, transition, and final states and no dependence on randomized content. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
+5. The infrastructure face and the dedicated Operations detail section are marked `Private preview` at the product level. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/PreviewBadge.astro::preview-badge --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (marks both infrastructure presentations as private preview without marking software) -->
 
 **Constraints:**
 
 - Reuse the landing's shared terminal frame, semantic tones, typography, and spacing; do not introduce a second visual system.
 - The reel communicates real execution events without claiming to reproduce an exact CLI transcript.
+- Infrastructure copy exposes no non-public network implementation or provider-roadmap dependency.
 - The Execution section is a high-level overview only. Existing Method, Operations, Security, Context, Pipeline, Orchestration, Cost, Platform, IDE, and tooling sections retain their detailed roles.
 - The section may reframe the `#shift` lead to refer back to the overview but does not broadly rewrite later sections.
-- README GIF encoding and asset replacement begin only after the landing implementation is reviewed, CI-green, deployed to integration, and visually approved.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-005](#req-landing-005-inference-mesh-family-hero)
 
-**Verification:** Automated test and deployed capture-readiness review
+**Verification:** Automated test
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -297,29 +296,78 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ---
 
-### REQ-LANDING-012: Execution reel accessibility and layout stability
+### REQ-LANDING-012: Execution reel reduced-motion accessibility
 
-**Intent:** Visitors receive the complete Execution overview without motion-dependent access or layout instability across supported viewport sizes.
+**Intent:** Visitors who request reduced motion receive the complete Execution overview without animated presentation.
 
 **Applies To:** Visitor
 
 **Acceptance Criteria:**
 
-1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (leaves animation inactive under reduced motion) -->
-2. Under reduced motion, both resolved runs remain readable. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps both resolved transcripts readable under reduced motion) -->
-3. The reel remains readable and contained without horizontal page overflow at mobile, tablet, and desktop widths. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
-4. Appending, scrolling, and flipping within the fixed visual viewport do not shift surrounding page content. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
+1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (does not arm the JavaScript enhancement under reduced motion) --> <!-- @manual -->
+2. Under reduced motion, both resolved runs remain visible and readable. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (preserves both server-rendered transcripts under reduced motion) --> <!-- @manual -->
 
 **Constraints:**
 
 - Screen readers consume the complete semantic transcripts rather than character-by-character visual updates.
-- Reduced-motion and no-JavaScript visitors retain the complete two-run static layout.
+- Reduced-motion visitors retain the complete two-run static layout.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Automated test and deployed responsive review
+**Verification:** Automated test and deployed reduced-motion review
+
+**Status:** Partial
+
+---
+
+### REQ-LANDING-013: Execution reel capture readiness
+
+**Intent:** The deployed Execution reel can serve as the canonical source for deterministic GitHub README media without a capture-only duplicate.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. The resolved reel is self-contained at a wide aspect suitable for GitHub GIF capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
+2. The reel provides meaningful first, transition, and final capture states. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @manual -->
+3. Reel content and sequencing are deterministic. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @manual -->
+
+**Constraints:**
+
+- README GIF encoding and asset replacement begin only after the landing implementation is reviewed, CI-green, deployed to integration, and visually approved.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
+
+**Verification:** Deployed capture-readiness review
+
+**Status:** Partial
+
+---
+
+### REQ-LANDING-014: Execution reel responsive layout stability
+
+**Intent:** The Execution reel remains contained and does not disturb surrounding content across supported viewport sizes.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. The reel remains readable and contained without horizontal page overflow at mobile, tablet, and desktop widths. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
+2. The reel's animation does not shift surrounding page content. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
+
+**Constraints:**
+
+- Responsive behavior reuses the landing's existing breakpoints and spacing tokens.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
+
+**Verification:** Deployed responsive review
 
 **Status:** Partial
 
