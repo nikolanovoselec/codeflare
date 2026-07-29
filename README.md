@@ -31,17 +31,15 @@ Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudf
 
 ## What teams use Codeflare for
 
-Codeflare gives agents a governed execution environment for software and infrastructure work across the full delivery lifecycle.
+Codeflare gives agents a governed execution environment for software delivery, browser automation, and approved infrastructure work.
 
 | Work domain | What agents can do |
 |---|---|
 | **Software delivery** | Explore repositories, implement requirements, run review workflows, work through pull requests, inspect CI, and verify changes against behavioral acceptance criteria. |
-| **Infrastructure operations** | Use SSH, `kubectl`, and target-native tools to patch servers, operate clusters, run migrations, configure appliances, and support incident response against approved targets. This capability is coming soon and currently in private preview. |
+| **Infrastructure operations** | Operate approved infrastructure with tools such as SSH and `kubectl`, governed by the customer's Cloudflare Zero Trust policies. Coming soon and currently in private preview. |
 | **End-to-end test automation** | Drive deployed user journeys in isolated Cloudflare Browser Run sessions through Chrome DevTools. Agents can test desktop and mobile viewports, interact with the application, capture screenshots, inspect rendered state, and judge each flow against its acceptance criteria. |
 | **Deployed-system verification** | Correlate browser results with logs, checks, live URLs, and deployment state. Deterministic assertions remain in CI alongside semantic browser validation. |
 | **Operational recovery** | Diagnose failed builds or deployments, inspect current state, apply bounded corrections, and use documented deployment and rollback procedures. |
-
-Cloudflare is the access fabric, not the infrastructure being managed. Codeflare uses the customer's Cloudflare Zero Trust environment to connect agents to approved servers, Kubernetes clusters, databases, internal services, and appliances. Those targets can live in a datacenter or cloud; Codeflare itself remains deployed in the customer's Cloudflare account.
 
 ---
 
@@ -67,17 +65,17 @@ Persistent and ephemeral state are deliberately separated:
 
 ## Governed execution
 
-Codeflare enforces governance through the delivery lifecycle:
+Codeflare applies one governed workflow across software delivery, browser automation, deployment, and approved infrastructure operations:
 
-1. **Define intent:** requirements and acceptance criteria establish the approved outcome.
-2. **Implement:** agents work in the repository and use the team's existing tools and environments.
+1. **Define intent:** requirements, acceptance criteria, and operational scope establish the approved outcome.
+2. **Execute:** agents work in repositories and approved environments using the team's existing tools.
 3. **Test:** behavioral tests prove observable contracts in CI, while Browser Run and Chrome DevTools exercise deployed user journeys against their acceptance criteria.
-4. **Review:** specialist code, specification, documentation, security, and deep-behavior lanes inspect the exact change boundary.
-5. **Integrate:** GitHub pull requests, branch protection, and CI remain the authoritative change gate.
-6. **Deploy and verify:** agents can follow deployment workflows, inspect checks, and verify the live result in a real browser.
+4. **Review:** specialist lanes inspect code, specifications, documentation, security, and observable behavior; humans approve consequential operational actions.
+5. **Integrate:** GitHub pull requests, branch protection, and CI govern source changes, while customer policies govern infrastructure access.
+6. **Deploy and verify:** agents follow approved deployment or operational workflows, inspect checks and logs, and verify live systems in a real browser.
 7. **Recover:** failed verification routes back to a bounded fix; documented rollback remains available when promotion is unsafe.
 
-Pro sessions preload organizational rules, reusable skills, specialist agents, specification-driven development, TDD enforcement, PR-boundary review, CI monitoring, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
+Pro sessions preload organizational rules, reusable skills, specialist agents, specification-driven development, TDD enforcement, PR-boundary review, CI monitoring, browser verification, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
 
 ---
 
