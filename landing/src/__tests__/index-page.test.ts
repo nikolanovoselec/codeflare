@@ -432,12 +432,15 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
 });
 
 describe('execution overview reel (REQ-LANDING-010)', () => {
-  it('orders Hero -> Inference Mesh -> Execution -> detailed sections while retaining Operations once', () => {
+  it('orders Hero -> Inference Mesh -> Execution -> detailed sections', () => {
     const children = Array.from(body.querySelector('main')!.children);
     expect(children[0].classList.contains('hero')).toBe(true);
     expect(children[1].id).toBe(INFERENCE_MESH.id);
     expect(children[2].id).toBe(EXECUTION.id);
     expect(children[3].id).toBe('shift');
+  });
+
+  it('retains the detailed Operations presentation exactly once', () => {
     expect(body.querySelectorAll('#operations')).toHaveLength(1);
   });
 

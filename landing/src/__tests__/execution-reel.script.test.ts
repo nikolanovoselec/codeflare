@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * Behavioral DOM integration tests for REQ-LANDING-011 progressive motion.
+ * Behavioral DOM integration tests for REQ-LANDING-011 motion and REQ-LANDING-012 accessibility.
  *
  * The server-rendered fixture begins complete and readable. The motion-enabled
  * enhancement masks the visual copy, fills recent context, appends new events,
@@ -128,7 +128,7 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe('execution-reel.ts (REQ-LANDING-011)', () => {
+describe('execution-reel.ts (REQ-LANDING-011/REQ-LANDING-012)', () => {
   it('enhances on entry, fills context, then appends software events while scrolling old history', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
@@ -230,10 +230,8 @@ describe('execution-reel.ts (REQ-LANDING-011)', () => {
     ).toBe(true);
   });
 
-  it('does not mask, type, scroll, flip, or blink under reduced motion', async () => {
+  it('leaves animation inactive under reduced motion', async () => {
     const fixture = buildFixture();
-    const originalSoftware = fixture.software.textContent;
-    const originalInfrastructure = fixture.infrastructure.textContent;
     mockMatchMedia(true);
     removeIntersectionObserver();
 
@@ -244,8 +242,20 @@ describe('execution-reel.ts (REQ-LANDING-011)', () => {
     expect(fixture.root.classList.contains('is-enhanced')).toBe(false);
     expect(fixture.root.dataset.executionState).toBe('resolved');
     expect(fixture.root.dataset.executionFlips).toBeUndefined();
+    expect(fixture.root.querySelector('[data-active="true"]')).toBeNull();
+  });
+
+  it('keeps both resolved transcripts readable under reduced motion', async () => {
+    const fixture = buildFixture();
+    const originalSoftware = fixture.software.textContent;
+    const originalInfrastructure = fixture.infrastructure.textContent;
+    mockMatchMedia(true);
+    removeIntersectionObserver();
+
+    await import('../scripts/execution-reel');
+    vi.advanceTimersByTime(30_000);
+
     expect(fixture.software.textContent).toBe(originalSoftware);
     expect(fixture.infrastructure.textContent).toBe(originalInfrastructure);
-    expect(fixture.root.querySelector('[data-active="true"]')).toBeNull();
   });
 });

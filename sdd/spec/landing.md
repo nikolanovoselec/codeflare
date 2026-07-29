@@ -214,7 +214,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 2. `Inference Mesh` is a plain white, unscrambled section heading with a shared `~/inference` kicker; both align right on desktop, and Codeflare is not repeated. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 3. Copy presents Inference Mesh as optional private, low-cost capacity from owned idle machines with warm sessions and boundary-local sensitive work; any hosted provider remains a first-class default or fallback. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 4. The band includes one external CTA labelled `See it on GitHub` linking to the public Inference Mesh repository, rendered with the shared compact text-link treatment (the same treatment as the dogfood CTA), with no secondary CTA and no dedicated detail route. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
-5. The band uses the existing Terminal and Transcript proof system as a concrete inference-call artifact carrying the shared `proof-terminal` chrome, with its bottom command line driven by the shared typed reel (`data-ft-loop`) cycling the content-model beats, introducing no new animation system or terminal chrome. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the shared typed reel on the terminal command line, looping over the beats) -->
+5. The band shows a concrete inference-call terminal whose bottom command cycles through the configured inference beats under normal motion. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the shared typed reel on the terminal command line, looping over the beats) -->
 6. Desktop places the right-aligned kicker, heading, description, and sole micro-CTA opposite the proof terminal; mobile left-aligns them. No subtitle or repeated Codeflare wordmark appears. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 
 **Constraints:**
@@ -243,11 +243,12 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. Visitors encounter the primary Hero, then Inference Mesh, then the Execution overview before the detailed sections, with the dedicated Operations presentation retained exactly once in its detailed role. <!-- @impl: landing/src/pages/index.astro::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (execution overview reel (REQ-LANDING-010)) -->
-2. The Execution overview renders one software face and one infrastructure face from a canonical typed content model. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/ExecutionReel.astro::execution-reel --> <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two distinct complete transcripts before client enhancement) -->
-3. Without JavaScript, complete semantic transcripts for both faces remain readable in the server-rendered document. <!-- @impl: landing/src/components/ExecutionRun.astro::execution-terminal-body --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two distinct complete transcripts before client enhancement) -->
-4. The infrastructure face and the dedicated Operations detail section are marked `Private preview` at the product level without exposing non-public network implementation or provider-roadmap dependencies. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/PreviewBadge.astro::preview-badge --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (marks both infrastructure presentations as private preview without marking software) -->
-5. The resolved reel is self-contained at a wide aspect suitable for later deterministic GitHub GIF capture, with meaningful first, transition, and final states and no dependence on randomized content. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
+1. Visitors encounter the primary Hero, then Inference Mesh, then the Execution overview before the detailed sections. <!-- @impl: landing/src/pages/index.astro::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (orders Hero -> Inference Mesh -> Execution -> detailed sections) -->
+2. The dedicated Operations presentation remains present exactly once in its detailed role. <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (retains the detailed Operations presentation exactly once) -->
+3. The Execution overview visibly distinguishes one software face from one infrastructure face, each with its own execution events. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/ExecutionReel.astro::execution-reel --> <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two distinct complete transcripts before client enhancement) -->
+4. Without JavaScript, complete semantic transcripts for both faces remain readable in the server-rendered document. <!-- @impl: landing/src/components/ExecutionRun.astro::execution-terminal-body --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two distinct complete transcripts before client enhancement) -->
+5. The infrastructure face and the dedicated Operations detail section are marked `Private preview` at the product level without exposing non-public network implementation or provider-roadmap dependencies. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/PreviewBadge.astro::preview-badge --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (marks both infrastructure presentations as private preview without marking software) -->
+6. The resolved reel is self-contained at a wide aspect suitable for later deterministic GitHub GIF capture, with meaningful first, transition, and final states and no dependence on randomized content. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
 
 **Constraints:**
 
@@ -269,7 +270,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ### REQ-LANDING-011: Execution reel progressive motion
 
-**Intent:** The Execution overview progressively reveals one bounded software-to-infrastructure run without hiding content from visitors who disable JavaScript or motion.
+**Intent:** Under normal motion, the Execution overview progressively reveals one bounded software-to-infrastructure run and then settles without looping.
 
 **Applies To:** Visitor
 
@@ -280,18 +281,43 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 3. New events type at the bottom while historical rows leave the fixed visual viewport. <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (enhances on entry, fills context, then appends software events while scrolling old history) -->
 4. The terminal flips exactly once from software to infrastructure during the sequence. <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (prepares infrastructure context off-face, flips exactly once, and appends its execution events) -->
 5. The completed sequence does not loop and leaves only the infrastructure face's terminal cursor active. <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (settles after one bounded run with only the infrastructure cursor active) -->
-6. Under reduced motion, the enhancement performs no masking, typing, scrolling, flipping, or cursor blinking, and both resolved runs remain readable. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (does not mask, type, scroll, flip, or blink under reduced motion) -->
-7. The reel remains readable and contained without horizontal page overflow at mobile, tablet, and desktop widths; its fixed visual viewport prevents appending, scrolling, and flipping from shifting surrounding layout. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
 
 **Constraints:**
 
 - The normal-motion sequence is one approximately 15-second shot with a single depth flip and no loop.
-- Reuse the landing's motion tokens, easing, and reduced-motion conventions.
-- Screen readers consume the complete semantic transcripts rather than character-by-character visual updates.
+- Reuse the landing's motion tokens and easing.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-012: Execution reel accessibility and layout stability
+
+**Intent:** Visitors receive the complete Execution overview without motion-dependent access or layout instability across supported viewport sizes.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (leaves animation inactive under reduced motion) -->
+2. Under reduced motion, both resolved runs remain readable. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps both resolved transcripts readable under reduced motion) -->
+3. The reel remains readable and contained without horizontal page overflow at mobile, tablet, and desktop widths. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
+4. Appending, scrolling, and flipping within the fixed visual viewport do not shift surrounding page content. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @manual -->
+
+**Constraints:**
+
+- Screen readers consume the complete semantic transcripts rather than character-by-character visual updates.
+- Reduced-motion and no-JavaScript visitors retain the complete two-run static layout.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
 **Verification:** Automated test and deployed responsive review
 

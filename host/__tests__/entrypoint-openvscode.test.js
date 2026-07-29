@@ -816,9 +816,18 @@ for _ in $(seq 1 50); do [ -s "$MANAGED_PID_FILE" ] && break; sleep 0.02; done
 read -r managed < "$MANAGED_PID_FILE"
 kill_pidfile_subtree "$OPENVSCODE_GENERATION_PIDFILE"
 kill_pidfile_subtree "$OPENVSCODE_PIDFILE"
-sleep 0.3
-if kill -0 "$supervisor" 2>/dev/null; then supervisor_state=alive; else supervisor_state=dead; fi
-if kill -0 "$managed" 2>/dev/null; then managed_state=alive; else managed_state=dead; fi
+# kill -0 also succeeds for a terminated process that briefly remains a zombie
+# while CI's init process catches up. Assert that neither process is runnable.
+is_running() {
+  [ -r "/proc/$1/stat" ] || return 1
+  [ "$(awk '{print $3}' "/proc/$1/stat")" != Z ]
+}
+for _ in $(seq 1 50); do
+  if ! is_running "$supervisor" && ! is_running "$managed"; then break; fi
+  sleep 0.02
+done
+if is_running "$supervisor"; then supervisor_state=alive; else supervisor_state=dead; fi
+if is_running "$managed"; then managed_state=alive; else managed_state=dead; fi
 printf 'supervisor=%s managed=%s\\n' "$supervisor_state" "$managed_state"
 pkill -KILL -P "$managed" 2>/dev/null || true
 kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
