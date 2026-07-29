@@ -94,10 +94,12 @@ function installGlobalStyles(): HTMLStyleElement {
 }
 
 function delaySeconds(value: string): number {
-  const duration = value.match(/^([\d.]+)(m?s)$/);
+  const duration = value.match(/^(\d+(?:\.\d+)?|\.\d+)(m?s)$/);
   if (duration) return Number(duration[1]) / (duration[2] === 'ms' ? 1_000 : 1);
 
-  const calculated = value.match(/^calc\(\s*([\d.]+)\s*\*\s*([\d.]+)s\s*\)$/);
+  const calculated = value.match(
+    /^calc\(\s*(\d+(?:\.\d+)?|\.\d+)\s*\*\s*(\d+(?:\.\d+)?|\.\d+)s\s*\)$/,
+  );
   if (calculated) return Number(calculated[1]) * Number(calculated[2]);
 
   return Number.NaN;
@@ -226,17 +228,20 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
       getComputedStyle(row),
     );
     for (const entranceStyle of entranceStyles) {
-      expect(entranceStyle.animation).toContain('term-type');
-      const duration = delaySeconds(entranceStyle.animationDuration);
+      const animationTokens = entranceStyle.animation.trim().split(/\s+/);
+      expect(animationTokens).toContain('term-type');
+      const duration = animationTokens.map(delaySeconds).find(Number.isFinite)
+        ?? Number.NaN;
       expect(Number.isFinite(duration)).toBe(true);
       expect(duration).toBeGreaterThan(0);
     }
-    const sampledDelays = [0, 3, 7].map((index) =>
-      delaySeconds(entranceStyles[index].animationDelay),
+    const delays = entranceStyles.map((entranceStyle) =>
+      delaySeconds(entranceStyle.animationDelay),
     );
-    expect(sampledDelays.every(Number.isFinite)).toBe(true);
-    expect(sampledDelays[0]).toBeLessThan(sampledDelays[1]);
-    expect(sampledDelays[1]).toBeLessThan(sampledDelays[2]);
+    expect(delays.every(Number.isFinite)).toBe(true);
+    for (let index = 1; index < delays.length; index += 1) {
+      expect(delays[index - 1]).toBeLessThan(delays[index]);
+    }
     style.remove();
   });
 
