@@ -124,7 +124,7 @@ Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudfla
 
 - A browser-native SilverBullet Vault for notes, decisions, plans, and captured context.
 - Cross-session memory for approved durable context rather than hidden process continuity.
-- Graphify knowledge graphs over project source and Vault content, with query, path, explanation, and visual outputs.
+- Knowledge graphs connect source code, requirements, decisions, plans, and documentation so agents can trace dependencies and change impact.
 - Curated architecture, debugging, deployment, security, review, and refactoring specialists.
 
 ![Codeflare on a phone](assets/documentation/mobile-phone.jpg)
