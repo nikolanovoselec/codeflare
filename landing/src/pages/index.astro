@@ -25,7 +25,6 @@ import Transcript from '../components/Transcript.astro';
 import GateSteps from '../components/GateSteps.astro';
 import FeatureGrid from '../components/FeatureGrid.astro';
 import MicroCta from '../components/MicroCta.astro';
-import PreviewBadge from '../components/PreviewBadge.astro';
 import TrustStrip from '../components/TrustStrip.astro';
 import LedgerTable from '../components/LedgerTable.astro';
 import ReviewBoard from '../components/ReviewBoard.astro';
@@ -125,8 +124,8 @@ const mcpRows = MCP.portal.rows.map((row) => ({
     <Hero />
     <InferenceMeshHero />
 
-    <!-- Execution overview: one wide, event-level view of software delivery and
-         private-preview infrastructure work being performed in Codeflare. The
+    <!-- Execution overview: two Hero-scale shared terminal simulations of
+         software delivery and infrastructure work performed in Codeflare. The
          existing detailed sections below remain the evidence for each part. -->
     <Section id={EXECUTION.id}>
       <SectionHead kicker={SECTION_KICKERS.execution} title={EXECUTION.title} lead={EXECUTION.lead} />
@@ -187,9 +186,7 @@ const mcpRows = MCP.portal.rows.map((row) => ({
          infrastructure, shown as a governed run in the same gate grammar as the security
          boundary that follows, so it reads as a peer to build, not a security footnote. -->
     <Section id={OPERATIONS.id} alt>
-      <SectionHead kicker={SECTION_KICKERS.operations} title={OPERATIONS.title} lead={OPERATIONS.lead}>
-        <PreviewBadge />
-      </SectionHead>
+      <SectionHead kicker={SECTION_KICKERS.operations} title={OPERATIONS.title} lead={OPERATIONS.lead} />
       <Terminal variant="gate" foot={OPERATIONS.run.caption}>
         <span class="gate-req" slot="bar">{OPERATIONS.run.title}</span>
         <GateSteps rows={opsRows} />

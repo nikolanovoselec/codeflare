@@ -2,13 +2,16 @@
 /**
  * Behavioral integration coverage for REQ-LANDING-011 motion and
  * REQ-LANDING-012 accessibility. Execution composes the shared Transcript feed
- * with proof.ts: a full five-line viewport rolls once per typed event.
+ * with proof.ts: a full eight-line viewport reveals top-down, then rolls once
+ * per typed event and settles full with a blinking cursor.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const ROLL_FIRST_MS = 3_000;
 const PHASE_MS = 420;
 const TYPE_MS = 58;
+const VIEWPORT_ROWS = 8;
+const EVENT_ROWS = 10;
 
 interface FeedLine {
   tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn' | 'deny';
@@ -31,11 +34,11 @@ function addFeed(
   root: HTMLElement,
   name: 'software' | 'infrastructure',
 ): { face: HTMLElement; list: HTMLElement; context: FeedLine[]; events: FeedLine[] } {
-  const context = Array.from({ length: 5 }, (_, index): FeedLine => ({
+  const context = Array.from({ length: VIEWPORT_ROWS }, (_, index): FeedLine => ({
     tone: index % 2 === 0 ? 'cmd' : 'dim',
     text: `${name}-context-${index}`,
   }));
-  const events = Array.from({ length: 5 }, (_, index): FeedLine => ({
+  const events = Array.from({ length: EVENT_ROWS }, (_, index): FeedLine => ({
     tone: index % 2 === 0 ? 'ok' : 'warn',
     text: `${name}-event-${index}`,
   }));
@@ -47,7 +50,7 @@ function addFeed(
   list.dataset.feedContext = JSON.stringify(context);
   list.dataset.feedEvents = JSON.stringify(events);
   list.dataset.feedState = 'resolved';
-  for (const line of events) {
+  for (const line of events.slice(-VIEWPORT_ROWS)) {
     const row = document.createElement('span');
     row.className = `t-line t-${line.tone}`;
     row.textContent = line.text;
@@ -168,7 +171,7 @@ afterEach(() => {
 });
 
 describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
-  it('prepares both terminals as full five-line context viewports', async () => {
+  it('prepares full context viewports with top-to-bottom entrance indices', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
@@ -181,11 +184,20 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(visibleLines(fixture.infrastructureList)).toEqual(
       fixture.infrastructureContext.map((line) => line.text),
     );
-    expect(fixture.softwareList.children).toHaveLength(5);
-    expect(fixture.infrastructureList.children).toHaveLength(5);
+    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
+    expect(fixture.infrastructureList.children).toHaveLength(VIEWPORT_ROWS);
+    expect(
+      Array.from(fixture.softwareList.children).map((row) =>
+        (row as HTMLElement).style.getPropertyValue('--i'),
+      ),
+    ).toEqual(Array.from({ length: VIEWPORT_ROWS }, (_, index) => String(index)));
+
+    observer.intersect(fixture.software, 'prearm');
+    expect(fixture.software.classList.contains('is-live')).toBe(true);
+    expect(fixture.softwareList.dataset.feedState).toBe('ready');
   });
 
-  it('slowly types five events while each event pushes the oldest visible line out', async () => {
+  it('types the simulation to completion while keeping a full viewport and final cursor', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
@@ -197,7 +209,11 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(visibleLines(fixture.softwareList)).toEqual(fixture.softwareContext.map((line) => line.text));
 
     observer.intersect(fixture.software, 'feed');
-    vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS - 1);
+    expect(fixture.software.classList.contains('is-rolling')).toBe(false);
+    vi.advanceTimersByTime(ROLL_FIRST_MS - 1);
+    expect(fixture.software.classList.contains('is-rolling')).toBe(false);
+    vi.advanceTimersByTime(1 + PHASE_MS + TYPE_MS - 1);
+    expect(fixture.software.classList.contains('is-rolling')).toBe(true);
     expect(visibleLines(fixture.softwareList).at(-1)).toBe('');
     vi.advanceTimersByTime(1);
     expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text.slice(0, 1));
@@ -211,10 +227,12 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     );
 
     vi.advanceTimersByTime(60_000);
-    expect(visibleLines(fixture.softwareList)).toEqual(fixture.softwareEvents.map((line) => line.text));
+    expect(visibleLines(fixture.softwareList)).toEqual(
+      fixture.softwareEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
+    );
     expect(fixture.softwareList.dataset.feedState).toBe('complete');
-    expect(fixture.softwareList.querySelector('.t-caret')).toBeNull();
-    expect(fixture.softwareList.children).toHaveLength(5);
+    expect(fixture.softwareList.lastElementChild?.querySelector('.t-caret')).not.toBeNull();
+    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
   });
 
   it('keeps wrapped row geometry reserved for the complete event while typing', async () => {
@@ -305,7 +323,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.infrastructureList.dataset.feedState).toBe('resolved');
   });
 
-  it('starts each stacked terminal independently and never restarts a completed feed', async () => {
+  it('starts each terminal independently and never restarts a completed simulation', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
@@ -325,11 +343,11 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     vi.advanceTimersByTime(60_000);
     expect(fixture.infrastructureList.dataset.feedState).toBe('complete');
     expect(visibleLines(fixture.infrastructureList)).toEqual(
-      fixture.infrastructureEvents.map((line) => line.text),
+      fixture.infrastructureEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
     );
   });
 
-  it('keeps the complete resolved five-line event viewports under reduced motion', async () => {
+  it('keeps the complete resolved event viewports under reduced motion', async () => {
     const fixture = buildFixture();
     const softwareResolved = visibleLines(fixture.softwareList);
     const infrastructureResolved = visibleLines(fixture.infrastructureList);

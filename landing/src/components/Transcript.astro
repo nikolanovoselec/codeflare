@@ -16,9 +16,9 @@
  *                   four feature terminals.
  *   - 'roll-middle' first and last line pinned; the middle lines sit in a
  *                   [data-roll] list that proof.ts rolls (the dogfood proof).
- *   - 'feed'        a five-line resolved viewport whose normal-motion state is
- *                   prepared from `lines`; proof.ts rolls each `feed` line in,
- *                   reusing the same row motion and transcript styling.
+ *   - 'feed'        a resolved viewport sized from the initial `lines`; proof.ts
+ *                   reveals those rows in order, then rolls each `feed` event in
+ *                   with the shared typing and row-motion styling.
  *   - 'static'      plain lines, no caret, no roll.
  *
  * Default markup is the resolved state, fully legible with no JS and under
@@ -38,7 +38,7 @@ interface Props {
 }
 const { lines, animate = 'static', typed = '', feed = [], label = 'Terminal transcript' } = Astro.props;
 const lastIndex = lines.length - 1;
-const resolvedFeed = feed.slice(-5);
+const resolvedFeed = feed.slice(-lines.length);
 ---
 
 <div class="terminal-body">

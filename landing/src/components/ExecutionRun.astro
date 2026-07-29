@@ -1,13 +1,11 @@
 ---
 /**
- * One Execution terminal, composed entirely from the landing's shared Terminal
- * chrome and Transcript feed. proof.ts prepares the full context viewport and
- * rolls each event through the same row motion used by the page's other reels.
+ * One Hero-scale Execution terminal using the shared Terminal, Transcript feed,
+ * and proof.ts entrance/typing machinery used by the landing's established reels.
  */
 import type { ExecutionRun } from '../content/site';
 import Terminal from './Terminal.astro';
 import Transcript from './Transcript.astro';
-import PreviewBadge from './PreviewBadge.astro';
 
 interface Props {
   name: 'software' | 'infrastructure';
@@ -15,24 +13,24 @@ interface Props {
 }
 
 const { name, run } = Astro.props;
+const accessibleLabel = name === 'software' ? 'Software execution' : 'Infrastructure execution';
 ---
 
 <section
   class:list={['execution-face', `execution-face--${name}`]}
   data-execution-face={name}
-  aria-label={`${run.label} execution`}
+  aria-label={accessibleLabel}
 >
   <Terminal variant={`execution-terminal execution-terminal--${name}`} reveal={false}>
     <Fragment slot="bar">
       <span class="execution-terminal-title">{run.title}</span>
-      {run.preview && <PreviewBadge label={run.preview} execution />}
     </Fragment>
 
     <Transcript
       lines={run.context}
       animate="feed"
       feed={run.events}
-      label={`${run.label} execution transcript`}
+      label={`${accessibleLabel} transcript`}
     />
 
     <Fragment slot="foot">

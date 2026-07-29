@@ -115,8 +115,6 @@ export interface FeatureTerminal {
 
 export interface ExecutionRun {
   title: string;
-  label: string;
-  preview?: string;
   context: TranscriptLine[];
   events: TranscriptLine[];
   foot: string[];
@@ -293,8 +291,8 @@ export const TERMINAL = {
 
 /**
  * Paired Execution overview shown before the detailed proof sections. Both use
- * the shared resolved Transcript feed; normal motion restores five full context
- * rows, then slowly types five events while pushing the oldest row out.
+ * the shared eight-row Transcript feed: initial rows reveal top-down, then the
+ * remaining real session types through the full viewport and settles.
  */
 export const EXECUTION = {
   id: 'execution',
@@ -308,42 +306,78 @@ export const EXECUTION = {
     'long-lived shared runners.',
   software: {
     title: 'codeflare · software delivery',
-    label: 'Software',
     context: [
-      { tone: 'cmd', text: '$ git switch -c fix/idempotency' },
-      { tone: 'dim', text: "Switched to branch 'fix/idempotency'" },
-      { tone: 'cmd', text: '$ /sdd implement REQ-PAY-014' },
-      { tone: 'agent', text: '✻ mapped retries, schema, and tests' },
-      { tone: 'cmd', text: '$ npm test -- idempotency' },
+      {
+        tone: 'cmd',
+        text: 't.anderson@metacortex.ai $ git clone https://github.com/nikolanovoselec/codeflare-inference-mesh.git && cd codeflare-inference-mesh',
+      },
+      { tone: 'dim', text: "Cloning into 'codeflare-inference-mesh'... done." },
+      { tone: 'cmd', text: '$ git switch develop' },
+      { tone: 'dim', text: "Switched to branch 'develop'" },
+      { tone: 'cmd', text: '$ pi --resume 7f2c' },
+      { tone: 'agent', text: '✻ session resumed · repository context restored' },
+      { tone: 'cmd', text: '❯ update the repository knowledge graph' },
+      { tone: 'ok', text: '✓ 428 symbols · 1,906 relations indexed' },
     ],
     events: [
-      { tone: 'warn', text: '✕ expected 1 charge, got 2 · test.ts:84' },
-      { tone: 'agent', text: '✻ added transaction-scoped lock' },
-      { tone: 'cmd', text: '$ npm test -- idempotency' },
-      { tone: 'ok', text: '✓ 10 tests passed · 0 failed' },
-      { tone: 'cmd', text: '$ git push -u origin fix/idempotency' },
+      { tone: 'cmd', text: '❯ /plan implement Inference Mesh routing' },
+      { tone: 'agent', text: '✻ plan approved · 6 tasks' },
+      { tone: 'cmd', text: '❯ execute the approved plan' },
+      { tone: 'ok', text: '✓ implementation complete · 84 tests passed' },
+      { tone: 'cmd', text: '$ git push origin develop' },
+      {
+        tone: 'cmd',
+        text: '$ gh pr create --base main --head develop --title "feat: implement inference mesh"',
+      },
+      { tone: 'agent', text: '✻ PR #84 · review boundary launched · CI monitor attached' },
+      { tone: 'ok', text: '✓ code · spec · docs clean · PR Checks green' },
+      { tone: 'cmd', text: '$ gh pr merge 84 --merge' },
+      { tone: 'ok', text: '✓ merged into main' },
+      { tone: 'cmd', text: '$ git fetch origin && git switch develop' },
+      {
+        tone: 'cmd',
+        text: '$ git reset --hard origin/main && git push --force-with-lease origin develop',
+      },
+      { tone: 'ok', text: '✓ develop aligned with main' },
     ],
-    foot: ['PR #207', 'CI green', 'review clean'],
+    foot: ['PR #84 merged', 'CI green', 'develop synced'],
   } satisfies ExecutionRun,
   infrastructure: {
     title: 'codeflare · infrastructure operations',
-    label: 'Infrastructure',
-    preview: 'Private preview',
     context: [
-      { tone: 'cmd', text: 't.anderson@ops $ ssh prod-web-07' },
+      { tone: 'cmd', text: 't.anderson@metacortex.ai $ ssh prod-web-07' },
       { tone: 'ok', text: '✓ Access approved · session recorded' },
-      { tone: 'cmd', text: '$ sudo apt-get update' },
-      { tone: 'dim', text: 'Get:1 jammy-security InRelease' },
-      { tone: 'cmd', text: '$ apt list --upgradable | grep openssl' },
+      { tone: 'cmd', text: '$ hostnamectl && uptime' },
+      {
+        tone: 'dim',
+        text: 'Ubuntu 22.04.5 LTS · up 47 days · load average: 0.31, 0.28, 0.24',
+      },
+      { tone: 'cmd', text: '$ sudo journalctl -p err -b --no-pager | tail' },
+      { tone: 'warn', text: 'nginx[1842]: worker process exited on signal 11 (core dumped)' },
+      { tone: 'cmd', text: '$ df -h / && free -h' },
+      { tone: 'dim', text: '/dev/vda1  80G  41G  36G  54% / · memory 3.1G/15G' },
     ],
     events: [
-      { tone: 'dim', text: 'openssl 3.0.2-0ubuntu1.21 [upgradable]' },
-      { tone: 'cmd', text: '$ sudo apt install --only-upgrade openssl' },
-      { tone: 'ok', text: '✓ openssl 3.0.2-0ubuntu1.21 installed' },
-      { tone: 'cmd', text: '$ sudo systemctl restart payments-api' },
-      { tone: 'ok', text: '✓ payments-api.service · active (running)' },
+      { tone: 'cmd', text: '$ sudo apt-get update' },
+      { tone: 'dim', text: 'Fetched 8,412 kB in 2s · package lists ready' },
+      { tone: 'cmd', text: '$ apt list --upgradable | grep -E "openssl|nginx"' },
+      {
+        tone: 'dim',
+        text: 'openssl 3.0.2-0ubuntu1.21 · nginx 1.18.0-6ubuntu14.6',
+      },
+      { tone: 'cmd', text: '$ sudo apt install --only-upgrade openssl nginx' },
+      { tone: 'ok', text: '✓ 2 packages upgraded · 0 removed' },
+      { tone: 'cmd', text: '$ sudo nginx -t' },
+      { tone: 'ok', text: 'nginx: configuration file /etc/nginx/nginx.conf syntax is ok' },
+      { tone: 'cmd', text: '$ sudo systemctl restart nginx && systemctl is-active nginx' },
+      { tone: 'ok', text: 'active' },
+      {
+        tone: 'cmd',
+        text: '$ curl -fsS -o /dev/null -w "%{http_code} %{time_total}s\\n" http://127.0.0.1/health',
+      },
+      { tone: 'ok', text: '200 0.018s' },
     ],
-    foot: ['prod-web-07', 'CHG-4821', 'rollback ready'],
+    foot: ['prod-web-07 healthy', 'CHG-4821', 'rollback ready'],
   } satisfies ExecutionRun,
 };
 

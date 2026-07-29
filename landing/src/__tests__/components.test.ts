@@ -101,27 +101,36 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     expect(body.querySelector('[data-typeline]')).toBeNull();
   });
 
-  it("animate='feed' renders a resolved five-line shared roll viewport with complete semantic content", async () => {
-    const feed: TranscriptLine[] = [
-      { tone: 'cmd', text: 'event-0' },
-      { tone: 'warn', text: 'event-1' },
-      { tone: 'agent', text: 'event-2' },
-      { tone: 'ok', text: 'event-3' },
-      { tone: 'dim', text: 'event-4' },
-    ];
+  it("animate='feed' renders a resolved eight-row viewport with complete semantic content", async () => {
+    const context: TranscriptLine[] = Array.from(
+      { length: 8 },
+      (_, index): TranscriptLine => ({
+        tone: index % 2 === 0 ? 'cmd' : 'dim',
+        text: `context-${index}`,
+      }),
+    );
+    const feed: TranscriptLine[] = Array.from(
+      { length: 10 },
+      (_, index): TranscriptLine => ({
+        tone: index % 2 === 0 ? 'ok' : 'agent',
+        text: `event-${index}`,
+      }),
+    );
     const rendered = dom(await container.renderToString(Transcript, {
-      props: { lines: LINES, animate: 'feed', feed, label: 'Software execution' },
+      props: { lines: context, animate: 'feed', feed, label: 'Software execution' },
     }));
     const body = rendered.querySelector('.terminal-body')!;
     const roll = body.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
     expect(roll).not.toBeNull();
-    expect(roll.querySelectorAll(':scope > .t-line')).toHaveLength(5);
+    expect(roll.querySelectorAll(':scope > .t-line')).toHaveLength(8);
     expect(Array.from(roll.children).map((line) => line.textContent)).toEqual(
-      feed.slice(-5).map((line) => line.text),
+      feed.slice(-8).map((line) => line.text),
     );
-    expect(JSON.parse(roll.dataset.feedContext!)).toEqual(LINES);
+    expect(JSON.parse(roll.dataset.feedContext!)).toEqual(context);
     expect(JSON.parse(roll.dataset.feedEvents!)).toEqual(feed);
-    expect(rendered.querySelectorAll('[data-feed-accessible-line]')).toHaveLength(LINES.length + feed.length);
+    expect(rendered.querySelectorAll('[data-feed-accessible-line]')).toHaveLength(
+      context.length + feed.length,
+    );
     expect(body.querySelector('.t-caret')).toBeNull();
   });
 

@@ -10,9 +10,9 @@
  * sequence plays once, then the element is unobserved.
  *
  * Some artifacts carry a [data-roll] list. Ordinary proof lists move the top
- * row to the bottom on a slow loop. Transcript feeds reuse that exact row motion
- * once per event, replacing the moved row through the established typing cadence
- * and settling after five events. Pinned terminal chrome never moves.
+ * row to the bottom on a slow loop. Transcript simulations first reveal eight
+ * complete rows in authored order, then reuse that row motion and the established
+ * typing cadence for every remaining event. Pinned terminal chrome never moves.
  *
  * Reduced motion: do nothing. The default (no `.is-live`) markup is already the
  * resolved state, so leaving it untouched is the correct motionless result.
@@ -102,19 +102,20 @@ function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLi
   }
 }
 
-function feedRow(line: FeedLine): HTMLElement {
+function feedRow(line: FeedLine, index: number): HTMLElement {
   const row = document.createElement('span');
   row.className = `t-line t-${line.tone}`;
+  row.style.setProperty('--i', String(index));
   row.textContent = line.text;
   return row;
 }
 
-/** Normal motion starts from five populated context rows. The server-rendered
- *  final five events remain untouched for no-JS and reduced-motion visitors. */
+/** Normal motion starts from eight populated context rows. The server-rendered
+ *  final event viewport remains untouched for no-JS and reduced-motion visitors. */
 function prepareFeed(list: HTMLElement): void {
   const context = parseFeed(list, 'feedContext');
   const events = parseFeed(list, 'feedEvents');
-  if (context.length !== 5 || events.length !== 5) return;
+  if (context.length !== 8 || events.length < context.length) return;
   list.replaceChildren(...context.map(feedRow));
   list.dataset.feedState = 'ready';
 }
@@ -154,30 +155,38 @@ function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): 
   window.setTimeout(tick, TYPE_MS);
 }
 
+function settleFeed(list: HTMLElement): void {
+  list.querySelector('.t-caret')?.remove();
+  const caret = document.createElement('span');
+  caret.className = 't-caret';
+  caret.setAttribute('aria-hidden', 'true');
+  list.lastElementChild?.appendChild(caret);
+  list.dataset.feedState = 'complete';
+}
+
 /** One bounded Transcript feed: every typed event reuses the shared rolling-row
- *  transition, pushing the oldest populated line out while keeping five rows. */
+ *  transition, pushing the oldest populated line out while keeping eight rows. */
 function startFeed(list: HTMLElement): void {
   if (list.dataset.feedStarted === 'true' || list.dataset.feedState !== 'ready') return;
   const context = parseFeed(list, 'feedContext');
   const events = parseFeed(list, 'feedEvents');
-  if (context.length !== 5 || events.length !== 5 || list.children.length !== 5) return;
+  if (context.length !== 8 || events.length < context.length || list.children.length !== 8) return;
   list.dataset.feedStarted = 'true';
   list.dataset.feedState = 'running';
   let index = 0;
 
   const advance = () => {
     if (index >= events.length) {
-      list.querySelector('.t-caret')?.remove();
-      list.dataset.feedState = 'complete';
+      settleFeed(list);
       return;
     }
+    list.closest<HTMLElement>('[data-proof]')?.classList.add('is-rolling');
     list.querySelector('.t-caret')?.remove();
     rollOnce(list, (row) => {
       typeFeedRow(row, events[index], () => {
         index += 1;
         if (index >= events.length) {
-          list.querySelector('.t-caret')?.remove();
-          list.dataset.feedState = 'complete';
+          settleFeed(list);
           return;
         }
         window.setTimeout(advance, FEED_HOLD_MS);
@@ -192,7 +201,6 @@ function startFeed(list: HTMLElement): void {
 function startFeeds(el: HTMLElement): void {
   const feeds = Array.from(el.querySelectorAll<HTMLElement>('[data-feed-events]'));
   if (feeds.length === 0) return;
-  el.classList.add('is-rolling');
   for (const feed of feeds) startFeed(feed);
 }
 

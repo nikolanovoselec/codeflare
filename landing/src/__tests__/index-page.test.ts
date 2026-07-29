@@ -444,7 +444,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(body.querySelectorAll('#operations')).toHaveLength(1);
   });
 
-  it('composes two shared Transcript feeds with full five-line resolved viewports', () => {
+  it('composes two shared Transcript simulations with full eight-row viewports', () => {
     const reel = body.querySelector('#execution [data-execution-reel]')!;
     const faces = reel.querySelectorAll('[data-execution-face]');
     expect(faces).toHaveLength(2);
@@ -453,29 +453,23 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
 
     const runs = [EXECUTION.software, EXECUTION.infrastructure];
     faces.forEach((face, index) => {
-      expect(runs[index].context).toHaveLength(5);
-      expect(runs[index].events).toHaveLength(5);
-      const body = face.querySelector('.terminal-body')!;
-      const feed = body.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
-      expect(feed).not.toBeNull();
-      expect(feed.querySelectorAll(':scope > .t-line')).toHaveLength(5);
+      const terminal = face.querySelector('.terminal.execution-terminal[data-proof]')!;
+      const feed = terminal.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
+      expect(terminal).not.toBeNull();
+      expect(runs[index].context).toHaveLength(8);
+      expect(runs[index].events.length).toBeGreaterThan(0);
+      expect(feed.querySelectorAll(':scope > .t-line')).toHaveLength(8);
       expect(JSON.parse(feed.dataset.feedContext!)).toEqual(runs[index].context);
       expect(JSON.parse(feed.dataset.feedEvents!)).toEqual(runs[index].events);
-      expect(face.querySelectorAll('[data-feed-accessible-line]')).toHaveLength(10);
-      expect(face.querySelector('.execution-terminal-body')).toBeNull();
-      expect(face.querySelector('[data-execution-line]')).toBeNull();
+      expect(face.querySelectorAll('[data-feed-accessible-line]')).toHaveLength(
+        runs[index].context.length + runs[index].events.length,
+      );
     });
   });
 
-  it('marks both infrastructure presentations as private preview without marking software', () => {
-    const reel = body.querySelector('#execution [data-execution-reel]')!;
-    expect(
-      reel.querySelector('[data-execution-face="software"] [data-private-preview]'),
-    ).toBeNull();
-    expect(
-      reel.querySelectorAll('[data-execution-face="infrastructure"] [data-execution-preview]'),
-    ).toHaveLength(1);
-    expect(body.querySelectorAll('#operations .section-head [data-private-preview]')).toHaveLength(1);
+  it('renders execution and operations without preview badges', () => {
+    expect(body.querySelector('#execution [data-private-preview]')).toBeNull();
+    expect(body.querySelector('#operations [data-private-preview]')).toBeNull();
   });
 });
 

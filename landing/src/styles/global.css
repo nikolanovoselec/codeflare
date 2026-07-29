@@ -731,9 +731,9 @@ svg {
 /* --------------------------------------------------------------------------
    Execution overview (REQ-LANDING-010)
 
-   The default composition is the complete two-terminal resolved state for no-JS
-   and reduced-motion visitors. Normal motion reuses the shared Transcript and
-   proof-row feed: five populated context rows roll into five typed event rows.
+   Both Hero-scale terminals render full resolved viewports for no-JS and
+   reduced-motion visitors. Normal motion reveals eight initial rows top-down,
+   then types the remaining session through the shared rolling-row machinery.
    -------------------------------------------------------------------------- */
 #execution .section-head {
   max-width: 52rem;
@@ -748,7 +748,7 @@ svg {
 
 .execution-card {
   display: grid;
-  gap: var(--gap);
+  gap: clamp(2rem, 4vw, 3.5rem);
   align-items: start;
 }
 
@@ -760,27 +760,8 @@ svg {
   color: var(--text-muted);
 }
 
-.preview-badge {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 0.16rem 0.48rem;
-  border: 1px solid var(--accent-line);
-  border-radius: 999px;
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: var(--fs-mono-micro);
-  line-height: 1.25;
-  white-space: nowrap;
-}
-
-.terminal-bar .preview-badge {
-  margin-left: auto;
-}
-
-/* The Execution pair remains two columns on tablets, where each terminal is
-   narrower than an ordinary desktop terminal. Keep every command/output row
-   visible there instead of relying on the phone-only shared wrapping rule. */
+/* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
+   Long real command output wraps within each frame instead of scrolling sideways. */
 .execution-terminal .terminal-body {
   overflow-x: hidden;
 }
@@ -790,10 +771,6 @@ svg {
   overflow-wrap: break-word;
   padding-left: 2ch;
   text-indent: -2ch;
-}
-
-.section-head > .preview-badge {
-  margin-top: 1rem;
 }
 
 @media (min-width: 681px) {
@@ -1900,7 +1877,7 @@ svg {
 
 /* A feed's completed line reserves its final wrapped height while the live copy
    types in the same grid cell. This keeps narrow terminal and page geometry
-   stable without restoring the removed multi-row reservation system. */
+   stable without reserving empty rows. */
 .transcript-feed .is-feed-typing {
   display: grid;
 }
