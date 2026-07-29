@@ -316,7 +316,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Automated test and deployed reduced-motion review
+**Verification:** Manual check
 
 **Status:** Partial
 
