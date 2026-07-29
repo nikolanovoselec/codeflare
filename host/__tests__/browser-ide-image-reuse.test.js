@@ -235,10 +235,21 @@ describe('current exact-tree receipt with Browser IDE image provenance', () => {
   };
 
   it('records direct execution, validated reuse, and unaffected lanes distinctly', () => {
-    assert.deepEqual(buildPrChecksReceipt(input).lanes.browserIdeImage, {
-      fingerprint,
-      result: 'executed',
-      sourceRunId: runId,
+    assert.deepEqual(buildPrChecksReceipt(input), {
+      schema: 'codeflare.pr-checks-receipt.v2',
+      repository: repo,
+      workflowPath: '.github/workflows/test.yml',
+      runId,
+      runAttempt: 1,
+      testedCommit,
+      testedTree,
+      lanes: {
+        browserIdeImage: {
+          fingerprint,
+          result: 'executed',
+          sourceRunId: runId,
+        },
+      },
     });
     assert.deepEqual(buildPrChecksReceipt({
       ...input,

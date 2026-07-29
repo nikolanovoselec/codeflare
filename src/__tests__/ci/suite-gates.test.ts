@@ -215,6 +215,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
           name?: string;
           if?: string;
           run?: string;
+          env?: Record<string, string>;
           with?: Record<string, unknown>;
         }>;
       }>;
@@ -225,6 +226,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const summary = workflow.jobs.summary;
     const resolve = reuse.steps?.find((step) => step.name === 'Resolve reusable complete-image evidence');
     const gate = summary.steps?.find((step) => step.name === 'Verify complete-image result');
+    const receipt = summary.steps?.find((step) => step.name === 'Write exact tested-tree receipt');
     const filters = String(changes.steps?.find((step) => step.id === 'filter')?.with?.filters ?? '');
     const ideInputs = filters.slice(filters.indexOf('\nide:'), filters.indexOf('\nhost:'));
 
@@ -277,6 +279,22 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(gate?.run?.replace(/\s+/g, ' ').trim()).toBe(
       'node scripts/ci/browser-ide-image-reuse.mjs gate "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" "$IMAGE_REUSED" "$IMAGE_RESULT"',
     );
+    expect(receipt?.env).toMatchObject({
+      REPOSITORY: '${{ github.repository }}',
+      RUN_ID: '${{ github.run_id }}',
+      RUN_ATTEMPT: '${{ github.run_attempt }}',
+      IMAGE_FINGERPRINT: '${{ needs.browser-ide-image-reuse.outputs.fingerprint }}',
+    });
+    expect(receipt?.run?.split('\n').map((line) => line.trim()).filter(Boolean)).toEqual([
+      'set -euo pipefail',
+      'tested_commit=$(git rev-parse HEAD)',
+      "tested_tree=$(git rev-parse 'HEAD^{tree}')",
+      'node scripts/ci/browser-ide-image-reuse.mjs receipt \\',
+      '"$REPOSITORY" "$RUN_ID" "$RUN_ATTEMPT" "$tested_commit" "$tested_tree" \\',
+      '"$IMAGE_FINGERPRINT" "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" \\',
+      '"$IMAGE_REUSED" "$IMAGE_SOURCE_RUN_ID" "$IMAGE_RESULT" \\',
+      '> /tmp/pr-checks-receipt.json',
+    ]);
   });
 
   it('REQ-OPS-001 AC4: complete-image and deploy builds share compatible caches', () => {

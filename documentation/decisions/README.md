@@ -3214,7 +3214,8 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 
 **Decision:**
 
-- PR Checks split into parallel lanes gated by a `dorny/paths-filter` `changes` job: quality, typecheck, sharded backend/frontend tests, path-specific backend/frontend coverage, landing, host, Browser IDE, and dependency-review.
+- PR Checks split into parallel workload lanes gated by a `dorny/paths-filter` `changes` job: quality, typecheck, sharded backend/frontend tests, path-specific backend/frontend coverage, landing, host, and Browser IDE.
+- Dependency review is an independent pull-request-only gate.
 - A `summary` job keeps the required `test` status context. Path-filtered skips pass; a relevant complete-image skip requires validated reuse; failed or cancelled lanes fail.
 - Ordinary test suites use `.github/actions/vitest-suite`; its teardown-crash guard requires `scripts/ci/check-vitest-report.mjs` to accept a parsed Vitest JSON report rather than grepping reporter prose.
 - Path-specific coverage jobs use `.github/actions/coverage-suite`; its classifier requires the coverage table, rejects reported test or threshold failures, and bounds the backend-only crash exception.
