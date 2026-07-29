@@ -316,13 +316,13 @@ export const EXECUTION = {
       { tone: 'dim', text: "Switched to branch 'develop'" },
       { tone: 'cmd', text: '$ pi --resume 7f2c' },
       { tone: 'agent', text: '✻ session resumed · repository context restored' },
-      { tone: 'cmd', text: '❯ update the repository knowledge graph' },
+      { tone: 'cmd', text: 'update the repository knowledge graph' },
       { tone: 'ok', text: '✓ 428 symbols · 1,906 relations indexed' },
     ],
     events: [
-      { tone: 'cmd', text: '❯ /plan implement Inference Mesh routing' },
+      { tone: 'cmd', text: '/plan implement Inference Mesh routing' },
       { tone: 'agent', text: '✻ plan approved · 6 tasks' },
-      { tone: 'cmd', text: '❯ execute the approved plan' },
+      { tone: 'cmd', text: 'execute the approved plan' },
       { tone: 'ok', text: '✓ implementation complete · 84 tests passed' },
       { tone: 'cmd', text: '$ git push origin develop' },
       {

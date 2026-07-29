@@ -14,6 +14,7 @@ const globalCss = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 
 const ROLL_FIRST_MS = 3_000;
 const PHASE_MS = 420;
 const TYPE_MS = 58;
+const FEED_HOLD_MS = 1_700;
 const VIEWPORT_ROWS = 8;
 
 interface FeedLine {
@@ -82,6 +83,21 @@ function visibleLines(list: HTMLElement): string[] {
   return Array.from(list.children).map(
     (line) => line.querySelector<HTMLElement>('[data-feed-live]')?.textContent ?? line.textContent ?? '',
   );
+}
+
+function installGlobalStyles(): HTMLStyleElement {
+  const style = document.createElement('style');
+  style.textContent = globalCss;
+  document.head.appendChild(style);
+  return style;
+}
+
+function advanceThroughEvents(list: HTMLElement, events: FeedLine[]): void {
+  events.forEach((event, index) => {
+    const waitBeforeRoll = index === 0 ? ROLL_FIRST_MS : FEED_HOLD_MS;
+    vi.advanceTimersByTime(waitBeforeRoll + PHASE_MS + TYPE_MS * event.text.length);
+    expect(visibleLines(list).at(-1)).toBe(event.text);
+  });
 }
 
 function removeIntersectionObserver(): void {
@@ -174,6 +190,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
+    const style = installGlobalStyles();
     await import('../scripts/proof');
 
     expect(observer.observe).toHaveBeenCalledWith(fixture.software);
@@ -193,6 +210,17 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     observer.intersect(fixture.software, 'prearm');
     expect(fixture.software.classList.contains('is-live')).toBe(true);
     expect(fixture.softwareList.dataset.feedState).toBe('ready');
+
+    const entranceRule = Array.from(style.sheet!.cssRules).find(
+      (rule): rule is CSSStyleRule =>
+        rule instanceof CSSStyleRule && rule.selectorText === '.terminal.is-live .t-line',
+    );
+    expect(entranceRule?.style.animation).toContain('term-type');
+    expect(entranceRule?.style.animationDelay).toContain('var(--i)');
+    for (const row of fixture.softwareList.children) {
+      expect(getComputedStyle(row).animation).toContain('term-type');
+    }
+    style.remove();
   });
 
   it('types the simulation to completion while keeping a full viewport and final cursor', async () => {
@@ -233,9 +261,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(finalCaret).not.toBeNull();
     expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
 
-    const style = document.createElement('style');
-    style.textContent = globalCss;
-    document.head.appendChild(style);
+    const style = installGlobalStyles();
     expect(getComputedStyle(finalCaret!).animation).toContain('caret');
     expect(getComputedStyle(finalCaret!).animation).toContain('infinite');
     style.remove();
@@ -338,8 +364,11 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
 
     await import('../scripts/proof');
     observer.intersect(fixture.software);
-    vi.advanceTimersByTime(60_000);
+    advanceThroughEvents(fixture.softwareList, fixture.softwareEvents);
     expect(fixture.softwareList.dataset.feedState).toBe('complete');
+    expect(visibleLines(fixture.softwareList)).toEqual(
+      fixture.softwareEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
+    );
     expect(fixture.softwareList.lastElementChild?.querySelector('.t-caret')).not.toBeNull();
     expect(fixture.infrastructureList.dataset.feedState).toBe('ready');
 
@@ -349,7 +378,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(visibleLines(fixture.softwareList)).toEqual(settled);
 
     observer.intersect(fixture.infrastructure);
-    vi.advanceTimersByTime(60_000);
+    advanceThroughEvents(fixture.infrastructureList, fixture.infrastructureEvents);
     expect(fixture.infrastructureList.dataset.feedState).toBe('complete');
     expect(visibleLines(fixture.infrastructureList)).toEqual(
       fixture.infrastructureEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
