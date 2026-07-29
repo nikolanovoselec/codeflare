@@ -253,7 +253,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 - Reuse the Hero's shared Terminal, Transcript, identity style, semantic tones, typography, spacing, typing cadence, and proof entrance; do not introduce a second visual system.
 - The software transcript shows a real repository lifecycle from clone and graph update through resumed planning, implementation, PR review/CI, merge, and develop realignment.
-- The infrastructure transcript shows a real SSH inspection, diagnosis, package update, service restart, and health verification sequence.
+- The infrastructure transcript shows a real SSH inspection, retained-coredump diagnosis, rollback snapshot, noninteractive bounded package update, configuration test, service restart, and health verification sequence, with the existing cyan semantic tone distinguishing diagnostic evidence.
 - Transcript content uses credible commands and concrete outputs an engineer would type or read; it contains no actor-label narration or invented product command.
 - Infrastructure copy exposes no non-public network implementation or provider-roadmap dependency.
 - The Execution section is a high-level overview only. Existing Method, Operations, Security, Context, Pipeline, Orchestration, Cost, Platform, IDE, and tooling sections retain their detailed roles.
@@ -282,6 +282,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 4. Software and infrastructure simulations start independently without flipping or hiding either terminal. <!-- @impl: landing/src/scripts/proof.ts::startFeeds --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (completes both authored simulations independently and never restarts them) -->
 5. Both simulations stop after their authored final event with eight populated rows and a continuously blinking cursor on the last row. <!-- @impl: landing/src/scripts/proof.ts::settleFeed --> <!-- @impl: landing/src/styles/global.css::t-caret --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion while keeping a full viewport and final cursor) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (completes both authored simulations independently and never restarts them) -->
 6. When intersection observation is unavailable, both full resolved event viewports remain static. <!-- @impl: landing/src/scripts/proof.ts::startWithoutIntersectionObserver --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (leaves resolved feed viewports static when intersection observation is unavailable) -->
+7. While a command event types, the shared prompt remains directly beside the live text and inside the hidden wrapped-height reservation rather than occupying an extra row. <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion while keeping a full viewport and final cursor) -->
 
 **Constraints:**
 
