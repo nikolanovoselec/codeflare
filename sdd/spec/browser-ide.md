@@ -327,7 +327,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-OPS-027](operations.md#req-ops-027-code-server-coupled-pin-automation)
 
-**Verification:** Complete-image smoke in `.github/workflows/test.yml` plus packaged inventory tests
+**Verification:** Complete-image smoke in `.github/workflows/test.yml` (executed for the current tracked image inputs or reused only through [REQ-OPS-030](operations.md#req-ops-030-browser-ide-complete-image-verification-reuse)) plus packaged inventory tests
 
 **Status:** Implemented
 

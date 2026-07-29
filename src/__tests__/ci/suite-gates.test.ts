@@ -148,15 +148,17 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       }>;
     };
     const extensionJob = workflow.jobs['browser-ide'];
+    const reuseJob = workflow.jobs['browser-ide-image-reuse'];
     const imageJob = workflow.jobs['browser-ide-image'];
     const summaryJob = workflow.jobs.summary;
 
     expect(extensionJob).toBeDefined();
+    expect(reuseJob).toBeDefined();
     expect(imageJob).toBeDefined();
-    expect(imageJob.needs).toEqual(['changes', 'browser-ide']);
+    expect(imageJob.needs).toEqual(['changes', 'browser-ide', 'browser-ide-image-reuse']);
     expect(imageJob['continue-on-error']).not.toBe(true);
     expect(imageJob.if?.replace(/\s+/g, ' ').trim()).toBe(
-      "(needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') && needs.browser-ide.result == 'success'",
+      "(needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') && needs.browser-ide.result == 'success' && needs.browser-ide-image-reuse.result == 'success' && needs.browser-ide-image-reuse.outputs.reused != 'true'",
     );
 
     const imageSteps = imageJob.steps ?? [];
@@ -185,7 +187,62 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(JSON.stringify(imageSteps)).not.toMatch(/(?:login|build-push)-action/i);
 
     const requiredJobs = Array.isArray(summaryJob.needs) ? summaryJob.needs : [summaryJob.needs];
-    expect(requiredJobs).toEqual(expect.arrayContaining(['browser-ide', 'browser-ide-image']));
+    expect(requiredJobs).toEqual(expect.arrayContaining([
+      'browser-ide',
+      'browser-ide-image-reuse',
+      'browser-ide-image',
+    ]));
+  });
+
+  it('REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: Record<string, {
+        needs?: string | string[];
+        permissions?: Record<string, string>;
+        outputs?: Record<string, string>;
+        steps?: Array<{
+          id?: string;
+          name?: string;
+          if?: string;
+          run?: string;
+          with?: Record<string, unknown>;
+        }>;
+      }>;
+    };
+    const changes = workflow.jobs.changes;
+    const reuse = workflow.jobs['browser-ide-image-reuse'];
+    const summary = workflow.jobs.summary;
+    const resolve = reuse.steps?.find((step) => step.name === 'Resolve reusable complete-image evidence');
+    const aggregate = summary.steps?.find((step) => step.name === 'Aggregate lane results')?.run ?? '';
+    const receipt = summary.steps?.find((step) => step.name === 'Write exact tested-tree receipt')?.run ?? '';
+    const filters = String(changes.steps?.find((step) => step.id === 'filter')?.with?.filters ?? '');
+    const ideInputs = filters.slice(filters.indexOf('\nide:'), filters.indexOf('\nhost:'));
+
+    for (const input of [
+      "'host/src/**'",
+      "'openvscode/**'",
+      "'preseed/**'",
+      "'src/lib/agent-seed.generated.ts'",
+      "'scripts/materialize-agent-seed.mjs'",
+      "'scripts/patch-context-mode-bundles.mjs'",
+    ]) expect(ideInputs).toContain(input);
+    expect(reuse.needs).toBe('changes');
+    expect(reuse.permissions).toEqual({ actions: 'read', contents: 'read' });
+    expect(reuse.outputs).toMatchObject({
+      reused: '${{ steps.resolve.outputs.reused }}',
+      source_run_id: '${{ steps.resolve.outputs.source_run_id }}',
+      fingerprint: '${{ steps.fingerprint.outputs.image }}',
+      contract_fingerprint: '${{ steps.fingerprint.outputs.contract }}',
+      reuse_safe: '${{ steps.fingerprint.outputs.reuse_safe }}',
+    });
+    expect(resolve?.if?.replace(/\s+/g, ' ').trim()).toBe(
+      "github.event_name == 'pull_request' && steps.fingerprint.outputs.reuse_safe == 'true' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true')",
+    );
+    expect(resolve?.run).toContain('browser-ide-image-reuse.mjs resolve');
+    expect(resolve?.run).toContain('permitted resolver output');
+    expect(aggregate).toContain('browser-ide-image-reuse.mjs gate');
+    expect(receipt).toContain('browserIdeImage');
+    expect(receipt).toContain('sourceRunId');
   });
 
   it('REQ-OPS-001 AC4: complete-image and deploy builds share compatible caches', () => {

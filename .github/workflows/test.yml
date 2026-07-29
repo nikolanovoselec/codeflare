@@ -169,9 +169,16 @@ jobs:
               - 'landing/**'
             ide:
               - *shared
+              - 'host/package.json'
+              - 'host/package-lock.json'
+              - 'host/tsconfig.json'
+              - 'host/src/**'
               - 'openvscode/**'
-              - 'preseed/agents/pi/**'
+              - 'preseed/**'
+              - 'src/lib/agent-seed.generated.ts'
               - 'scripts/browser-ide-ui-state.py'
+              - 'scripts/materialize-agent-seed.mjs'
+              - 'scripts/patch-context-mode-bundles.mjs'
               - 'scripts/ci/smoke-openvscode-sidebar-image.mjs'
             host:
               - *shared
@@ -831,12 +838,77 @@ jobs:
           working-directory: openvscode/agent-sidebar
           artifact-name: browser-ide
 
+  browser-ide-image-reuse:
+    name: Resolve Browser IDE image evidence
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      reused: ${{ steps.resolve.outputs.reused }}
+      source_run_id: ${{ steps.resolve.outputs.source_run_id }}
+      fingerprint: ${{ steps.fingerprint.outputs.image }}
+      contract_fingerprint: ${{ steps.fingerprint.outputs.contract }}
+      reuse_safe: ${{ steps.fingerprint.outputs.reuse_safe }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fingerprint complete-image inputs
+        id: fingerprint
+        run: |
+          set -euo pipefail
+          freshness=$(date -u +%G-W%V)
+          result=$(node scripts/ci/browser-ide-image-reuse.mjs fingerprint HEAD "$freshness")
+          image=$(printf '%s' "$result" | jq -r 'if (.image | type) == "string" and (.image | test("^[0-9a-f]{64}$")) then .image else error("invalid image fingerprint") end')
+          contract=$(printf '%s' "$result" | jq -r 'if (.contract | type) == "string" and (.contract | test("^[0-9a-f]{64}$")) then .contract else error("invalid contract fingerprint") end')
+          reuse_safe=$(printf '%s' "$result" | jq -r 'if .reuseSafe == true then "true" elif .reuseSafe == false then "false" else error("invalid reuse safety") end')
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "contract=${contract}" >> "$GITHUB_OUTPUT"
+          echo "reuse_safe=${reuse_safe}" >> "$GITHUB_OUTPUT"
+          if [ "$reuse_safe" != "true" ]; then
+            printf '::warning::Browser IDE image reuse disabled; uncovered Dockerfile sources: %s\n' \
+              "$(printf '%s' "$result" | jq -c '.uncovered')"
+          fi
+
+      - name: Resolve reusable complete-image evidence
+        id: resolve
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.fingerprint.outputs.reuse_safe == 'true' &&
+          (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IMAGE_FINGERPRINT: ${{ steps.fingerprint.outputs.image }}
+          CONTRACT_FINGERPRINT: ${{ steps.fingerprint.outputs.contract }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          result=$(node scripts/ci/browser-ide-image-reuse.mjs resolve \
+            "$GITHUB_REPOSITORY" "$PR_NUMBER" "$IMAGE_FINGERPRINT" \
+            "$CONTRACT_FINGERPRINT" "$CURRENT_RUN_ID")
+          state=$(printf '%s' "$result" | jq -r \
+            'if .reused == true and (.runId | type) == "string" then "true" elif .reused == false and (has("runId") | not) then "false" else "invalid" end')
+          [ "$state" != "invalid" ] || { echo "::error::permitted resolver output not received"; exit 1; }
+          echo "reused=${state}" >> "$GITHUB_OUTPUT"
+          if [ "$state" = "true" ]; then
+            source_run_id=$(printf '%s' "$result" | jq -r '.runId')
+            echo "source_run_id=${source_run_id}" >> "$GITHUB_OUTPUT"
+          fi
+          printf 'permitted resolver output: %s\n' "$result"
+
   browser-ide-image:
     name: Browser IDE complete image
-    needs: [changes, browser-ide]
+    needs: [changes, browser-ide, browser-ide-image-reuse]
     if: >-
       (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') &&
-      needs.browser-ide.result == 'success'
+      needs.browser-ide.result == 'success' &&
+      needs.browser-ide-image-reuse.result == 'success' &&
+      needs.browser-ide-image-reuse.outputs.reused != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1122,16 +1194,26 @@ jobs:
       - landing-tests
       - host-tests
       - browser-ide
+      - browser-ide-image-reuse
       - browser-ide-image
       - dependency-review
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: always()
+        with:
+          persist-credentials: false
+
       - name: Aggregate lane results
         env:
           RESULTS: ${{ toJSON(needs) }}
           FULL: ${{ needs.changes.outputs.full }}
+          IDE: ${{ needs.changes.outputs.ide }}
+          IMAGE_REUSE_RESULT: ${{ needs.browser-ide-image-reuse.result }}
+          IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
+          IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
           BAD=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
@@ -1159,12 +1241,9 @@ jobs:
               esac
             done
           fi
-          echo "All lanes green (skipped = not affected by this change)"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: always()
-        with:
-          persist-credentials: false
+          node scripts/ci/browser-ide-image-reuse.mjs gate \
+            "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" "$IMAGE_REUSED" "$IMAGE_RESULT"
+          echo "All lanes green (skipped = not affected or backed by validated reusable evidence)"
 
       - name: Download suite reports
         if: always()
@@ -1193,16 +1272,40 @@ jobs:
         env:
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          IMAGE_FINGERPRINT: ${{ needs.browser-ide-image-reuse.outputs.fingerprint }}
+          IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
+          IMAGE_SOURCE_RUN_ID: ${{ needs.browser-ide-image-reuse.outputs.source_run_id }}
+          IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
         run: |
           set -euo pipefail
           tested_commit=$(git rev-parse HEAD)
           tested_tree=$(git rev-parse 'HEAD^{tree}')
+          if [ "$IMAGE_RESULT" = "success" ]; then
+            image_evidence_result=executed
+            image_source_run_id=$RUN_ID
+          elif [ "$IMAGE_REUSED" = "true" ]; then
+            image_evidence_result=reused
+            image_source_run_id=$IMAGE_SOURCE_RUN_ID
+          else
+            image_evidence_result=not-required
+            image_source_run_id=''
+          fi
           jq -n \
+            --arg schema 'codeflare.pr-checks-receipt.v2' \
             --arg repository "$REPOSITORY" \
+            --arg workflowPath '.github/workflows/test.yml' \
             --arg runId "$RUN_ID" \
+            --argjson runAttempt "$RUN_ATTEMPT" \
             --arg testedCommit "$tested_commit" \
             --arg testedTree "$tested_tree" \
-            '{repository:$repository,runId:$runId,testedCommit:$testedCommit,testedTree:$testedTree}' \
+            --arg imageFingerprint "$IMAGE_FINGERPRINT" \
+            --arg imageEvidenceResult "$image_evidence_result" \
+            --arg imageSourceRunId "$image_source_run_id" \
+            '{schema:$schema,repository:$repository,workflowPath:$workflowPath,runId:$runId,
+              runAttempt:$runAttempt,testedCommit:$testedCommit,testedTree:$testedTree,
+              lanes:{browserIdeImage:{fingerprint:$imageFingerprint,result:$imageEvidenceResult,
+                sourceRunId:(if $imageSourceRunId == "" then null else $imageSourceRunId end)}}}' \
             > /tmp/pr-checks-receipt.json
 
       - name: Upload exact tested-tree receipt

@@ -101,7 +101,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
-7. A Browser IDE image change cannot pass the required PR status unless a non-publishing complete-image smoke succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status) -->
+7. A Browser IDE image change cannot pass the required PR status unless its tracked image inputs are covered by a successful non-publishing complete-image smoke, executed for the current run or reused through the direct-evidence contract in REQ-OPS-030. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status) --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image aggregate gate) -->
 
 **Constraints:**
 
@@ -772,6 +772,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate)
 
 **Verification:** Automated host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-030: Browser IDE complete-image verification reuse
+
+**Intent:** Repeated PR Checks avoid rebuilding an unchanged Browser IDE image without weakening verification of the current head.
+
+**Applies To:** Contributor
+
+**Acceptance Criteria:**
+
+1. Every PR Checks run fingerprints the tracked inputs that assemble or smoke-test the Browser IDE image plus platform and weekly freshness, independently from unrelated landing, dashboard, documentation, and specification files; an uncovered Dockerfile source disables reuse. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::isBrowserIdeImageInput --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::fingerprintEntries --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image input fingerprint) -->
+2. An affected pull-request run may reuse only a direct successful complete-image execution from the same repository, pull request, PR Checks workflow, and unchanged reuse contract whose immutable receipt has the matching image fingerprint; candidates are evaluated newest-first from one bounded page, and invalid evidence falls back to execution. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::validateBrowserIdeImageEvidence --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::resolveReusableBrowserIdeImageRun --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse evidence) --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse CLI boundary) -->
+3. The required `test` status fails when an affected complete-image lane is merely skipped, and accepts only a successful current execution or validated reuse; full runs never reuse this PR-only evidence. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::browserIdeImageGate --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image aggregate gate) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips) -->
+4. The current head's exact-tree receipt records whether complete-image evidence executed, was reused, or was not required, including the evidence source run when present, so exact-tree deployment verification remains authoritative. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips) -->
+
+**Constraints:** Reused evidence never chains through another reused run. Missing, malformed, expired, cross-repository, cross-PR, changed-contract, failed, skipped, truncated, stale-week, or COPY/ADD-uncovered source evidence cannot authorize a skip. Scheduled, manual, called, merge-group, and post-merge full runs execute the complete-image lane when it is required.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-029](#req-ops-029-automatic-manual-deploy-verification-reuse)
+
+**Verification:** Automated host tests exercise fingerprint selection, evidence validation, the fake-GitHub CLI boundary, and the aggregate truth table; workflow-structure tests bind those decisions into the required status and exact-tree receipt.
 
 **Status:** Implemented
 
