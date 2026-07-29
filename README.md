@@ -31,7 +31,7 @@ Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudf
 
 ## What teams use Codeflare for
 
-Codeflare is not limited to writing application code. It gives agents a governed execution environment for the full software and infrastructure lifecycle.
+Codeflare gives agents a governed execution environment for software and infrastructure work across the full delivery lifecycle.
 
 | Work domain | What agents can do |
 |---|---|
@@ -48,9 +48,9 @@ The same terminal and agent tooling can work across application code, delivery p
 
 AI agents need broad tools to be useful. Codeflare moves that activity away from endpoint devices and persistent shared runners into one isolated runtime per session.
 
-> Agents run in disposable session containers rather than on laptops or long-lived shared runners. When a session is stopped—or automatically after its idle timeout—the runtime, processes, temporary IDE state, and unsynced transient state are torn down. Only explicitly synchronized workspace, Vault, and selected configuration data survives through bounded R2 synchronization.
+> Agents run in disposable session containers rather than on laptops or long-lived shared runners. When a user stops a session, or its idle timeout expires, the runtime, processes, temporary IDE state, and unsynced transient state are torn down. Only explicitly synchronized workspace, Vault, and selected configuration data survives through bounded R2 synchronization.
 
-That is the core safety proposition: give an agent the tools needed to act, but no long-lived runtime to inhabit after the work ends.
+Agents get the tools needed to act without leaving a long-lived runtime behind after the work ends.
 
 Closing the browser does not destroy a session immediately. It starts the inactivity path; after the configured period without real terminal or Browser IDE input, Codeflare stops the container. Users can also stop or delete a session explicitly. A final bounded sync runs during graceful shutdown.
 
@@ -66,15 +66,15 @@ Persistent and ephemeral state are deliberately separated:
 
 ## Governed execution
 
-Codeflare treats governance as an executable lifecycle rather than a policy document:
+Codeflare enforces governance through the delivery lifecycle:
 
-1. **Define intent** — requirements and acceptance criteria establish the approved outcome.
-2. **Implement** — agents work in the repository and use the team's existing tools and environments.
-3. **Test** — behavioral tests prove observable contracts rather than matching prompts or prose.
-4. **Review** — specialist code, specification, documentation, security, and deep-behavior lanes inspect the exact change boundary.
-5. **Integrate** — GitHub pull requests, branch protection, and CI remain the authoritative change gate.
-6. **Deploy and verify** — agents can follow deployment workflows, inspect checks, and verify the live result in a real browser.
-7. **Recover** — failed verification routes back to a bounded fix; documented rollback remains available when promotion is unsafe.
+1. **Define intent:** requirements and acceptance criteria establish the approved outcome.
+2. **Implement:** agents work in the repository and use the team's existing tools and environments.
+3. **Test:** behavioral tests prove observable contracts rather than matching prompts or prose.
+4. **Review:** specialist code, specification, documentation, security, and deep-behavior lanes inspect the exact change boundary.
+5. **Integrate:** GitHub pull requests, branch protection, and CI remain the authoritative change gate.
+6. **Deploy and verify:** agents can follow deployment workflows, inspect checks, and verify the live result in a real browser.
+7. **Recover:** failed verification routes back to a bounded fix; documented rollback remains available when promotion is unsafe.
 
 Pro sessions preload organizational rules, reusable skills, specialist agents, specification-driven development, TDD enforcement, PR-boundary review, CI monitoring, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
 
@@ -179,9 +179,9 @@ See [Architecture](documentation/lanes/architecture.md), [Authentication](docume
 
 ## Deployment models
 
-1. **Enterprise** — customer-operated, single-tenant, unlimited Pro mode with billing bypass, Cloudflare Access groups, supported-agent inference interception, route policy, optional strict Gateway egress, and Governed Mode.
-2. **Default/self-operated** — single-tenant deployment with unlimited users and Pro sessions using the standard Access setup. Fork the repository, add two deployment secrets, and run the setup wizard.
-3. **SaaS** — optional multi-tenant mode with subscriptions, tiered plans, just-in-time provisioning, approval workflow, and per-user usage metering.
+1. **Enterprise:** customer-operated, single-tenant, unlimited Pro mode with billing bypass, Cloudflare Access groups, supported-agent inference interception, route policy, optional strict Gateway egress, and Governed Mode.
+2. **Default/self-operated:** single-tenant deployment with unlimited users and Pro sessions using the standard Access setup. Fork the repository, add two deployment secrets, and run the setup wizard.
+3. **SaaS:** optional multi-tenant mode with subscriptions, tiered plans, just-in-time provisioning, approval workflow, and per-user usage metering.
 
 Enterprise and advanced-mode operations are maintained in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required). The supported internal deployment target is the customer's Cloudflare account; multi-cloud and on-premises control-plane deployment are out of scope.
 
@@ -189,7 +189,7 @@ Enterprise and advanced-mode operations are maintained in [codeflare-private](ht
 
 ## Enterprise deployment
 
-Enterprise rollout begins with the private deployment configuration rather than the public two-secret path. Operators connect the customer's Cloudflare account, Cloudflare Access application and groups, GitHub organization, Cloudflare AI Gateway, storage regime, and—when required—the customer's Cloudflare Gateway policies and Governed Mode.
+Enterprise rollout begins with the private deployment configuration rather than the public two-secret path. Operators connect the customer's Cloudflare account, Cloudflare Access application and groups, GitHub organization, Cloudflare AI Gateway, and storage regime. They also configure the customer's Cloudflare Gateway policies and Governed Mode when required.
 
 Promotion is gated by repository CI, image scanning, immutable build/deployment evidence, and environment-specific verification. See [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) for the deployment runbook and configuration surface (access required).
 
@@ -273,14 +273,14 @@ Enterprise, Onboarding, and SaaS behavior is summarized under [Deployment models
 
 Full details and residual risks are documented in [Security](documentation/lanes/security.md).
 
-- **Identity** — authenticated surfaces validate the configured identity boundary. Enterprise uses Cloudflare Access in the customer's account and can reference customer-managed groups; Codeflare does not claim a separate direct SAML/OIDC or SCIM integration.
-- **Session isolation** — each session has a separate root container, PTY set, and authenticated route. Agents cannot access another session's runtime through Codeflare, but trusted code remains unrestricted inside its own container.
-- **Ephemerality** — stopping a session tears down processes and transient state. It reduces standing persistence but cannot reverse synchronized files or external operations.
-- **Credential handling** — the master deployment token never enters containers. Enterprise model, GitHub, and Browser Rendering credentials can remain Worker-side; other modes and configurations may inject user-authorized credentials.
-- **Inference** — only supported, allowlisted enterprise agent traffic is intercepted. Unknown provider hosts and invalid gateway configuration fail closed rather than bypassing the configured route.
-- **Egress** — optional strict enterprise egress applies the customer's existing Cloudflare Gateway policies to direct-internet traffic. Codeflare neither creates nor weakens those policies.
-- **Storage** — optional encryption protects KV secrets and R2 objects. Governed Mode intentionally changes R2 encryption behavior for customer inspection through a gated migration.
-- **Application and supply chain** — security headers, rate limits, input validation, CodeQL, dependency review, SBOM/attestation, Trivy, fuzzing, and external penetration probes protect release and runtime boundaries.
+- **Identity:** authenticated surfaces validate the configured identity boundary. Enterprise uses Cloudflare Access in the customer's account and can reference customer-managed groups; Codeflare does not claim a separate direct SAML/OIDC or SCIM integration.
+- **Session isolation:** each session has a separate root container, PTY set, and authenticated route. Agents cannot access another session's runtime through Codeflare, but trusted code remains unrestricted inside its own container.
+- **Ephemerality:** stopping a session tears down processes and transient state. It reduces standing persistence but cannot reverse synchronized files or external operations.
+- **Credential handling:** the master deployment token never enters containers. Enterprise model, GitHub, and Browser Rendering credentials can remain Worker-side; other modes and configurations may inject user-authorized credentials.
+- **Inference:** only supported, allowlisted enterprise agent traffic is intercepted. Unknown provider hosts and invalid gateway configuration fail closed rather than bypassing the configured route.
+- **Egress:** optional strict enterprise egress applies the customer's existing Cloudflare Gateway policies to direct-internet traffic. Codeflare neither creates nor weakens those policies.
+- **Storage:** optional encryption protects KV secrets and R2 objects. Governed Mode intentionally changes R2 encryption behavior for customer inspection through a gated migration.
+- **Application and supply chain:** security headers, rate limits, input validation, CodeQL, dependency review, SBOM/attestation, Trivy, fuzzing, and external penetration probes protect release and runtime boundaries.
 
 Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
@@ -333,10 +333,10 @@ See [CI/CD and Testing](documentation/lanes/ci-cd.md) for suite ownership, deplo
 
 ## Documentation
 
-- [`documentation/`](documentation/README.md) — architecture, authentication, configuration, security, deployment, storage, CI/CD, operations, and troubleshooting.
-- [`sdd/`](sdd/README.md) — domain requirements, acceptance criteria, implementation anchors, test evidence, constraints, and change history.
-- [`preseed/tutorials/Getting Started.md`](preseed/tutorials/Getting%20Started.md) — terminal, persistence, and agent workflow guidance.
-- [`preseed/tutorials/Examples/`](preseed/tutorials/Examples/) — specification-driven examples from small tasks to a complete application.
+- [`documentation/`](documentation/README.md): architecture, authentication, configuration, security, deployment, storage, CI/CD, operations, and troubleshooting.
+- [`sdd/`](sdd/README.md): domain requirements, acceptance criteria, implementation anchors, test evidence, constraints, and change history.
+- [`preseed/tutorials/Getting Started.md`](preseed/tutorials/Getting%20Started.md): terminal, persistence, and agent workflow guidance.
+- [`preseed/tutorials/Examples/`](preseed/tutorials/Examples/): specification-driven examples from small tasks to a complete application.
 
 ---
 
@@ -348,6 +348,6 @@ See [CI/CD and Testing](documentation/lanes/ci-cd.md) for suite ownership, deplo
 
 ## License
 
-PolyForm Noncommercial 1.0.0 — free for personal use, experimentation, and demonstration.
+PolyForm Noncommercial 1.0.0 permits personal use, experimentation, and demonstration.
 
 Commercial use, resale, or paid hosted offerings require a separate written license.
