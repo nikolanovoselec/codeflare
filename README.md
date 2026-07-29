@@ -4,7 +4,7 @@
 
 **Governed AI agents for software delivery and infrastructure operations.**
 
-Codeflare is a customer-operated control plane for agents that build software, change Cloudflare infrastructure, inspect CI, deploy, verify live systems, and support operational recovery. Engineers define intent, steer execution, inspect evidence, and approve outcomes; agents work inside authenticated, disposable browser sessions instead of on laptops or long-lived shared runners.
+Codeflare is a customer-operated control plane for agents that build software, operate approved infrastructure, inspect CI, deploy, verify live systems, and support operational recovery. Engineers define intent, steer execution, inspect evidence, and approve outcomes; agents work inside authenticated, disposable browser sessions instead of on laptops or long-lived shared runners.
 
 Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudflare account and connects to the customer's identity, GitHub organization, inference controls, storage, and security policies. A public demonstration is available at [codeflare.ch](https://codeflare.ch); enterprise deployment guidance is maintained in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
@@ -36,11 +36,13 @@ Codeflare gives agents a governed execution environment for software and infrast
 | Work domain | What agents can do |
 |---|---|
 | **Software delivery** | Explore repositories, implement requirements, run review workflows, work through pull requests, inspect CI, and verify changes against behavioral acceptance criteria. |
-| **Cloudflare infrastructure operations** | Use Wrangler and bundled Cloudflare skills to deploy and operate Workers, D1, R2, KV, DNS, Durable Objects, and related Cloudflare services with the user's authorized account. |
+| **Infrastructure operations** | Use SSH, `kubectl`, and target-native tools to patch servers, operate clusters, run migrations, configure appliances, and support incident response against approved targets. Private target access is coming soon and currently in private preview. |
 | **Deployed-system verification** | Inspect logs and checks, verify live URLs, read rendered pages, and drive semantic browser checks against deployed applications. Deterministic assertions remain in CI. |
 | **Operational recovery** | Diagnose failed builds or deployments, inspect current state, apply bounded corrections, and use documented deployment and rollback procedures. |
 
-The same terminal and agent tooling can work across application code, delivery pipelines, platform configuration, and live verification. Codeflare does not claim AWS, Azure, on-premises, or general multi-cloud infrastructure support.
+Cloudflare is the access fabric, not the infrastructure being managed. The private-preview Mesh Connectivity Profile uses Cloudflare Mesh to give each session identity-aware access to the SSH, Kubernetes, database, and appliance targets allowed by the customer's Zero Trust policies. Approved targets can live in a datacenter or cloud; Codeflare itself remains deployed in the customer's Cloudflare account.
+
+Private infrastructure access is coming soon and currently in private preview. Workers VPC carries strict web egress through the customer's Cloudflare Gateway policies, while Cloudflare Mesh provides the identity-aware path to approved infrastructure targets. General container internet access remains disabled.
 
 ---
 
@@ -89,6 +91,7 @@ Enterprise Codeflare is deployed inside the customer's Cloudflare account. That 
 | **Identity and authorization** | Cloudflare Access in the customer's account federates the corporate identity provider. Access JWTs, customer-managed user/admin groups, just-in-time admission, and live group checks govern entry and administration. |
 | **Inference routing** | Supported enterprise agent traffic is intercepted at the platform boundary and routed through the customer's Cloudflare AI Gateway. Global and per-group route catalogs constrain approved models, defaults, reasoning, and context windows. |
 | **Egress and DLP** | Optional strict egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway policies. Existing allow, block, isolation, and DLP policy remains customer-managed; missing configured egress fails closed. |
+| **Private infrastructure reach** *(coming soon, private preview)* | Cloudflare Mesh gives each session identity-aware access to approved infrastructure targets. SSH, Kubernetes, database, and appliance access follows the customer's Zero Trust policies instead of a broad VPN. |
 | **Credential boundaries** | AI Gateway, enterprise GitHub, and Browser Rendering credentials are resolved and injected Worker-side rather than given directly to the container. The exact remaining credential set depends on deployment and storage mode; credential-free containers are not claimed universally. |
 | **Storage and encryption** | Workspace and Vault persistence use R2/KV in the customer's Cloudflare account. AES-256-GCM and SSE-C are optional; Governed Mode supports customer inspection through an explicit, verified storage-regime migration. |
 | **FinOps and route attribution** | AI Gateway metadata attributes supported model usage to the verified user and matched groups. Route policy constrains available capacity, while session containers scale to zero after stop. |
@@ -117,9 +120,9 @@ Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudfla
 ### Repository, infrastructure, and browser tools
 
 - GitHub repository browsing, cloning, `git`, `gh`, pull-request, review, and CI workflows using the user's authorized permissions.
-- Wrangler plus bundled Cloudflare architecture, deployment, security, Durable Objects, Workers, storage, email, Zero Trust, and performance skills.
+- Standard infrastructure CLIs and target-native tools inside the session. The private-preview Mesh Connectivity Profile gives tools such as SSH and `kubectl` policy-scoped reach through Cloudflare Zero Trust.
 - Cloudflare Browser Run read and interactive surfaces for rendered-page inspection and semantic deployed-app verification.
-- Native Cloudflare resource access for connected users in supported modes, including Workers, D1, R2, KV, and DNS operations.
+- Bundled Cloudflare skills for the access fabric and Codeflare deployment, plus direct Workers, D1, R2, KV, and DNS operations for connected users in supported modes.
 
 ### Memory and project intelligence
 
@@ -166,12 +169,16 @@ graph LR
     I --> AI[Customer's Cloudflare AI Gateway]
     I --> GW[Customer's Cloudflare Gateway policies]
     I --> P[Authorized GitHub and Cloudflare APIs]
+    C -. private-preview Mesh .-> Z[Cloudflare Zero Trust policy]
+    Z -. identity-aware access .-> H[Approved infrastructure targets]
     W --> E[GitHub and Cloudflare operational evidence]
 ```
 
 The Worker owns authentication, routing, API boundaries, session records, and browser-to-container proxying. Each session Durable Object owns one container lifecycle. The host inside that container runs terminal processes, agent tooling, synchronization, and code-server. R2/KV in the customer's Cloudflare account retain only the state selected for persistence.
 
-In enterprise mode, supported LLM and credential-bearing traffic uses Worker-side interceptors so sensitive coordinates and tokens can remain outside the agent runtime. Optional strict egress covers otherwise direct internet traffic through the customer's Cloudflare Gateway policies. GitHub remains the source-change and approval system; GitHub Actions and Cloudflare provide deployment and runtime evidence.
+In enterprise mode, supported LLM and credential-bearing traffic uses Worker-side interceptors so sensitive coordinates and tokens can remain outside the agent runtime. Optional strict egress covers direct HTTP and HTTPS traffic through the customer's Cloudflare Gateway policies and denies raw TCP and UDP.
+
+The private-preview Mesh Connectivity Profile is a separate network plane. It keeps general internet access disabled while Cloudflare Mesh provides identity-aware access only to targets admitted by the customer's Zero Trust policies. GitHub remains the source-change and approval system; GitHub Actions and Cloudflare provide deployment and runtime evidence.
 
 See [Architecture](documentation/lanes/architecture.md), [Authentication](documentation/lanes/authentication.md), [Security](documentation/lanes/security.md), [Container](documentation/lanes/container.md), and the [Enterprise Mode specification](sdd/spec/enterprise-mode.md).
 
@@ -179,7 +186,7 @@ See [Architecture](documentation/lanes/architecture.md), [Authentication](docume
 
 ## Deployment models
 
-1. **Enterprise:** customer-operated, single-tenant, unlimited Pro mode with billing bypass, Cloudflare Access groups, supported-agent inference interception, route policy, optional strict Gateway egress, and Governed Mode.
+1. **Enterprise:** customer-operated, single-tenant, unlimited Pro mode with billing bypass, Cloudflare Access groups, supported-agent inference interception, route policy, optional strict Gateway egress, Governed Mode, and private-preview Mesh connectivity for approved infrastructure.
 2. **Default/self-operated:** single-tenant deployment with unlimited users and Pro sessions using the standard Access setup. Fork the repository, add two deployment secrets, and run the setup wizard.
 3. **SaaS:** optional multi-tenant mode with subscriptions, tiered plans, just-in-time provisioning, approval workflow, and per-user usage metering.
 
@@ -223,7 +230,7 @@ Find the Worker URL under **Cloudflare dashboard → Compute → Workers & Pages
 
 The resulting Default-mode instance is ready for users to authenticate and start sessions. Users still need access to the selected agent's own subscription or credentials where that agent requires them.
 
-> GitHub and Cloudflare account connections for in-session push and infrastructure operations require operator-registered OAuth applications. Enterprise and advanced setup is documented in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
+> GitHub push and direct Cloudflare API operations require operator-registered OAuth applications in supported non-enterprise modes. Enterprise and advanced setup is documented in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
 <details>
 <summary><strong id="api-token-scopes">API token scopes</strong></summary>
@@ -278,7 +285,8 @@ Full details and residual risks are documented in [Security](documentation/lanes
 - **Ephemerality:** stopping a session tears down processes and transient state. It reduces standing persistence but cannot reverse synchronized files or external operations.
 - **Credential handling:** the master deployment token never enters containers. Enterprise model, GitHub, and Browser Rendering credentials can remain Worker-side; other modes and configurations may inject user-authorized credentials.
 - **Inference:** only supported, allowlisted enterprise agent traffic is intercepted. Unknown provider hosts and invalid gateway configuration fail closed rather than bypassing the configured route.
-- **Egress:** optional strict enterprise egress applies the customer's existing Cloudflare Gateway policies to direct-internet traffic. Codeflare neither creates nor weakens those policies.
+- **Egress:** optional strict enterprise egress applies the customer's existing Cloudflare Gateway policies to direct HTTP and HTTPS traffic. Raw TCP and UDP are denied in the current implementation. Codeflare neither creates nor weakens the customer's policies.
+- **Private infrastructure reach:** the private-preview Mesh Connectivity Profile uses Cloudflare Mesh for identity-aware access to targets admitted by the customer's Zero Trust policies. It does not turn strict egress into a broad VPN or enable general raw internet access.
 - **Storage:** optional encryption protects KV secrets and R2 objects. Governed Mode intentionally changes R2 encryption behavior for customer inspection through a gated migration.
 - **Application and supply chain:** security headers, rate limits, input validation, CodeQL, dependency review, SBOM/attestation, Trivy, fuzzing, and external penetration probes protect release and runtime boundaries.
 
