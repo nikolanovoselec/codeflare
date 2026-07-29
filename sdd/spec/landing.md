@@ -273,7 +273,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Intent:** Under normal motion, each Execution terminal first fills from top to bottom with complete initial rows, then types the rest of its real session through the full viewport and settles with a blinking cursor.
 
 **Applies To:** Visitor
+
 **Acceptance Criteria:**
+
 1. Each terminal starts once when that terminal enters the viewport and does not restart on later intersections. <!-- @impl: landing/src/scripts/proof.ts::startFeeds --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (completes both authored simulations independently and never restarts them) -->
 2. Before live activity starts, each terminal reveals eight complete populated context rows from top to bottom. <!-- @impl: landing/src/scripts/proof.ts::prepareFeed --> <!-- @impl: landing/src/styles/global.css::term-type --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (prepares full context viewports with top-to-bottom entrance indices) -->
 3. After the initial entrance has time to finish, every remaining event arrives from below, types at the established 58 ms cadence, and pushes the oldest row out while keeping eight populated rows. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @impl: landing/src/scripts/proof.ts::rollOnce --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion while keeping a full viewport and final cursor) -->
@@ -283,10 +285,13 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 7. While a command event types, the shared prompt remains directly beside the live text and inside the hidden wrapped-height reservation rather than occupying an extra row. <!-- @impl: landing/src/scripts/proof.ts::typeFeedRow --> <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion while keeping a full viewport and final cursor) -->
 
 **Constraints:**
+
 - Reuse the landing's shared Transcript feed, proof observer, `term-type` entrance, row transition, 58 ms typing cadence, and permanent terminal chrome.
 - Initial rows complete their ordered entrance before `is-rolling` disables entrance keyframes for live row replacement.
 - Completed rows remain readable until later events push them out of the bounded viewport.
+
 **Priority:** P1
+
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
 
 **Verification:** Automated test
