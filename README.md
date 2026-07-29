@@ -108,7 +108,7 @@ Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudfla
 - Six browser-native terminal tabs per session, with two-to-four-pane tiling.
 - Pre-warmed agent startup and configurable Fast Start behavior.
 - Authenticated Browser VS Code that starts on demand inside each session.
-- Native **Codeflare** Chat and **Review with Codeflare** for Pi; the official Claude editor panel for Claude sessions; no account-backed Copilot extension in the Browser IDE.
+- Native **Codeflare Chat** and **Review with Codeflare** in Browser VS Code, plus the official Claude editor panel for Claude sessions; no account-backed Copilot extension in the Browser IDE.
 - Bounded continuity for theme, Explorer expansion, and canonical in-workspace open files without persisting IDE databases, credentials, extension state, or chat history.
 - Live CPU, memory, disk, sync, active/idle, and stopped status.
 - MultiView for observing several existing sessions side by side without changing their lifecycle.
