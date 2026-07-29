@@ -75,7 +75,7 @@ Codeflare applies one governed workflow across software delivery, browser automa
 6. **Deploy and verify:** agents follow approved deployment or operational workflows, inspect checks and logs, and verify live systems in a real browser.
 7. **Recover:** failed verification routes back to a bounded fix; documented rollback remains available when promotion is unsafe.
 
-Pro sessions preload organizational rules, reusable skills, specialist agents, specification-driven development, TDD enforcement, PR-boundary review, CI monitoring, browser verification, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
+Enterprise sessions include organizational rules, reusable skills, specialist agents, specification-driven development, TDD enforcement, PR-boundary review, CI monitoring, browser verification, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
 
 ---
 
@@ -107,8 +107,7 @@ Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudfla
 
 - Six browser-native terminal tabs per session, with two-to-four-pane tiling.
 - Pre-warmed agent startup and configurable Fast Start behavior.
-- Browser VS Code powered by pinned code-server in Pro sessions, lazy-started behind the existing authenticated session proxy.
-- A fixed `/home/user/workspace` Browser IDE root with public workspace selectors rejected independently by the Worker and host.
+- Authenticated Browser VS Code that starts on demand inside each session.
 - Native **Codeflare** Chat and **Review with Codeflare** for Pi; the official Claude editor panel for Claude sessions; no account-backed Copilot extension in the Browser IDE.
 - Bounded continuity for theme, Explorer expansion, and canonical in-workspace open files without persisting IDE databases, credentials, extension state, or chat history.
 - Live CPU, memory, disk, sync, active/idle, and stopped status.
@@ -119,14 +118,14 @@ Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudfla
 - GitHub repository browsing, cloning, `git`, `gh`, pull-request, review, and CI workflows using the user's authorized permissions.
 - Standard infrastructure CLIs and target-native tools inside the session, including SSH and `kubectl`, with access governed through the customer's Cloudflare Zero Trust environment.
 - Cloudflare Browser Run and Chrome DevTools for end-to-end test automation, responsive viewport checks, screenshots, rendered-state inspection, and semantic deployed-app verification.
-- Bundled Cloudflare skills for the access fabric and Codeflare deployment, plus direct Workers, D1, R2, KV, and DNS operations for connected users in supported modes.
+- Reusable skills for architecture, deployment, security, infrastructure, and performance work across the customer's chosen platforms.
 
 ### Memory and project intelligence
 
 - A browser-native SilverBullet Vault for notes, decisions, plans, and captured context.
 - Cross-session memory for approved durable context rather than hidden process continuity.
 - Graphify knowledge graphs over project source and Vault content, with query, path, explanation, and visual outputs.
-- Curated architecture, debugging, deployment, security, review, and refactoring specialists in Pro mode.
+- Curated architecture, debugging, deployment, security, review, and refactoring specialists.
 
 ![Codeflare on a phone](assets/documentation/mobile-phone.jpg)
 *The terminal workspace is optimized for mobile input as well as desktop and tablet use.*
@@ -145,7 +144,7 @@ The full product supports seven session choices; deployment policy can narrow th
 | [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) | Extensible coding agent with native Codeflare Chat |
 | Bash | A tool-ready shell without an AI agent |
 
-Pro capabilities run deepest on Claude Code and Pi. Other agents receive compatible rules, skills, and agent definitions where their runtimes support them.
+Codeflare's deepest integrations are with Claude Code and Pi. Other agents receive compatible rules, skills, and agent definitions where their runtimes support them.
 
 ---
 
@@ -183,8 +182,8 @@ See [Architecture](documentation/lanes/architecture.md), [Authentication](docume
 
 ## Deployment models
 
-1. **Enterprise:** customer-operated, single-tenant, unlimited Pro mode with billing bypass, Cloudflare Access groups, supported-agent inference interception, route policy, optional strict Gateway egress, Governed Mode, and private-preview infrastructure access through Cloudflare Zero Trust.
-2. **Default/self-operated:** single-tenant deployment with unlimited users and Pro sessions using the standard Access setup. Fork the repository, add two deployment secrets, and run the setup wizard.
+1. **Enterprise:** customer-operated, single-tenant deployment with corporate identity, governed inference, customer-managed egress and storage controls, plus private-preview infrastructure access through Cloudflare Zero Trust.
+2. **Default/self-operated:** single-tenant deployment using the standard Cloudflare Access setup.
 3. **SaaS:** optional multi-tenant mode with subscriptions, tiered plans, just-in-time provisioning, approval workflow, and per-user usage metering.
 
 Enterprise and advanced-mode operations are maintained in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required). The supported internal deployment target is the customer's Cloudflare account; multi-cloud and on-premises control-plane deployment are out of scope.
