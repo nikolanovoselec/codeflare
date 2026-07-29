@@ -115,6 +115,7 @@ describe('projectVscodeWorkbenchWorkspace / REQ-IDE-012 AC5+AC6+AC7 (clean fixed
       remoteAuthority: 'codeflare.example',
       folderUri: { scheme: 'vscode-remote', authority: 'codeflare.example', path: '/tmp/old' },
       productConfiguration: { nameShort: 'Code' },
+      opaqueServerSetting: { nested: ['preserve', { value: 7 }] },
     }));
 
     assert.ok(projected);
@@ -126,6 +127,7 @@ describe('projectVscodeWorkbenchWorkspace / REQ-IDE-012 AC5+AC6+AC7 (clean fixed
         path: '/home/user/workspace',
       },
       productConfiguration: { nameShort: 'Code' },
+      opaqueServerSetting: { nested: ['preserve', { value: 7 }] },
     });
   });
 

@@ -273,7 +273,7 @@ describe('REQ-IDE-012 AC5+AC6+AC7: root workbench configuration projection', () 
       upstreamRequests.push({ url: req.url, acceptEncoding: req.headers['accept-encoding'] });
       const body = req.headers['x-test-malformed']
         ? '<!doctype html><title>missing configuration</title>'
-        : '<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="{&quot;remoteAuthority&quot;:&quot;codeflare.ch&quot;,&quot;productConfiguration&quot;:{&quot;nameShort&quot;:&quot;Code&quot;}}"><title>Code</title>';
+        : '<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="{&quot;remoteAuthority&quot;:&quot;codeflare.ch&quot;,&quot;productConfiguration&quot;:{&quot;nameShort&quot;:&quot;Code&quot;},&quot;opaqueServerSetting&quot;:{&quot;nested&quot;:[&quot;preserve&quot;,{&quot;value&quot;:7}]}}"><title>Code</title>';
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Content-Length': Buffer.byteLength(body),
@@ -322,6 +322,7 @@ describe('REQ-IDE-012 AC5+AC6+AC7: root workbench configuration projection', () 
       path: '/home/user/workspace',
     });
     assert.deepEqual(config.productConfiguration, { nameShort: 'Code' });
+    assert.deepEqual(config.opaqueServerSetting, { nested: ['preserve', { value: 7 }] });
     assert.equal(Number(response.headers['content-length']), Buffer.byteLength(response.body));
     assert.equal(response.headers.etag, undefined);
     assert.equal(response.headers['content-encoding'], undefined);
