@@ -5,9 +5,9 @@
 // deployed whatever the branch tip was, with no test gate at all, which made
 // manual dispatch a silent bypass of every check in this repository.
 //
-// It is gated either by a validated successful exact-head PR Checks run or by
-// an inline `verify` job that calls PR Checks as a reusable workflow. This test
-// pins both paths, because the failure mode of losing either gate is invisible:
+// It automatically resolves a validated successful exact-head, exact-tree PR
+// Checks run, or falls back to an inline `verify` job that calls PR Checks as a
+// reusable workflow. This test pins both paths, because losing either is invisible:
 // manual deploys keep working, they just stop being verified.
 
 import { spawnSync } from 'node:child_process';
@@ -27,7 +27,7 @@ const deployWorkflow = parseYaml(deployYml);
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 
 // Jobs that check out a ref, build, or deploy. Every one must be unreachable
-// unless the code was verified. `verify` and `verify-existing` are excluded because they ARE the mutually exclusive gates.
+// unless the code was verified. `verify-existing` resolves reuse and `verify` is its inline fallback, so neither is itself gated.
 const GATED_JOBS = ['prepare', 'build-worker', 'container', 'deploy', 'outcome'];
 
 /** Returns the raw YAML block for a top-level job. */
@@ -71,15 +71,19 @@ describe('manual deploys cannot skip tests', () => {
     );
   });
 
-  it('runs PR Checks inline on manual dispatch', () => {
+  it('runs PR Checks inline only when automatic exact-tree resolution finds no reusable run', () => {
+    const block = jobBlock('verify');
     assert.match(
-      jobBlock('verify'),
+      block,
       /uses: \.\/\.github\/workflows\/test\.yml/,
       "the verify job must call this repository's PR Checks, not a substitute"
     );
+    assert.match(block, /^ {4}needs: verify-existing$/m, 'inline verification must wait for automatic run resolution');
     const gate = condition('verify');
     assert.match(gate, /github\.event_name == 'workflow_dispatch'/, 'the verify job must run on manual dispatch');
-    assert.match(gate, /inputs\.verified_run_id == ''/, 'inline verification must be the fallback when no run id is supplied');
+    assert.match(gate, /inputs\.verified_run_id == ''/, 'an explicit invalid override must not fall back to inline checks');
+    assert.match(gate, /needs\.verify-existing\.result == 'success'/, 'fallback requires a successful resolver');
+    assert.match(gate, /needs\.verify-existing\.outputs\.verified == 'false'/, 'fallback requires an explicit no-match result');
   });
 
   it('publishes the actual checked-out tree as a reusable verification receipt', () => {
@@ -87,11 +91,13 @@ describe('manual deploys cannot skip tests', () => {
     assert.match(testYml, /pr-checks-receipt-\$\{\{ github\.run_id \}\}/, 'the receipt artifact must be bound to its run id');
   });
 
-  it('validates an existing PR Checks run before reusing it', () => {
+  it('automatically resolves an exact-tree PR Checks run before every manual deploy', () => {
     const block = jobBlock('verify-existing');
     assert.match(block, /actions: read/, 'exact-head run validation needs read-only Actions API access');
-    assert.match(block, /inputs\.verified_run_id != ''/, 'run reuse must be opt-in with an explicit run id');
-    assert.match(block, /validate-pr-checks-run\.mjs/, 'the workflow must validate the run rather than trust the input');
+    assert.match(condition('verify-existing'), /github\.event_name == 'workflow_dispatch'/);
+    assert.doesNotMatch(condition('verify-existing'), /verified_run_id/, 'automatic resolution must not require hidden operator input');
+    assert.match(block, /validate-pr-checks-run\.mjs resolve/, 'the workflow must use the receipt-backed resolver');
+    assert.match(block, /verified=false/, 'the resolver must expose an explicit inline-fallback decision');
   });
 
   for (const name of GATED_JOBS) {
@@ -115,7 +121,12 @@ describe('manual deploys cannot skip tests', () => {
       assert.match(
         gate,
         /needs\.verify-existing\.outputs\.verified == 'true'/,
-        `job "${name}" trusts a supplied run id without a positive validator output`
+        `job "${name}" trusts a reusable run without a positive validator output`
+      );
+      assert.match(
+        gate,
+        /needs\.verify-existing\.outputs\.verified == 'false'/,
+        `job "${name}" cannot distinguish safe inline fallback from a missing resolver output`
       );
       // On workflow_run, verify is skipped by its own if:. Requiring the skip
       // explicitly means a *failed* verify can never be read as "not applicable".
@@ -217,17 +228,20 @@ describe('manual deploys cannot skip tests', () => {
       'needs.verify.result': 'skipped',
       'needs.verify-existing.result': 'skipped',
       'needs.verify-existing.outputs.verified': '',
+      'inputs.verified_run_id': '',
       'needs.prepare.result': 'success',
       'needs.build-worker.result': 'success',
       'needs.container.result': 'success',
     };
     const fixtures = [
-      ['inline checks', { ...base, 'needs.verify.result': 'success' }, true],
-      ['validated run', { ...base, 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, true],
+      ['automatic run reuse', { ...base, 'needs.verify.result': 'skipped', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, true],
+      ['explicit run reuse', { ...base, 'inputs.verified_run_id': '123456', 'needs.verify.result': 'skipped', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, true],
+      ['inline fallback', { ...base, 'needs.verify.result': 'success', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'false' }, true],
+      ['explicit override cannot fall back', { ...base, 'inputs.verified_run_id': '123456', 'needs.verify.result': 'success', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'false' }, false],
       ['both manual paths', { ...base, 'needs.verify.result': 'success', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, false],
+      ['missing resolver output', { ...base, 'needs.verify.result': 'skipped', 'needs.verify-existing.result': 'success' }, false],
       ['no verification', base, false],
-      ['failed inline checks', { ...base, 'needs.verify.result': 'failure' }, false],
-      ['invalid reused run', { ...base, 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'false' }, false],
+      ['failed inline checks', { ...base, 'needs.verify.result': 'failure', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'false' }, false],
       ['cancelled verification', { ...base, cancelled: true, 'needs.verify.result': 'cancelled' }, false],
       ['green workflow run', {
         ...base,

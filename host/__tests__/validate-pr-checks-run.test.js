@@ -1,7 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validatePrChecksRun } from '../../scripts/ci/validate-pr-checks-run.mjs';
+import {
+  resolveReusablePrChecksRun,
+  validatePrChecksRun,
+} from '../../scripts/ci/validate-pr-checks-run.mjs';
 
 const expected = {
   repo: 'nikolanovoselec/codeflare',
@@ -32,6 +35,47 @@ const jobs = {
     { name: 'test', conclusion: 'success' },
   ],
 };
+
+describe('automatic exact-tree PR Checks run resolution', () => {
+  const evidence = (runId, overrides = {}) => ({
+    run: { ...run, ...overrides.run },
+    jobs: overrides.jobs ?? jobs,
+    receipt: { ...receipt, runId, ...overrides.receipt },
+  });
+
+  it('selects the first valid run after skipping a newer invalid candidate', () => {
+    const loaded = [];
+    const result = resolveReusablePrChecksRun(['222', '111'], '', expected, (runId) => {
+      loaded.push(runId);
+      return runId === '222'
+        ? evidence(runId, { receipt: { testedTree: 'd'.repeat(40) } })
+        : evidence(runId);
+    });
+    assert.deepEqual(result, { verified: true, runId: '111' });
+    assert.deepEqual(loaded, ['222', '111']);
+  });
+
+  it('falls back when every automatically discovered candidate is invalid', () => {
+    const result = resolveReusablePrChecksRun(['222', '111'], '', expected, (runId) =>
+      evidence(runId, { receipt: { testedTree: 'd'.repeat(40) } }));
+    assert.deepEqual(result, { verified: false });
+  });
+
+  it('stops loading candidates after the first valid run', () => {
+    const loaded = [];
+    const result = resolveReusablePrChecksRun(['222', '111'], '', expected, (runId) => {
+      loaded.push(runId);
+      return evidence(runId);
+    });
+    assert.deepEqual(result, { verified: true, runId: '222' });
+    assert.deepEqual(loaded, ['222']);
+  });
+
+  it('fails closed instead of falling back when an explicit run is invalid', () => {
+    assert.throws(() => resolveReusablePrChecksRun(['222'], '999', expected, (runId) =>
+      evidence(runId, { receipt: { testedTree: 'd'.repeat(40) } })));
+  });
+});
 
 describe('exact-head PR Checks run validation', () => {
   it('accepts a completed successful run for the exact repository and SHA with a green required summary', () => {

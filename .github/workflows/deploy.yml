@@ -13,11 +13,12 @@ run-name: "Deploy ${{ ((github.event_name == 'workflow_run' || github.ref == 're
 # develop (or any other branch) can still be triggered on demand.
 #
 # Topology:
-#   verify-existing OR verify ── prepare ──┬── build-worker ──┬── deploy
-#                                          └── container ─────┘
-# Manual dispatch validates an explicit PR Checks tested-tree receipt when one
-# is supplied, otherwise verify runs PR Checks inline. On workflow_run both are
-# skipped because that trigger already guarantees a green run for the exact SHA.
+#   verify-existing ── optional verify ── prepare ──┬── build-worker ──┬── deploy
+#                                                   └── container ─────┘
+# Manual dispatch automatically resolves a successful exact-tree PR Checks
+# receipt, otherwise verify runs PR Checks inline. An optional explicit run id
+# remains a fail-closed override. On workflow_run both jobs are skipped because
+# that trigger already guarantees a green run for the exact SHA.
 # deploy = wrangler config mutations + wrangler deploy + bulk secrets +
 # registry prune.
 #
@@ -56,7 +57,7 @@ on: # zizmor: ignore[dangerous-triggers]
           - dockerhub
         default: cloudflare
       verified_run_id:
-        description: 'Optional successful PR Checks run for this exact deploy tree; invalid receipts fail closed'
+        description: 'Advanced override: exact-tree PR Checks run (normally discovered automatically; invalid values fail closed)'
         type: string
         required: false
         default: ''
@@ -69,9 +70,9 @@ permissions:
   contents: read
 
 # On workflow_run: only deploy when PR Checks ended green.
-# On workflow_dispatch (manual): only deploy when the inline `verify` job — the
-# same PR Checks, run against the dispatched SHA — ended green. The
-# production-only-from-main guard step additionally rejects bad input.
+# On workflow_dispatch (manual): only deploy when exact-tree receipt resolution
+# succeeds or its inline `verify` fallback ends green. The production-only-from-
+# main guard step additionally rejects bad input.
 #
 # Every gate is written as `!cancelled() && (...)` with explicit
 # `needs.<job>.result` comparisons rather than relying on implicit needs
@@ -97,21 +98,23 @@ permissions:
 #   head_repository.full_name == github.repository -- and only from this repo, never a fork
 
 jobs:
-  # A workflow_run deploy is already gated on green PR Checks. Manual dispatch
-  # either validates an explicit successful run for this SHA AND the exact Git
-  # tree that run checked out, or falls back to running PR Checks inline. The
-  # tree receipt matters for pull_request runs: Actions can check out a synthetic
-  # merge commit even when run.head_sha names the branch head.
+  # A workflow_run deploy is already gated on green PR Checks. Every manual
+  # dispatch first searches successful PR Checks runs for this SHA and validates
+  # their checked-out-tree receipts newest-first. A valid receipt skips inline
+  # checks; no valid receipt falls back to them. An explicit run id validates
+  # only that run and fails closed. The tree receipt matters for pull_request
+  # runs: Actions can check out a synthetic merge commit even when run.head_sha
+  # names the branch head.
   verify-existing:
-    name: Validate existing PR Checks
-    if: github.event_name == 'workflow_dispatch' && inputs.verified_run_id != ''
+    name: Resolve reusable PR Checks
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
       contents: read
     outputs:
-      verified: ${{ steps.accept.outputs.verified }}
+      verified: ${{ steps.resolve.outputs.verified }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,35 +122,31 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Download tested-tree receipt
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.verified_run_id }}
-        run: |
-          set -euo pipefail
-          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo "::error::verified_run_id must be numeric"; exit 1; }
-          rm -rf /tmp/pr-checks-receipt
-          mkdir -p /tmp/pr-checks-receipt
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --name "pr-checks-receipt-${RUN_ID}" --dir /tmp/pr-checks-receipt
-
-      - name: Validate exact head and tested tree
+      - name: Resolve exact head and tested tree
+        id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.verified_run_id }}
         run: |
           set -euo pipefail
           tree=$(git rev-parse 'HEAD^{tree}')
-          node scripts/ci/validate-pr-checks-run.mjs \
-            "$RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$tree" \
-            /tmp/pr-checks-receipt/pr-checks-receipt.json
-
-      - id: accept
-        run: echo 'verified=true' >> "$GITHUB_OUTPUT"
+          result=$(node scripts/ci/validate-pr-checks-run.mjs resolve \
+            "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$tree" "$RUN_ID")
+          state=$(printf '%s' "$result" | jq -r \
+            'if .verified == true and (.runId | type) == "string" then "true" elif .verified == false and (has("runId") | not) then "false" else "invalid" end')
+          [ "$state" != "invalid" ] || { echo "::error::invalid verification resolver output"; exit 1; }
+          echo "verified=${state}" >> "$GITHUB_OUTPUT"
+          printf 'PR Checks reuse: %s\n' "$result"
 
   verify:
     name: PR Checks
-    if: github.event_name == 'workflow_dispatch' && inputs.verified_run_id == ''
+    needs: verify-existing
+    if: >-
+      !cancelled()
+      && github.event_name == 'workflow_dispatch'
+      && inputs.verified_run_id == ''
+      && needs.verify-existing.result == 'success'
+      && needs.verify-existing.outputs.verified == 'false'
     permissions:
       contents: read
       actions: write # called complete-image job writes the shared BuildKit cache
@@ -165,10 +164,13 @@ jobs:
     if: >-
       !cancelled() && (
       (github.event_name == 'workflow_dispatch'
-       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
-        || (needs.verify.result == 'skipped'
+       && ((needs.verify.result == 'skipped'
          && needs.verify-existing.result == 'success'
-         && needs.verify-existing.outputs.verified == 'true'))) ||
+         && needs.verify-existing.outputs.verified == 'true')
+        || (inputs.verified_run_id == ''
+         && needs.verify.result == 'success'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'false'))) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
        && needs.verify-existing.result == 'skipped'
@@ -228,10 +230,13 @@ jobs:
     if: >-
       !cancelled() && (
       (github.event_name == 'workflow_dispatch'
-       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
-        || (needs.verify.result == 'skipped'
+       && ((needs.verify.result == 'skipped'
          && needs.verify-existing.result == 'success'
-         && needs.verify-existing.outputs.verified == 'true'))) ||
+         && needs.verify-existing.outputs.verified == 'true')
+        || (inputs.verified_run_id == ''
+         && needs.verify.result == 'success'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'false'))) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
        && needs.verify-existing.result == 'skipped'
@@ -295,10 +300,13 @@ jobs:
     if: >-
       !cancelled() && (
       (github.event_name == 'workflow_dispatch'
-       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
-        || (needs.verify.result == 'skipped'
+       && ((needs.verify.result == 'skipped'
          && needs.verify-existing.result == 'success'
-         && needs.verify-existing.outputs.verified == 'true'))) ||
+         && needs.verify-existing.outputs.verified == 'true')
+        || (inputs.verified_run_id == ''
+         && needs.verify.result == 'success'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'false'))) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
        && needs.verify-existing.result == 'skipped'
@@ -334,10 +342,13 @@ jobs:
     if: >-
       !cancelled() && (
       (github.event_name == 'workflow_dispatch'
-       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
-        || (needs.verify.result == 'skipped'
+       && ((needs.verify.result == 'skipped'
          && needs.verify-existing.result == 'success'
-         && needs.verify-existing.outputs.verified == 'true'))) ||
+         && needs.verify-existing.outputs.verified == 'true')
+        || (inputs.verified_run_id == ''
+         && needs.verify.result == 'success'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'false'))) ||
       (github.event_name == 'workflow_run'
        && needs.verify.result == 'skipped'
        && needs.verify-existing.result == 'skipped'
@@ -733,10 +744,13 @@ jobs:
     if: >-
       !cancelled() && (
       (github.event_name == 'workflow_dispatch'
-       && ((needs.verify.result == 'success' && needs.verify-existing.result == 'skipped')
-        || (needs.verify.result == 'skipped'
+       && ((needs.verify.result == 'skipped'
          && needs.verify-existing.result == 'success'
-         && needs.verify-existing.outputs.verified == 'true'))) ||
+         && needs.verify-existing.outputs.verified == 'true')
+        || (inputs.verified_run_id == ''
+         && needs.verify.result == 'success'
+         && needs.verify-existing.result == 'success'
+         && needs.verify-existing.outputs.verified == 'false'))) ||
       (github.event_name == 'workflow_dispatch'
        && (needs.verify.result == 'cancelled' || needs.verify-existing.result == 'cancelled')) ||
       (github.event_name == 'workflow_run'

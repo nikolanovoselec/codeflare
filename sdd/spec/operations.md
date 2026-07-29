@@ -25,7 +25,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-001: Deploy workflow trigger and pre-deploy pipeline
 
-**Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback. Deploys are gated on a green PR Checks run for the exact SHA; the pipeline itself runs as staged jobs and does not re-run the test suite.
+**Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback. Deploys are gated on a green PR Checks run for the exact SHA; the staged pipeline reuses exact-tree evidence when available instead of repeating the test suite.
 
 **Applies To:** User
 
@@ -37,11 +37,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. Complete-image verification and deployment reuse compatible cached dependency and image-build work across runs. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-001 AC4: complete-image and deploy builds share compatible caches) -->
 5. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-7. Manual deployment runs checks inline unless an explicitly selected successful PR Checks run has the same head and tested tree. <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (exact-head PR Checks run validation) -->
+7. Manual deployment automatically reuses the newest successful PR Checks run with the same head and tested tree, or runs checks inline when no valid receipt remains. <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks run resolution) -->
 
 **Constraints:**
 
-- Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration. A supplied verification run id fails closed if its repository, workflow, head, required summary, receipt identity, or tested tree differs.
+- Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration. An optional supplied verification run id overrides discovery and fails closed if its repository, workflow, head, required summary, receipt identity, or tested tree differs.
 - The CI runner label is configurable to support self-hosted runners.
 - Concurrent dispatches are kept legible and independent by [REQ-OPS-026](#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified).
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
