@@ -72,18 +72,28 @@ describe('manual deploys cannot skip tests', () => {
   });
 
   it('runs PR Checks inline only when automatic exact-tree resolution finds no reusable run', () => {
-    const block = jobBlock('verify');
-    assert.match(
-      block,
-      /uses: \.\/\.github\/workflows\/test\.yml/,
-      "the verify job must call this repository's PR Checks, not a substitute"
-    );
-    assert.match(block, /^ {4}needs: verify-existing$/m, 'inline verification must wait for automatic run resolution');
+    const verify = deployWorkflow.jobs.verify;
+    assert.equal(verify.uses, './.github/workflows/test.yml');
+    assert.equal(verify.needs, 'verify-existing');
     const gate = condition('verify');
-    assert.match(gate, /github\.event_name == 'workflow_dispatch'/, 'the verify job must run on manual dispatch');
-    assert.match(gate, /inputs\.verified_run_id == ''/, 'an explicit invalid override must not fall back to inline checks');
-    assert.match(gate, /needs\.verify-existing\.result == 'success'/, 'fallback requires a successful resolver');
-    assert.match(gate, /needs\.verify-existing\.outputs\.verified == 'false'/, 'fallback requires an explicit no-match result');
+    const base = {
+      cancelled: false,
+      'github.event_name': 'workflow_dispatch',
+      'inputs.verified_run_id': '',
+      'needs.verify-existing.result': 'success',
+      'needs.verify-existing.outputs.verified': 'false',
+    };
+    for (const [name, values, expectedResult] of [
+      ['no reusable run', base, true],
+      ['reusable run found', { ...base, 'needs.verify-existing.outputs.verified': 'true' }, false],
+      ['explicit override', { ...base, 'inputs.verified_run_id': '123456' }, false],
+      ['resolver failed', { ...base, 'needs.verify-existing.result': 'failure' }, false],
+      ['resolver output missing', { ...base, 'needs.verify-existing.outputs.verified': '' }, false],
+      ['cancelled', { ...base, cancelled: true }, false],
+      ['workflow_run', { ...base, 'github.event_name': 'workflow_run' }, false],
+    ]) {
+      assert.equal(evaluateCondition(gate, values), expectedResult, name);
+    }
   });
 
   it('publishes the actual checked-out tree as a reusable verification receipt', () => {
@@ -92,21 +102,23 @@ describe('manual deploys cannot skip tests', () => {
   });
 
   it('automatically resolves an exact-tree PR Checks run before every manual deploy', () => {
-    const block = jobBlock('verify-existing');
-    assert.match(block, /actions: read/, 'exact-head run validation needs read-only Actions API access');
-    assert.match(condition('verify-existing'), /github\.event_name == 'workflow_dispatch'/);
-    assert.doesNotMatch(condition('verify-existing'), /verified_run_id/, 'automatic resolution must not require hidden operator input');
-    assert.match(block, /validate-pr-checks-run\.mjs resolve/, 'the workflow must use the receipt-backed resolver');
-    assert.match(block, /verified=false/, 'the resolver must expose an explicit inline-fallback decision');
+    const resolver = deployWorkflow.jobs['verify-existing'];
+    assert.equal(resolver.permissions.actions, 'read');
+    assert.equal(resolver.outputs.verified, '${{ steps.resolve.outputs.verified }}');
+    const gate = condition('verify-existing');
+    assert.equal(evaluateCondition(gate, { cancelled: false, 'github.event_name': 'workflow_dispatch' }), true);
+    assert.equal(evaluateCondition(gate, { cancelled: false, 'github.event_name': 'workflow_run' }), false);
+    const resolveStep = resolver.steps.find((step) => step.id === 'resolve');
+    assert.match(resolveStep?.run ?? '', /node scripts\/ci\/validate-pr-checks-run\.mjs resolve/);
   });
 
   for (const name of GATED_JOBS) {
     it(`gates "${name}" on the verify result`, () => {
       const gate = condition(name);
-      const needs = jobBlock(name).match(/^ {4}needs: (.*)$/m);
-      assert.ok(needs, `job "${name}" declares no needs, so it cannot see the verify result`);
-      assert.match(needs[1], /\bverify\b/, `job "${name}" must depend on verify`);
-      assert.match(needs[1], /\bverify-existing\b/, `job "${name}" must depend on exact-head run validation`);
+      const declaredNeeds = deployWorkflow.jobs[name].needs;
+      const needs = Array.isArray(declaredNeeds) ? declaredNeeds : [declaredNeeds];
+      assert.ok(needs.includes('verify'), `job "${name}" must depend on verify`);
+      assert.ok(needs.includes('verify-existing'), `job "${name}" must depend on exact-head run validation`);
 
       assert.match(
         gate,

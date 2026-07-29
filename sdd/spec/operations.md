@@ -37,11 +37,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. Complete-image verification and deployment reuse compatible cached dependency and image-build work across runs. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-001 AC4: complete-image and deploy builds share compatible caches) -->
 5. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-7. Manual deployment automatically reuses the newest successful PR Checks run with the same head and tested tree, or runs checks inline when no valid receipt remains. <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks run resolution) -->
 
 **Constraints:**
 
-- Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration. An optional supplied verification run id overrides discovery and fails closed if its repository, workflow, head, required summary, receipt identity, or tested tree differs.
+- Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration.
+- Manual-dispatch verification reuse and fallback are owned by [REQ-OPS-029](#req-ops-029-automatic-manual-deploy-verification-reuse).
 - The CI runner label is configurable to support self-hosted runners.
 - Concurrent dispatches are kept legible and independent by [REQ-OPS-026](#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified).
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
@@ -748,6 +748,30 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
 **Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js)) exercises the authoritative-path truth table and deployed/no-deploy outcomes.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-029: Automatic manual-deploy verification reuse
+
+**Intent:** A manual deployment safely reuses existing exact-tree verification without requiring the operator to identify a workflow run.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Manual dispatch evaluates successful PR Checks runs for the dispatched head in descending creation order and reuses the first run with a valid exact-tree receipt. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::discoverSuccessfulRunIds --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) -->
+2. When no automatically discovered receipt validates, manual deployment runs PR Checks inline. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::resolveReusablePrChecksRun --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+3. An optional explicit run id checks only that run and fails closed instead of falling back. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::resolveReusablePrChecksRun --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+
+**Constraints:** Reuse requires the expected repository, workflow, head, required summary, receipt identity, and tested tree; status alone is insufficient.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate)
+
+**Verification:** Automated host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates.
 
 **Status:** Implemented
 

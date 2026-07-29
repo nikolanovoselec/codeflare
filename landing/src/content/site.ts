@@ -298,9 +298,9 @@ export const TERMINAL = {
 };
 
 /**
- * Wide Execution overview: one canonical software-to-infrastructure run shown
- * before the detailed proof sections. Both faces are complete in the server
- * render; the client enhancement reveals and flips their visual copies once.
+ * Paired Execution overview shown before the detailed proof sections. Both
+ * terminals are complete in the server render; normal motion independently
+ * types five reserved event rows in each permanent terminal.
  */
 export const EXECUTION = {
   id: 'execution',
@@ -318,17 +318,16 @@ export const EXECUTION = {
     context: [
       { actor: 'you', tone: 'cmd', text: 'ship duplicate-payment protection to integration' },
       { actor: 'intent', tone: 'dim', text: 'REQ-PAY-014 · AC3 · payments-service' },
+      { actor: 'session', tone: 'ok', text: 'ephemeral workspace ready · branch isolated' },
       { actor: 'agent', tone: 'agent', text: 'mapped callers, tests, schema migration, and deploy path' },
+      { actor: 'guard', tone: 'dim', text: 'spec and test contracts loaded · merge stays human-owned' },
     ],
     events: [
       { actor: 'agent', tone: 'agent', text: 'editing payment service and schema migration' },
-      { actor: 'test', tone: 'warn', text: 'duplicate request still escapes · debugging' },
-      { actor: 'agent', tone: 'agent', text: 'corrected the transaction boundary' },
-      { actor: 'test', tone: 'ok', text: 'behavioral suite green' },
-      { actor: 'review', tone: 'warn', text: 'unsafe retry edge found' },
-      { actor: 'agent', tone: 'agent', text: 'finding corrected and re-verified' },
-      { actor: 'deploy', tone: 'ok', text: 'integration release live' },
-      { actor: 'browser', tone: 'ok', text: 'duplicate-payment flow verified end to end' },
+      { actor: 'test', tone: 'warn', text: 'duplicate request still escapes · tracing transaction boundary' },
+      { actor: 'agent', tone: 'agent', text: 'corrected the boundary · behavioral suite green' },
+      { actor: 'review', tone: 'warn', text: 'unsafe retry edge found · corrected and re-verified' },
+      { actor: 'deploy', tone: 'ok', text: 'integration live · duplicate-payment flow verified end to end' },
     ],
     foot: ['REQ-PAY-014', 'integration', 'governed'],
   } satisfies ExecutionRun,
@@ -340,16 +339,15 @@ export const EXECUTION = {
       { actor: 'identity', tone: 'ok', text: 't.anderson authenticated' },
       { actor: 'target', tone: 'dim', text: 'prod-web-07 admitted by policy' },
       { actor: 'window', tone: 'ok', text: 'maintenance window approved · playbook loaded' },
+      { actor: 'agent', tone: 'agent', text: 'discovered OS, services, packages, and disk state' },
+      { actor: 'plan', tone: 'dim', text: 'backup → drain → patch → restart → verify' },
     ],
     events: [
-      { actor: 'agent', tone: 'agent', text: 'discovering OS, services, packages, and disk state' },
-      { actor: 'plan', tone: 'dim', text: 'backup → patch → restart → verify' },
-      { actor: 'backup', tone: 'ok', text: 'recovery point recorded' },
-      { actor: 'service', tone: 'agent', text: 'draining application traffic' },
+      { actor: 'backup', tone: 'ok', text: 'recovery point recorded · rollback path confirmed' },
+      { actor: 'service', tone: 'agent', text: 'draining application traffic without dropped requests' },
       { actor: 'agent', tone: 'agent', text: 'executing approved patch playbook' },
-      { actor: 'service', tone: 'ok', text: 'patched host returned to service' },
-      { actor: 'verify', tone: 'ok', text: 'health checks green' },
-      { actor: 'close', tone: 'ok', text: 'evidence stored · rollback ready' },
+      { actor: 'verify', tone: 'ok', text: 'host returned to service · health checks green' },
+      { actor: 'close', tone: 'ok', text: 'evidence stored · rollback ready · maintenance closed' },
     ],
     foot: ['t.anderson', 'prod-web-07', 'governed'],
   } satisfies ExecutionRun,

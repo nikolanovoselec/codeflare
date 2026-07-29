@@ -3206,7 +3206,7 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Category:** Architecture, Operations
 
-**Status:** Accepted (2026-07-20)
+**Status:** Accepted (2026-07-20); amended 2026-07-29 for automatic exact-tree manual-dispatch verification reuse
 
 **Context:** PR Checks ran as one serial job (~10 min: lint → knip → build → backend tests → host → frontend → landing → typecheck → audit) regardless of what changed, with the backend suite forced to `maxWorkers: 1` by the Workers-pool teardown crash and gated by a grep-on-prose guard duplicated in test.yml and deploy.yml. Deploy was a single 729-line job that re-ran the entire test suite it had already gated on via `workflow_run`, rebuilt and rescanned the multi-GB container image on every deploy even when no container input changed, and carried a 533-line Docker Hub near-copy (`deploy-dockerhub.yml`).
 
@@ -3220,12 +3220,14 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 - Path-specific coverage jobs use `.github/actions/coverage-suite`; its classifier requires the coverage table, rejects reported test or threshold failures, and bounds the backend-only crash exception.
 - Non-zero ordinary-suite exits are accepted only with a parsed report showing >0 tests, 0 failures, and the exact crash fingerprint; coverage accepts its backend exception only after the required coverage evidence passes. Missing or corrupt evidence fails closed.
 - Deploy stages into `prepare` → (`build-worker` ∥ `container`) → `deploy`, drops test re-runs after verification, uploads secrets through one `wrangler secret bulk` call, and prunes the registry through `scripts/ci/prune-registry.mjs`.
-- Manual dispatch automatically searches successful PR Checks runs for the deployed SHA and reuses the newest run whose uploaded checked-out-tree receipt equals the deploy tree; otherwise checks run inline. An optional explicit run id overrides discovery and fails closed.
+- Manual dispatch can reuse an explicit successful PR Checks run when its uploaded checked-out-tree receipt equals the deploy tree; otherwise checks run inline.
 - The `/health` smoke check and the public `/health` route were both removed later; the deploy currently performs no post-deploy verification.
 - Container build/scan/push moves to the reusable `container-image.yml`, parameterized by registry (`registry: dockerhub` dispatch input replaces `deploy-dockerhub.yml`). PR complete-image verification and deployment share one BuildKit cache scope while preserving separate image outputs.
 - Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned image.
 - A COPY-coverage guard disables reuse when the hash list goes stale; the weekly salt bounds agent-`@latest` and CVE-verdict staleness at seven days.
 - The scripted e2e suite is deleted rather than repaired; the k6 stress suites move to `stress/` and keep the deploy-time service-auth secret + KV service-user seeding. `zizmor.yml` audits the workflows themselves (SARIF, informational).
+
+**2026-07-29 amendment:** Manual dispatch now searches successful PR Checks runs for the deployed SHA and reuses the newest run whose uploaded checked-out-tree receipt equals the deploy tree. When no retained receipt validates, checks run inline. The explicit run id remains an advanced override and fails closed instead of falling back.
 
 **Consequences:** PR wall-clock drops to the slowest lane (sharded backend tests) and docs-only changes skip every lane; deploys skip the multi-GB build+scan on unchanged container inputs. The ordinary-suite guard cannot pass an empty run or depend on reporter prose; coverage requires its table and rejects reported failures or threshold misses. Trade-offs accepted: shared test scaffolding is replicated across split test files (vi.mock hoisting is per module), a reused image's CVE verdict may be up to seven days old, and there is no scripted browser e2e — deployed-UI verification is the agent-driven browser-e2e path.
 

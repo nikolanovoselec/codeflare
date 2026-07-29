@@ -69,11 +69,13 @@ function discoverSuccessfulRunIds(repo, sha) {
   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page?.workflow_runs))) {
     throw new Error('PR Checks run enumeration returned an invalid response');
   }
-  return [...new Set(pages
+  const candidates = pages
     .flatMap((page) => page.workflow_runs)
     .filter((run) => run?.head_sha === sha)
-    .map((run) => String(run.id))
-    .filter((runId) => RUN_ID_PATTERN.test(runId)))];
+    .map((run) => ({ runId: String(run.id), createdAt: Date.parse(run.created_at) }))
+    .filter((run) => RUN_ID_PATTERN.test(run.runId) && Number.isFinite(run.createdAt))
+    .sort((left, right) => right.createdAt - left.createdAt);
+  return [...new Set(candidates.map((run) => run.runId))];
 }
 
 function loadRunEvidence(repo, runId) {

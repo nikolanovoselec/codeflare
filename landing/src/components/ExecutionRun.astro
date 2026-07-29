@@ -1,9 +1,9 @@
 ---
 /**
- * One reusable face of the Execution reel. It composes the shared Terminal
+ * One reusable terminal in the Execution reel. It composes the shared Terminal
  * frame and renders the run twice from one model: a complete semantic list for
- * assistive technology and a visually animated list that the reel script may
- * mask and advance without announcing character-by-character mutations.
+ * assistive technology and a visual list whose five event rows type without
+ * changing their reserved layout height.
  */
 import type { ExecutionRun } from '../content/site';
 import Terminal from './Terminal.astro';
@@ -21,6 +21,7 @@ const lines = [...run.context, ...run.events];
 <section
   class:list={['execution-face', `execution-face--${name}`]}
   data-execution-face={name}
+  data-execution-state="resolved"
   aria-label={`${run.label} execution`}
 >
   <Terminal variant={`execution-terminal execution-terminal--${name}`} reveal={false}>
@@ -49,11 +50,14 @@ const lines = [...run.context, ...run.events];
               <div class="execution-line-clip">
                 <div class="execution-line-content">
                   <span class="execution-actor" data-tone={line.tone}>{line.actor}</span>
-                  <span
-                    class={`execution-text t-${line.tone}`}
-                    data-execution-text
-                    data-full-text={line.text}
-                  >{line.text}</span>
+                  <span class="execution-copy">
+                    <span class={`execution-text-reserve t-${line.tone}`}>{line.text}</span>
+                    <span
+                      class={`execution-text t-${line.tone}`}
+                      data-execution-text
+                      data-full-text={line.text}
+                    >{line.text}</span>
+                  </span>
                 </div>
               </div>
             </div>

@@ -237,7 +237,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ### REQ-LANDING-010: Execution overview reel
 
-**Intent:** Immediately after the Hero family, the landing shows Codeflare as the place where software delivery and approved infrastructure operations are performed, using one wide, event-level truthful execution reel.
+**Intent:** Immediately after the Hero family, the landing shows Codeflare as the place where software delivery and approved infrastructure operations are performed in one event-level truthful, paired-terminal reel.
 
 **Applies To:** Visitor
 
@@ -245,9 +245,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. Visitors encounter the primary Hero, then Inference Mesh, then the Execution overview before the detailed sections. <!-- @impl: landing/src/pages/index.astro::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (orders Hero -> Inference Mesh -> Execution -> detailed sections) -->
 2. The dedicated Operations presentation remains present exactly once in its detailed role. <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (retains the detailed Operations presentation exactly once) -->
-3. The Execution overview visibly distinguishes one software face from one infrastructure face, each with its own execution events. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/ExecutionReel.astro::execution-reel --> <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two distinct complete transcripts before client enhancement) -->
-4. Without JavaScript, complete semantic transcripts for both faces remain readable in the server-rendered document. <!-- @impl: landing/src/components/ExecutionRun.astro::execution-terminal-body --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two distinct complete transcripts before client enhancement) -->
-5. The infrastructure face and the dedicated Operations detail section are marked `Private preview` at the product level. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/PreviewBadge.astro::preview-badge --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (marks both infrastructure presentations as private preview without marking software) -->
+3. The Execution overview presents one software terminal and one infrastructure terminal, each with five context lines and five execution events. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/ExecutionReel.astro::execution-reel --> <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two complete five-context plus five-event terminals) -->
+4. Without JavaScript, complete semantic transcripts for both terminals remain readable in the server-rendered document. <!-- @impl: landing/src/components/ExecutionRun.astro::execution-terminal-body --> <!-- @test: landing/src/__tests__/index-page.test.ts (server-renders two complete five-context plus five-event terminals) -->
+5. The infrastructure terminal and the dedicated Operations detail section are marked `Private preview` at the product level. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/PreviewBadge.astro::preview-badge --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (marks both infrastructure presentations as private preview without marking software) -->
 
 **Constraints:**
 
@@ -269,22 +269,22 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ### REQ-LANDING-011: Execution reel progressive motion
 
-**Intent:** Under normal motion, the Execution overview progressively reveals one bounded software-to-infrastructure run and then settles without looping.
+**Intent:** Under normal motion, each Execution terminal adds one readable, bounded event sequence after it enters view and then settles without looping.
 
 **Applies To:** Visitor
 
 **Acceptance Criteria:**
 
-1. Under normal motion, the reel starts its deterministic sequence once when it first approaches the viewport and does not restart on later intersections. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (enhances on entry, fills context, then appends software events while scrolling old history) -->
-2. Each face fills its recent context before revealing execution events. <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (enhances on entry, fills context, then appends software events while scrolling old history) -->
-3. New events type at the bottom while historical rows leave the fixed visual viewport. <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (enhances on entry, fills context, then appends software events while scrolling old history) -->
-4. The terminal flips exactly once from software to infrastructure during the sequence. <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (prepares infrastructure context off-face, flips exactly once, and appends its execution events) -->
-5. The completed sequence does not loop and leaves only the infrastructure face's terminal cursor active. <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (settles after one bounded run with only the infrastructure cursor active) -->
+1. Each terminal starts once when that terminal enters the viewport and does not restart on later intersections. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types exactly five software events once without starting or clearing infrastructure) -->
+2. Each armed terminal keeps five complete context lines visible before and during event typing. <!-- @impl: landing/src/scripts/execution-reel.ts::prepareTerminal --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (arms both terminals while preserving five readable context lines) -->
+3. Each terminal types exactly five event lines in order, retaining every completed line without scrolling or history removal. <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types exactly five software events once without starting or clearing infrastructure) -->
+4. Software and infrastructure timelines start independently without flipping or hiding either terminal. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (starts the stacked infrastructure terminal only when that terminal enters view) -->
+5. Both timelines stop after their fifth event, do not loop, and leave no active cursor. <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (starts the stacked infrastructure terminal only when that terminal enters view) -->
 
 **Constraints:**
 
-- The normal-motion sequence is one approximately 15-second shot with a single depth flip and no loop.
-- Reuse the landing's motion tokens and easing.
+- Completed lines remain readable for the rest of the one-shot sequence; pacing favors comprehension over rapid activity.
+- Reuse the landing's motion tokens and permanent two-terminal layout.
 
 **Priority:** P1
 
@@ -304,13 +304,13 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (does not arm the JavaScript enhancement under reduced motion) --> <!-- @manual -->
-2. Under reduced motion, both resolved runs remain visible and readable. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (preserves both server-rendered transcripts under reduced motion) --> <!-- @manual -->
+1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (preserves both complete server-rendered transcripts under reduced motion) --> <!-- @manual -->
+2. Under reduced motion, both resolved terminals remain visible and readable. <!-- @impl: landing/src/scripts/execution-reel.ts::init --> <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (preserves both complete server-rendered transcripts under reduced motion) --> <!-- @manual -->
 
 **Constraints:**
 
 - Screen readers consume the complete semantic transcripts rather than character-by-character visual updates.
-- Reduced-motion visitors retain the complete two-run static layout.
+- Reduced-motion visitors retain the complete two-terminal static layout.
 
 **Priority:** P1
 
@@ -331,8 +331,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The resolved reel is self-contained at a wide aspect suitable for GitHub GIF capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
-2. The reel provides meaningful first, transition, and final capture states. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @manual -->
-3. Reel content and sequencing are deterministic. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/scripts/execution-reel.ts::startExecutionReel --> <!-- @manual -->
+2. The reel provides meaningful first, transition, and final capture states. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @manual -->
+3. Reel content and sequencing are deterministic. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/scripts/execution-reel.ts::startTerminal --> <!-- @manual -->
 
 **Constraints:**
 

@@ -444,7 +444,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(body.querySelectorAll('#operations')).toHaveLength(1);
   });
 
-  it('server-renders two distinct complete transcripts before client enhancement', () => {
+  it('server-renders two complete five-context plus five-event terminals', () => {
     const reel = body.querySelector('#execution [data-execution-reel]')!;
     const faces = reel.querySelectorAll('[data-execution-face]');
     expect(faces).toHaveLength(2);
@@ -453,9 +453,11 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
 
     const runs = [EXECUTION.software, EXECUTION.infrastructure];
     faces.forEach((face, index) => {
-      const expectedCount = runs[index].context.length + runs[index].events.length;
-      expect(face.querySelectorAll('[data-execution-line]')).toHaveLength(expectedCount);
-      expect(face.querySelectorAll('[data-execution-accessible-line]')).toHaveLength(expectedCount);
+      expect(runs[index].context).toHaveLength(5);
+      expect(runs[index].events).toHaveLength(5);
+      expect(face.querySelectorAll('[data-execution-line="context"]')).toHaveLength(5);
+      expect(face.querySelectorAll('[data-execution-line="event"]')).toHaveLength(5);
+      expect(face.querySelectorAll('[data-execution-accessible-line]')).toHaveLength(10);
       expect(face.querySelector('[data-execution-caret]')).not.toBeNull();
     });
   });
