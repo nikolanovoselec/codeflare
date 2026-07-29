@@ -165,11 +165,14 @@ describe('execution-reel.ts (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.software.querySelectorAll('.is-history')).toHaveLength(0);
     expect(fixture.infrastructureEvents.every((line) => text(line).textContent === '')).toBe(true);
 
+    const settledTranscript = fixture.softwareEvents.map((line) => text(line).textContent);
+    const settledTimers = vi.getTimerCount();
     observer.intersect(fixture.software);
-    vi.advanceTimersByTime(15_000);
-    expect(fixture.softwareEvents.map((line) => text(line).textContent)).toEqual(
-      fixture.softwareEvents.map((line) => text(line).dataset.fullText),
-    );
+    vi.advanceTimersByTime(30);
+    expect(fixture.softwareEvents.map((line) => text(line).textContent)).toEqual(settledTranscript);
+    expect(fixture.software.dataset.executionState).toBe('complete');
+    expect(fixture.software.querySelector('[data-execution-caret]')?.getAttribute('data-active')).toBe('false');
+    expect(vi.getTimerCount()).toBe(settledTimers);
   });
 
   it('starts the stacked infrastructure terminal only when that terminal enters view', async () => {
