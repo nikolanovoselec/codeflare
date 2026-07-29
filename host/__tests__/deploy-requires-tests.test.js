@@ -148,6 +148,12 @@ describe('manual deploys cannot skip tests', () => {
     container: ['needs.prepare.result'],
     deploy: ['needs.prepare.result', 'needs.build-worker.result', 'needs.container.result'],
   };
+  const skippedDownstream = {
+    'needs.prepare.result': 'skipped',
+    'needs.build-worker.result': 'skipped',
+    'needs.container.result': 'skipped',
+    'needs.deploy.result': 'skipped',
+  };
 
   for (const name of GATED_JOBS) {
     it(`behaviorally gates "${name}" on an authoritative verification path`, () => {
@@ -170,12 +176,22 @@ describe('manual deploys cannot skip tests', () => {
         ['fork workflow_run', { ...successfulWorkflowRun, 'github.event.workflow_run.head_repository.full_name': 'attacker/fork' }, false],
         [
           'cancelled inline verification dependency',
-          { ...reusableDispatch, 'needs.verify.result': 'cancelled' },
+          {
+            ...inlineDispatch,
+            ...skippedDownstream,
+            'needs.verify.result': 'cancelled',
+          },
           name === 'outcome',
         ],
         [
           'cancelled resolver dependency',
-          { ...reusableDispatch, 'needs.verify-existing.result': 'cancelled' },
+          {
+            ...reusableDispatch,
+            ...skippedDownstream,
+            'needs.verify.result': 'skipped',
+            'needs.verify-existing.result': 'cancelled',
+            'needs.verify-existing.outputs.verified': '',
+          },
           name === 'outcome',
         ],
       ]) {
