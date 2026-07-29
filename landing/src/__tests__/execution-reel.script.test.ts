@@ -227,6 +227,9 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     );
     for (const entranceStyle of entranceStyles) {
       expect(entranceStyle.animation).toContain('term-type');
+      const duration = delaySeconds(entranceStyle.animationDuration);
+      expect(Number.isFinite(duration)).toBe(true);
+      expect(duration).toBeGreaterThan(0);
     }
     const sampledDelays = [0, 3, 7].map((index) =>
       delaySeconds(entranceStyles[index].animationDelay),
