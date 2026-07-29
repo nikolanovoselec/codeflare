@@ -384,13 +384,13 @@ A full code-server browser editor for an advanced running session. The editor op
 6. When fixed-workspace initialization cannot be completed safely, root navigation fails closed instead of opening an empty window. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-012 AC5+AC6+AC7 (clean fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-012 AC5+AC6+AC7: root workbench configuration projection) -->
 7. Workspace selection leaves every server-provided IDE setting other than the selected folder unchanged. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-012 AC5+AC6+AC7 (clean fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-012 AC5+AC6+AC7: root workbench configuration projection) -->
 
+**Notes:** Version-pinned incompatibility conditions are owned by the [container documentation](../../documentation/lanes/container.md#code-server-browser-ide).
+
 **Constraints:**
 
 - This confines public workspace selection and initial IDE navigation; it is not an operating-system sandbox. Terminals, trusted extensions, and agents retain their existing container filesystem access.
 - Worker and host validation remain independent defense-in-depth boundaries.
 - The fixed container path never appears in a browser-visible redirect or required public query.
-
-**Notes:** Version-pinned incompatibility conditions are owned by the [container documentation](../../documentation/lanes/container.md#code-server-browser-ide).
 
 **Priority:** P1
 
