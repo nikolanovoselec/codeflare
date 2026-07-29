@@ -280,7 +280,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 3. Each terminal types exactly five event lines in order; every new event reuses the shared rolling-row motion to push the oldest visible line out while keeping five populated rows. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @impl: landing/src/scripts/proof.ts::rollOnce --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (slowly types five events while each event pushes the oldest visible line out) -->
 4. Software and infrastructure feeds start independently without flipping or hiding either terminal. <!-- @impl: landing/src/scripts/proof.ts::startFeeds --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (starts each stacked terminal independently and never restarts a completed feed) -->
 5. Both feeds stop after their fifth event, do not loop, and leave no active cursor. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (slowly types five events while each event pushes the oldest visible line out) -->
-6. When intersection observation is unavailable, both resolved feed viewports remain static. <!-- @impl: landing/src/scripts/proof.ts::startRoll --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (leaves resolved feed viewports static when intersection observation is unavailable) -->
+6. When intersection observation is unavailable, both resolved feed viewports remain static. <!-- @impl: landing/src/scripts/proof.ts::startWithoutIntersectionObserver --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (leaves resolved feed viewports static when intersection observation is unavailable) -->
 
 **Constraints:**
 

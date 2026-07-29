@@ -221,6 +221,23 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     const fixture = buildFixture();
     fixture.softwareEvents[0].text = 'software-event-that-wraps-across-several-narrow-viewport-lines';
     fixture.softwareList.dataset.feedEvents = JSON.stringify(fixture.softwareEvents);
+    fixture.softwareList.getBoundingClientRect = vi.fn().mockImplementation(() => {
+      const constrainedHeight = Number.parseFloat(fixture.softwareList.style.height);
+      const lastRowText = fixture.softwareList.lastElementChild?.textContent ?? '';
+      const naturalHeight = lastRowText.length > 40 ? 220 : 150;
+      const height = Number.isNaN(constrainedHeight) ? naturalHeight : constrainedHeight;
+      return {
+        height,
+        width: 320,
+        top: 0,
+        left: 0,
+        right: 320,
+        bottom: height,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      };
+    });
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
@@ -236,10 +253,17 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
       fixture.softwareEvents[0].text.slice(0, 1),
     );
     expect(typingRow.classList.contains('is-feed-typing')).toBe(true);
+    expect(fixture.softwareList.style.height).toBe('220px');
+    const reservedHeight = fixture.softwareList.getBoundingClientRect().height;
+
+    vi.advanceTimersByTime(PHASE_MS);
+    expect(fixture.softwareList.style.height).toBe('');
+    expect(fixture.softwareList.getBoundingClientRect().height).toBe(reservedHeight);
 
     vi.advanceTimersByTime(TYPE_MS * (fixture.softwareEvents[0].text.length - 1));
     expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text);
     expect(fixture.softwareList.lastElementChild?.querySelector('[data-feed-reserve]')).toBeNull();
+    expect(fixture.softwareList.getBoundingClientRect().height).toBe(reservedHeight);
   });
 
   it('rejects either malformed feed payload without replacing or animating the resolved viewport', async () => {

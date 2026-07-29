@@ -68,6 +68,10 @@ function rollOnce(list: HTMLElement, onReordered?: (row: HTMLElement) => void): 
     // Force a reflow so the roll-down transition runs from its start state.
     void first.getBoundingClientRect();
     first.classList.remove('roll-down');
+    // Measure the replacement at its natural wrapped height, not through the
+    // stale inline constraint captured before the top row moved. Both style
+    // writes occur in one task, so only the correctly reserved height paints.
+    list.style.height = '';
     const endHeight = list.getBoundingClientRect().height;
     list.style.height = `${endHeight}px`;
     window.setTimeout(() => {
@@ -217,15 +221,21 @@ function startRoll(el: HTMLElement): void {
  *  only be exercised by calling rollOnce directly. Not used at runtime. */
 export const __rollTest = { rollOnce };
 
-if (reduced) {
-  // Static markup is already the resolved artifact; no motion to arm.
-} else if (!('IntersectionObserver' in window)) {
+/** Preserve resolved Transcript feeds while retaining the established immediate
+ *  fallback for ordinary proof artifacts in browsers without observation. */
+function startWithoutIntersectionObserver(): void {
   for (const el of artifacts) {
     if (el.querySelector('[data-feed-events]')) continue;
     el.classList.add('is-live');
     visible.add(el);
     startRoll(el);
   }
+}
+
+if (reduced) {
+  // Static markup is already the resolved artifact; no motion to arm.
+} else if (!('IntersectionObserver' in window)) {
+  startWithoutIntersectionObserver();
 } else {
   for (const el of artifacts) {
     for (const feed of el.querySelectorAll<HTMLElement>('[data-feed-events]')) prepareFeed(feed);
