@@ -895,7 +895,8 @@ svg {
   color: var(--text-primary);
 }
 
-.t-cmd {
+.t-cmd,
+.t-feed-command {
   color: var(--text-primary);
 }
 
@@ -904,7 +905,8 @@ svg {
   color: var(--accent);
 }
 
-.t-agent {
+.t-agent,
+.t-info {
   color: var(--term-cyan);
 }
 
@@ -1890,15 +1892,11 @@ svg {
 /* A command row normally owns its prompt through .t-cmd::before. While the row
    becomes an overlay grid, that pseudo-element would become a third grid item:
    the prompt drops onto its own line, briefly enlarging the viewport and leaving
-   the typed command detached above it. Put the same shared prompt inside both
-   overlaid layers instead, so the hidden reserve and live copy wrap identically. */
-.transcript-feed .t-cmd.is-feed-typing::before {
-  content: none;
-}
-
-.transcript-feed .t-cmd.is-feed-typing > [data-feed-reserve]::before,
-.transcript-feed .t-cmd.is-feed-typing > [data-feed-live]::before {
-  content: '❯ ';
+   the typed command detached above it. The feed therefore renders the same prompt
+   as the first inline child of both overlaid layers; the row uses
+   .t-feed-command instead of .t-cmd until typing settles, so the ordinary
+   pseudo-prompt is never generated during this state. */
+.transcript-feed .t-feed-prompt {
   color: var(--accent);
 }
 

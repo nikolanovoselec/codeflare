@@ -32,10 +32,10 @@ const PHASE_MS = 420;
 const TYPE_MS = 58;
 const FEED_HOLD_MS = 1700;
 
-const FEED_TONES = new Set(['cmd', 'agent', 'ok', 'dim', 'warn', 'deny']);
+const FEED_TONES = new Set(['cmd', 'agent', 'info', 'ok', 'dim', 'warn', 'deny']);
 
 interface FeedLine {
-  tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn' | 'deny';
+  tone: 'cmd' | 'agent' | 'info' | 'ok' | 'dim' | 'warn' | 'deny';
   text: string;
 }
 
@@ -122,7 +122,8 @@ function prepareFeed(list: HTMLElement): void {
 
 function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): void {
   for (const tone of FEED_TONES) row.classList.remove(`t-${tone}`);
-  row.classList.add(`t-${line.tone}`, 'is-feed-typing');
+  row.classList.remove('t-feed-command');
+  row.classList.add(line.tone === 'cmd' ? 't-feed-command' : `t-${line.tone}`, 'is-feed-typing');
 
   // Keep the completed line in flow but invisible while the live copy types over
   // it. On narrow screens this reserves the final wrapped height from character
@@ -130,13 +131,26 @@ function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): 
   const reserve = document.createElement('span');
   reserve.dataset.feedReserve = '';
   reserve.setAttribute('aria-hidden', 'true');
-  reserve.textContent = line.text;
+  const reserveText = document.createElement('span');
+  reserveText.dataset.feedText = '';
+  reserveText.textContent = line.text;
   const live = document.createElement('span');
   live.dataset.feedLive = '';
   const text = document.createElement('span');
+  text.dataset.feedText = '';
   const caret = document.createElement('span');
   caret.className = 't-caret';
   caret.setAttribute('aria-hidden', 'true');
+  if (line.tone === 'cmd') {
+    for (const layer of [reserve, live]) {
+      const prompt = document.createElement('span');
+      prompt.className = 't-feed-prompt';
+      prompt.setAttribute('aria-hidden', 'true');
+      prompt.textContent = '❯ ';
+      layer.appendChild(prompt);
+    }
+  }
+  reserve.appendChild(reserveText);
   live.append(text, caret);
   row.replaceChildren(reserve, live);
 
@@ -148,7 +162,8 @@ function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): 
       window.setTimeout(tick, TYPE_MS);
       return;
     }
-    row.classList.remove('is-feed-typing');
+    row.classList.remove('is-feed-typing', 't-feed-command');
+    row.classList.add(`t-${line.tone}`);
     row.textContent = line.text;
     onComplete();
   };

@@ -1210,10 +1210,6 @@ jobs:
         env:
           RESULTS: ${{ toJSON(needs) }}
           FULL: ${{ needs.changes.outputs.full }}
-          IDE: ${{ needs.changes.outputs.ide }}
-          IMAGE_REUSE_RESULT: ${{ needs.browser-ide-image-reuse.result }}
-          IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
-          IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
           BAD=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
@@ -1241,9 +1237,18 @@ jobs:
               esac
             done
           fi
-          node scripts/ci/browser-ide-image-reuse.mjs gate \
-            "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" "$IMAGE_REUSED" "$IMAGE_RESULT"
           echo "All lanes green (skipped = not affected or backed by validated reusable evidence)"
+
+      - name: Verify complete-image result
+        env:
+          FULL: ${{ needs.changes.outputs.full || 'false' }}
+          IDE: ${{ needs.changes.outputs.ide || 'false' }}
+          IMAGE_REUSE_RESULT: ${{ needs.browser-ide-image-reuse.result }}
+          IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
+          IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
+        run: >-
+          node scripts/ci/browser-ide-image-reuse.mjs gate
+          "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" "$IMAGE_REUSED" "$IMAGE_RESULT"
 
       - name: Download suite reports
         if: always()
@@ -1274,6 +1279,9 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           IMAGE_FINGERPRINT: ${{ needs.browser-ide-image-reuse.outputs.fingerprint }}
+          FULL: ${{ needs.changes.outputs.full || 'false' }}
+          IDE: ${{ needs.changes.outputs.ide || 'false' }}
+          IMAGE_REUSE_RESULT: ${{ needs.browser-ide-image-reuse.result }}
           IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
           IMAGE_SOURCE_RUN_ID: ${{ needs.browser-ide-image-reuse.outputs.source_run_id }}
           IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
@@ -1281,31 +1289,10 @@ jobs:
           set -euo pipefail
           tested_commit=$(git rev-parse HEAD)
           tested_tree=$(git rev-parse 'HEAD^{tree}')
-          if [ "$IMAGE_RESULT" = "success" ]; then
-            image_evidence_result=executed
-            image_source_run_id=$RUN_ID
-          elif [ "$IMAGE_REUSED" = "true" ]; then
-            image_evidence_result=reused
-            image_source_run_id=$IMAGE_SOURCE_RUN_ID
-          else
-            image_evidence_result=not-required
-            image_source_run_id=''
-          fi
-          jq -n \
-            --arg schema 'codeflare.pr-checks-receipt.v2' \
-            --arg repository "$REPOSITORY" \
-            --arg workflowPath '.github/workflows/test.yml' \
-            --arg runId "$RUN_ID" \
-            --argjson runAttempt "$RUN_ATTEMPT" \
-            --arg testedCommit "$tested_commit" \
-            --arg testedTree "$tested_tree" \
-            --arg imageFingerprint "$IMAGE_FINGERPRINT" \
-            --arg imageEvidenceResult "$image_evidence_result" \
-            --arg imageSourceRunId "$image_source_run_id" \
-            '{schema:$schema,repository:$repository,workflowPath:$workflowPath,runId:$runId,
-              runAttempt:$runAttempt,testedCommit:$testedCommit,testedTree:$testedTree,
-              lanes:{browserIdeImage:{fingerprint:$imageFingerprint,result:$imageEvidenceResult,
-                sourceRunId:(if $imageSourceRunId == "" then null else $imageSourceRunId end)}}}' \
+          node scripts/ci/browser-ide-image-reuse.mjs receipt \
+            "$REPOSITORY" "$RUN_ID" "$RUN_ATTEMPT" "$tested_commit" "$tested_tree" \
+            "$IMAGE_FINGERPRINT" "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" \
+            "$IMAGE_REUSED" "$IMAGE_SOURCE_RUN_ID" "$IMAGE_RESULT" \
             > /tmp/pr-checks-receipt.json
 
       - name: Upload exact tested-tree receipt

@@ -18,7 +18,7 @@ const FEED_HOLD_MS = 1_700;
 const VIEWPORT_ROWS = 8;
 
 interface FeedLine {
-  tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn' | 'deny';
+  tone: 'cmd' | 'agent' | 'info' | 'ok' | 'dim' | 'warn' | 'deny';
   text: string;
 }
 
@@ -82,7 +82,9 @@ function buildFixture(): FeedFixture {
 
 function visibleLines(list: HTMLElement): string[] {
   return Array.from(list.children).map(
-    (line) => line.querySelector<HTMLElement>('[data-feed-live]')?.textContent ?? line.textContent ?? '',
+    (line) => line.querySelector<HTMLElement>('[data-feed-live] [data-feed-text]')?.textContent
+      ?? line.textContent
+      ?? '',
   );
 }
 
@@ -269,9 +271,15 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     const typingRow = fixture.softwareList.lastElementChild as HTMLElement;
     const reserve = typingRow.querySelector<HTMLElement>('[data-feed-reserve]')!;
     const live = typingRow.querySelector<HTMLElement>('[data-feed-live]')!;
-    expect(getComputedStyle(typingRow, '::before').content).toBe('none');
-    expect(getComputedStyle(reserve, '::before').content).toContain('❯');
-    expect(getComputedStyle(live, '::before').content).toContain('❯');
+    expect(typingRow.classList.contains('t-cmd')).toBe(false);
+    expect(typingRow.classList.contains('t-feed-command')).toBe(true);
+    for (const layer of [reserve, live]) {
+      const prompt = layer.querySelector<HTMLElement>('.t-feed-prompt')!;
+      expect(prompt.textContent).toBe('❯ ');
+      expect(prompt.getAttribute('aria-hidden')).toBe('true');
+      expect(layer.firstElementChild).toBe(prompt);
+      expect(prompt.nextElementSibling?.hasAttribute('data-feed-text')).toBe(true);
+    }
     vi.advanceTimersByTime(TYPE_MS - 1);
     expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text.slice(0, 1));
     vi.advanceTimersByTime(1);
@@ -324,10 +332,10 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS);
 
     const typingRow = fixture.softwareList.lastElementChild as HTMLElement;
-    expect(typingRow.querySelector('[data-feed-reserve]')?.textContent).toBe(
+    expect(typingRow.querySelector('[data-feed-reserve] [data-feed-text]')?.textContent).toBe(
       fixture.softwareEvents[0].text,
     );
-    expect(typingRow.querySelector('[data-feed-live]')?.textContent).toBe(
+    expect(typingRow.querySelector('[data-feed-live] [data-feed-text]')?.textContent).toBe(
       fixture.softwareEvents[0].text.slice(0, 1),
     );
     expect(typingRow.classList.contains('is-feed-typing')).toBe(true);
@@ -341,6 +349,8 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     vi.advanceTimersByTime(TYPE_MS * (fixture.softwareEvents[0].text.length - 1));
     expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text);
     expect(fixture.softwareList.lastElementChild?.querySelector('[data-feed-reserve]')).toBeNull();
+    expect(fixture.softwareList.lastElementChild?.classList.contains('t-feed-command')).toBe(false);
+    expect(fixture.softwareList.lastElementChild?.classList.contains('t-cmd')).toBe(true);
     expect(fixture.softwareList.getBoundingClientRect().height).toBe(reservedHeight);
   });
 

@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 
 import {
   browserIdeImageGate,
+  buildPrChecksReceipt,
   fingerprintEntries,
   isBrowserIdeImageInput,
   resolveReusableBrowserIdeImageRun,
@@ -214,6 +215,65 @@ describe('Browser IDE image aggregate gate', () => {
     rejects({ relevant: true, resolverResult: 'success', reused: true, imageResult: 'success' });
     rejects({ relevant: true, resolverResult: 'failure', reused: false, imageResult: 'skipped' });
     rejects({ relevant: false, resolverResult: 'success', reused: true, imageResult: 'skipped' });
+  });
+});
+
+describe('current exact-tree receipt with Browser IDE image provenance', () => {
+  const input = {
+    repository: repo,
+    runId,
+    runAttempt: 1,
+    testedCommit,
+    testedTree,
+    imageFingerprint: fingerprint,
+    full: false,
+    ide: true,
+    resolverResult: 'success',
+    imageReused: false,
+    imageSourceRunId: '',
+    imageResult: 'success',
+  };
+
+  it('records direct execution, validated reuse, and unaffected lanes distinctly', () => {
+    assert.deepEqual(buildPrChecksReceipt(input).lanes.browserIdeImage, {
+      fingerprint,
+      result: 'executed',
+      sourceRunId: runId,
+    });
+    assert.deepEqual(buildPrChecksReceipt({
+      ...input,
+      imageReused: true,
+      imageSourceRunId: '654321',
+      imageResult: 'skipped',
+    }).lanes.browserIdeImage, {
+      fingerprint,
+      result: 'reused',
+      sourceRunId: '654321',
+    });
+    assert.deepEqual(buildPrChecksReceipt({
+      ...input,
+      ide: false,
+      imageResult: 'skipped',
+    }).lanes.browserIdeImage, {
+      fingerprint,
+      result: 'not-required',
+      sourceRunId: null,
+    });
+  });
+
+  it('rejects contradictory evidence instead of publishing a reusable receipt', () => {
+    assert.throws(() => buildPrChecksReceipt({
+      ...input,
+      imageReused: true,
+      imageSourceRunId: '654321',
+      imageResult: 'success',
+    }));
+    assert.throws(() => buildPrChecksReceipt({
+      ...input,
+      imageReused: true,
+      imageSourceRunId: '',
+      imageResult: 'skipped',
+    }));
   });
 });
 

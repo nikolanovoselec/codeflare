@@ -239,6 +239,67 @@ export function browserIdeImageGate({ relevant, resolverResult, reused, imageRes
   }
 }
 
+export function buildPrChecksReceipt({
+  repository,
+  runId,
+  runAttempt,
+  testedCommit,
+  testedTree,
+  imageFingerprint,
+  full,
+  ide,
+  resolverResult,
+  imageReused,
+  imageSourceRunId,
+  imageResult,
+}) {
+  if (!repository || !RUN_ID_PATTERN.test(runId ?? '')) throw new Error('Receipt identity is invalid');
+  if (!Number.isInteger(runAttempt) || runAttempt < 1) throw new Error('Receipt run attempt is invalid');
+  if (!SHA_PATTERN.test(testedCommit ?? '') || !SHA_PATTERN.test(testedTree ?? '')) {
+    throw new Error('Receipt commit or tree is malformed');
+  }
+  if (!FINGERPRINT_PATTERN.test(imageFingerprint ?? '')) {
+    throw new Error('Receipt image fingerprint is malformed');
+  }
+  if (typeof full !== 'boolean' || typeof ide !== 'boolean' || typeof imageReused !== 'boolean') {
+    throw new Error('Receipt lane state is invalid');
+  }
+  browserIdeImageGate({
+    relevant: full || ide,
+    resolverResult,
+    reused: imageReused,
+    imageResult,
+  });
+
+  let result;
+  let sourceRunId;
+  if (imageResult === 'success' && !imageReused) {
+    result = 'executed';
+    sourceRunId = runId;
+  } else if (imageResult === 'skipped' && imageReused && RUN_ID_PATTERN.test(imageSourceRunId ?? '')) {
+    result = 'reused';
+    sourceRunId = imageSourceRunId;
+  } else if (imageResult === 'skipped' && !imageReused && !imageSourceRunId) {
+    result = 'not-required';
+    sourceRunId = null;
+  } else {
+    throw new Error('Receipt complete-image evidence state is inconsistent');
+  }
+
+  return {
+    schema: 'codeflare.pr-checks-receipt.v2',
+    repository,
+    workflowPath: '.github/workflows/test.yml',
+    runId,
+    runAttempt,
+    testedCommit,
+    testedTree,
+    lanes: {
+      browserIdeImage: { fingerprint: imageFingerprint, result, sourceRunId },
+    },
+  };
+}
+
 function ghApi(repo, endpoint) {
   return JSON.parse(execFileSync('gh', ['api', `repos/${repo}/${endpoint}`], {
     encoding: 'utf8',
@@ -348,7 +409,39 @@ function main() {
     process.stdout.write('Browser IDE complete-image lane is verified\n');
     return;
   }
-  throw new Error('Usage: browser-ide-image-reuse.mjs <fingerprint|resolve|gate> ...');
+  if (command === 'receipt') {
+    const [
+      repository,
+      runId,
+      runAttempt,
+      testedCommit,
+      testedTree,
+      imageFingerprint,
+      full,
+      ide,
+      resolverResult,
+      imageReused,
+      imageSourceRunId,
+      imageResult,
+    ] = args;
+    const receipt = buildPrChecksReceipt({
+      repository,
+      runId,
+      runAttempt: Number(runAttempt),
+      testedCommit,
+      testedTree,
+      imageFingerprint,
+      full: parseBoolean(full, 'full'),
+      ide: parseBoolean(ide, 'ide'),
+      resolverResult,
+      imageReused: parseBoolean(imageReused, 'image-reused'),
+      imageSourceRunId,
+      imageResult,
+    });
+    process.stdout.write(`${JSON.stringify(receipt)}\n`);
+    return;
+  }
+  throw new Error('Usage: browser-ide-image-reuse.mjs <fingerprint|resolve|gate|receipt> ...');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

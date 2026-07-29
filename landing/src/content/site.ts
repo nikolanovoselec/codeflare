@@ -86,7 +86,7 @@ export interface TopicOption {
 
 /** A single static terminal line with its display tone (CSS suffix). */
 export interface TranscriptLine {
-  tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn' | 'deny';
+  tone: 'cmd' | 'agent' | 'info' | 'ok' | 'dim' | 'warn' | 'deny';
   text: string;
 }
 
@@ -359,8 +359,8 @@ export const EXECUTION = {
         text: '$ sudo coredumpctl info nginx --no-pager | grep -E "Timestamp|Executable|Signal"',
       },
       {
-        tone: 'agent',
-        text: 'Executable: /usr/sbin/nginx · Signal: 11/SEGV · coredump retained',
+        tone: 'info',
+        text: 'Timestamp: 23:41:08 UTC · Executable: /usr/sbin/nginx · Signal: 11/SEGV',
       },
     ],
     events: [
@@ -377,7 +377,7 @@ export const EXECUTION = {
       },
       { tone: 'ok', text: '✓ 2 packages upgraded · 0 removed · services pending restart' },
       { tone: 'cmd', text: '$ sudo nginx -t' },
-      { tone: 'agent', text: 'nginx: configuration file /etc/nginx/nginx.conf syntax is ok' },
+      { tone: 'info', text: 'nginx: configuration file /etc/nginx/nginx.conf syntax is ok' },
       { tone: 'cmd', text: '$ sudo systemctl restart nginx && systemctl is-active nginx' },
       { tone: 'ok', text: 'active' },
       {

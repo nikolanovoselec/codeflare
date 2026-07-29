@@ -453,9 +453,9 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
 
     const runs = [EXECUTION.software, EXECUTION.infrastructure];
     expect([...new Set(EXECUTION.infrastructure.context.map((line) => line.tone))]).toEqual(
-      expect.arrayContaining(['cmd', 'ok', 'dim', 'warn', 'agent']),
+      expect.arrayContaining(['cmd', 'ok', 'dim', 'warn', 'info']),
     );
-    expect(EXECUTION.infrastructure.events.slice(-8).some((line) => line.tone === 'agent')).toBe(true);
+    expect(EXECUTION.infrastructure.events.slice(-8).some((line) => line.tone === 'info')).toBe(true);
     faces.forEach((face, index) => {
       const terminal = face.querySelector('.terminal.execution-terminal[data-proof]')!;
       const feed = terminal.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;

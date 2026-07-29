@@ -9,6 +9,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
@@ -30,6 +31,15 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(work, { recursive: true, force: true });
 });
+
+function evaluateWorkflowCondition(expression: string, values: Record<string, string>): boolean {
+  let resolved = expression;
+  for (const reference of Object.keys(values).sort((left, right) => right.length - left.length)) {
+    resolved = resolved.replaceAll(reference, JSON.stringify(values[reference]));
+  }
+  expect(resolved).not.toMatch(/\b(?:needs|steps)\./);
+  return Boolean(runInNewContext(resolved, Object.create(null), { timeout: 100 }));
+}
 
 function touch(root: string, relPath: string) {
   const p = join(root, relPath);
@@ -211,10 +221,10 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     };
     const changes = workflow.jobs.changes;
     const reuse = workflow.jobs['browser-ide-image-reuse'];
+    const image = workflow.jobs['browser-ide-image'] as typeof reuse & { if?: string };
     const summary = workflow.jobs.summary;
     const resolve = reuse.steps?.find((step) => step.name === 'Resolve reusable complete-image evidence');
-    const aggregate = summary.steps?.find((step) => step.name === 'Aggregate lane results')?.run ?? '';
-    const receipt = summary.steps?.find((step) => step.name === 'Write exact tested-tree receipt')?.run ?? '';
+    const gate = summary.steps?.find((step) => step.name === 'Verify complete-image result');
     const filters = String(changes.steps?.find((step) => step.id === 'filter')?.with?.filters ?? '');
     const ideInputs = filters.slice(filters.indexOf('\nide:'), filters.indexOf('\nhost:'));
 
@@ -238,11 +248,35 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(resolve?.if?.replace(/\s+/g, ' ').trim()).toBe(
       "github.event_name == 'pull_request' && steps.fingerprint.outputs.reuse_safe == 'true' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true')",
     );
-    expect(resolve?.run).toContain('browser-ide-image-reuse.mjs resolve');
-    expect(resolve?.run).toContain('permitted resolver output');
-    expect(aggregate).toContain('browser-ide-image-reuse.mjs gate');
-    expect(receipt).toContain('browserIdeImage');
-    expect(receipt).toContain('sourceRunId');
+    const imageCondition = image.if?.replace(/\s+/g, ' ').trim() ?? '';
+    const base = {
+      "needs.changes.outputs.full": 'false',
+      "needs.changes.outputs.ide": 'true',
+      "needs.browser-ide.result": 'success',
+      "needs.browser-ide-image-reuse.result": 'success',
+      "needs.browser-ide-image-reuse.outputs.reused": 'false',
+    };
+    expect(evaluateWorkflowCondition(imageCondition, base)).toBe(true);
+    expect(evaluateWorkflowCondition(imageCondition, {
+      ...base,
+      "needs.browser-ide-image-reuse.outputs.reused": 'true',
+    })).toBe(false);
+    expect(evaluateWorkflowCondition(imageCondition, {
+      ...base,
+      "needs.browser-ide-image-reuse.result": 'failure',
+    })).toBe(false);
+    expect(evaluateWorkflowCondition(imageCondition, {
+      ...base,
+      "needs.changes.outputs.ide": 'false',
+    })).toBe(false);
+    expect(evaluateWorkflowCondition(imageCondition, {
+      ...base,
+      "needs.changes.outputs.full": 'true',
+      "needs.changes.outputs.ide": 'false',
+    })).toBe(true);
+    expect(gate?.run?.replace(/\s+/g, ' ').trim()).toBe(
+      'node scripts/ci/browser-ide-image-reuse.mjs gate "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" "$IMAGE_REUSED" "$IMAGE_RESULT"',
+    );
   });
 
   it('REQ-OPS-001 AC4: complete-image and deploy builds share compatible caches', () => {
