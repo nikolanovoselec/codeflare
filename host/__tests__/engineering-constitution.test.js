@@ -13,6 +13,7 @@ const repoRoot = resolve(__dirname, '../..');
 const claudeDir = resolve(repoRoot, 'preseed/agents/claude');
 const piDir = resolve(repoRoot, 'preseed/agents/pi');
 const piConstitution = readFileSync(resolve(piDir, 'rules/engineering-constitution.md'), 'utf8');
+const piGitWorkflow = readFileSync(resolve(piDir, 'rules/git-workflow.md'), 'utf8');
 const generatedSource = readFileSync(resolve(repoRoot, 'src/lib/agent-seed.generated.ts'), 'utf8');
 const generatedDocuments = parseGeneratedSeed(generatedSource);
 
