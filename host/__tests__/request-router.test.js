@@ -246,7 +246,7 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
   });
 });
 
-describe('REQ-IDE-012 AC5: root workbench configuration projection', () => {
+describe('REQ-IDE-012 AC5+AC6: root workbench configuration projection', () => {
   const auth = { authorization: 'Bearer seam-test-token' };
   const savedToken = process.env.CONTAINER_AUTH_TOKEN;
   const savedMode = process.env.SESSION_MODE;
@@ -372,6 +372,12 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
   const savedSessionId = process.env.SESSION_ID;
   const realNow = Date.now;
   const servers = [];
+  const workbenchBody = [
+    '<!doctype html>',
+    '<meta id="vscode-workbench-web-configuration"',
+    ' data-settings="{&quot;remoteAuthority&quot;:&quot;codeflare.ch&quot;}">',
+    '<title>Code</title>',
+  ].join('');
   let now = 1_700_000_000_000;
   let refusingPort;
   let servingPort;
@@ -392,7 +398,7 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
 
     const upstreamPort = await listen((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(UPSTREAM_BODY);
+      res.end(workbenchBody);
     });
     // makeDeps points OpenVSCode at port 1, which nothing ever binds, so every
     // proxied connect is refused -- the warming path, without stubbing it.
@@ -439,7 +445,7 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
     // Reaching the editor ends the episode whatever state the clock was in.
     const reached = await getText(servingPort, '/api/vscode/warming-session/', auth);
     assert.equal(reached.status, 200);
-    assert.equal(reached.body, UPSTREAM_BODY);
+    assert.match(reached.body, /<title>Code<\/title>/);
 
     // Long enough after that success to have blown any inherited budget: the
     // next cold start must still get the full warming window, not an instant 504.
