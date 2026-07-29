@@ -23,10 +23,24 @@ const EXTENSION_NAME = 'codeflare-agent-sidebar';
 
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
-  await verifyCodeServerWorkspaceProjection();
   const inventoriesRoot = join(ROOT, 'extensions');
+  const unsupportedInventory = join(inventoriesRoot, 'none');
   assert.deepEqual((await readdir(inventoriesRoot)).sort(), ['claude', 'none', 'pi']);
-  assert.deepEqual(await readdir(join(inventoriesRoot, 'none')), []);
+  assert.deepEqual(await readdir(unsupportedInventory), []);
+
+  await verifyCodeServerWorkspaceProjection();
+  // code-server may initialize its extensions-dir with registry metadata. The
+  // unsupported inventory must still contain no extension or unknown entry.
+  const unsupportedEntries = await readdir(unsupportedInventory, { withFileTypes: true });
+  assert.deepEqual(
+    unsupportedEntries
+      .filter((entry) => entry.name !== 'extensions.json' || !entry.isFile())
+      .map((entry) => entry.name),
+    [],
+  );
+  if (unsupportedEntries.some((entry) => entry.name === 'extensions.json')) {
+    assert.deepEqual(JSON.parse(await readFile(join(unsupportedInventory, 'extensions.json'), 'utf8')), []);
+  }
 
   const officialPinPath = join(ROOT, 'official-claude.json');
   const officialPin = JSON.parse(await readFile(officialPinPath, 'utf8'));
