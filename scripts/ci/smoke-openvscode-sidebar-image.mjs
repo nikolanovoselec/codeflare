@@ -21,6 +21,35 @@ const ROOT = '/opt/codeflare/openvscode';
 const CODE_SERVER_ROOT = '/opt/code-server';
 const EXTENSION_NAME = 'codeflare-agent-sidebar';
 
+export async function verifyUnsupportedInventory(inventory) {
+  const entries = await readdir(inventory, { withFileTypes: true });
+  assert.deepEqual(
+    entries
+      .filter((entry) => entry.name !== 'extensions.json' || !entry.isFile())
+      .map((entry) => entry.name),
+    [],
+  );
+  if (entries.some((entry) => entry.name === 'extensions.json')) {
+    assert.deepEqual(JSON.parse(await readFile(join(inventory, 'extensions.json'), 'utf8')), []);
+  }
+}
+
+async function waitForUnsupportedInventoryInitialization(inventory) {
+  let lastError;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      if ((await readdir(inventory)).includes('extensions.json')) {
+        await verifyUnsupportedInventory(inventory);
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw lastError ?? new Error('code-server did not initialize the unsupported inventory');
+}
+
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
   const inventoriesRoot = join(ROOT, 'extensions');
@@ -31,16 +60,7 @@ async function main() {
   await verifyCodeServerWorkspaceProjection();
   // code-server may initialize its extensions-dir with registry metadata. The
   // unsupported inventory must still contain no extension or unknown entry.
-  const unsupportedEntries = await readdir(unsupportedInventory, { withFileTypes: true });
-  assert.deepEqual(
-    unsupportedEntries
-      .filter((entry) => entry.name !== 'extensions.json' || !entry.isFile())
-      .map((entry) => entry.name),
-    [],
-  );
-  if (unsupportedEntries.some((entry) => entry.name === 'extensions.json')) {
-    assert.deepEqual(JSON.parse(await readFile(join(unsupportedInventory, 'extensions.json'), 'utf8')), []);
-  }
+  await verifyUnsupportedInventory(unsupportedInventory);
 
   const officialPinPath = join(ROOT, 'official-claude.json');
   const officialPin = JSON.parse(await readFile(officialPinPath, 'utf8'));
@@ -195,13 +215,20 @@ async function verifyCodeServerWorkspaceProjection() {
       authority: config.remoteAuthority,
       path: '/home/user/workspace',
     });
+    await waitForUnsupportedInventoryInitialization(join(ROOT, 'extensions', 'none'));
   } finally {
     try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already exited */ }
     await Promise.race([
       new Promise((resolve) => child.once('exit', resolve)),
       new Promise((resolve) => setTimeout(resolve, 2_000)),
     ]);
-    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already exited */ }
+    if (child.exitCode === null && child.signalCode === null) {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already exited */ }
+      await Promise.race([
+        new Promise((resolve) => child.once('exit', resolve)),
+        new Promise((resolve) => setTimeout(resolve, 2_000)),
+      ]);
+    }
     await rm(root, { recursive: true, force: true });
   }
 }
@@ -460,7 +487,9 @@ async function collect(root, output = []) {
   return output;
 }
 
-main().catch((error) => {
-  process.stderr.write(`SIDEBAR_IMAGE_SMOKE_FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    process.stderr.write(`SIDEBAR_IMAGE_SMOKE_FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
