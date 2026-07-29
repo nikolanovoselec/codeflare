@@ -104,7 +104,7 @@ describe('vscodeUpstreamRequestTarget / REQ-IDE-012 (fixed clean workspace navig
   });
 });
 
-describe('projectVscodeWorkbenchWorkspace / REQ-IDE-012 AC5+AC6 (clean fixed workbench configuration)', () => {
+describe('projectVscodeWorkbenchWorkspace / REQ-IDE-012 AC5+AC6+AC7 (clean fixed workbench configuration)', () => {
   const html = (config) => `<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="${JSON.stringify(config).replaceAll('"', '&quot;')}"><title>Code</title>`;
   const configuration = (document) => JSON.parse(
     document.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1].replaceAll('&quot;', '"'),
