@@ -20,7 +20,8 @@
  * animation's duration but not its delay or `backwards` fill, so an armed row
  * would render invisible during its delay window and then snap in (a flash).
  *
- * No IntersectionObserver (old browser, not reduced): arm everything at once.
+ * No IntersectionObserver (old browser, not reduced): arm ordinary proofs at
+ * once and leave bounded Transcript feeds in their resolved static state.
  */
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const artifacts = Array.from(document.querySelectorAll<HTMLElement>('[data-proof]'));
@@ -83,7 +84,7 @@ function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLi
   try {
     const value: unknown = JSON.parse(list.dataset[key] ?? '[]');
     if (!Array.isArray(value)) return [];
-    return value.filter((line): line is FeedLine => {
+    const valid = value.every((line) => {
       if (!line || typeof line !== 'object') return false;
       const candidate = line as { tone?: unknown; text?: unknown };
       return typeof candidate.tone === 'string'
@@ -91,6 +92,7 @@ function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLi
         && typeof candidate.text === 'string'
         && candidate.text.length > 0;
     });
+    return valid ? value as FeedLine[] : [];
   } catch {
     return [];
   }
@@ -115,12 +117,23 @@ function prepareFeed(list: HTMLElement): void {
 
 function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): void {
   for (const tone of FEED_TONES) row.classList.remove(`t-${tone}`);
-  row.classList.add(`t-${line.tone}`);
+  row.classList.add(`t-${line.tone}`, 'is-feed-typing');
+
+  // Keep the completed line in flow but invisible while the live copy types over
+  // it. On narrow screens this reserves the final wrapped height from character
+  // one, so neither the terminal nor the surrounding page grows mid-line.
+  const reserve = document.createElement('span');
+  reserve.dataset.feedReserve = '';
+  reserve.setAttribute('aria-hidden', 'true');
+  reserve.textContent = line.text;
+  const live = document.createElement('span');
+  live.dataset.feedLive = '';
   const text = document.createElement('span');
   const caret = document.createElement('span');
   caret.className = 't-caret';
   caret.setAttribute('aria-hidden', 'true');
-  row.replaceChildren(text, caret);
+  live.append(text, caret);
+  row.replaceChildren(reserve, live);
 
   let offset = 0;
   const tick = () => {
@@ -130,6 +143,8 @@ function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): 
       window.setTimeout(tick, TYPE_MS);
       return;
     }
+    row.classList.remove('is-feed-typing');
+    row.textContent = line.text;
     onComplete();
   };
   window.setTimeout(tick, TYPE_MS);
@@ -138,9 +153,10 @@ function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): 
 /** One bounded Transcript feed: every typed event reuses the shared rolling-row
  *  transition, pushing the oldest populated line out while keeping five rows. */
 function startFeed(list: HTMLElement): void {
-  if (list.dataset.feedStarted === 'true') return;
+  if (list.dataset.feedStarted === 'true' || list.dataset.feedState !== 'ready') return;
+  const context = parseFeed(list, 'feedContext');
   const events = parseFeed(list, 'feedEvents');
-  if (events.length !== 5 || list.children.length !== 5) return;
+  if (context.length !== 5 || events.length !== 5 || list.children.length !== 5) return;
   list.dataset.feedStarted = 'true';
   list.dataset.feedState = 'running';
   let index = 0;
@@ -168,18 +184,22 @@ function startFeed(list: HTMLElement): void {
   window.setTimeout(advance, ROLL_FIRST_MS);
 }
 
-/** Begin the shared slow roll loop or bounded Transcript feed on an artifact. */
+/** Start bounded Transcript feeds only after their terminal actually intersects. */
+function startFeeds(el: HTMLElement): void {
+  const feeds = Array.from(el.querySelectorAll<HTMLElement>('[data-feed-events]'));
+  if (feeds.length === 0) return;
+  el.classList.add('is-rolling');
+  for (const feed of feeds) startFeed(feed);
+}
+
+/** Begin the shared slow loop for ordinary proof-row lists on an armed artifact. */
 function startRoll(el: HTMLElement): void {
-  const lists = Array.from(el.querySelectorAll<HTMLElement>('[data-roll]')).filter(
-    (list) => list.children.length >= 3
+  const loops = Array.from(el.querySelectorAll<HTMLElement>('[data-roll]')).filter(
+    (list) => list.children.length >= 3 && !list.hasAttribute('data-feed-events')
   );
-  if (lists.length === 0) return;
+  if (loops.length === 0) return;
 
   el.classList.add('is-rolling');
-  const feeds = lists.filter((list) => list.hasAttribute('data-feed-events'));
-  for (const feed of feeds) startFeed(feed);
-  const loops = lists.filter((list) => !list.hasAttribute('data-feed-events'));
-  if (loops.length === 0) return;
 
   const tick = () => {
     if (document.hidden || !visible.has(el)) return;
@@ -201,9 +221,7 @@ if (reduced) {
   // Static markup is already the resolved artifact; no motion to arm.
 } else if (!('IntersectionObserver' in window)) {
   for (const el of artifacts) {
-    for (const feed of el.querySelectorAll<HTMLElement>('[data-feed-events]')) prepareFeed(feed);
-  }
-  for (const el of artifacts) {
+    if (el.querySelector('[data-feed-events]')) continue;
     el.classList.add('is-live');
     visible.add(el);
     startRoll(el);
@@ -232,7 +250,20 @@ if (reduced) {
     { rootMargin: '0px 0px 100px 0px' }
   );
 
-  // Tracks on-screen state so the roll loop pauses when the artifact leaves view.
+  // Unlike the generic proof reveal, a Transcript feed must retain its complete
+  // initial viewport until the terminal itself enters the viewport.
+  const feedObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        startFeeds(entry.target as HTMLElement);
+        feedObserver.unobserve(entry.target);
+      }
+    },
+    { threshold: 0.01 }
+  );
+
+  // Tracks on-screen state so the ordinary roll loop pauses when its artifact leaves view.
   const visibleObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) visible.add(entry.target as HTMLElement);
@@ -242,6 +273,7 @@ if (reduced) {
 
   for (const el of artifacts) {
     armObserver.observe(el);
-    if (el.querySelector('[data-roll]')) visibleObserver.observe(el);
+    if (el.querySelector('[data-feed-events]')) feedObserver.observe(el);
+    if (el.querySelector('[data-roll]:not([data-feed-events])')) visibleObserver.observe(el);
   }
 }

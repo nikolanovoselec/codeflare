@@ -1884,6 +1884,22 @@ svg {
   overflow-anchor: none;
 }
 
+/* A feed's completed line reserves its final wrapped height while the live copy
+   types in the same grid cell. This keeps narrow terminal and page geometry
+   stable without restoring the removed multi-row reservation system. */
+.transcript-feed .is-feed-typing {
+  display: grid;
+}
+
+.transcript-feed .is-feed-typing > [data-feed-reserve],
+.transcript-feed .is-feed-typing > [data-feed-live] {
+  grid-area: 1 / 1;
+}
+
+.transcript-feed [data-feed-reserve] {
+  visibility: hidden;
+}
+
 /* Once an artifact is rolling, its one-shot entrance keyframes must not replay
    on DOM re-insertion (they are backwards-filled and would flash rows invisible). */
 .is-rolling .gate-step,

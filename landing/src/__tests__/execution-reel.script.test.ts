@@ -78,7 +78,14 @@ function buildFixture(): FeedFixture {
 }
 
 function visibleLines(list: HTMLElement): string[] {
-  return Array.from(list.children).map((line) => line.textContent ?? '');
+  return Array.from(list.children).map(
+    (line) => line.querySelector<HTMLElement>('[data-feed-live]')?.textContent ?? line.textContent ?? '',
+  );
+}
+
+function removeIntersectionObserver(): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delete (window as any).IntersectionObserver;
 }
 
 function mockMatchMedia(prefersReducedMotion: boolean): void {
@@ -94,16 +101,19 @@ function mockMatchMedia(prefersReducedMotion: boolean): void {
 }
 
 function installIntersectionObserver(): {
-  intersect: (target: Element) => void;
+  intersect: (target: Element, phase?: 'all' | 'prearm' | 'feed') => void;
   observe: ReturnType<typeof vi.fn>;
   unobserve: ReturnType<typeof vi.fn>;
 } {
-  const callbacks: IntersectionObserverCallback[] = [];
+  const observers: Array<{
+    callback: IntersectionObserverCallback;
+    options?: IntersectionObserverInit;
+  }> = [];
   const observe = vi.fn();
   const unobserve = vi.fn();
   class MockIntersectionObserver {
-    constructor(callback: IntersectionObserverCallback) {
-      callbacks.push(callback);
+    constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+      observers.push({ callback, options });
     }
     observe = observe;
     unobserve = unobserve;
@@ -119,9 +129,13 @@ function installIntersectionObserver(): {
     value: MockIntersectionObserver,
   });
   return {
-    intersect: (target: Element) => {
-      for (const callback of callbacks) {
-        callback(
+    intersect: (target: Element, phase = 'all') => {
+      for (const observer of observers) {
+        const isPrearm = observer.options?.rootMargin === '0px 0px 100px 0px';
+        const isFeed = observer.options?.threshold === 0.01;
+        if (phase === 'prearm' && !isPrearm) continue;
+        if (phase === 'feed' && !isFeed) continue;
+        observer.callback(
           [{ isIntersecting: true, target } as IntersectionObserverEntry],
           {} as IntersectionObserver,
         );
@@ -177,13 +191,21 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     const observer = installIntersectionObserver();
 
     await import('../scripts/proof');
-    observer.intersect(fixture.software);
+    observer.intersect(fixture.software, 'prearm');
+    vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS * 2);
+    expect(fixture.softwareList.dataset.feedState).toBe('ready');
+    expect(visibleLines(fixture.softwareList)).toEqual(fixture.softwareContext.map((line) => line.text));
 
-    vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS);
+    observer.intersect(fixture.software, 'feed');
+    vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS - 1);
+    expect(visibleLines(fixture.softwareList).at(-1)).toBe('');
+    vi.advanceTimersByTime(1);
+    expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text.slice(0, 1));
+    vi.advanceTimersByTime(TYPE_MS - 1);
+    expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text.slice(0, 1));
+    vi.advanceTimersByTime(1);
+    expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text.slice(0, 2));
     expect(visibleLines(fixture.softwareList)[0]).toBe(fixture.softwareContext[1].text);
-    const typing = visibleLines(fixture.softwareList).at(-1)!;
-    expect(typing.length).toBeGreaterThan(0);
-    expect(typing.length).toBeLessThan(fixture.softwareEvents[0].text.length);
     expect(visibleLines(fixture.infrastructureList)).toEqual(
       fixture.infrastructureContext.map((line) => line.text),
     );
@@ -193,6 +215,70 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.softwareList.dataset.feedState).toBe('complete');
     expect(fixture.softwareList.querySelector('.t-caret')).toBeNull();
     expect(fixture.softwareList.children).toHaveLength(5);
+  });
+
+  it('keeps wrapped row geometry reserved for the complete event while typing', async () => {
+    const fixture = buildFixture();
+    fixture.softwareEvents[0].text = 'software-event-that-wraps-across-several-narrow-viewport-lines';
+    fixture.softwareList.dataset.feedEvents = JSON.stringify(fixture.softwareEvents);
+    mockMatchMedia(false);
+    const observer = installIntersectionObserver();
+
+    await import('../scripts/proof');
+    observer.intersect(fixture.software, 'feed');
+    vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS);
+
+    const typingRow = fixture.softwareList.lastElementChild as HTMLElement;
+    expect(typingRow.querySelector('[data-feed-reserve]')?.textContent).toBe(
+      fixture.softwareEvents[0].text,
+    );
+    expect(typingRow.querySelector('[data-feed-live]')?.textContent).toBe(
+      fixture.softwareEvents[0].text.slice(0, 1),
+    );
+    expect(typingRow.classList.contains('is-feed-typing')).toBe(true);
+
+    vi.advanceTimersByTime(TYPE_MS * (fixture.softwareEvents[0].text.length - 1));
+    expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text);
+    expect(fixture.softwareList.lastElementChild?.querySelector('[data-feed-reserve]')).toBeNull();
+  });
+
+  it('rejects either malformed feed payload without replacing or animating the resolved viewport', async () => {
+    const fixture = buildFixture();
+    const softwareResolved = visibleLines(fixture.softwareList);
+    const infrastructureResolved = visibleLines(fixture.infrastructureList);
+    fixture.softwareList.dataset.feedContext = '{';
+    fixture.infrastructureEvents[2] = { tone: 'ok', text: '' };
+    fixture.infrastructureList.dataset.feedEvents = JSON.stringify(fixture.infrastructureEvents);
+    mockMatchMedia(false);
+    const observer = installIntersectionObserver();
+
+    await import('../scripts/proof');
+    observer.intersect(fixture.software, 'feed');
+    observer.intersect(fixture.infrastructure, 'feed');
+    vi.advanceTimersByTime(60_000);
+
+    expect(visibleLines(fixture.softwareList)).toEqual(softwareResolved);
+    expect(visibleLines(fixture.infrastructureList)).toEqual(infrastructureResolved);
+    expect(fixture.softwareList.dataset.feedState).toBe('resolved');
+    expect(fixture.infrastructureList.dataset.feedState).toBe('resolved');
+    expect(fixture.softwareList.dataset.feedStarted).toBeUndefined();
+    expect(fixture.infrastructureList.dataset.feedStarted).toBeUndefined();
+  });
+
+  it('leaves resolved feed viewports static when intersection observation is unavailable', async () => {
+    const fixture = buildFixture();
+    const softwareResolved = visibleLines(fixture.softwareList);
+    const infrastructureResolved = visibleLines(fixture.infrastructureList);
+    mockMatchMedia(false);
+    removeIntersectionObserver();
+
+    await import('../scripts/proof');
+    vi.advanceTimersByTime(60_000);
+
+    expect(visibleLines(fixture.softwareList)).toEqual(softwareResolved);
+    expect(visibleLines(fixture.infrastructureList)).toEqual(infrastructureResolved);
+    expect(fixture.softwareList.dataset.feedState).toBe('resolved');
+    expect(fixture.infrastructureList.dataset.feedState).toBe('resolved');
   });
 
   it('starts each stacked terminal independently and never restarts a completed feed', async () => {
