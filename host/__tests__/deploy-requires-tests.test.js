@@ -143,6 +143,11 @@ describe('manual deploys cannot skip tests', () => {
     'github.event.workflow_run.event': 'push',
     'github.event.workflow_run.head_repository.full_name': 'nikolanovoselec/codeflare',
   };
+  const prerequisiteResults = {
+    'build-worker': ['needs.prepare.result'],
+    container: ['needs.prepare.result'],
+    deploy: ['needs.prepare.result', 'needs.build-worker.result', 'needs.container.result'],
+  };
 
   for (const name of GATED_JOBS) {
     it(`behaviorally gates "${name}" on an authoritative verification path`, () => {
@@ -154,6 +159,7 @@ describe('manual deploys cannot skip tests', () => {
 
       for (const [scenario, values, expectedResult] of [
         ['validated reusable run', reusableDispatch, true],
+        ['validated explicit run', { ...reusableDispatch, 'inputs.verified_run_id': '123456' }, true],
         ['successful inline verification', inlineDispatch, true],
         ['resolver failure', { ...reusableDispatch, 'needs.verify-existing.result': 'failure' }, false],
         ['missing resolver output', { ...reusableDispatch, 'needs.verify-existing.outputs.verified': '' }, false],
@@ -163,12 +169,22 @@ describe('manual deploys cannot skip tests', () => {
         ['red workflow_run', { ...successfulWorkflowRun, 'github.event.workflow_run.conclusion': 'failure' }, false],
         ['fork workflow_run', { ...successfulWorkflowRun, 'github.event.workflow_run.head_repository.full_name': 'attacker/fork' }, false],
         [
-          'cancelled verification dependency',
+          'cancelled inline verification dependency',
           { ...reusableDispatch, 'needs.verify.result': 'cancelled' },
+          name === 'outcome',
+        ],
+        [
+          'cancelled resolver dependency',
+          { ...reusableDispatch, 'needs.verify-existing.result': 'cancelled' },
           name === 'outcome',
         ],
       ]) {
         assert.equal(evaluateCondition(gate, values), expectedResult, `${name}: ${scenario}`);
+      }
+
+      for (const prerequisite of prerequisiteResults[name] ?? []) {
+        const values = { ...reusableDispatch, [prerequisite]: 'failure' };
+        assert.equal(evaluateCondition(gate, values), false, `${name}: failed ${prerequisite}`);
       }
     });
   }
