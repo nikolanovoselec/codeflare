@@ -5,13 +5,16 @@
  * with proof.ts: a full eight-line viewport reveals top-down, then rolls once
  * per typed event and settles full with a blinking cursor.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EXECUTION } from '../content/site';
 
+const globalCss = readFileSync(resolve(process.cwd(), 'src/styles/global.css'), 'utf8');
 const ROLL_FIRST_MS = 3_000;
 const PHASE_MS = 420;
 const TYPE_MS = 58;
 const VIEWPORT_ROWS = 8;
-const EVENT_ROWS = 10;
 
 interface FeedLine {
   tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn' | 'deny';
@@ -34,14 +37,9 @@ function addFeed(
   root: HTMLElement,
   name: 'software' | 'infrastructure',
 ): { face: HTMLElement; list: HTMLElement; context: FeedLine[]; events: FeedLine[] } {
-  const context = Array.from({ length: VIEWPORT_ROWS }, (_, index): FeedLine => ({
-    tone: index % 2 === 0 ? 'cmd' : 'dim',
-    text: `${name}-context-${index}`,
-  }));
-  const events = Array.from({ length: EVENT_ROWS }, (_, index): FeedLine => ({
-    tone: index % 2 === 0 ? 'ok' : 'warn',
-    text: `${name}-event-${index}`,
-  }));
+  const run = EXECUTION[name];
+  const context: FeedLine[] = run.context.map((line) => ({ ...line }));
+  const events: FeedLine[] = run.events.map((line) => ({ ...line }));
   const face = document.createElement('section');
   face.dataset.proof = '';
   face.dataset.executionFace = name;
@@ -231,8 +229,16 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
       fixture.softwareEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
     );
     expect(fixture.softwareList.dataset.feedState).toBe('complete');
-    expect(fixture.softwareList.lastElementChild?.querySelector('.t-caret')).not.toBeNull();
+    const finalCaret = fixture.softwareList.lastElementChild?.querySelector<HTMLElement>('.t-caret');
+    expect(finalCaret).not.toBeNull();
     expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
+
+    const style = document.createElement('style');
+    style.textContent = globalCss;
+    document.head.appendChild(style);
+    expect(getComputedStyle(finalCaret!).animation).toContain('caret');
+    expect(getComputedStyle(finalCaret!).animation).toContain('infinite');
+    style.remove();
   });
 
   it('keeps wrapped row geometry reserved for the complete event while typing', async () => {
@@ -323,8 +329,10 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.infrastructureList.dataset.feedState).toBe('resolved');
   });
 
-  it('starts each terminal independently and never restarts a completed simulation', async () => {
+  it('completes both authored simulations independently and never restarts them', async () => {
     const fixture = buildFixture();
+    expect(fixture.softwareEvents).toHaveLength(13);
+    expect(fixture.infrastructureEvents).toHaveLength(12);
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
@@ -332,6 +340,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     observer.intersect(fixture.software);
     vi.advanceTimersByTime(60_000);
     expect(fixture.softwareList.dataset.feedState).toBe('complete');
+    expect(fixture.softwareList.lastElementChild?.querySelector('.t-caret')).not.toBeNull();
     expect(fixture.infrastructureList.dataset.feedState).toBe('ready');
 
     const settled = visibleLines(fixture.softwareList);
@@ -345,6 +354,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(visibleLines(fixture.infrastructureList)).toEqual(
       fixture.infrastructureEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
     );
+    expect(fixture.infrastructureList.lastElementChild?.querySelector('.t-caret')).not.toBeNull();
   });
 
   it('keeps the complete resolved event viewports under reduced motion', async () => {
