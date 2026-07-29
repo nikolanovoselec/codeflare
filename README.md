@@ -39,27 +39,19 @@ Codeflare gives agents a governed execution environment for software delivery, b
 | **Infrastructure operations** | Operate approved infrastructure with tools such as SSH and `kubectl`, governed by the customer's Cloudflare Zero Trust policies. Coming soon and currently in private preview. |
 | **End-to-end test automation** | Drive deployed user journeys in isolated Cloudflare Browser Run sessions through Chrome DevTools. Agents can test desktop and mobile viewports, interact with the application, capture screenshots, inspect rendered state, and judge each flow against its acceptance criteria. |
 | **Deployed-system verification** | Correlate browser results with logs, checks, live URLs, and deployment state. Deterministic assertions remain in CI alongside semantic browser validation. |
-| **Operational recovery** | Diagnose failed builds or deployments, inspect current state, apply bounded corrections, and use documented deployment and rollback procedures. |
+| **Operational recovery** | Diagnose failed builds or deployments, inspect current state, apply controlled corrections, and use documented deployment and rollback procedures. |
 
 ---
 
 ## Disposable by design
 
-AI agents need broad tools to be useful. Codeflare moves that activity away from endpoint devices and persistent shared runners into one isolated runtime per session.
+AI agents need broad tools to be useful. Codeflare moves that activity away from endpoint devices and persistent shared runners into an isolated, disposable workspace for each session.
 
-> Agents run in disposable session containers rather than on laptops or long-lived shared runners. When a user stops a session, or its idle timeout expires, the runtime, processes, temporary IDE state, and unsynced transient state are torn down. Only explicitly synchronized workspace, Vault, and selected configuration data survives through bounded R2 synchronization.
+A session ends when the user stops it or its idle timeout expires. Selected project files, organizational knowledge, and workspace preferences can carry forward; running processes, temporary files, and session-only application data do not.
 
-Agents get the tools needed to act without leaving a long-lived runtime behind after the work ends.
+This reduces standing access and separates one session from another. It does **not** reverse changes already made outside the session, including synchronized files, Git pushes, deployments, API calls, or infrastructure changes.
 
-Closing the browser does not destroy a session immediately. It starts the inactivity path; after the configured period without real terminal or Browser IDE input, Codeflare stops the container. Users can also stop or delete a session explicitly. A final bounded sync runs during graceful shutdown.
-
-This removes standing runtime persistence and separates sessions from one another. It does **not** undo synced file changes, Git pushes, deployments, API calls, or other external side effects. Terminals, trusted extensions, and agents retain root access inside their own container; the disposable container and authenticated proxy are the isolation boundary, not an additional tool sandbox.
-
-Persistent and ephemeral state are deliberately separated:
-
-| Persists intentionally | Disappears with the runtime |
-|---|---|
-| Synced workspace files, Vault content, selected user configuration, and a bounded IDE UI snapshot | Processes, terminals, non-synced temporary files, live IDE databases, extension state, authentication state, chat history, logs, WAL/SHM files, and unsynced transient data |
+Agents and trusted tools still have broad access inside their session. Disposable sessions reduce persistence; they are not a substitute for policy, review, or human approval.
 
 ---
 
@@ -70,31 +62,29 @@ Codeflare applies one governed workflow across software delivery, browser automa
 1. **Define intent:** requirements, acceptance criteria, and operational scope establish the approved outcome.
 2. **Execute:** agents work in repositories and approved environments using the team's existing tools.
 3. **Test:** behavioral tests prove observable contracts in CI, while Browser Run and Chrome DevTools exercise deployed user journeys against their acceptance criteria.
-4. **Review:** specialist lanes inspect code, specifications, documentation, security, and observable behavior; humans approve consequential operational actions.
+4. **Review:** specialist reviewers inspect code, specifications, documentation, security, and observable behavior; humans approve consequential operational actions.
 5. **Integrate:** GitHub pull requests, branch protection, and CI govern source changes, while customer policies govern infrastructure access.
 6. **Deploy and verify:** agents follow approved deployment or operational workflows, inspect checks and logs, and verify live systems in a real browser.
-7. **Recover:** failed verification routes back to a bounded fix; documented rollback remains available when promotion is unsafe.
+7. **Recover:** failed verification routes back to a controlled fix; documented rollback remains available when promotion is unsafe.
 
-Enterprise sessions include organizational rules, reusable skills, specialist agents, specification-driven development, TDD enforcement, PR-boundary review, CI monitoring, browser verification, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
+Enterprise sessions apply the organization's requirements, engineering rules, review process, CI gates, browser verification, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
 
 ---
 
 ## Enterprise controls
 
-Enterprise Codeflare is deployed inside the customer's Cloudflare account. That establishes one consistent control boundary; the services below are customer-configured Cloudflare capabilities, not a separate Codeflare-hosted identity, inference, or observability platform.
+Enterprise Codeflare uses customer-configured services inside the customer's Cloudflare account, keeping identity, AI governance, network policy, data, and operational evidence under customer control.
 
 | Control | Enterprise behavior |
 |---|---|
-| **Identity and authorization** | Cloudflare Access in the customer's account federates the corporate identity provider. Access JWTs, customer-managed user/admin groups, just-in-time admission, and live group checks govern entry and administration. |
-| **Inference routing** | Supported enterprise agent traffic is intercepted at the platform boundary and routed through the customer's Cloudflare AI Gateway. Global and per-group route catalogs constrain approved models, defaults, reasoning, and context windows. |
-| **Egress and DLP** | Optional strict egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway policies. Existing allow, block, isolation, and DLP policy remains customer-managed; missing configured egress fails closed. |
+| **Identity and authorization** | Use the customer's corporate identity and groups through Cloudflare Access to govern who can enter and administer Codeflare. |
+| **AI governance** | Route supported model traffic through the customer's Cloudflare AI Gateway, with approved models and policies defined by the organization. |
+| **Egress and DLP** | Apply the customer's Cloudflare Gateway controls to outbound web traffic, including existing allow, block, isolation, and DLP policy. |
 | **Private infrastructure reach** *(coming soon, private preview)* | Connect agents to approved servers, clusters, databases, internal services, and appliances through the customer's Cloudflare Zero Trust policies. |
-| **Credential boundaries** | AI Gateway, enterprise GitHub, and Browser Rendering credentials are resolved and injected Worker-side rather than given directly to the container. The exact remaining credential set depends on deployment and storage mode; credential-free containers are not claimed universally. |
-| **Storage and encryption** | Workspace and Vault persistence use R2/KV in the customer's Cloudflare account. AES-256-GCM and SSE-C are optional; Governed Mode supports customer inspection through an explicit, verified storage-regime migration. |
-| **FinOps and route attribution** | AI Gateway metadata attributes supported model usage to the verified user and matched groups. Route policy constrains available capacity, while session containers scale to zero after stop. |
-| **Operational evidence** | GitHub Actions logs and artifacts, CI outcomes, SBOM and scan evidence, session resource metrics, Cloudflare dashboards, and AI Gateway analytics remain in systems the customer controls. |
-
-Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudflare Gateway policies, and R2/KV in the customer's Cloudflare account are distinct controls. Access governs who enters Codeflare; AI Gateway governs supported model traffic; Gateway governs optional direct-internet egress; R2/KV governs persisted state.
+| **Credential protection** | Keep supported platform and service credentials outside the agent workspace. The exact boundary depends on the selected deployment and integrations. |
+| **Customer-controlled data** | Keep persisted workspace and organizational knowledge in the customer's Cloudflare account, with optional encryption and governed inspection controls. |
+| **Cost and usage control** | Attribute supported model usage to users and groups, constrain available routes, and stop session compute when it is no longer needed. |
+| **Operational evidence** | Retain CI results, security evidence, resource metrics, and AI usage analytics in systems the customer controls. |
 
 ---
 
@@ -105,34 +95,34 @@ Cloudflare Access, the customer's Cloudflare AI Gateway, the customer's Cloudfla
 
 ### Terminal and Browser VS Code
 
-- Six browser-native terminal tabs per session, with two-to-four-pane tiling.
-- Pre-warmed agent startup and configurable Fast Start behavior.
+- Six browser-native terminal tabs per session, with flexible pane layouts.
+- Fast startup for supported agents.
 - Authenticated Browser VS Code that starts on demand inside each session.
-- Native **Codeflare Chat** and **Review with Codeflare** in Browser VS Code, plus the official Claude editor panel for Claude sessions; no account-backed Copilot extension in the Browser IDE.
-- Bounded continuity for theme, Explorer expansion, and canonical in-workspace open files without persisting IDE databases, credentials, extension state, or chat history.
-- Live CPU, memory, disk, sync, active/idle, and stopped status.
-- MultiView for observing several existing sessions side by side without changing their lifecycle.
+- Native **Codeflare Chat** and **Review with Codeflare** in Browser VS Code without a separate Copilot sign-in, plus the official Claude editor panel for Claude sessions.
+- Continuity for selected editor preferences and open files without carrying credentials or chat history between runtimes.
+- Live resource, synchronization, and session status.
+- MultiView for observing several sessions side by side.
 
 ### Repository, infrastructure, and browser tools
 
-- GitHub repository browsing, cloning, `git`, `gh`, pull-request, review, and CI workflows using the user's authorized permissions.
-- Standard infrastructure CLIs and target-native tools inside the session, including SSH and `kubectl`, with access governed through the customer's Cloudflare Zero Trust environment.
-- Cloudflare Browser Run and Chrome DevTools for end-to-end test automation, responsive viewport checks, screenshots, rendered-state inspection, and semantic deployed-app verification.
+- Repository, pull-request, review, and CI workflows using the user's authorized permissions.
+- Standard infrastructure tools, including SSH and `kubectl`, with access governed through the customer's Cloudflare Zero Trust environment.
+- Cloudflare Browser Run and Chrome DevTools for end-to-end test automation, responsive testing, screenshots, and deployed-app verification.
 - Reusable skills for architecture, deployment, security, infrastructure, and performance work across the customer's chosen platforms.
 
 ### Memory and project intelligence
 
-- A browser-native SilverBullet Vault for notes, decisions, plans, and captured context.
-- Cross-session memory for approved durable context rather than hidden process continuity.
-- Knowledge graphs connect source code, requirements, decisions, plans, and documentation so agents can trace dependencies and change impact.
-- Curated architecture, debugging, deployment, security, review, and refactoring specialists.
+- An integrated knowledge workspace for notes, decisions, plans, and captured context.
+- Approved organizational context that carries across sessions without relying on a persistent agent process.
+- A connected view of source code, requirements, decisions, plans, and documentation that helps agents trace dependencies and change impact.
+- Specialist agents for architecture, debugging, deployment, security, review, and refactoring.
 
 ![Codeflare on a phone](assets/documentation/mobile-phone.jpg)
 *The terminal workspace is optimized for mobile input as well as desktop and tablet use.*
 
 ### Supported agents
 
-The full product supports seven session choices; deployment policy can narrow the available set. Enterprise mode uses its configured gateway-capable agent allowlist plus Bash.
+Codeflare supports multiple agent choices, and administrators can decide which are available in their deployment.
 
 | Agent | Description |
 |---|---|
@@ -155,26 +145,20 @@ Codeflare's deepest integrations are with Claude Code and Pi. Other agents recei
 
 ```mermaid
 graph LR
-    U[Engineer] --> A[Cloudflare Access]
-    A --> W[Codeflare Worker control plane]
-    W --> S[Session Durable Object]
-    S --> C[Disposable session container]
-    C --> T[Terminal and Browser VS Code]
-    W --> D[R2 and KV persistence]
-    C --> I[Worker-side credential and inference interceptors]
-    I --> AI[Customer's Cloudflare AI Gateway]
-    I --> GW[Customer's Cloudflare Gateway policies]
-    I --> P[Authorized GitHub and Cloudflare APIs]
-    W --> Z[Customer's Cloudflare Zero Trust]
-    Z --> H[Approved infrastructure targets]
-    W --> E[GitHub and Cloudflare operational evidence]
+    U[Engineer] --> I[Customer identity]
+    I --> C[Codeflare control plane]
+    C --> S[Disposable session]
+    S --> T[Terminal, Browser VS Code, and agents]
+    C --> G[Customer AI, network, and data controls]
+    C --> R[GitHub and CI]
+    C -. private preview .-> H[Approved infrastructure]
 ```
 
-The Worker owns authentication, routing, API boundaries, session records, and browser-to-container proxying. Each session Durable Object owns one container lifecycle. The host inside that container runs terminal processes, agent tooling, synchronization, and code-server. R2/KV in the customer's Cloudflare account retain only the state selected for persistence.
+The Codeflare control plane handles authentication, routing, session lifecycle, and access to customer services. Each engineer works in a separate disposable runtime containing the terminal, Browser VS Code, and selected agents.
 
-In enterprise mode, supported LLM and credential-bearing traffic uses Worker-side interceptors so sensitive coordinates and tokens can remain outside the agent runtime. Optional strict egress covers outbound web traffic through the customer's Cloudflare Gateway policies.
+Enterprise deployments connect to the customer's identity, AI governance, network policy, storage, and GitHub environment. Supported credentials can remain outside the agent runtime, while GitHub and the customer's Cloudflare account retain delivery and operational evidence.
 
-Private infrastructure connectivity uses Workers VPC and Cloudflare Mesh under the customer's Zero Trust policies. This capability is coming soon and currently in private preview. GitHub remains the source-change and approval system; GitHub Actions and Cloudflare provide deployment and runtime evidence.
+Private-preview infrastructure access extends the customer's Cloudflare Zero Trust policies to approved targets.
 
 See [Architecture](documentation/lanes/architecture.md), [Authentication](documentation/lanes/authentication.md), [Security](documentation/lanes/security.md), [Container](documentation/lanes/container.md), and the [Enterprise Mode specification](sdd/spec/enterprise-mode.md).
 
@@ -279,7 +263,7 @@ Full details and residual risks are documented in [Security](documentation/lanes
 - **Identity:** authenticated surfaces validate the configured identity boundary. Enterprise uses Cloudflare Access in the customer's account and can reference customer-managed groups; Codeflare does not claim a separate direct SAML/OIDC or SCIM integration.
 - **Session isolation:** each session has a separate root container, PTY set, and authenticated route. Agents cannot access another session's runtime through Codeflare, but trusted code remains unrestricted inside its own container.
 - **Ephemerality:** stopping a session tears down processes and transient state. It reduces standing persistence but cannot reverse synchronized files or external operations.
-- **Credential handling:** the master deployment token never enters containers. Enterprise model, GitHub, and Browser Rendering credentials can remain Worker-side; other modes and configurations may inject user-authorized credentials.
+- **Credential handling:** the master deployment token never enters agent sessions. Supported enterprise model, GitHub, and Browser Rendering credentials can remain outside the agent runtime; other modes and configurations may provide user-authorized credentials to the session.
 - **Inference:** only supported, allowlisted enterprise agent traffic is intercepted. Unknown provider hosts and invalid gateway configuration fail closed rather than bypassing the configured route.
 - **Egress:** optional strict enterprise egress applies the customer's existing Cloudflare Gateway policies to outbound web traffic. Codeflare neither creates nor weakens the customer's policies.
 - **Private infrastructure reach:** coming soon and currently in private preview, this capability connects agents only to targets approved through the customer's Cloudflare Zero Trust policies. It does not provide unrestricted network access.
