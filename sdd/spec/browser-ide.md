@@ -57,7 +57,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated test ([Worker route tests](../../src/__tests__/routes/vscode-auth-chain.test.ts); [host proxy tests](../../host/__tests__/openvscode-proxy.test.js))
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -87,7 +87,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated test ([Route isolation tests](../../src/__tests__/routes/vscode-validation.test.ts); [launch tests](../../host/__tests__/entrypoint-openvscode.test.js); [UI-state snapshot tests](../../host/__tests__/browser-ide-ui-state.test.js))
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -167,7 +167,7 @@ A full code-server browser editor for an advanced running session. The editor op
 7. Codeflare answers native Chat independently of the editor-selected model. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC7: native Pi context collection ignores the host-selected model) -->
 8. The Pi inventory suppresses Code OSS's account-backed **Code Review** setup action while retaining **Review with Codeflare**. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/package.json::activationEvents --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5: native Pi registers an account-free panel model that rejects generation) --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @manual: On the deployed integration image, confirm the editor context menu contains Review with Codeflare and no Code Review action on three fresh Pi sessions. -->
 
-**Notes:** Native Pi and Claude activation awaits deployed pass@3 evidence.
+**Notes:** Integration deployment run `30413127704` passed manual pass@3 for Pi, Claude, and empty inventories on three fresh sessions.
 
 **Constraints:**
 
@@ -184,7 +184,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated test ([Host selection tests](../../host/__tests__/entrypoint-openvscode.test.js); [native Pi tests](../../openvscode/agent-sidebar/test); [official Claude tests](../../openvscode/claude/test); complete-image smoke in `.github/workflows/test.yml`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -202,7 +202,7 @@ A full code-server browser editor for an advanced running session. The editor op
 4. Claude preparation links approved credential and configuration sources without copying their values into generated files, settings, logs, or messages. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and never copies secret bytes) -->
 5. Native Pi context that exceeds its budget is reduced by discarding whole units, keeping current editor state ahead of the replayed conversation, rather than by cutting the serialized context. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006 AC5: an over-budget history replay keeps the newest turns and drops the oldest) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006 AC5: a context over the envelope drops whole sections and stays parseable) -->
 
-**Notes:** AC2 awaits deployed authenticated pass@3 evidence for official Claude's active-file, selection, native-diff, and diagnostics behavior.
+**Notes:** Integration deployment run `30413127704` passed authenticated Claude context pass@3 on three fresh sessions.
 
 **Constraints:**
 
@@ -216,7 +216,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated test ([Native Pi context tests](../../openvscode/agent-sidebar/test/native-chat.test.ts); [Pi session tests](../../openvscode/agent-sidebar/test/pi-session.test.ts); [Claude isolation tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs); complete-image smoke in `.github/workflows/test.yml`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -321,7 +321,7 @@ A full code-server browser editor for an advanced running session. The editor op
 6. Before first use, the complete-image process inventory contains no Pi or Claude agent process. <!-- @manual: Retain the complete-image process-laziness evidence before promotion. -->
 7. The installed Code host admits the proposals required by the Pi inventory. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @manual: Retain the complete-image proposal-admission evidence artifact. -->
 
-**Notes:** Complete-image activation evidence is pending.
+**Notes:** Exact-head CI run `30412770855` retained complete-image activation evidence before integration promotion.
 
 **Constraints:**
 
@@ -334,7 +334,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Complete-image smoke in `.github/workflows/test.yml` plus packaged inventory tests
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -398,6 +398,6 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated Worker and host HTTP/WebSocket tests plus deployed clean-URL verification on three fresh sessions
 
-**Status:** Partial
+**Status:** Implemented
 
 ---

@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-29
+
+- **The code-server Browser IDE migration passes deployed integration pass@3** ([REQ-IDE-001](browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-010](browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility), and [REQ-IDE-012](browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection) become Implemented). Exact reviewed head `d37544859f71243babbf0225e0a6090f52ea4f38` passed CI run `30412770855` and deployed through integration run `30413127704`. The owner confirmed three fresh Pi, Claude, and empty-inventory sessions open the fixed workspace at a clean URL, preserve the required UI state, reject public workspace selectors, and provide the selected account-free native integrations and Claude editor context.
+
 ## 2026-07-28
 
 - **Clean Browser IDE workspace selection now reaches Code OSS's workbench configuration** ([REQ-IDE-012](browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection) remains Partial pending redeployed pass@3). Integration showed that a selector injected only into the private code-server request leaves the browser document selector-free, so Code OSS opens an empty window. The host now projects the equivalent fixed `vscode-remote` `folderUri` into the successful root configuration, fails closed on pinned HTML-shape drift, and leaves non-root traffic streaming. Complete-image smoke starts packaged code-server and verifies its actual root HTML against the shared projection helper.
