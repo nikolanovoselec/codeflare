@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -37,15 +37,32 @@ function commit(message) {
   execFileSync('git', ['commit', '-m', message], { cwd: root, stdio: 'ignore' });
 }
 
-function imageTag() {
+const bin = join(root, 'bin');
+write('bin/date', `#!/bin/sh
+case "$*" in
+  *%G-W%V*) printf '%s\\n' '2026-W31' ;;
+  *) printf '%s\\n' '2026-07-30' ;;
+esac
+`);
+chmodSync(join(bin, 'date'), 0o755);
+
+function imageHashResult(cwd = root) {
   const output = join(root, 'github-output');
   writeFileSync(output, '');
   execFileSync('bash', ['-euo', 'pipefail', '-c', hashScript], {
-    cwd: root,
-    env: { ...process.env, GITHUB_OUTPUT: output },
+    cwd,
+    env: {
+      ...process.env,
+      GITHUB_OUTPUT: output,
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+    },
     stdio: 'pipe',
   });
-  return readFileSync(output, 'utf8').match(/^tag=(.+)$/m)?.[1];
+  const values = Object.fromEntries(readFileSync(output, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => line.split('=', 2)));
+  return { tag: values.tag, noReuse: values.no_reuse };
 }
 
 describe('deployment container image input hash', () => {
@@ -79,15 +96,21 @@ describe('deployment container image input hash', () => {
       'src/lib/agent-seed.generated.ts',
     ]) write(path);
     commit('fixture');
-    const baseline = imageTag();
-    assert.match(baseline ?? '', /^in-[a-f0-9]{16}$/);
+    const baseline = imageHashResult();
+    assert.match(baseline.tag ?? '', /^in-[a-f0-9]{16}$/);
+    assert.equal(baseline.noReuse, '0');
+    assert.equal(imageHashResult(ROOT).noReuse, '0', 'the real Dockerfile must remain fully covered');
 
     write('host/__tests__/container-image-input-hash.test.js', 'test only\n');
     commit('test-only change');
-    assert.equal(imageTag(), baseline);
+    assert.equal(imageHashResult().tag, baseline.tag);
 
     write('host/src/index.ts', 'production change\n');
     commit('production change');
-    assert.notEqual(imageTag(), baseline);
+    assert.notEqual(imageHashResult().tag, baseline.tag);
+
+    write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
+    commit('uncovered copy source');
+    assert.equal(imageHashResult().noReuse, '1');
   });
 });

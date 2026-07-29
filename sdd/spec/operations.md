@@ -74,14 +74,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 
 - The container-binding and scaling steps rebuild the registry URI from the image tag this REQ produces — the URI itself is never a workflow output, since it would embed a masked secret and be silently dropped; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
-- The input hash covers every Dockerfile COPY source without including files outside copied paths; a coverage guard disables reuse when a COPY source falls outside the hashed path set.
+- The hash selectively covers copied production paths and additionally includes Dockerfile, ignore and scan policy, weekly salt, and cache-bust inputs; a coverage guard disables reuse when a COPY source falls outside the hashed path set.
 - The weekly hash salt bounds reuse: an unchanged image is rebuilt and rescanned at least once per ISO week.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated host coverage of production versus test-only inputs, plus manual registry reuse checks
+**Verification:** Manual check
 
 **Status:** Implemented
 

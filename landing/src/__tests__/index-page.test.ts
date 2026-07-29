@@ -444,13 +444,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(body.querySelectorAll('#operations')).toHaveLength(1);
   });
 
-  it('composes two shared Transcript simulations with full eight-row viewports', () => {
-    const reel = body.querySelector('#execution [data-execution-reel]')!;
-    const faces = reel.querySelectorAll('[data-execution-face]');
-    expect(faces).toHaveLength(2);
-    expect(faces[0].getAttribute('data-execution-face')).toBe('software');
-    expect(faces[1].getAttribute('data-execution-face')).toBe('infrastructure');
-
+  it('keeps engineer requests and approvals visible in each settled viewport', () => {
     const runs = [EXECUTION.software, EXECUTION.infrastructure];
     expect([...new Set(EXECUTION.infrastructure.context.map((line) => line.tone))]).toEqual(
       expect.arrayContaining(['cmd', 'ok', 'dim', 'warn', 'info']),
@@ -472,6 +466,16 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
         }
       });
     }
+  });
+
+  it('composes two shared Transcript simulations with full eight-row viewports', () => {
+    const reel = body.querySelector('#execution [data-execution-reel]')!;
+    const faces = reel.querySelectorAll('[data-execution-face]');
+    expect(faces).toHaveLength(2);
+    expect(faces[0].getAttribute('data-execution-face')).toBe('software');
+    expect(faces[1].getAttribute('data-execution-face')).toBe('infrastructure');
+
+    const runs = [EXECUTION.software, EXECUTION.infrastructure];
     faces.forEach((face, index) => {
       const terminal = face.querySelector('.terminal.execution-terminal[data-proof]')!;
       const feed = terminal.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;

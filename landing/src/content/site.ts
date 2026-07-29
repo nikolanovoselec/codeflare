@@ -383,7 +383,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'request',
-        text: 'Plan the smallest rollback-safe repair. Run the playbook in check mode first.',
+        text: 'Plan the smallest bounded repair. Run the playbook in check mode first.',
       },
       {
         tone: 'info',
@@ -392,7 +392,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Approved. Snapshot the nginx configuration and execute CHG-4821.',
+        text: 'Approved. Snapshot the current nginx configuration and execute CHG-4821.',
       },
       { tone: 'ok', text: '✓ rollback saved · playbook applied · 2 packages upgraded' },
       {
@@ -400,9 +400,9 @@ export const EXECUTION = {
         intent: 'approval',
         text: 'Restart nginx, verify its configuration and local health, then report.',
       },
-      { tone: 'ok', text: '✓ config valid · nginx active · health 200 in 0.018s · rollback ready' },
+      { tone: 'ok', text: '✓ config valid · nginx active · health 200 in 0.018s · snapshot retained' },
     ],
-    foot: ['prod-web-07 healthy', 'CHG-4821', 'rollback ready'],
+    foot: ['prod-web-07 healthy', 'CHG-4821', 'config snapshot'],
   } satisfies ExecutionRun,
 };
 
