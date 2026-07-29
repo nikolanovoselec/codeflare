@@ -357,7 +357,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The reel remains readable and contained without horizontal page overflow at mobile, tablet, and desktop widths. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @test: landing/src/__tests__/index-page.test.ts (wraps complete execution rows in the narrow two-column tablet layout) --> <!-- @manual -->
+1. The reel remains readable and contained without horizontal page overflow at mobile, tablet, and desktop widths. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @manual -->
 2. The shared rolling-row transition keeps the transcript viewport populated and does not shift surrounding page content, including while typed lines wrap at mobile widths. <!-- @impl: landing/src/scripts/proof.ts::typeFeedRow --> <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps wrapped row geometry reserved for the complete event while typing) --> <!-- @manual -->
 
 **Constraints:**
