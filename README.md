@@ -4,7 +4,7 @@
 
 **Governed AI agents for software delivery and infrastructure operations.**
 
-Codeflare is a customer-operated execution platform where engineers and AI agents build software, automate end-to-end tests, operate approved infrastructure, deploy, verify, and recover live systems together. Work happens inside authenticated, disposable browser sessions, with organizational rules, evidence, and human approval built into the workflow instead of bolted onto laptops or long-lived shared runners.
+Codeflare is a customer-operated execution platform where engineers and AI agents design and architect systems, build and debug software, operate, patch, and migrate approved infrastructure, automate end-to-end tests, deploy, verify, and recover live systems together. Work happens inside authenticated, disposable browser sessions, with organizational rules, evidence, and human approval built into the workflow instead of bolted onto laptops or long-lived shared runners.
 
 Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudflare account and connects to the customer's identity, GitHub organization, inference controls, storage, and security policies. A public demonstration is available at [codeflare.ch](https://codeflare.ch); enterprise deployment guidance is maintained in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
