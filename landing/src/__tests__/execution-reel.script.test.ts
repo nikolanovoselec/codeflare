@@ -42,6 +42,7 @@ function addFeed(
   const context: FeedLine[] = run.context.map((line) => ({ ...line }));
   const events: FeedLine[] = run.events.map((line) => ({ ...line }));
   const face = document.createElement('section');
+  face.className = 'terminal';
   face.dataset.proof = '';
   face.dataset.executionFace = name;
   const list = document.createElement('div');
@@ -90,6 +91,16 @@ function installGlobalStyles(): HTMLStyleElement {
   style.textContent = globalCss;
   document.head.appendChild(style);
   return style;
+}
+
+function delaySeconds(value: string): number {
+  const duration = value.match(/^([\d.]+)(m?s)$/);
+  if (duration) return Number(duration[1]) / (duration[2] === 'ms' ? 1_000 : 1);
+
+  const calculated = value.match(/^calc\(\s*([\d.]+)\s*\*\s*([\d.]+)s\s*\)$/);
+  if (calculated) return Number(calculated[1]) * Number(calculated[2]);
+
+  return Number.NaN;
 }
 
 function advanceThroughEvents(list: HTMLElement, events: FeedLine[]): void {
@@ -211,15 +222,18 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.software.classList.contains('is-live')).toBe(true);
     expect(fixture.softwareList.dataset.feedState).toBe('ready');
 
-    const entranceRule = Array.from(style.sheet!.cssRules).find(
-      (rule): rule is CSSStyleRule =>
-        rule instanceof CSSStyleRule && rule.selectorText === '.terminal.is-live .t-line',
+    const entranceStyles = Array.from(fixture.softwareList.children, (row) =>
+      getComputedStyle(row),
     );
-    expect(entranceRule?.style.animation).toContain('term-type');
-    expect(entranceRule?.style.animationDelay).toContain('var(--i)');
-    for (const row of fixture.softwareList.children) {
-      expect(getComputedStyle(row).animation).toContain('term-type');
+    for (const entranceStyle of entranceStyles) {
+      expect(entranceStyle.animation).toContain('term-type');
     }
+    const sampledDelays = [0, 3, 7].map((index) =>
+      delaySeconds(entranceStyles[index].animationDelay),
+    );
+    expect(sampledDelays.every(Number.isFinite)).toBe(true);
+    expect(sampledDelays[0]).toBeLessThan(sampledDelays[1]);
+    expect(sampledDelays[1]).toBeLessThan(sampledDelays[2]);
     style.remove();
   });
 
