@@ -113,6 +113,21 @@ export interface FeatureTerminal {
   loop?: string[];
 }
 
+export interface ExecutionLine {
+  actor: string;
+  tone: TranscriptLine['tone'];
+  text: string;
+}
+
+export interface ExecutionRun {
+  title: string;
+  label: string;
+  preview?: string;
+  context: ExecutionLine[];
+  events: ExecutionLine[];
+  foot: string[];
+}
+
 // The nav doubles as the page's lens on the five enterprise concerns for
 // agentic coding: Velocity (the leap), Quality (correct, spec-aligned, reviewed
 // output), Security (the zero-trust boundary), Control (you own intent and the
@@ -147,6 +162,7 @@ export const SECTION_KICKERS: Record<string, string> = {
   shift: 'Velocity',
   method: 'Quality',
   legacy: 'Adoption',
+  execution: 'Execution',
   security: 'Security',
   operations: 'Operations',
   context: 'Context',
@@ -282,6 +298,64 @@ export const TERMINAL = {
 };
 
 /**
+ * Wide Execution overview: one canonical software-to-infrastructure run shown
+ * before the detailed proof sections. Both faces are complete in the server
+ * render; the client enhancement reveals and flips their visual copies once.
+ */
+export const EXECUTION = {
+  id: 'execution',
+  title: 'Where the work gets done.',
+  lead:
+    'Codeflare is a customer-operated execution platform where engineers and AI agents design ' +
+    'and architect systems, build and debug software, operate, patch, and migrate approved ' +
+    'infrastructure, automate end-to-end tests, deploy, verify, and recover live systems together. ' +
+    'Work happens inside authenticated, disposable browser sessions, with organizational rules, ' +
+    'evidence, and human approval built into the workflow instead of bolted onto laptops or ' +
+    'long-lived shared runners.',
+  software: {
+    title: 'codeflare · software delivery',
+    label: 'Software',
+    context: [
+      { actor: 'you', tone: 'cmd', text: 'ship duplicate-payment protection to integration' },
+      { actor: 'intent', tone: 'dim', text: 'REQ-PAY-014 · AC3 · payments-service' },
+      { actor: 'agent', tone: 'agent', text: 'mapped callers, tests, schema migration, and deploy path' },
+    ],
+    events: [
+      { actor: 'agent', tone: 'agent', text: 'editing payment service and schema migration' },
+      { actor: 'test', tone: 'warn', text: 'duplicate request still escapes · debugging' },
+      { actor: 'agent', tone: 'agent', text: 'corrected the transaction boundary' },
+      { actor: 'test', tone: 'ok', text: 'behavioral suite green' },
+      { actor: 'review', tone: 'warn', text: 'unsafe retry edge found' },
+      { actor: 'agent', tone: 'agent', text: 'finding corrected and re-verified' },
+      { actor: 'deploy', tone: 'ok', text: 'integration release live' },
+      { actor: 'browser', tone: 'ok', text: 'duplicate-payment flow verified end to end' },
+    ],
+    foot: ['REQ-PAY-014', 'integration', 'governed'],
+  } satisfies ExecutionRun,
+  infrastructure: {
+    title: 'codeflare · infrastructure operations',
+    label: 'Infrastructure',
+    preview: 'Private preview',
+    context: [
+      { actor: 'identity', tone: 'ok', text: 't.anderson authenticated' },
+      { actor: 'target', tone: 'dim', text: 'prod-web-07 admitted by policy' },
+      { actor: 'window', tone: 'ok', text: 'maintenance window approved · playbook loaded' },
+    ],
+    events: [
+      { actor: 'agent', tone: 'agent', text: 'discovering OS, services, packages, and disk state' },
+      { actor: 'plan', tone: 'dim', text: 'backup → patch → restart → verify' },
+      { actor: 'backup', tone: 'ok', text: 'recovery point recorded' },
+      { actor: 'service', tone: 'agent', text: 'draining application traffic' },
+      { actor: 'agent', tone: 'agent', text: 'executing approved patch playbook' },
+      { actor: 'service', tone: 'ok', text: 'patched host returned to service' },
+      { actor: 'verify', tone: 'ok', text: 'health checks green' },
+      { actor: 'close', tone: 'ok', text: 'evidence stored · rollback ready' },
+    ],
+    foot: ['t.anderson', 'prod-web-07', 'governed'],
+  } satisfies ExecutionRun,
+};
+
+/**
  * Feature terminals: four short, real moments from inside the boundary, each
  * one codeflare capability shown as a command and its output. They replace the
  * old big-number stat band and the old checkmark comparison with the proof
@@ -340,10 +414,9 @@ export const SHIFT = {
   id: 'shift',
   title: 'The bottleneck was never typing speed.',
   lead:
-    'A faster autocomplete just gets you to the next decision sooner. Codeflare moves the whole ' +
-    'job into one controlled run: you write the requirement, agents prepare the change, and your ' +
-    'team reviews the evidence before it executes. The four below are snapshots of a governed run: ' +
-    'egress, isolation, review, and spec.',
+    'The execution above is the operating model: one engineer sets intent while agents move through ' +
+    'code, tests, deployment, and operations. The four proofs below show what keeps that speed ' +
+    'controlled: egress, isolation, review, and spec.',
 };
 
 export const METHOD = {

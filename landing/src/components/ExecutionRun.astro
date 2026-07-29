@@ -1,0 +1,76 @@
+---
+/**
+ * One reusable face of the Execution reel. It composes the shared Terminal
+ * frame and renders the run twice from one model: a complete semantic list for
+ * assistive technology and a visually animated list that the reel script may
+ * mask and advance without announcing character-by-character mutations.
+ */
+import type { ExecutionRun } from '../content/site';
+import Terminal from './Terminal.astro';
+import PreviewBadge from './PreviewBadge.astro';
+
+interface Props {
+  name: 'software' | 'infrastructure';
+  run: ExecutionRun;
+}
+
+const { name, run } = Astro.props;
+const lines = [...run.context, ...run.events];
+---
+
+<section
+  class:list={['execution-face', `execution-face--${name}`]}
+  data-execution-face={name}
+  aria-label={`${run.label} execution`}
+>
+  <Terminal variant={`execution-terminal execution-terminal--${name}`} reveal={false}>
+    <Fragment slot="bar">
+      <span class="execution-terminal-title">{run.title}</span>
+      {run.preview && <PreviewBadge label={run.preview} execution />}
+    </Fragment>
+
+    <div class="execution-terminal-body">
+      <ol class="sr-only" aria-label={`${run.label} execution transcript`}>
+        {
+          lines.map((line) => (
+            <li data-execution-accessible-line>{line.actor}: {line.text}</li>
+          ))
+        }
+      </ol>
+
+      <div class="execution-log" data-execution-log aria-hidden="true">
+        {
+          lines.map((line, index) => (
+            <div
+              class="execution-line"
+              data-execution-line={index < run.context.length ? 'context' : 'event'}
+              data-execution-index={index}
+            >
+              <div class="execution-line-clip">
+                <div class="execution-line-content">
+                  <span class="execution-actor" data-tone={line.tone}>{line.actor}</span>
+                  <span
+                    class={`execution-text t-${line.tone}`}
+                    data-execution-text
+                    data-full-text={line.text}
+                  >{line.text}</span>
+                </div>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+
+      <div class="execution-prompt" aria-hidden="true">
+        <span class="execution-prompt-mark">❯</span>
+        <span class="t-caret execution-caret" data-execution-caret data-active="false"></span>
+      </div>
+    </div>
+
+    <Fragment slot="foot">
+      <div class="terminal-foot execution-status">
+        {run.foot.map((segment) => <span class="tf-seg">{segment}</span>)}
+      </div>
+    </Fragment>
+  </Terminal>
+</section>

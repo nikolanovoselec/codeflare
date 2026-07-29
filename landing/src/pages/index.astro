@@ -25,12 +25,14 @@ import Transcript from '../components/Transcript.astro';
 import GateSteps from '../components/GateSteps.astro';
 import FeatureGrid from '../components/FeatureGrid.astro';
 import MicroCta from '../components/MicroCta.astro';
+import PreviewBadge from '../components/PreviewBadge.astro';
 import TrustStrip from '../components/TrustStrip.astro';
 import LedgerTable from '../components/LedgerTable.astro';
 import ReviewBoard from '../components/ReviewBoard.astro';
 import OrchTree from '../components/OrchTree.astro';
 import Hero from '../components/Hero.astro';
 import InferenceMeshHero from '../components/InferenceMeshHero.astro';
+import ExecutionReel from '../components/ExecutionReel.astro';
 import FeatureTerminals from '../components/FeatureTerminals.astro';
 import CodeEditor from '../components/CodeEditor.astro';
 import ContactForm from '../components/ContactForm.astro';
@@ -43,6 +45,7 @@ import {
   LEGACY,
   SECURITY,
   EGRESS,
+  EXECUTION,
   OPERATIONS,
   BROWSER,
   PLATFORM,
@@ -122,6 +125,14 @@ const mcpRows = MCP.portal.rows.map((row) => ({
     <Hero />
     <InferenceMeshHero />
 
+    <!-- Execution overview: one wide, event-level view of software delivery and
+         private-preview infrastructure work being performed in Codeflare. The
+         existing detailed sections below remain the evidence for each part. -->
+    <Section id={EXECUTION.id}>
+      <SectionHead kicker={SECTION_KICKERS.execution} title={EXECUTION.title} lead={EXECUTION.lead} />
+      <ExecutionReel />
+    </Section>
+
     <!-- The shift: the assistant-to-engine leap shown the way the page trades,
          as terminals. Four short feature terminals (gateway, session, review,
          spec) replace the old stat band and the old checkmark comparison. -->
@@ -176,7 +187,9 @@ const mcpRows = MCP.portal.rows.map((row) => ({
          infrastructure, shown as a governed run in the same gate grammar as the security
          boundary that follows, so it reads as a peer to build, not a security footnote. -->
     <Section id={OPERATIONS.id} alt>
-      <SectionHead kicker={SECTION_KICKERS.operations} title={OPERATIONS.title} lead={OPERATIONS.lead} />
+      <SectionHead kicker={SECTION_KICKERS.operations} title={OPERATIONS.title} lead={OPERATIONS.lead}>
+        <PreviewBadge />
+      </SectionHead>
       <Terminal variant="gate" foot={OPERATIONS.run.caption}>
         <span class="gate-req" slot="bar">{OPERATIONS.run.title}</span>
         <GateSteps rows={opsRows} />

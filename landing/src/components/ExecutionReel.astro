@@ -1,0 +1,23 @@
+---
+/**
+ * Canonical wide Execution reel. The server render is a complete two-run grid.
+ * Normal-motion enhancement turns the same two reusable run faces into one
+ * anchored 3D card that advances once from software to infrastructure.
+ */
+import { EXECUTION } from '../content/site';
+import ExecutionRun from './ExecutionRun.astro';
+---
+
+<div
+  class="execution-reel"
+  data-execution-reel
+  data-readme-reel="execution"
+  data-execution-state="resolved"
+>
+  <div class="execution-stage">
+    <div class="execution-card">
+      <ExecutionRun name="software" run={EXECUTION.software} />
+      <ExecutionRun name="infrastructure" run={EXECUTION.infrastructure} />
+    </div>
+  </div>
+</div>
