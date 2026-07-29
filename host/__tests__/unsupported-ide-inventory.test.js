@@ -34,9 +34,9 @@ describe('REQ-IDE-017 AC1: unsupported inventory remains extension-free after in
     await writeFile(join(unknown, 'metadata.json'), '[]');
     await assert.rejects(verifyUnsupportedInventory(unknown));
 
-    const symlink = await inventory();
-    await symlink('/tmp', join(symlink, 'extensions.json'));
-    await assert.rejects(verifyUnsupportedInventory(symlink));
+    const symlinkInventory = await inventory();
+    await symlink('/tmp', join(symlinkInventory, 'extensions.json'));
+    await assert.rejects(verifyUnsupportedInventory(symlinkInventory));
 
     const populated = await inventory();
     await writeFile(join(populated, 'extensions.json'), '[{"identifier":{"id":"publisher.extension"}}]');
