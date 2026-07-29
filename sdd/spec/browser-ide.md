@@ -310,7 +310,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. The complete image discovers the packaged Pi and Claude inventories, while the unsupported inventory begins empty and contains no extension after code-server initializes it. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) --> <!-- @manual: Retain complete-image evidence that only optional code-server registry metadata appears after initialization. -->
+1. The complete image contains fixed packaged Pi and Claude inventories and an empty packaged unsupported inventory. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) -->
 2. The installed Code host satisfies each extension API floor. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::assertExtensionApiFloor --> <!-- @manual: Retain the complete-image extension API-floor evidence artifact. -->
 3. Packaged Pi and Claude extensions retain their pinned publisher, package, and version identities without a staged VSIX. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-010 AC3: refuses retained VSIX and substituted publisher or version metadata) -->
 4. Each fixed inventory activates without an unexpected extension-permission requirement. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @manual: Retain the complete-image permission evidence before promotion. -->
@@ -498,6 +498,31 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability)
 
 **Verification:** Automated editor lifecycle and settings-preparation tests
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-017: Unsupported IDE inventory runtime metadata
+
+**Intent:** Starting code-server with the unsupported inventory cannot install or expose an unsupported editor extension.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. After code-server initializes the unsupported inventory, that inventory contains no extension. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Retain complete-image evidence for the initialized unsupported inventory. -->
+
+**Constraints:**
+
+- code-server may create one regular `extensions.json` registry file containing exactly `[]`; every other runtime entry is rejected.
+- The packaged unsupported inventory remains empty under [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility) AC1.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility)
+
+**Verification:** Manual check
 
 **Status:** Implemented
 
