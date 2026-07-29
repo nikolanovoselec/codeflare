@@ -318,7 +318,6 @@ A full code-server browser editor for an advanced running session. The editor op
 6. Before first use, the complete-image process inventory contains no Pi or Claude agent process. <!-- @manual: Retain the complete-image process-laziness evidence before promotion. -->
 7. The installed Code host admits the proposals required by the Pi inventory. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @manual: Retain the complete-image proposal-admission evidence artifact. -->
 
-
 **Constraints:**
 
 - The exact upstream artifacts and fixed inventories remain unchanged at runtime.

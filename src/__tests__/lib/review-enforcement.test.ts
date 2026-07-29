@@ -169,6 +169,10 @@ function boundaryIdentity(
     prNumber: fixture.pr.number,
     base: fixture.pr.baseRefName,
     boundaryToolUseId,
+    launchTurn: {
+      disposition: 'stop-after-final-launch',
+      handoff: 'native-task-notifications',
+    },
   };
 }
 
@@ -184,25 +188,6 @@ function markdownTableColumns(content: string | undefined): string[] {
 function markdownValue(content: string | undefined, prefix: string): string | undefined {
   const line = String(content ?? '').split('\n').find((candidate) => candidate.startsWith(prefix));
   return line?.slice(prefix.length);
-}
-
-function expectLaunchTurnStop(content: string | undefined): void {
-  const text = String(content ?? '');
-  const marker = '**After the final launch:** End this turn immediately.';
-  expect(text.match(/\*\*After the final launch:\*\*/g)).toHaveLength(1);
-  expect(text).toContain(marker);
-  expect(text).toContain('Do not run `sleep`, foreground waits, polling, resume an in-flight agent, or retrieve an in-flight result.');
-  expect(text).toContain('Let native task notifications drive subsequent turns.');
-  expect(text).toContain('After a terminal notification, public result retrieval is allowed only when the report is truncated or otherwise unavailable.');
-
-  const markerIndex = text.indexOf(marker);
-  const finalLaunchInstruction = Math.max(
-    text.indexOf('Submit its returned public `ci-monitor` subagent request unchanged exactly once.'),
-    text.indexOf('- Prompt scope:'),
-  );
-  expect(markerIndex).toBeGreaterThan(finalLaunchInstruction);
-  const triageIndex = text.search(/### \d+\. Triage and acknowledge before fixing/);
-  if (triageIndex >= 0) expect(markerIndex).toBeLessThan(triageIndex);
 }
 
 function userMessage(content: string): Record<string, unknown> {
@@ -465,8 +450,6 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(markdownTableColumns(plan)).toEqual([
       'FINDING', 'VALIDITY', 'PROPOSED FIX', 'PROPORTIONALITY', 'MINIMAL DECISION',
     ]);
-    expectLaunchTurnStop(plan);
-
     harness.sent.splice(0);
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([{
@@ -577,7 +560,6 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
-    expectLaunchTurnStop(harness.sent[0]?.message.content);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
@@ -1399,7 +1381,6 @@ describe('Pi review reminder and settled enforcement', () => {
       '### 2. Triage and acknowledge before fixing',
     ]);
     expect(followUp).toMatch(/\*\*Recovery rule:\*\*[\s\S]+Do not duplicate unmatched calls/);
-    expectLaunchTurnStop(followUp);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 

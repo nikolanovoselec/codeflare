@@ -402,6 +402,10 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     prNumber: input.pr.number,
     base: input.pr.baseRefName,
     boundaryToolUseId: input.boundaryToolUseId,
+    launchTurn: {
+      disposition: "stop-after-final-launch",
+      handoff: "native-task-notifications",
+    },
     head: input.pr.headRefOid,
     ackHead: input.ackHead,
     reviewRange: input.range,

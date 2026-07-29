@@ -165,12 +165,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const imageCommands = imageSteps.flatMap((step) => step.run ?? []).join('\n');
     expect(imageJob.permissions?.actions).toBe('write');
     expect(imageCommands).toContain('docker buildx build');
-    expect(imageCommands).toContain('--cache-from "type=gha,scope=container-image-linux-amd64"');
-    expect(imageCommands).toContain('--cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true"');
     expect(imageCommands).toContain('--load');
-    const deployImageWorkflow = readFileSync(join(REPO, '.github/workflows/container-image.yml'), 'utf8');
-    expect(deployImageWorkflow).toContain('--cache-from "type=gha,scope=container-image-linux-amd64"');
-    expect(deployImageWorkflow).toContain('--cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true"');
     expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
     // Identity and pinning shape, not the digest itself: what AC7 protects is
     // which actions this job may run -- adding a login or push action has to
@@ -193,16 +188,40 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(requiredJobs).toEqual(expect.arrayContaining(['browser-ide', 'browser-ide-image']));
   });
 
+  it('REQ-OPS-001 AC4: complete-image and deploy builds share compatible caches', () => {
+    const testWorkflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const deployWorkflow = parseYaml(
+      readFileSync(join(REPO, '.github/workflows/container-image.yml'), 'utf8'),
+    ) as { jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }> };
+    const buildCommand = (steps: Array<{ name?: string; run?: string }> | undefined, name: string) =>
+      steps?.find((step) => step.name === name)?.run ?? '';
+    const cacheFlags = (command: string) =>
+      command.match(/--cache-(?:from|to) "[^"]+"/g)?.sort() ?? [];
+
+    const completeImage = buildCommand(testWorkflow.jobs['browser-ide-image'].steps, 'Build complete image');
+    const deployment = buildCommand(deployWorkflow.jobs.image.steps, 'Build container image');
+
+    expect(cacheFlags(completeImage)).toEqual([
+      '--cache-from "type=gha,scope=container-image-linux-amd64"',
+      '--cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true"',
+    ]);
+    expect(cacheFlags(deployment)).toEqual(cacheFlags(completeImage));
+  });
+
   it('fails closed on coverage evidence and bounds the backend crash exception', () => {
     const table = ' All files | 100 | 100 | 100 | 100 |\n';
+    const passed = ' Test Files  1 passed (1)\n Tests  2 passed (2)\n';
     const crash = '[vitest-pool]: Worker cloudflare-pool emitted error.\n';
     const cases = [
       { name: 'complete success', log: table, status: 0, tolerate: false, expected: 0 },
-      { name: 'missing table', log: `Tests 1 passed\n${crash}`, status: 1, tolerate: true, expected: 1 },
+      { name: 'missing table', log: `${passed}${crash}`, status: 1, tolerate: true, expected: 1 },
       { name: 'failed tests', log: `${table} Tests 1 failed | 2 passed\n${crash}`, status: 1, tolerate: true, expected: 1 },
       { name: 'threshold miss', log: `${table}ERROR: Coverage for lines (79%) does not meet global threshold (80%)\n${crash}`, status: 1, tolerate: true, expected: 1 },
-      { name: 'bounded backend crash', log: `${table}${crash}`, status: 1, tolerate: true, expected: 0 },
-      { name: 'untolerated frontend crash', log: `${table}${crash}`, status: 1, tolerate: false, expected: 1 },
+      { name: 'bounded backend crash', log: `${table}${passed}${crash}`, status: 1, tolerate: true, expected: 0 },
+      { name: 'crash plus unrelated failure', log: `${table}${passed} Errors  2 errors\n${crash}`, status: 1, tolerate: true, expected: 1 },
+      { name: 'untolerated frontend crash', log: `${table}${passed}${crash}`, status: 1, tolerate: false, expected: 1 },
       { name: 'unknown backend failure', log: table, status: 2, tolerate: true, expected: 2 },
     ];
 

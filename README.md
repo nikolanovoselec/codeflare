@@ -1,10 +1,10 @@
 # <img src="assets/documentation/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
-![Codeflare: governed AI agents for software delivery and infrastructure operations.](assets/documentation/og.png)
+![Codeflare: governed AI agents for software delivery, browser automation, and infrastructure operations in private preview.](assets/documentation/og.png)
 
-**Governed AI agents for software delivery and infrastructure operations.**
+**Governed AI agents for software delivery, browser automation, and infrastructure operations in private preview.**
 
-Codeflare is a customer-operated execution platform where engineers and AI agents design and architect systems, build and debug software, operate, patch, and migrate approved infrastructure, automate end-to-end tests, deploy, verify, and recover live systems together. Work happens inside authenticated, disposable browser sessions, with organizational rules, evidence, and human approval built into the workflow instead of bolted onto laptops or long-lived shared runners.
+Codeflare is a customer-operated execution platform where engineers and AI agents design and architect systems, build and debug software, automate end-to-end tests, deploy, verify, and recover software releases together. Infrastructure operations are coming soon and currently in private preview, covering approved patching and migration work. Work happens inside authenticated, disposable browser sessions, with organizational rules, evidence, and human approval built into the workflow instead of bolted onto laptops or long-lived shared runners.
 
 Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudflare account and connects to the customer's identity, GitHub organization, inference controls, storage, and security policies. A public demonstration is available at [codeflare.ch](https://codeflare.ch); enterprise deployment guidance is maintained in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
@@ -31,7 +31,7 @@ Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudf
 
 ## What teams use Codeflare for
 
-Codeflare gives agents a governed execution environment for software delivery, browser automation, and approved infrastructure work.
+Codeflare gives agents a governed execution environment for software delivery and browser automation, with approved infrastructure work coming soon in private preview.
 
 | Work domain | What agents can do |
 |---|---|
@@ -57,14 +57,14 @@ Agents and trusted tools still have broad access inside their session. Disposabl
 
 ## Governed execution
 
-Codeflare applies one governed workflow across software delivery, browser automation, deployment, and approved infrastructure operations:
+Codeflare applies one governed workflow across software delivery, browser automation, and deployment. Infrastructure operations are coming soon and currently in private preview:
 
 1. **Define intent:** requirements, acceptance criteria, and operational scope establish the approved outcome.
-2. **Execute:** agents work in repositories and approved environments using the team's existing tools.
+2. **Execute:** agents work in repositories and supported software environments using the team's existing tools; private-preview operations extend execution to approved infrastructure.
 3. **Test:** behavioral tests prove observable contracts in CI, while Browser Run and Chrome DevTools exercise deployed user journeys against their acceptance criteria.
 4. **Review:** specialist reviewers inspect code, specifications, documentation, security, and observable behavior; humans approve consequential operational actions.
-5. **Integrate:** GitHub pull requests, branch protection, and CI govern source changes, while customer policies govern infrastructure access.
-6. **Deploy and verify:** agents follow approved deployment or operational workflows, inspect checks and logs, and verify live systems in a real browser.
+5. **Integrate:** GitHub pull requests, branch protection, and CI govern source changes; customer policies govern private-preview infrastructure access.
+6. **Deploy and verify:** agents follow approved deployment workflows, inspect checks and logs, and verify live systems in a real browser. Private-preview infrastructure work follows approved operational workflows.
 7. **Recover:** failed verification routes back to a controlled fix; documented rollback remains available when promotion is unsafe.
 
 Enterprise sessions apply the organization's requirements, engineering rules, review process, CI gates, browser verification, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
@@ -103,10 +103,10 @@ Enterprise Codeflare uses customer-configured services inside the customer's Clo
 - Live resource, synchronization, and session status.
 - MultiView for observing several sessions side by side.
 
-### Repository, infrastructure, and browser tools
+### Repository, browser, and infrastructure tools
 
 - Repository, pull-request, review, and CI workflows using the user's authorized permissions.
-- Standard infrastructure tools, including SSH and `kubectl`, with access governed through the customer's Cloudflare Zero Trust environment.
+- Infrastructure tooling, including SSH and `kubectl`, is coming soon and currently in private preview, with access governed through the customer's Cloudflare Zero Trust environment.
 - Cloudflare Browser Run and Chrome DevTools for end-to-end test automation, responsive testing, screenshots, and deployed-app verification.
 - Reusable skills for architecture, deployment, security, infrastructure, and performance work across the customer's chosen platforms.
 

@@ -5,6 +5,9 @@ import { pathToFileURL } from 'node:url';
 const COVERAGE_TABLE = /^\s*All files\s*\|/m;
 const FAILED_TESTS = /^ *Tests +.*failed/m;
 const THRESHOLD_MISS = /does not meet .*threshold/;
+const PASSED_TEST_FILES = /^ *Test Files +(?=[^\n]*\bpassed\b)(?![^\n]*\bfailed\b)[^\n]*\(\d+\)\s*$/m;
+const PASSED_TESTS = /^ *Tests +(?=[^\n]*\bpassed\b)(?![^\n]*\bfailed\b)[^\n]*\(\d+\)\s*$/m;
+const MULTIPLE_ERRORS = /^ *Errors +(?:[2-9]|\d{2,}) errors?\b/m;
 const POOL_CRASH = '[vitest-pool]: Worker cloudflare-pool emitted error.';
 
 export function evaluateCoverageResult(log, status, toleratePoolCrash) {
@@ -19,7 +22,14 @@ export function evaluateCoverageResult(log, status, toleratePoolCrash) {
   }
   if (status !== 0) {
     if (toleratePoolCrash && log.includes(POOL_CRASH)) {
-      return { ok: true, warning: 'tolerating the known workerd teardown crash (coverage table and thresholds both verified above)' };
+      if (!PASSED_TEST_FILES.test(log) || !PASSED_TESTS.test(log) || MULTIPLE_ERRORS.test(log)) {
+        return {
+          ok: false,
+          message: 'coverage run did not isolate the teardown crash after a complete passing test summary',
+          status,
+        };
+      }
+      return { ok: true, warning: 'tolerating the known workerd teardown crash after a complete passing test summary and verified coverage table' };
     }
     return { ok: false, message: `coverage run failed with status ${status}`, status };
   }

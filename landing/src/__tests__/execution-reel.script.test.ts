@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * Behavioral DOM integration tests for the REQ-LANDING-010 execution reel.
+ * Behavioral DOM integration tests for REQ-LANDING-011 progressive motion.
  *
  * The server-rendered fixture begins complete and readable. The motion-enabled
  * enhancement masks the visual copy, fills recent context, appends new events,
@@ -128,7 +128,7 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe('execution-reel.ts (REQ-LANDING-010)', () => {
+describe('execution-reel.ts (REQ-LANDING-011)', () => {
   it('enhances on entry, fills context, then appends software events while scrolling old history', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
