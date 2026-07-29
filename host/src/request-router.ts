@@ -19,6 +19,8 @@ import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clo
 import { stripVaultPrefix } from './vault-proxy.js';
 import {
   isVscodePath,
+  OPENVSCODE_WORKBENCH_MAX_BYTES,
+  projectVscodeWorkbenchWorkspace,
   rewriteVscodeLocation,
   vscodeUpstreamPath,
   vscodeUpstreamRequestTarget,
@@ -573,22 +575,73 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         return;
       }
       requestOpenvscodeStart();
+      const projectRootWorkbench = method === 'GET' && upstreamPath === '/';
+      const upstreamHeaders = vscodeProxyHeaders(req.headers, deps.openvscode);
+      if (projectRootWorkbench) delete upstreamHeaders['accept-encoding'];
       const upstreamReq = http.request({
         host: deps.openvscode.host,
         port: deps.openvscode.port,
         method,
         path: upstreamTarget,
-        headers: vscodeProxyHeaders(req.headers, deps.openvscode),
+        headers: upstreamHeaders,
       }, (upstreamRes) => {
         // Reached the server, so this warming episode is over. Clearing it means
         // a later cold start (supervisor restart) gets its own full clock rather
         // than inheriting an expired one and giving up immediately.
         vscodeWarmingSince = undefined;
-        res.writeHead(
-          upstreamRes.statusCode ?? 502,
-          rewriteVscodeResponseHeaders(upstreamRes.headers, sessionId),
-        );
-        upstreamRes.pipe(res);
+        const responseHeaders = rewriteVscodeResponseHeaders(upstreamRes.headers, sessionId);
+        if (!projectRootWorkbench || upstreamRes.statusCode !== 200) {
+          res.writeHead(upstreamRes.statusCode ?? 502, responseHeaders);
+          upstreamRes.pipe(res);
+          return;
+        }
+
+        let settled = false;
+        let size = 0;
+        const chunks: Buffer[] = [];
+        const failProjection = (): void => {
+          if (settled) return;
+          settled = true;
+          log('warn', 'Vscode workbench configuration projection failed');
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: 'Browser IDE workbench configuration unavailable',
+            code: 'VSCODE_WORKBENCH_CONFIGURATION_INVALID',
+          }));
+        };
+        const contentType = singleHeader(upstreamRes.headers['content-type']);
+        if (!contentType?.toLowerCase().startsWith('text/html') || upstreamRes.headers['content-encoding']) {
+          upstreamRes.resume();
+          failProjection();
+          return;
+        }
+        upstreamRes.on('data', (chunk: Buffer) => {
+          if (settled) return;
+          size += chunk.length;
+          if (size > OPENVSCODE_WORKBENCH_MAX_BYTES) {
+            upstreamRes.destroy();
+            failProjection();
+            return;
+          }
+          chunks.push(chunk);
+        });
+        upstreamRes.on('error', failProjection);
+        upstreamRes.on('end', () => {
+          if (settled) return;
+          const projected = projectVscodeWorkbenchWorkspace(Buffer.concat(chunks).toString('utf8'));
+          if (projected === null) {
+            failProjection();
+            return;
+          }
+          settled = true;
+          const body = Buffer.from(projected, 'utf8');
+          delete responseHeaders['content-encoding'];
+          delete responseHeaders['transfer-encoding'];
+          delete responseHeaders.etag;
+          responseHeaders['content-length'] = body.length;
+          res.writeHead(200, responseHeaders);
+          res.end(body);
+        });
       });
       upstreamReq.on('error', (err) => {
         log('warn', 'Vscode proxy upstream error', { error: err.message, path: upstreamPath });

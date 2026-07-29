@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import {
   lstat,
@@ -23,6 +23,7 @@ const EXTENSION_NAME = 'codeflare-agent-sidebar';
 
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
+  await verifyCodeServerWorkspaceProjection();
   const inventoriesRoot = join(ROOT, 'extensions');
   assert.deepEqual((await readdir(inventoriesRoot)).sort(), ['claude', 'none', 'pi']);
   assert.deepEqual(await readdir(join(inventoriesRoot, 'none')), []);
@@ -129,6 +130,66 @@ async function verifyCodeServerRuntime() {
   assert.match(versionOutput, new RegExp(expected.codeVersion.replaceAll('.', '\\.')));
   assert.match(versionOutput, new RegExp(expected.codeServerCommit));
   return { ...expected, versionOutput };
+}
+
+async function verifyCodeServerWorkspaceProjection() {
+  const root = await mkdtemp(join(tmpdir(), 'code-server-workspace-smoke-'));
+  await mkdir('/home/user/workspace', { recursive: true });
+  const port = 18_000 + (process.pid % 1_000);
+  const child = spawn('/usr/local/bin/code-server', [
+    '--bind-addr', `127.0.0.1:${port}`,
+    '--auth', 'none',
+    '--disable-telemetry',
+    '--disable-update-check',
+    '--disable-proxy',
+    '--disable-getting-started-override',
+    '--disable-workspace-trust',
+    '--user-data-dir', join(root, 'data'),
+    '--extensions-dir', join(ROOT, 'extensions', 'none'),
+    '/home/user/workspace',
+  ], { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    if (stderr.length < 8_192) stderr += String(chunk).slice(0, 8_192 - stderr.length);
+  });
+  try {
+    let response;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        response = await fetch(`http://127.0.0.1:${port}/?folder=%2Fhome%2Fuser%2Fworkspace`, {
+          redirect: 'manual',
+        });
+        if (response.status === 200) break;
+        await response.body?.cancel();
+      } catch {
+        // The pinned server is still starting.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(response?.status, 200, `packaged code-server root unavailable: ${stderr}`);
+    const html = await response.text();
+    const { projectVscodeWorkbenchWorkspace } = await import(
+      pathToFileURL('/app/host/dist/vscode-proxy.js').href
+    );
+    const projected = projectVscodeWorkbenchWorkspace(html);
+    assert.ok(projected, 'packaged Code OSS workbench configuration shape is incompatible');
+    const matches = [...projected.matchAll(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/g)];
+    assert.equal(matches.length, 1);
+    const config = JSON.parse(matches[0][1].replaceAll('&quot;', '"'));
+    assert.deepEqual(config.folderUri, {
+      scheme: 'vscode-remote',
+      authority: config.remoteAuthority,
+      path: '/home/user/workspace',
+    });
+  } finally {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already exited */ }
+    await Promise.race([
+      new Promise((resolve) => child.once('exit', resolve)),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already exited */ }
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 async function verifyPackagedNativeChat(extensionRoot) {

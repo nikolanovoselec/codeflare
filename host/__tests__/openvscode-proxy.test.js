@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { createActivityTracker } from '../dist/activity-tracker.js';
-import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, rewriteVscodeLocation, vscodeUpstreamPath, vscodeUpstreamRequestTarget, requestOpenvscodeStart, VSCODE_WARMING_GIVE_UP_MS, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
+import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, projectVscodeWorkbenchWorkspace, rewriteVscodeLocation, vscodeUpstreamPath, vscodeUpstreamRequestTarget, requestOpenvscodeStart, VSCODE_WARMING_GIVE_UP_MS, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
 
 describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () => {
   it('matches the bare /api/vscode surface and everything below it', () => {
@@ -101,6 +101,44 @@ describe('vscodeUpstreamRequestTarget / REQ-IDE-012 (fixed clean workspace navig
       rewriteVscodeLocation('/login?next=%2Fstable.js', 'sid'),
       '/api/vscode/sid/login?next=%2Fstable.js',
     );
+  });
+});
+
+describe('projectVscodeWorkbenchWorkspace / REQ-IDE-012 AC5 (clean fixed workbench configuration)', () => {
+  const html = (config) => `<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="${JSON.stringify(config).replaceAll('"', '&quot;')}"><title>Code</title>`;
+  const configuration = (document) => JSON.parse(
+    document.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1].replaceAll('&quot;', '"'),
+  );
+
+  it('projects the fixed remote folder and preserves unrelated pinned-host configuration', () => {
+    const projected = projectVscodeWorkbenchWorkspace(html({
+      remoteAuthority: 'codeflare.example',
+      folderUri: { scheme: 'vscode-remote', authority: 'codeflare.example', path: '/tmp/old' },
+      productConfiguration: { nameShort: 'Code' },
+    }));
+
+    assert.ok(projected);
+    assert.deepEqual(configuration(projected), {
+      remoteAuthority: 'codeflare.example',
+      folderUri: {
+        scheme: 'vscode-remote',
+        authority: 'codeflare.example',
+        path: '/home/user/workspace',
+      },
+      productConfiguration: { nameShort: 'Code' },
+    });
+  });
+
+  it('fails closed on missing, duplicate, malformed, invalid-authority, and oversized configuration', () => {
+    const marker = html({ remoteAuthority: 'codeflare.example' });
+    const cases = [
+      '<!doctype html><title>missing</title>',
+      `${marker}${marker}`,
+      '<meta id="vscode-workbench-web-configuration" data-settings="{not-json}">',
+      html({ remoteAuthority: '' }),
+      `${marker}${'x'.repeat(2 * 1024 * 1024)}`,
+    ];
+    assert.deepEqual(cases.map(projectVscodeWorkbenchWorkspace), cases.map(() => null));
   });
 });
 

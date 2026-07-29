@@ -246,6 +246,119 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
   });
 });
 
+describe('REQ-IDE-012 AC5: root workbench configuration projection', () => {
+  const auth = { authorization: 'Bearer seam-test-token' };
+  const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+  const savedMode = process.env.SESSION_MODE;
+  const savedSessionId = process.env.SESSION_ID;
+  const servers = [];
+  const SID = 'workspace-session';
+  const upstreamRequests = [];
+  const logEvents = [];
+  let proxyPort;
+
+  const listen = async (handler) => {
+    const server = http.createServer(handler);
+    servers.push(server);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    return server.address().port;
+  };
+
+  before(async () => {
+    process.env.CONTAINER_AUTH_TOKEN = 'seam-test-token';
+    process.env.SESSION_MODE = 'advanced';
+    process.env.SESSION_ID = SID;
+    const upstreamPort = await listen((req, res) => {
+      upstreamRequests.push({ url: req.url, acceptEncoding: req.headers['accept-encoding'] });
+      const body = req.headers['x-test-malformed']
+        ? '<!doctype html><title>missing configuration</title>'
+        : '<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="{&quot;remoteAuthority&quot;:&quot;codeflare.ch&quot;,&quot;productConfiguration&quot;:{&quot;nameShort&quot;:&quot;Code&quot;}}"><title>Code</title>';
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': Buffer.byteLength(body),
+        ETag: 'stale-upstream-etag',
+        ...(req.headers['x-test-compressed'] ? { 'Content-Encoding': 'gzip' } : {}),
+      });
+      res.end(body);
+    });
+    proxyPort = await listen(createRequestHandler(makeDeps({
+      openvscode: { host: '127.0.0.1', port: upstreamPort },
+      log: (level, message) => logEvents.push({ level, message }),
+    }).deps));
+  });
+
+  after(async () => {
+    if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+    if (savedMode === undefined) delete process.env.SESSION_MODE;
+    else process.env.SESSION_MODE = savedMode;
+    if (savedSessionId === undefined) delete process.env.SESSION_ID;
+    else process.env.SESSION_ID = savedSessionId;
+    for (const server of servers) {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
+  it('injects the private selector and projects its fixed folder into the clean browser workbench', async () => {
+    const response = await getText(proxyPort, `/api/vscode/${SID}/`, {
+      ...auth,
+      'accept-encoding': 'gzip, br',
+      'x-forwarded-host': 'codeflare.ch',
+      'x-forwarded-proto': 'https',
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(upstreamRequests.at(-1), {
+      url: '/?folder=%2Fhome%2Fuser%2Fworkspace',
+      acceptEncoding: undefined,
+    });
+    const encoded = response.body.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1];
+    const config = JSON.parse(encoded.replaceAll('&quot;', '"'));
+    assert.deepEqual(config.folderUri, {
+      scheme: 'vscode-remote',
+      authority: 'codeflare.ch',
+      path: '/home/user/workspace',
+    });
+    assert.deepEqual(config.productConfiguration, { nameShort: 'Code' });
+    assert.equal(Number(response.headers['content-length']), Buffer.byteLength(response.body));
+    assert.equal(response.headers.etag, undefined);
+    assert.equal(response.headers['content-encoding'], undefined);
+    assert.equal(response.headers['transfer-encoding'], undefined);
+  });
+
+  it('fails closed on an unexpectedly compressed root document', async () => {
+    const response = await getText(proxyPort, `/api/vscode/${SID}/`, {
+      ...auth,
+      'x-test-compressed': '1',
+      'x-forwarded-host': 'codeflare.ch',
+      'x-forwarded-proto': 'https',
+    });
+
+    assert.equal(response.status, 502);
+    assert.equal(JSON.parse(response.body).code, 'VSCODE_WORKBENCH_CONFIGURATION_INVALID');
+  });
+
+  it('fails closed instead of serving an empty workbench when the pinned HTML shape drifts', async () => {
+    const response = await getText(proxyPort, `/api/vscode/${SID}/`, {
+      ...auth,
+      'x-test-malformed': '1',
+      'x-forwarded-host': 'codeflare.ch',
+      'x-forwarded-proto': 'https',
+    });
+
+    assert.equal(response.status, 502);
+    assert.deepEqual(JSON.parse(response.body), {
+      error: 'Browser IDE workbench configuration unavailable',
+      code: 'VSCODE_WORKBENCH_CONFIGURATION_INVALID',
+    });
+    assert.equal(logEvents.at(-1)?.level, 'warn');
+    assert.equal(logEvents.at(-1)?.message, 'Vscode workbench configuration projection failed');
+    assert.doesNotMatch(JSON.stringify(logEvents), /missing configuration|data-settings/);
+  });
+});
+
 // The host-side half of REQ-IDE-003 AC3. `vscodeWarmingResponse` is unit-tested
 // against a given elapsed number in openvscode-proxy.test.js; what only the
 // router can prove is where that number comes from. A meta refresh cannot count

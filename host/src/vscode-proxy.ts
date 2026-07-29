@@ -22,6 +22,8 @@ const WORKSPACE_SELECTOR_KEYS = Object.freeze(['folder', 'workspace', 'ew']);
 // message, so no legitimate frame is ever rejected.
 const OPENVSCODE_WS_MAX_PAYLOAD = 32 * 1024 * 1024;
 const OPENVSCODE_PREOPEN_MAX_BYTES = 8 * 1024 * 1024;
+export const OPENVSCODE_WORKBENCH_MAX_BYTES = 2 * 1024 * 1024;
+const WORKBENCH_CONFIGURATION_PATTERN = /<meta\s+id="vscode-workbench-web-configuration"\s+data-settings="([^"]*)"\s*\/?>/g;
 
 /** Create the no-server WebSocket endpoint used by the Browser IDE bridge. */
 export function createVscodeWebSocketServer(): WebSocketServer {
@@ -158,6 +160,55 @@ export function vscodeUpstreamRequestTarget(
   if (upstreamPath !== '/') return `${upstreamPath}${search}`;
   const separator = search ? '&' : '?';
   return `/${search}${separator}folder=${encodeURIComponent(CODEFLARE_WORKSPACE_ROOT)}`;
+}
+
+/**
+ * Project the fixed workspace into Code OSS's pinned workbench bootstrap while
+ * the public browser URL remains selector-free. Code OSS reads folder queries
+ * from document.location, not code-server's private upstream URL, so the
+ * trusted host must supply the equivalent remote folder in server config.
+ * HTML shape drift fails closed instead of silently opening an empty window.
+ */
+export function projectVscodeWorkbenchWorkspace(html: string): string | null {
+  if (Buffer.byteLength(html) > OPENVSCODE_WORKBENCH_MAX_BYTES) return null;
+  const matches = [...html.matchAll(WORKBENCH_CONFIGURATION_PATTERN)];
+  if (matches.length !== 1) return null;
+  const match = matches[0];
+  const matchStart = match.index;
+  if (matchStart === undefined) return null;
+
+  let configuration: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(match[1].replaceAll('&quot;', '"')) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    configuration = parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const remoteAuthority = configuration.remoteAuthority;
+  if (typeof remoteAuthority !== 'string' || remoteAuthority.length === 0 || remoteAuthority.length > 255) {
+    return null;
+  }
+  try {
+    const authority = new URL(`https://${remoteAuthority}`);
+    if (!authority.host || authority.pathname !== '/'
+      || authority.search || authority.hash || authority.username || authority.password) return null;
+  } catch {
+    return null;
+  }
+
+  const projected = {
+    ...configuration,
+    folderUri: {
+      scheme: 'vscode-remote',
+      authority: remoteAuthority,
+      path: CODEFLARE_WORKSPACE_ROOT,
+    },
+  };
+  const encoded = JSON.stringify(projected).replaceAll('"', '&quot;');
+  const projectedMarker = match[0].replace(match[1], encoded);
+  return `${html.slice(0, matchStart)}${projectedMarker}${html.slice(matchStart + match[0].length)}`;
 }
 
 /** Rewrite a root-relative code-server redirect beneath the public session path. */

@@ -32,11 +32,11 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### Browser IDE URL exposes or accepts a workspace selector ([REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection))
 
-**Symptom:** The browser lands on `?folder=/home/user/workspace`, or a public `folder`, `workspace`, or `ew` query changes the opened workspace.
+**Symptom:** The browser lands on `?folder=/home/user/workspace`, a public `folder`, `workspace`, or `ew` query changes the opened workspace, or the clean URL opens an empty window whose manual folder selection is rejected.
 
-**Cause:** The deployment predates clean fixed-workspace routing, or only one of the Worker/host defense-in-depth checks was updated.
+**Cause:** The deployment predates clean fixed-workspace routing, only one defense-in-depth check was updated, or the pinned Code OSS workbench meta-element drifted. A private upstream query alone is insufficient because Code OSS reads the browser location or server-provided `folderUri`.
 
-**Fix:** Use a fresh session on an image where the Worker and host both reject decoded selector keys, the private root hop injects the fixed folder, and redirect rewriting removes selectors. The normal public location is `/api/vscode/<sessionId>/`. This is not an OS sandbox; terminals, trusted extensions, and agents retain container filesystem access.
+**Fix:** Use a fresh session on an image where Worker and host reject decoded selector keys, the private root hop injects the fixed folder, and the host projects its equivalent `folderUri` into the root workbench configuration. The normal public location is `/api/vscode/<sessionId>/`. A projection mismatch returns `VSCODE_WORKBENCH_CONFIGURATION_INVALID`; complete-image smoke must validate the packaged root HTML before deployment. This is not an OS sandbox; terminals, trusted extensions, and agents retain container filesystem access.
 
 ### Browser IDE theme, Explorer state, or open files do not persist ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable))
 
