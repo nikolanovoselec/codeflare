@@ -18,7 +18,7 @@ import MicroCta from '../components/MicroCta.astro';
 import Header from '../components/Header.astro';
 import { dom } from './_helpers/dom';
 import { HERO, NAV_LINKS, LOGIN, HEADER_SIGN_IN, type TranscriptLine } from '../content/site';
-import { EXECUTION_PR_URL, isApprovedExecutionHref } from '../lib/execution-link';
+import { EXECUTION_PR_URL, approvedExecutionLinkStart } from '../lib/execution-link';
 import { APP_LINKS } from '../config';
 
 let container: AstroContainer;
@@ -54,8 +54,11 @@ describe('HeroKicker', () => {
 });
 
 describe('Execution transcript link boundary', () => {
-  it('accepts only the exact approved PR URL on its own transcript line', () => {
-    expect(isApprovedExecutionHref(`PR opened\n${EXECUTION_PR_URL}`, EXECUTION_PR_URL)).toBe(true);
+  it('accepts exactly one approved PR URL as the final standalone transcript line', () => {
+    const validText = `PR opened\n${EXECUTION_PR_URL}`;
+    expect(approvedExecutionLinkStart(validText, EXECUTION_PR_URL)).toBe(
+      validText.length - EXECUTION_PR_URL.length,
+    );
     for (const href of [
       'http://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
       'https://user@github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
@@ -64,9 +67,14 @@ describe('Execution transcript link boundary', () => {
       `${EXECUTION_PR_URL}?view=files`,
       `${EXECUTION_PR_URL}#discussion`,
     ]) {
-      expect(isApprovedExecutionHref(`PR opened\n${href}`, href)).toBe(false);
+      expect(approvedExecutionLinkStart(`PR opened\n${href}`, href)).toBeNull();
     }
-    expect(isApprovedExecutionHref(`prefix ${EXECUTION_PR_URL} suffix`, EXECUTION_PR_URL)).toBe(false);
+    expect(approvedExecutionLinkStart(
+      `prefix ${EXECUTION_PR_URL} suffix\n${EXECUTION_PR_URL}`,
+      EXECUTION_PR_URL,
+    )).toBeNull();
+    expect(approvedExecutionLinkStart(`prefix ${EXECUTION_PR_URL} suffix`, EXECUTION_PR_URL))
+      .toBeNull();
   });
 });
 

@@ -249,7 +249,6 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 4. Each terminal preserves explicit engineer requests and approvals while agent progress continues autonomously only within approved gates. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (keeps every owner-approved row in both coherent execution timelines) -->
 5. Both server-rendered terminals expose the complete semantic session and a full eight-row resolved viewport without JavaScript. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/index-page.test.ts (composes two shared Transcript simulations with full eight-row viewports) -->
 6. The Execution and Operations presentations render without product-status preview badges. <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders execution and operations without preview badges) -->
-7. The exact real merged Inference Mesh PR URL opens externally by pointer or keyboard while retaining terminal typography without conventional link decoration. <!-- @impl: landing/src/lib/execution-link.ts::isApprovedExecutionHref --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/scripts/proof.ts::renderFeedRowText --> <!-- @impl: landing/src/styles/global.css::terminal-inline-link --> <!-- @test: landing/src/__tests__/components.test.ts (animate='feed' sizes from the first eight context rows while retaining complete semantic content) --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
 
 **Constraints:**
 
@@ -382,6 +381,33 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Verification:** Manual check
 
 **Status:** Partial
+
+---
+
+### REQ-LANDING-015: Execution reel merged-PR link
+
+**Intent:** The software Execution transcript exposes its real merged Inference Mesh pull request as a safe, accessible terminal link.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. Only the exact approved PR #1 URL, appearing once as the final standalone line of its row, becomes interactive. <!-- @impl: landing/src/lib/execution-link.ts::approvedExecutionLinkStart --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/scripts/proof.ts::parseFeed --> <!-- @test: landing/src/__tests__/components.test.ts (accepts exactly one approved PR URL as the final standalone transcript line) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (rejects a feed link other than the exact approved pull request) -->
+2. The approved URL opens externally by pointer or keyboard, and keyboard focus remains visible inside the terminal. <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/scripts/proof.ts::renderFeedRowText --> <!-- @impl: landing/src/styles/global.css::transcript-feed-semantic --> <!-- @test: landing/src/__tests__/components.test.ts (animate='feed' sizes from the first eight context rows while retaining complete semantic content) --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
+3. The link inherits terminal color and removes conventional link decoration. <!-- @impl: landing/src/styles/global.css::terminal-inline-link --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
+
+**Constraints:**
+
+- The visual animation copy stays out of the keyboard tab order; the complete semantic transcript owns keyboard activation.
+- Parsed transcript data never supplies a URL to an HTML or DOM link sink.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
+
+**Verification:** Automated test
+
+**Status:** Implemented
 
 ---
 
