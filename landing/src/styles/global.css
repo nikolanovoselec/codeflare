@@ -749,7 +749,17 @@ svg {
 .execution-card {
   display: grid;
   gap: clamp(2rem, 4vw, 3.5rem);
-  align-items: start;
+  align-items: stretch;
+}
+
+.execution-face {
+  display: flex;
+}
+
+.execution-terminal {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
 }
 
 .execution-terminal-title {
@@ -763,6 +773,7 @@ svg {
 /* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
    Long real command output wraps within each frame instead of scrolling sideways. */
 .execution-terminal .terminal-body {
+  flex: 1;
   overflow-x: hidden;
 }
 
