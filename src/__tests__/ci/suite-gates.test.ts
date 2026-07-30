@@ -479,6 +479,16 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     }
   });
 
+  it('REQ-OPS-029 AC2: inline deploy verification grants every reusable-workflow permission', () => {
+    const { deployWorkflow } = readCacheWorkflowContract();
+
+    expect(deployWorkflow.jobs.verify.permissions).toMatchObject({
+      actions: 'read',
+      contents: 'read',
+      packages: 'write',
+    });
+  });
+
   it('REQ-OPS-001 AC8: cache unavailability cannot block complete-image or deploy builds', () => {
     expect(sharedCacheEnabled('success')).toBe(true);
     expect(sharedCacheEnabled('failure')).toBe(false);
