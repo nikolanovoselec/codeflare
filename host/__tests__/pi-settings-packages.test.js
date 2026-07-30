@@ -59,7 +59,7 @@ const REQUIRED = [
   'npm:@gotgenes/pi-subagents@18.0.3',
   'npm:context-mode@1.0.169',
   'npm:@juicesharp/rpiv-advisor@1.20.0',
-  'npm:@juicesharp/rpiv-ask-user-question@1.20.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.0.0',
   'npm:@juicesharp/rpiv-todo@1.20.0',
   'npm:pi-web-access@0.13.0',
   'npm:pi-mcp-adapter@2.11.0',
