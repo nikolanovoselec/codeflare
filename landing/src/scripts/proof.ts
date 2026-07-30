@@ -10,8 +10,8 @@
  * sequence plays once, then the element is unobserved.
  *
  * Some artifacts carry a [data-roll] list. Ordinary proof lists move the top
- * row to the bottom on a slow loop. Transcript simulations first reveal their
- * complete context history in authored order, then append typed events into a clipped,
+ * row to the bottom on a slow loop. Transcript simulations reveal their populated
+ * opening rows while retaining full context, then append typed events into a clipped,
  * fixed-height log using the established cadence. Pinned terminal chrome never moves.
  *
  * Reduced motion: do nothing. The default (no `.is-live`) markup is already the
@@ -110,8 +110,8 @@ function feedRow(line: FeedLine, index: number): HTMLElement {
   return row;
 }
 
-/** Normal motion starts from the complete populated context history. The first
- *  eight rows size the viewport; extra history can fill an equal stretched frame.
+/** Normal motion restores the complete context history. Its first eight rows
+ *  size and reveal the opening viewport; extra history fills an equal stretched frame.
  *  The server-rendered final event viewport remains untouched for no-JS and
  *  reduced-motion visitors. */
 function prepareFeed(list: HTMLElement): void {
