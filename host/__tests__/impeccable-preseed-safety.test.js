@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { deflateSync } from 'node:zlib';
 import { describe, it } from 'node:test';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -72,6 +73,7 @@ describe('vendored Impeccable safety patches', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'codeflare-impeccable-roots-'));
     const repo = join(fixture, 'repo');
     const external = join(fixture, 'external-app');
+    const symlinkTarget = join(fixture, 'symlink-target');
     const escapedLink = join(repo, 'escaped-app');
 
     try {
@@ -94,7 +96,21 @@ describe('vendored Impeccable safety patches', () => {
           resolvedFrom: 'fixture',
         }),
       );
-      symlinkSync(external, escapedLink, 'dir');
+      mkdirSync(join(symlinkTarget, '.impeccable/live'), { recursive: true });
+      writeFileSync(
+        join(symlinkTarget, '.impeccable/live/roots.json'),
+        JSON.stringify({
+          version: 1,
+          appRoot: escapedLink,
+          repoRoot: repo,
+          contextRoot: null,
+          sessionRoot: join(escapedLink, '.impeccable/live'),
+          productPath: null,
+          designPath: null,
+          resolvedFrom: 'fixture',
+        }),
+      );
+      symlinkSync(symlinkTarget, escapedLink, 'dir');
       writeFileSync(
         join(repo, '.impeccable/live/app-root.json'),
         JSON.stringify({
@@ -133,6 +149,7 @@ describe('vendored Impeccable safety patches', () => {
         signature,
         pngChunk('IHDR', ihdr),
         pngChunk('iTXt', ancillary),
+        pngChunk('IDAT', deflateSync(Buffer.from([0, 0, 0, 0, 0]))),
         pngChunk('IEND', Buffer.alloc(0)),
       ]));
 
@@ -142,11 +159,11 @@ describe('vendored Impeccable safety patches', () => {
       assert.equal(result.status, 0, result.stderr);
 
       const chunks = parsePng(readFileSync(image));
-      assert.deepEqual(chunks.map(({ type }) => type), ['IHDR', 'iTXt', 'tEXt', 'IEND']);
+      assert.deepEqual(chunks.map(({ type }) => type), ['IHDR', 'iTXt', 'IDAT', 'tEXt', 'IEND']);
       assert.deepEqual(chunks[1].data, ancillary);
       assert.equal(chunks.at(-1).data.length, 0);
       assert.deepEqual(
-        chunks[2].data,
+        chunks[3].data,
         Buffer.concat([
           Buffer.from('impeccable:prompt', 'latin1'),
           Buffer.from([0]),

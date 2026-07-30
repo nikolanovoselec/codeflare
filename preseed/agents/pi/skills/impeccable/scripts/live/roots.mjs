@@ -126,6 +126,14 @@ function insideOrEqual(candidate, root) {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
+function realInsideOrEqual(candidate, root) {
+  try {
+    return insideOrEqual(fs.realpathSync(candidate), fs.realpathSync(root));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Scan downward (bounded depth) for directories carrying a dev-server config.
  * Used when live boots from a directory that is not itself an app root and no
@@ -404,6 +412,7 @@ export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}
       // then the most recent boot. A stale pointer entry must never redirect
       // status/poll/accept onto the wrong app's session store.
       const candidates = readPointerEntries(gitRoot)
+        .filter((entry) => realInsideOrEqual(entry.appRoot, gitRoot))
         .map((entry) => readManifestAt(entry.appRoot))
         .filter(Boolean);
       if (candidates.length > 0) {
