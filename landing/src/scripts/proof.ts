@@ -11,8 +11,8 @@
  *
  * Some artifacts carry a [data-roll] list. Ordinary proof lists move the top
  * row to the bottom on a slow loop. Transcript simulations first reveal eight
- * complete rows in authored order, then reuse that row motion and the established
- * typing cadence for every remaining event. Pinned terminal chrome never moves.
+ * complete rows in authored order, then append typed events into a clipped,
+ * fixed-height log using the established cadence. Pinned terminal chrome never moves.
  *
  * Reduced motion: do nothing. The default (no `.is-live`) markup is already the
  * resolved state, so leaving it untouched is the correct motionless result.
@@ -117,10 +117,25 @@ function prepareFeed(list: HTMLElement): void {
   const events = parseFeed(list, 'feedEvents');
   if (context.length !== 8 || events.length < context.length) return;
   list.replaceChildren(...context.map(feedRow));
+  list.closest<HTMLElement>('.terminal-body')?.classList.add('is-feed-prepared');
   list.dataset.feedState = 'ready';
 }
 
-function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): void {
+function scrollFeedToEnd(list: HTMLElement, behavior: ScrollBehavior = 'auto'): void {
+  const top = Math.max(0, list.scrollHeight - list.clientHeight);
+  if (typeof list.scrollTo === 'function') {
+    list.scrollTo({ top, behavior });
+    return;
+  }
+  list.scrollTop = top;
+}
+
+function typeFeedRow(
+  row: HTMLElement,
+  line: FeedLine,
+  onComplete: () => void,
+  startDelay = TYPE_MS,
+): void {
   for (const tone of FEED_TONES) row.classList.remove(`t-${tone}`);
   row.classList.remove('t-feed-command');
   row.classList.add(line.tone === 'cmd' ? 't-feed-command' : `t-${line.tone}`, 'is-feed-typing');
@@ -158,6 +173,7 @@ function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): 
   const tick = () => {
     offset += 1;
     text.textContent = line.text.slice(0, offset);
+    if (row.parentElement) scrollFeedToEnd(row.parentElement);
     if (offset < line.text.length) {
       window.setTimeout(tick, TYPE_MS);
       return;
@@ -167,7 +183,7 @@ function typeFeedRow(row: HTMLElement, line: FeedLine, onComplete: () => void): 
     row.textContent = line.text;
     onComplete();
   };
-  window.setTimeout(tick, TYPE_MS);
+  window.setTimeout(tick, startDelay);
 }
 
 function settleFeed(list: HTMLElement): void {
@@ -179,8 +195,9 @@ function settleFeed(list: HTMLElement): void {
   list.dataset.feedState = 'complete';
 }
 
-/** One bounded Transcript feed: every typed event reuses the shared rolling-row
- *  transition, pushing the oldest populated line out while keeping eight rows. */
+/** One bounded Transcript feed: each typed event is appended to a fixed-height,
+ *  clipped terminal log. Native scrolling keeps the newest work in view without
+ *  deleting history, stretching row gaps, or changing the outer frame. */
 function startFeed(list: HTMLElement): void {
   if (list.dataset.feedStarted === 'true' || list.dataset.feedState !== 'ready') return;
   const context = parseFeed(list, 'feedContext');
@@ -197,16 +214,17 @@ function startFeed(list: HTMLElement): void {
     }
     list.closest<HTMLElement>('[data-proof]')?.classList.add('is-rolling');
     list.querySelector('.t-caret')?.remove();
-    rollOnce(list, (row) => {
-      typeFeedRow(row, events[index], () => {
-        index += 1;
-        if (index >= events.length) {
-          settleFeed(list);
-          return;
-        }
-        window.setTimeout(advance, FEED_HOLD_MS);
-      });
-    });
+    const row = feedRow(events[index], list.children.length);
+    list.appendChild(row);
+    typeFeedRow(row, events[index], () => {
+      index += 1;
+      if (index >= events.length) {
+        settleFeed(list);
+        return;
+      }
+      window.setTimeout(advance, FEED_HOLD_MS);
+    }, PHASE_MS + TYPE_MS);
+    scrollFeedToEnd(list, 'smooth');
   };
 
   window.setTimeout(advance, ROLL_FIRST_MS);

@@ -733,7 +733,7 @@ svg {
 
    Both Hero-scale terminals render full resolved viewports for no-JS and
    reduced-motion visitors. Normal motion reveals eight initial rows top-down,
-   then types the remaining session through the shared rolling-row machinery.
+   then appends the remaining session through a fixed, clipped terminal log.
    -------------------------------------------------------------------------- */
 #execution .section-head {
   max-width: 52rem;
@@ -749,7 +749,7 @@ svg {
 .execution-card {
   display: grid;
   gap: clamp(2rem, 4vw, 3.5rem);
-  align-items: stretch;
+  align-items: start;
 }
 
 .execution-face {
@@ -772,8 +772,8 @@ svg {
 
 /* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
    Long real command output wraps within each frame instead of scrolling sideways.
-   The hidden sizing layer and live feed overlap in one grid track, so every frame
-   reserves its tallest authored eight-row viewport before playback begins. */
+   The hidden sizing layer fixes each frame to its initial context during motion;
+   no-JS and reduced-motion visitors instead size against the resolved state. */
 .execution-terminal .terminal-body {
   display: grid;
   flex: 1;
@@ -793,19 +793,37 @@ svg {
 }
 
 .execution-terminal .transcript-feed-size-window {
-  display: flex;
+  display: none;
   grid-area: 1 / 1;
   flex-direction: column;
   min-height: 0;
 }
 
-/* Each terminal owns a full-height live viewport. The grid track stays fixed by
-   the tallest hidden authored viewport, while rows retain the contiguous line
-   rhythm used by every other landing-page terminal. */
+/* The resolved state sizes no-JS/reduced-motion markup. Once proof.ts restores
+   the initial context, that first state becomes the permanent motion viewport. */
+.execution-terminal .transcript-feed-size-window:last-child,
+.execution-terminal .terminal-body.is-feed-prepared .transcript-feed-size-window:first-child {
+  display: flex;
+}
+
+.execution-terminal .terminal-body.is-feed-prepared .transcript-feed-size-window:last-child:not(:first-child) {
+  display: none;
+}
+
+/* The live log stretches to the sizing track but cannot contribute to it.
+   Appended history scrolls inside the clipped viewport with ordinary contiguous
+   terminal line rhythm, so wrapping never grows the outer frame or creates gaps. */
 .execution-terminal .transcript-feed {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+  contain: size;
+  scroll-behavior: smooth;
+}
+
+.execution-terminal .transcript-feed > .t-line {
+  flex-shrink: 0;
 }
 
 .execution-terminal .t-line {
@@ -1889,9 +1907,9 @@ svg {
   }
 }
 
-/* Line-roll loop (proof.ts): the top row of a [data-roll] list slides out and
-   re-enters at the bottom. The rolled child transitions; the list height is
-   frozen by JS during a cycle so nothing jumps. */
+/* Ordinary proof-row loop (proof.ts): the top row of a non-feed [data-roll]
+   list slides out and re-enters at the bottom. The rolled child transitions;
+   JS freezes that list's height during the cycle so nothing jumps. */
 [data-roll] > .roll-anim {
   overflow: hidden;
   transition:
@@ -1908,13 +1926,11 @@ svg {
   transform: translateY(8px);
 }
 
-/* Scroll-anchoring opt-out. The roll loop moves the top row of the list to the
-   bottom every few seconds. On a phone, when the terminal fills the viewport and
-   the reader is scrolled into it, the browser would otherwise pick a rolling row
-   as its scroll anchor and chase it as it moves, walking the whole page downward
-   on every cycle. Excluding the list's subtree from anchoring keeps the viewport
-   still; the list height is already frozen by JS during a cycle, so nothing below
-   the terminal shifts. */
+/* Scroll-anchoring opt-out. Ordinary proof lists reorder rows; Transcript feeds
+   scroll appended history inside a size-contained viewport. On a phone, the
+   browser could otherwise pick either moving subtree as its scroll anchor and
+   walk the whole page downward. Ordinary lists freeze their height during a
+   cycle, while feeds cannot resize their sizing track. */
 [data-roll] {
   overflow-anchor: none;
 }
