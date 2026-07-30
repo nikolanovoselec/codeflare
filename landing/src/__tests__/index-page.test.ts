@@ -538,7 +538,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     }
   });
 
-  it('overlaps intrinsic sizing without distributing spare height between feed rows', () => {
+  it('sizes fixed scrolling logs from resolved then initial states without row gaps', () => {
     const document = documentDom(html);
     const style = document.createElement('style');
     style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
@@ -557,7 +557,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       expect(view.getComputedStyle(element).justifyContent).toBe(standardJustification);
     };
 
-    expect(view.getComputedStyle(card).alignItems).toBe('stretch');
+    expect(view.getComputedStyle(card).alignItems).toBe('start');
     expect(faces).toHaveLength(2);
     faces.forEach((face) => {
       const terminal = face.querySelector<HTMLElement>('.execution-terminal')!;
@@ -572,14 +572,24 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       expect(view.getComputedStyle(sizeReserve).display).toBe('grid');
       expect(view.getComputedStyle(sizeReserve).visibility).toBe('hidden');
       expectFirstGridCell(sizeReserve);
-      const sizeWindows = sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]');
-      expect(sizeWindows.length).toBeGreaterThan(0);
+      const sizeWindows = Array.from(
+        sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]'),
+      );
+      expect(sizeWindows.length).toBeGreaterThan(1);
       sizeWindows.forEach((window) => {
         expectFirstGridCell(window);
         expectStandardLineRhythm(window);
       });
+      expect(view.getComputedStyle(sizeWindows[0]).display).toBe('none');
+      expect(view.getComputedStyle(sizeWindows.at(-1)!).display).toBe('flex');
+      terminalBody.classList.add('is-feed-prepared');
+      expect(view.getComputedStyle(sizeWindows[0]).display).toBe('flex');
+      expect(view.getComputedStyle(sizeWindows.at(-1)!).display).toBe('none');
       expectFirstGridCell(feed);
       expectStandardLineRhythm(feed);
+      expect(view.getComputedStyle(feed).contain).toContain('size');
+      expect(view.getComputedStyle(feed).overflow).toBe('hidden');
+      expect(view.getComputedStyle(feed.querySelector<HTMLElement>('.t-line')!).flexShrink).toBe('0');
     });
   });
 

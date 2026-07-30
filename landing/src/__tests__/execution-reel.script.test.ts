@@ -2,8 +2,8 @@
 /**
  * Behavioral integration coverage for REQ-LANDING-011 motion and
  * REQ-LANDING-012 accessibility. Execution composes the shared Transcript feed
- * with proof.ts: a full eight-line viewport reveals top-down, then rolls once
- * per typed event and settles full with a blinking cursor.
+ * with proof.ts: eight complete context rows reveal top-down, then events append
+ * into a fixed scrolling log that settles with its full history and blinking cursor.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -247,8 +247,14 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     style.remove();
   });
 
-  it('types the simulation to completion while keeping a full viewport and final cursor', async () => {
+  it('types the simulation to completion in a fixed scrolling log with final cursor', async () => {
     const fixture = buildFixture();
+    const scrollTo = vi.fn();
+    fixture.softwareList.scrollTo = scrollTo;
+    Object.defineProperties(fixture.softwareList, {
+      scrollHeight: { configurable: true, value: 400 },
+      clientHeight: { configurable: true, value: 200 },
+    });
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
@@ -284,46 +290,34 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text.slice(0, 1));
     vi.advanceTimersByTime(1);
     expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text.slice(0, 2));
-    expect(visibleLines(fixture.softwareList)[0]).toBe(fixture.softwareContext[1].text);
+    expect(visibleLines(fixture.softwareList)[0]).toBe(fixture.softwareContext[0].text);
+    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS + 1);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 200, behavior: 'smooth' });
+    expect(scrollTo).toHaveBeenCalledWith({ top: 200, behavior: 'auto' });
     expect(visibleLines(fixture.infrastructureList)).toEqual(
       fixture.infrastructureContext.map((line) => line.text),
     );
 
     vi.advanceTimersByTime(60_000);
     expect(visibleLines(fixture.softwareList)).toEqual(
-      fixture.softwareEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
+      [...fixture.softwareContext, ...fixture.softwareEvents].map((line) => line.text),
     );
     expect(fixture.softwareList.dataset.feedState).toBe('complete');
     const finalCaret = fixture.softwareList.lastElementChild?.querySelector<HTMLElement>('.t-caret');
     expect(finalCaret).not.toBeNull();
-    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
+    expect(fixture.softwareList.children).toHaveLength(
+      fixture.softwareContext.length + fixture.softwareEvents.length,
+    );
 
     expect(getComputedStyle(finalCaret!).animation).toContain('caret');
     expect(getComputedStyle(finalCaret!).animation).toContain('infinite');
     style.remove();
   });
 
-  it('keeps wrapped row geometry reserved for the complete event while typing', async () => {
+  it('keeps wrapped row geometry reserved inside the fixed scrolling viewport', async () => {
     const fixture = buildFixture();
     fixture.softwareEvents[0].text = 'software-event-that-wraps-across-several-narrow-viewport-lines';
     fixture.softwareList.dataset.feedEvents = JSON.stringify(fixture.softwareEvents);
-    fixture.softwareList.getBoundingClientRect = vi.fn().mockImplementation(() => {
-      const constrainedHeight = Number.parseFloat(fixture.softwareList.style.height);
-      const lastRowText = fixture.softwareList.lastElementChild?.textContent ?? '';
-      const naturalHeight = lastRowText.length > 40 ? 220 : 150;
-      const height = Number.isNaN(constrainedHeight) ? naturalHeight : constrainedHeight;
-      return {
-        height,
-        width: 320,
-        top: 0,
-        left: 0,
-        right: 320,
-        bottom: height,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-      };
-    });
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
@@ -339,19 +333,15 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
       fixture.softwareEvents[0].text.slice(0, 1),
     );
     expect(typingRow.classList.contains('is-feed-typing')).toBe(true);
-    expect(fixture.softwareList.style.height).toBe('220px');
-    const reservedHeight = fixture.softwareList.getBoundingClientRect().height;
-
-    vi.advanceTimersByTime(PHASE_MS);
     expect(fixture.softwareList.style.height).toBe('');
-    expect(fixture.softwareList.getBoundingClientRect().height).toBe(reservedHeight);
+    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS + 1);
 
     vi.advanceTimersByTime(TYPE_MS * (fixture.softwareEvents[0].text.length - 1));
     expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text);
     expect(fixture.softwareList.lastElementChild?.querySelector('[data-feed-reserve]')).toBeNull();
     expect(fixture.softwareList.lastElementChild?.classList.contains('t-feed-command')).toBe(false);
     expect(fixture.softwareList.lastElementChild?.classList.contains('t-cmd')).toBe(true);
-    expect(fixture.softwareList.getBoundingClientRect().height).toBe(reservedHeight);
+    expect(fixture.softwareList.style.height).toBe('');
   });
 
   it('rejects either malformed feed payload without replacing or animating the resolved viewport', async () => {
@@ -405,7 +395,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     advanceThroughEvents(fixture.softwareList, fixture.softwareEvents);
     expect(fixture.softwareList.dataset.feedState).toBe('complete');
     expect(visibleLines(fixture.softwareList)).toEqual(
-      fixture.softwareEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
+      [...fixture.softwareContext, ...fixture.softwareEvents].map((line) => line.text),
     );
     expect(fixture.softwareList.lastElementChild?.querySelector('.t-caret')).not.toBeNull();
     expect(fixture.infrastructureList.dataset.feedState).toBe('ready');
@@ -419,7 +409,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     advanceThroughEvents(fixture.infrastructureList, fixture.infrastructureEvents);
     expect(fixture.infrastructureList.dataset.feedState).toBe('complete');
     expect(visibleLines(fixture.infrastructureList)).toEqual(
-      fixture.infrastructureEvents.slice(-VIEWPORT_ROWS).map((line) => line.text),
+      [...fixture.infrastructureContext, ...fixture.infrastructureEvents].map((line) => line.text),
     );
     expect(fixture.infrastructureList.lastElementChild?.querySelector('.t-caret')).not.toBeNull();
   });
