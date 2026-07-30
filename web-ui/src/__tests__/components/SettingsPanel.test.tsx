@@ -109,6 +109,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
     mockGetLlmKeys.mockResolvedValue({});
     mockUpdateLlmKeys.mockResolvedValue({});
+    mockEnableAgentNotifications.mockResolvedValue('granted');
   });
 
   afterEach(() => {
@@ -255,6 +256,18 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       expect(mockEnableAgentNotifications).toHaveBeenCalledOnce();
       expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent('Enabled');
+    });
+
+    it('does not report notifications as enabled when browser setup is unavailable', async () => {
+      mockEnableAgentNotifications.mockResolvedValueOnce('unavailable');
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      await fireEvent.click(screen.getByTestId('settings-agent-notifications'));
+
+      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent(
+        'Unavailable in this browser',
+      );
     });
   });
 

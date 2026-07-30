@@ -41,6 +41,7 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
     ['control-bearing title', context, 'notify;Pi\nspoof;Ready'],
     ['control-bearing body', context, 'notify;Pi;Ready\u001b[31m'],
     ['oversized title', context, `notify;${'p'.repeat(65)};Ready`],
+    ['oversized composed title', { ...context, sessionName: 's'.repeat(60) }, 'notify;Pi;Ready'],
     ['oversized body', context, `notify;Pi;${'é'.repeat(129)}`],
   ])('rejects %s', (_name, notificationContext, payload) => {
     expect(parseAgentNotification(payload, notificationContext)).toBeUndefined();
@@ -94,5 +95,13 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
     await expect(enableAgentNotifications(env)).resolves.toBe('denied');
 
     expect(env.registerWorker).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['permission request rejection', browser({ requestPermission: vi.fn(async () => { throw new Error('blocked'); }) })],
+    ['missing service-worker registration', browser({ registerWorker: vi.fn(async () => undefined) })],
+    ['service-worker registration rejection', browser({ registerWorker: vi.fn(async () => { throw new Error('blocked'); }) })],
+  ])('reports notification enablement as unavailable after %s', async (_name, env) => {
+    await expect(enableAgentNotifications(env)).resolves.toBe('unavailable');
   });
 });

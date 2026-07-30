@@ -65,7 +65,7 @@ test("REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore 
   });
 });
 
-test("REQ-IDE-018 + REQ-TERM-023: Pi native Chat uses Code OSS browser notifications", () => {
+test("REQ-IDE-018: Pi native Chat uses Code OSS browser notifications", () => {
   assert.deepEqual(buildPiOpenVscodeSettings(), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,

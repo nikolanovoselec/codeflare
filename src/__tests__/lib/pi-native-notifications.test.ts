@@ -13,7 +13,7 @@ function notificationRuntime(argv: readonly string[] = ['/usr/local/bin/pi']) {
   return { handlers, write };
 }
 
-describe('Pi native terminal notifications / REQ-TERM-023', () => {
+describe('Pi native terminal notifications / REQ-TERM-024', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('registers no notification behavior and writes no terminal bytes in RPC mode', () => {
