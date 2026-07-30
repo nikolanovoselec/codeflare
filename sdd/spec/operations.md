@@ -65,11 +65,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The container image is built in the CI runner whenever its hashed inputs and weekly salt produce a tag not yet present in the target registry; otherwise the existing image is reused without rebuild or rescan. Cache-bust independently forces a rebuild and invalidates build layers. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) --> <!-- @manual -->
-2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
-3. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
-4. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, path, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
-5. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+1. The container image is built in the CI runner whenever its hashed inputs and weekly salt produce a tag not yet present in the target registry; otherwise the existing image is reused without rebuild or rescan. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) --> <!-- @manual -->
+2. A cache-bust independently forces a rebuild and invalidates build layers without changing the content-addressed tag. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+3. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
+4. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
+5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, path, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
+6. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 
 **Constraints:**
 
