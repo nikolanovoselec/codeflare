@@ -444,28 +444,34 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(body.querySelectorAll('#operations')).toHaveLength(1);
   });
 
-  it('keeps engineer requests and approvals visible in each settled viewport', () => {
+  it('keeps engineer intent visible throughout both coherent execution timelines', () => {
     const runs = [EXECUTION.software, EXECUTION.infrastructure];
     expect([...new Set(EXECUTION.infrastructure.context.map((line) => line.tone))]).toEqual(
-      expect.arrayContaining(['cmd', 'ok', 'dim', 'warn', 'info']),
+      expect.arrayContaining(['cmd', 'ok', 'warn', 'info']),
     );
     expect(EXECUTION.infrastructure.events.some((line) => line.tone === 'info')).toBe(true);
     for (const run of runs) {
+      expect(run.context).toHaveLength(8);
       expect(run.events).toHaveLength(8);
-      expect(run.events.map((line) => line.intent).filter(Boolean)).toEqual(
+      expect([...run.context, ...run.events].map((line) => line.intent).filter(Boolean)).toEqual(
         expect.arrayContaining(['request', 'approval']),
       );
-      run.events.forEach((line, index) => {
-        if (index % 2 === 0) {
-          expect(line.tone).toBe('cmd');
-          expect(line.intent).toMatch(/^(request|approval)$/);
-          expect(line.text.startsWith('$')).toBe(false);
-        } else {
-          expect(line.tone).not.toBe('cmd');
-          expect(line.intent).toBeUndefined();
-        }
-      });
+      for (const timeline of [run.context, run.events]) {
+        timeline.forEach((line, index) => {
+          if (index % 2 === 0) {
+            expect(line.tone).toBe('cmd');
+            expect(line.intent).toMatch(/^(request|approval)$/);
+            expect(line.text.startsWith('$')).toBe(false);
+          } else {
+            expect(line.tone).not.toBe('cmd');
+            expect(line.intent).toBeUndefined();
+          }
+        });
+      }
     }
+    expect(EXECUTION.software.events.map((line) => line.text).join(' ')).toMatch(
+      /code-reviewer.*doc-updater.*spec-reviewer/,
+    );
   });
 
   it('composes two shared Transcript simulations with full eight-row viewports', () => {
