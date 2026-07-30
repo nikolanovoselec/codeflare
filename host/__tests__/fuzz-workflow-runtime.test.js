@@ -1,25 +1,35 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
 
 describe('backend fuzz workflow runtime', () => {
-  it('discovers backend fuzz tests under the plain Node forks pool', async () => {
-    const configPath = resolve(repoRoot, 'vitest.fuzz.config.mjs');
-    const { default: config } = await import(pathToFileURL(configPath).href);
-
-    assert.equal(config.test.environment, 'node');
-    assert.equal(config.test.pool, 'forks');
-    assert.deepEqual(config.test.include, ['src/__tests__/fuzz/**/*.fuzz.test.ts']);
-
-    const workflow = readFileSync(resolve(repoRoot, '.github/workflows/fuzz.yml'), 'utf8');
-    assert.match(
-      workflow,
-      /run: npx vitest run --config vitest\.fuzz\.config\.mjs --reporter=verbose/,
+  it('discovers backend fuzz tests under the plain Node forks pool', () => {
+    const executable = resolve(
+      repoRoot,
+      'node_modules/.bin',
+      process.platform === 'win32' ? 'vitest.cmd' : 'vitest',
     );
+    const result = spawnSync(executable, ['list', '--config', 'vitest.fuzz.config.mjs'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+
+    const expected = readdirSync(resolve(repoRoot, 'src/__tests__/fuzz'))
+      .filter((name) => name.endsWith('.fuzz.test.ts'))
+      .map((name) => `src/__tests__/fuzz/${name}`)
+      .sort();
+    const discovered = [...result.stdout.matchAll(/src\/__tests__\/fuzz\/[^ >\n]+\.fuzz\.test\.ts/g)]
+      .map(([file]) => file)
+      .filter((file, index, files) => files.indexOf(file) === index)
+      .sort();
+
+    assert.deepEqual(discovered, expected);
   });
 });

@@ -8,6 +8,7 @@
 export const NODE_SUITE_FILES = [
   // CI gate scripts: spawned as subprocesses against temp trees.
   'src/__tests__/ci/suite-gates.test.ts',
+  'src/__tests__/lib/agent-seed-chunks.test.ts',
   'src/__tests__/lib/agent-seed-multi-agent.test.ts',
   'src/__tests__/lib/local-statusline-repo.test.ts',
   // All three drive real temp trees through node:fs, and pi-memory-inject also
