@@ -14,6 +14,7 @@ import { loadSettings } from '../lib/settings';
 import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
+import { showAgentNotification } from '../lib/agent-notifications';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -61,6 +62,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let bufferChangeDisposable: { dispose: () => void } | undefined;
   let cursorHideDisposable: { dispose: () => void } | undefined;
   let cursorShowDisposable: { dispose: () => void } | undefined;
+  let notificationDisposable: { dispose: () => void } | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
@@ -382,6 +384,18 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
+    const session = sessionStore.sessions.find((candidate) => candidate.id === props.sessionId);
+    if (props.terminalId === '1' && (session?.agentType === 'pi' || session?.agentType === 'claude-code')) {
+      notificationDisposable = t.parser.registerOscHandler(777, (data) => {
+        void showAgentNotification(data, {
+          agentType: session.agentType,
+          terminalId: props.terminalId,
+          sessionName: props.sessionName ?? session.name,
+        });
+        return true;
+      });
+    }
+
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
     // Font loading fix
@@ -645,6 +659,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     bufferChangeDisposable?.dispose();
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
+    notificationDisposable?.dispose();
     resizeObserver?.disconnect();
     terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);

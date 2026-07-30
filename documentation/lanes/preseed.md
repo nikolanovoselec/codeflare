@@ -34,7 +34,7 @@ deployed on Recreate or new bucket creation.
 |---------|---------|----------|-------------------------|
 | Memory plugin & rule | No | Yes | Yes |
 | Core environment rules (cloudflare-environment, no-local-builds, git-workflow) | Yes | Yes | Yes |
-| Pi startup header and local statusline | Yes | Yes | Yes |
+| Pi startup header, local statusline, and settled terminal notification | Yes | Yes | Yes |
 | Cloudflare-stack, ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (Claude + Pi) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn`, `run-review-lane` | No | Yes | Yes |
@@ -57,6 +57,8 @@ The Custom-tier column reflects the extra Claude Code delivery surface for users
 After explicit opt-in, package settings expose context-mode skills but filter out its extension. The managed `context-mode-runtime.ts` extension claims one process-wide foreground owner and loads the installed context-mode Pi adapter only for that owner; every in-process subagent sees the claim and skips the adapter, so no reviewer/capture/CI child creates a bridge helper. The owner is released after context-mode handles `session_shutdown`, allowing `/reload` and `/ctx` toggles to reattach cleanly. Codeflare does not patch either upstream package's lifecycle or ownership implementation; separate image-build transforms add the ESM compatibility shim and suppress the upstream update probe ([AD101](../decisions/README.md#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [AD107](../decisions/README.md#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC7, [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
 
 The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. Every Pi skill treats `ctx_*` tools as optional; `/ctx off` switches root workflows to documented native fallbacks without narrowing work.
+
+The native `native-notifications.ts` extension is seeded in both modes. It emits Pi's standard OSC 777 ready signal only at `agent_settled`, avoiding premature notifications during retry, compaction, or queued continuation. It registers nothing under `--mode rpc`, whose stdout is strict JSONL; code-server native Chat instead uses Code OSS's browser-notification lifecycle. Claude needs no notification hook: both session-mode settings select Claude's built-in `ghostty` notification channel ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notifications)).
 
 In-process subagents always use native fallbacks. The three PR reviewers expose only `bash` and consume their exact packet through the Bash/Node transport.
 

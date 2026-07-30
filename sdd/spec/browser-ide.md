@@ -551,6 +551,6 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated managed-settings and fixed-inventory tests; deployed Pi native Chat verification.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---

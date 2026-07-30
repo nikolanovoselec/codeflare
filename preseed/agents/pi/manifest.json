@@ -10,6 +10,12 @@
       "advanced"
     ]
   },
+  "extensions/native-notifications.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "rules/git-workflow.md": {
     "modes": [
       "default",

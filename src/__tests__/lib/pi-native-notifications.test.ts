@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import nativeNotifications from '../../../preseed/agents/pi/extensions/native-notifications';
+import nativeNotifications, { isPiRpcMode } from '../../../preseed/agents/pi/extensions/native-notifications';
 
 describe('Pi native terminal notifications / REQ-TERM-023', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('keeps strict native-Chat RPC stdout free of terminal notification bytes', () => {
+    expect(isPiRpcMode(['/usr/local/bin/pi', '--mode', 'rpc', '--no-session'])).toBe(true);
+    expect(isPiRpcMode(['/usr/local/bin/pi'])).toBe(false);
+  });
 
   it('emits one OSC 777 ready notification only when the agent is fully settled', async () => {
     const handlers = new Map<string, () => Promise<void>>();

@@ -53,7 +53,7 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
     });
 
     await showAgentNotification('notify;Claude Code;Task complete', {
-      agentType: 'claude',
+      agentType: 'claude-code',
       terminalId: '1',
       sessionName: 'Nebuchadnezzar',
     }, env);

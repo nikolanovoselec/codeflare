@@ -24,6 +24,8 @@ Every request receives bounded native Chat history plus the active workspace doc
 
 Each request owns a fresh process generation. Pi streams assistant text and tool progress into native Chat, completes only at `agent_settled`, and is then reaped. Cancellation during startup prevents the prompt; after acceptance it sends Pi's correlated abort before cleanup. Sidebar Pi keeps its unrestricted built-in tools, and any extension confirmation auto-approves without opening an editor document or modal.
 
+The Pi inventory enables pinned Code OSS's own OS notifications for received responses and native confirmations when the editor is unfocused. Code OSS owns browser permission, focus policy, lifetime, and click behavior; Codeflare does not duplicate native Chat events through the terminal OSC bridge.
+
 ## Official Claude Code
 
 The image build fetches Anthropic's exact unmodified `linux-x64` VSIX from Open VSX, verifies its pinned SHA-256 and package identity, extracts the official files into the Claude-only inventory, deletes the archive, and makes the installed tree root-owned and immutable. Codeflare applies settings externally and does not patch or serve Anthropic's package. The owner accepts its all-rights-reserved license ambiguity for server-image inclusion.
@@ -32,7 +34,7 @@ Before Claude's code-server inventory starts, Codeflare creates `/tmp/codeflare-
 
 Anthropic's official extension runs its documented IDE MCP server on `127.0.0.1` with a random port and fresh authorization token under the private temporary config. This owner-approved local exception supplies active-file context, selections, native diffs, and diagnostics without adding a Codeflare relay or public listener. No Claude tool call is approval-gated.
 
-The official package contributes its own Claude Code webview, not a code-server `chatParticipant` or language-model provider. Claude settings therefore disable the unrelated native Chat and Copilot setup before launch. Use the Claude Code panel with a selection or `@` reference. The upstream Accounts control may still offer manual authentication, but it is separate from Claude and Codeflare adds no credential request, bridge, export, persistence, or sync path.
+The official package contributes its own Claude Code webview, not a code-server `chatParticipant` or language-model provider. Claude settings therefore disable the unrelated native Chat and Copilot setup before launch. Use the Claude Code panel with a selection or `@` reference. Its upstream panel notifications remain in-product; Codeflare does not patch the checksum-pinned extension, scrape code-server UI, or add a private relay to turn them into OS notifications. Claude terminal tab 1 separately uses Claude's native terminal notification channel under REQ-TERM-023. The upstream Accounts control may still offer manual authentication, but it is separate from Claude and Codeflare adds no credential request, bridge, export, persistence, or sync path.
 
 ## Workspace selection and safe continuity
 

@@ -5,8 +5,8 @@ import { pathToFileURL } from "node:url";
 
 import {
   MANAGED_OPENVSCODE_SETTING_KEYS,
-  buildBaseOpenVscodeSettings,
   buildOpenVscodeSettings,
+  buildPiOpenVscodeSettings,
   buildUnsupportedOpenVscodeSettings,
 } from "./managed-settings.mjs";
 
@@ -122,7 +122,7 @@ export async function prepareOpenVscodeSettings(options) {
 // which have no Claude config projection. REQ-IDE-009.
 export async function prepareBaseOpenVscodeSettings(serverDataRoot) {
   const root = validateRoot(serverDataRoot, "OpenVSCode data");
-  await writeOpenVscodeUserSettings(root, buildBaseOpenVscodeSettings());
+  await writeOpenVscodeUserSettings(root, buildPiOpenVscodeSettings());
 }
 
 export async function prepareUnsupportedOpenVscodeSettings(serverDataRoot) {
