@@ -84,6 +84,37 @@ function sharedCacheLogin(steps: CacheStep[] | undefined) {
   return steps?.find((step) => step.name === 'Log in to GHCR for shared BuildKit cache');
 }
 
+function captureDockerBuildArguments(command: string, cacheEnabled: boolean, label: string) {
+  const bin = join(work, 'bin');
+  const docker = join(bin, 'docker');
+  const argsFile = join(work, `${label}-${cacheEnabled}.args`);
+  const githubOutput = join(work, `${label}-${cacheEnabled}.output`);
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(docker, '#!/usr/bin/env bash\nset -euo pipefail\nprintf \'%s\\n\' "$@" > "$DOCKER_ARGS_FILE"\n');
+  chmodSync(docker, 0o755);
+  const result = spawnSync(
+    'bash',
+    ['--noprofile', '--norc', '-euo', 'pipefail', '-c', command],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        CACHE_ENABLED: String(cacheEnabled),
+        DOCKER_ARGS_FILE: argsFile,
+        GITHUB_OUTPUT: githubOutput,
+        GITHUB_REPOSITORY: 'owner/codeflare',
+        IMAGE: 'complete-image:test',
+        IMAGE_NAME: 'registry.example/codeflare',
+        REF: '0123456789012345678901234567890123456789',
+        TAG: 'in-test',
+      },
+    },
+  );
+  expect(result.status, `${label}: ${result.stderr}`).toBe(0);
+  return readFileSync(argsFile, 'utf8').trim().split('\n');
+}
+
 function touch(root: string, relPath: string) {
   const p = join(root, relPath);
   mkdirSync(dirname(p), { recursive: true });
@@ -390,6 +421,14 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(sharedCacheLogin(completeImageJob.steps)?.if).toBe(
       "steps.cache-policy.outputs.login_allowed == 'true'",
     );
+    expect(sharedCacheEnabled('skipped')).toBe(false);
+    const args = captureDockerBuildArguments(
+      cacheBuildCommand(completeImageJob.steps, 'Build complete image'),
+      false,
+      'ac7-complete-image',
+    );
+    expect(args).not.toContain('--cache-from');
+    expect(args).not.toContain('--cache-to');
   });
 
   it('REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache', () => {
@@ -403,8 +442,16 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       'CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"',
     );
     expect(cacheRef(deployment)).toBe(cacheRef(completeImage));
-    expect(completeImage).toContain('--cache-from "type=registry,ref=${CACHE_REF}"');
-    expect(deployment).toContain('--cache-from "type=registry,ref=${CACHE_REF}"');
+    const expectedFrom = 'type=registry,ref=ghcr.io/owner/codeflare/container-build-cache:linux-amd64';
+    const expectedTo = `${expectedFrom},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true`;
+    for (const [command, label] of [
+      [completeImage, 'ac4-complete-image'],
+      [deployment, 'ac4-deployment'],
+    ]) {
+      const args = captureDockerBuildArguments(command, true, label);
+      expect(args.at(args.indexOf('--cache-from') + 1)).toBe(expectedFrom);
+      expect(args.at(args.indexOf('--cache-to') + 1)).toBe(expectedTo);
+    }
     expect(completeImageJob.permissions?.packages).toBe('write');
     expect(imageJob.permissions?.packages).toBe('write');
     expect(deployWorkflow.jobs.verify.permissions?.packages).toBe('write');
@@ -443,16 +490,21 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       expect(availability?.run).toContain('container-build-cache-policy.mjs availability');
     }
 
-    const completeImage = cacheBuildCommand(completeImageJob.steps, 'Build complete image');
-    const deployment = cacheBuildCommand(imageJob.steps, 'Build container image');
-    for (const [job, command, stepName] of [
-      [completeImageJob, completeImage, 'Build complete image'],
-      [imageJob, deployment, 'Build container image'],
-    ] as const) {
+    const builds = [
+      [completeImageJob, 'Build complete image', 'ac8-complete-image'],
+      [imageJob, 'Build container image', 'ac8-deployment'],
+    ] as const;
+    for (const [job, stepName, label] of builds) {
       expect(job.steps?.find((step) => step.name === stepName)?.env?.CACHE_ENABLED)
         .toBe('${{ steps.cache.outputs.enabled }}');
-      expect(command).toContain('if [ "$CACHE_ENABLED" = "true" ]');
-      expect(command).toContain('image-manifest=true,ignore-error=true');
+      const args = captureDockerBuildArguments(
+        cacheBuildCommand(job.steps, stepName),
+        false,
+        label,
+      );
+      expect(args).toEqual(expect.arrayContaining(['buildx', 'build', '--load']));
+      expect(args).not.toContain('--cache-from');
+      expect(args).not.toContain('--cache-to');
     }
   });
 
