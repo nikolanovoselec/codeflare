@@ -18,6 +18,7 @@ import MicroCta from '../components/MicroCta.astro';
 import Header from '../components/Header.astro';
 import { dom } from './_helpers/dom';
 import { HERO, NAV_LINKS, LOGIN, HEADER_SIGN_IN, type TranscriptLine } from '../content/site';
+import { EXECUTION_PR_URL, isApprovedExecutionHref } from '../lib/execution-link';
 import { APP_LINKS } from '../config';
 
 let container: AstroContainer;
@@ -49,6 +50,23 @@ describe('HeroKicker', () => {
     const measure = kicker.querySelector('[data-hero-kicker-measure]');
     expect(measure).not.toBeNull();
     expect(measure?.parentElement?.classList.contains('hero-kicker-reel')).toBe(true);
+  });
+});
+
+describe('Execution transcript link boundary', () => {
+  it('accepts only the exact approved PR URL on its own transcript line', () => {
+    expect(isApprovedExecutionHref(`PR opened\n${EXECUTION_PR_URL}`, EXECUTION_PR_URL)).toBe(true);
+    for (const href of [
+      'http://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      'https://user@github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      'https://github.com:444/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/2',
+      `${EXECUTION_PR_URL}?view=files`,
+      `${EXECUTION_PR_URL}#discussion`,
+    ]) {
+      expect(isApprovedExecutionHref(`PR opened\n${href}`, href)).toBe(false);
+    }
+    expect(isApprovedExecutionHref(`prefix ${EXECUTION_PR_URL} suffix`, EXECUTION_PR_URL)).toBe(false);
   });
 });
 
@@ -109,7 +127,7 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
         text: `context-${index}`,
       }),
     );
-    const linkHref = 'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1';
+    const linkHref = EXECUTION_PR_URL;
     const feed: TranscriptLine[] = Array.from(
       { length: 10 },
       (_, index): TranscriptLine => ({

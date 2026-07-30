@@ -392,13 +392,13 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.softwareList.style.height).toBe('');
   });
 
-  it('rejects a feed link outside the owned GitHub organization', async () => {
+  it('rejects a feed link other than the exact approved pull request', async () => {
     const fixture = buildFixture();
     const softwareResolved = visibleLines(fixture.softwareList);
     fixture.softwareEvents[3] = {
       ...fixture.softwareEvents[3],
-      text: 'PR opened\nhttps://github.com/attacker/repository/pull/1',
-      href: 'https://github.com/attacker/repository/pull/1',
+      text: 'PR opened\nhttps://github.com/nikolanovoselec/codeflare-inference-mesh/pull/2',
+      href: 'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/2',
     };
     fixture.softwareList.dataset.feedEvents = JSON.stringify(fixture.softwareEvents);
     mockMatchMedia(false);

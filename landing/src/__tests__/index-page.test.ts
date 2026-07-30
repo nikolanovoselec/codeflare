@@ -538,7 +538,25 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(link.classList.contains('terminal-inline-link')).toBe(true);
     expect(link.target).toBe('_blank');
     expect(link.rel).toContain('noopener');
-    expect(document.defaultView!.getComputedStyle(link).textDecorationLine).toBe('none');
+    expect(link.closest('.transcript-feed-semantic')).not.toBeNull();
+    const rules = Array.from(style.sheet?.cssRules ?? []).filter(
+      (rule): rule is CSSStyleRule => 'selectorText' in rule,
+    );
+    const linkRule = rules.find((rule) => rule.selectorText.startsWith('.terminal-inline-link,'))!;
+    expect(linkRule.style.getPropertyValue('color')).toBe('inherit');
+    expect(linkRule.style.getPropertyValue('text-decoration')).toBe('none');
+    const focusRule = rules.find(
+      (rule) => rule.selectorText === '.execution-terminal .transcript-feed-semantic:focus-within',
+    )!;
+    expect(focusRule.style.getPropertyValue('width')).toBe('auto');
+    expect(focusRule.style.getPropertyValue('height')).toBe('auto');
+    expect(focusRule.style.getPropertyValue('overflow')).toBe('visible');
+    expect(focusRule.style.getPropertyValue('clip')).toBe('auto');
+    const focusedItemRule = rules.find(
+      (rule) => rule.selectorText
+        === '.transcript-feed-semantic:focus-within > li:not(:focus-within)',
+    )!;
+    expect(focusedItemRule.style.getPropertyValue('display')).toBe('none');
   });
 
   it('keeps every authored continuation non-empty', () => {
