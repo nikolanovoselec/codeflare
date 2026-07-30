@@ -330,7 +330,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Execute the plan.\nscope approved · six tasks authorized',
+        text: 'Execute the plan.\nKeep changes within the six approved tasks.',
       },
       {
         tone: 'ok',
@@ -343,7 +343,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Fix it and rerun review.\nfallback fixed · regression green',
+        text: 'Fix it and rerun review.\nAdd the regression before rerunning review.',
       },
       { tone: 'ok', text: 'code-reviewer: clean · doc-updater: clean · spec-reviewer: clean' },
       {
@@ -358,7 +358,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Approve, update the PR body, and squash-merge to main.\napproval recorded · merge policy met',
+        text: 'Approve, update the PR body, and squash-merge to main.\nRecord approval and enforce merge policy.',
       },
       {
         tone: 'ok',
@@ -400,7 +400,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Approved. Run check mode first, then execute.\ncheck clean · package diff confirmed',
+        text: 'Approved. Run check mode first, then execute.\nKeep restart blocked until validation passes.',
       },
       { tone: 'ok', text: '2 package changes applied · config preserved · restart blocked' },
       {
@@ -415,7 +415,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Restart nginx. Roll back if checks fail.\nrestart authorized · rollback armed',
+        text: 'Restart nginx. Roll back if checks fail.\nUse the snapshot if health checks fail.',
       },
       { tone: 'ok', text: 'nginx restarted · config valid · workers healthy · rollback unused' },
       { tone: 'cmd', intent: 'request', text: 'Verify and close the incident.' },
