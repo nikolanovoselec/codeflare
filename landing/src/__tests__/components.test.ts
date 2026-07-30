@@ -155,9 +155,10 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
         }
       });
     });
-    expect(rendered.querySelectorAll('[data-feed-accessible-line]')).toHaveLength(
-      context.length + feed.length,
-    );
+    expect(Array.from(
+      rendered.querySelectorAll('[data-feed-accessible-line]'),
+      (line) => line.textContent,
+    )).toEqual([...context, ...feed].map((line) => line.text));
     expect(body.querySelector('.t-caret')).toBeNull();
   });
 
