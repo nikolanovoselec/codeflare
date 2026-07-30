@@ -37,6 +37,7 @@ const FEED_TONES = new Set(['cmd', 'agent', 'info', 'ok', 'dim', 'warn', 'deny']
 interface FeedLine {
   tone: 'cmd' | 'agent' | 'info' | 'ok' | 'dim' | 'warn' | 'deny';
   text: string;
+  href?: string;
 }
 
 /** Track which rolling artifacts are currently on-screen, so ticks pause off-screen. */
@@ -90,11 +91,26 @@ function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLi
     if (!Array.isArray(value)) return [];
     const valid = value.every((line) => {
       if (!line || typeof line !== 'object') return false;
-      const candidate = line as { tone?: unknown; text?: unknown };
-      return typeof candidate.tone === 'string'
-        && FEED_TONES.has(candidate.tone)
-        && typeof candidate.text === 'string'
-        && candidate.text.length > 0;
+      const candidate = line as { tone?: unknown; text?: unknown; href?: unknown };
+      if (typeof candidate.tone !== 'string'
+        || !FEED_TONES.has(candidate.tone)
+        || typeof candidate.text !== 'string'
+        || candidate.text.length === 0) return false;
+      if (candidate.href === undefined) return true;
+      if (typeof candidate.href !== 'string' || !candidate.text.includes(candidate.href)) return false;
+      try {
+        const href = new URL(candidate.href);
+        return href.protocol === 'https:'
+          && href.hostname === 'github.com'
+          && href.port === ''
+          && href.username === ''
+          && href.password === ''
+          && href.search === ''
+          && href.hash === ''
+          && href.pathname.startsWith('/nikolanovoselec/');
+      } catch {
+        return false;
+      }
     });
     return valid ? value as FeedLine[] : [];
   } catch {
@@ -102,11 +118,31 @@ function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLi
   }
 }
 
+function renderFeedRowText(row: HTMLElement, line: FeedLine): void {
+  const hrefStart = line.href ? line.text.indexOf(line.href) : -1;
+  if (!line.href || hrefStart < 0) {
+    row.textContent = line.text;
+    return;
+  }
+  const link = document.createElement('a');
+  link.className = 'terminal-inline-link';
+  link.href = line.href;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.tabIndex = -1;
+  link.textContent = line.href;
+  row.replaceChildren(
+    line.text.slice(0, hrefStart),
+    link,
+    line.text.slice(hrefStart + line.href.length),
+  );
+}
+
 function feedRow(line: FeedLine, index: number): HTMLElement {
   const row = document.createElement('span');
   row.className = `t-line t-${line.tone}`;
   row.style.setProperty('--i', String(index));
-  row.textContent = line.text;
+  renderFeedRowText(row, line);
   return row;
 }
 
@@ -188,7 +224,7 @@ function typeFeedRow(
     }
     row.classList.remove('is-feed-typing', 't-feed-command');
     row.classList.add(`t-${line.tone}`);
-    row.textContent = line.text;
+    renderFeedRowText(row, line);
     onComplete();
   };
   window.setTimeout(tick, startDelay);

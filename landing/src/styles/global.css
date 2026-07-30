@@ -919,6 +919,19 @@ svg {
   white-space: pre;
 }
 
+.terminal-inline-link,
+.terminal-inline-link:visited,
+.terminal-inline-link:hover,
+.terminal-inline-link:active {
+  color: inherit;
+  text-decoration: none;
+}
+
+.terminal-inline-link:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
 /* Phone: the transcript wraps instead of scrolling sideways (the old overflow).
    A hanging indent keeps a wrapped continuation aligned under the line's text,
    past the leading glyph, and a slightly smaller mono fits more per line.

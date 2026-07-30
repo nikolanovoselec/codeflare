@@ -46,6 +46,12 @@ const feedWindows = [
   lines.slice(0, viewportRows),
   resolvedFeed,
 ];
+const linkParts = (line: TranscriptLine): [string, string, string] | null => {
+  if (!line.href) return null;
+  const start = line.text.indexOf(line.href);
+  if (start < 0) return null;
+  return [line.text.slice(0, start), line.href, line.text.slice(start + line.href.length)];
+};
 ---
 
 <div class="terminal-body">
@@ -53,9 +59,23 @@ const feedWindows = [
     animate === 'feed' ? (
       <Fragment>
         <ol class="sr-only" aria-label={label}>
-          {[...lines, ...feed].map((line) => (
-            <li data-feed-accessible-line>{line.text}</li>
-          ))}
+          {[...lines, ...feed].map((line) => {
+            const parts = linkParts(line);
+            return (
+              <li data-feed-accessible-line>
+                {parts ? (
+                  <Fragment>
+                    {parts[0]}<a
+                      class="terminal-inline-link"
+                      href={parts[1]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >{parts[1]}</a>{parts[2]}
+                  </Fragment>
+                ) : line.text}
+              </li>
+            );
+          })}
         </ol>
         <div
           class="transcript-feed-size"
@@ -81,9 +101,24 @@ const feedWindows = [
           data-feed-state="resolved"
           aria-hidden="true"
         >
-          {resolvedFeed.map((line, i) => (
-            <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>
-          ))}
+          {resolvedFeed.map((line, i) => {
+            const parts = linkParts(line);
+            return (
+              <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>
+                {parts ? (
+                  <Fragment>
+                    {parts[0]}<a
+                      class="terminal-inline-link"
+                      href={parts[1]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      tabindex="-1"
+                    >{parts[1]}</a>{parts[2]}
+                  </Fragment>
+                ) : line.text}
+              </span>
+            );
+          })}
         </div>
       </Fragment>
     ) : animate === 'roll-middle' ? (

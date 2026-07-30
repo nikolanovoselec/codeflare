@@ -88,6 +88,8 @@ export interface TopicOption {
 export interface TranscriptLine {
   tone: 'cmd' | 'agent' | 'info' | 'ok' | 'dim' | 'warn' | 'deny';
   text: string;
+  /** Optional owned GitHub URL rendered as a terminal-styled external link. */
+  href?: string;
 }
 
 /** A coding-agent statusline footer under a terminal: context / model /
@@ -319,7 +321,7 @@ export const EXECUTION = {
       },
       {
         tone: 'agent',
-        text: 'clone complete · develop checked out · graph current\nproduction baseline captured · branch verified',
+        text: 'clone complete · develop checked out · graph current\nHEAD matches origin/develop · worktree clean',
       },
       {
         tone: 'cmd',
@@ -330,11 +332,11 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Execute the plan.\nKeep changes within the six approved tasks.',
+        text: 'Execute the plan.\nStop if the approved scope changes.',
       },
       {
         tone: 'ok',
-        text: 'implementation complete · TDD suite green · worktree ready\nrequirements met · behavior verified',
+        text: 'implementation complete · TDD suite green · worktree ready\n6/6 tasks complete · requirement anchors updated',
       },
       { tone: 'cmd', intent: 'request', text: 'Trigger review agents.' },
       { tone: 'warn', text: 'code-reviewer: fallback assertion missing · doc-updater: clean · spec-reviewer: clean' },
@@ -343,7 +345,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Fix it and rerun review.\nAdd the regression before rerunning review.',
+        text: 'Fix it and rerun review.\nShow me the final diff when review is clean.',
       },
       { tone: 'ok', text: 'code-reviewer: clean · doc-updater: clean · spec-reviewer: clean' },
       {
@@ -353,16 +355,31 @@ export const EXECUTION = {
       },
       {
         tone: 'ok',
-        text: 'PR #84 opened · required checks green · ready to merge\nreceipt attached · head acknowledged',
+        text: 'PR #1 opened · required checks green · ready to merge\nhttps://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+        href: 'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      },
+      { tone: 'cmd', intent: 'request', text: 'Deploy develop to integration.' },
+      {
+        tone: 'ok',
+        text: 'integration deploy green · dynamic/codeflare-mesh route live · private node path ready',
+      },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Run the end-to-end inference path on integration.',
+      },
+      {
+        tone: 'agent',
+        text: 'AI Gateway → Worker router → scheduler reservation\ncf1:network → Cloudflare Mesh/WARP → private node\nstream complete · reservation released · audit event recorded',
       },
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Approve, update the PR body, and squash-merge to main.\nRecord approval and enforce merge policy.',
+        text: 'Approve, update the PR body, and squash-merge to main.\nKeep the implementation and verification details in the PR body.',
       },
       {
         tone: 'ok',
-        text: 'PR #84 squash-merged · main updated · PR closed\nsquash verified · deploy handoff ready',
+        text: 'PR #1 squash-merged · main updated · PR closed\nmain @ 8ef188a · production deploy queued',
       },
       {
         tone: 'cmd',
@@ -371,10 +388,10 @@ export const EXECUTION = {
       },
       {
         tone: 'ok',
-        text: 'develop aligned with origin/main · worktree clean\nbranch protected · session ready to close',
+        text: 'develop aligned with origin/main · worktree clean\norigin/develop updated with --force-with-lease · 8ef188a',
       },
     ],
-    foot: ['PR #84 merged', 'CI green', 'develop synced'],
+    foot: ['PR #1 merged', 'CI green', 'develop synced'],
   } satisfies ExecutionRun,
   infrastructure: {
     title: 'codeflare · infra operations',
@@ -382,58 +399,85 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'request',
-        text: 't.anderson@metacortex.ai $ SSH to prod-web-07 and investigate INC-4821 read-only.',
+        text: 't.anderson@metacortex.ai $ Trace CVE-2024-6387 across every internet-facing Linux host. Discovery only.',
       },
-      { tone: 'ok', text: 'access approved · read-only session · host up 47 days · config unchanged' },
-      { tone: 'cmd', intent: 'request', text: 'Correlate the crash with the coredump.' },
-      { tone: 'info', text: '23:41 UTC · nginx worker · SIGSEGV · core and backtrace retained' },
+      {
+        tone: 'ok',
+        text: 'CMDB: 2,418 hosts scanned · 186 publicly exposed · 37 running affected OpenSSH versions',
+      },
       {
         tone: 'cmd',
         intent: 'request',
-        text: 'Enter planning mode, analyze and plan a repair, then present it for approval.',
+        text: 'SSH to all 37 candidates in parallel. Confirm package version, glibc, and live sshd exposure.',
       },
-      { tone: 'info', text: 'repair plan · patch nginx · preserve config · validate before restart' },
-      { tone: 'cmd', intent: 'request', text: 'Show the changes and rollback.' },
-      { tone: 'info', text: 'upgrade nginx to 1.26.3 · snapshot /etc/nginx · rollback to 1.24.0' },
+      { tone: 'info', text: '37 checked in 42s · 31 confirmed vulnerable · 6 false positives removed' },
       {
         tone: 'cmd',
         intent: 'request',
-        text: 'Confirm the rollback artifact and hold execution.',
+        text: 'Enter planning mode. Build a canary-first rollout for the 31 vulnerable hosts, with rollback and stop conditions.',
       },
-      { tone: 'info', text: 'snapshot reserved · rollback playbook ready · execution blocked' },
+      { tone: 'info', text: 'Ubuntu 18 · Debian 8 · RHEL 5 · 3 canaries · 7 rollout batches' },
       {
         tone: 'cmd',
         intent: 'request',
-        text: 'Summarize the check-mode gates before approval.',
+        text: 'Show the rollback path and automatic stop conditions.',
       },
-      { tone: 'info', text: 'package diff bounded · config preservation required · restart gated' },
+      {
+        tone: 'info',
+        text: 'rollback role rendered · serial: 5 · max_fail_percentage: 0\nSSH reconnect and sshd health required after every host',
+      },
+      { tone: 'cmd', intent: 'request', text: 'List every host in the canary batch.' },
+      {
+        tone: 'info',
+        text: 'ansible-playbook openssh-cve-2024-6387.yml --limit cve-2024-6387-canary --list-hosts\n  hosts (3): aws-fra-edge-03 · azure-fra-edge-02 · azure-zrh-bastion-01',
+      },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Show me the batch timeline before I approve.',
+      },
+      {
+        tone: 'info',
+        text: 'canary 45s · 6 rollout batches × 30s · final rescan 45s\nestimated 4m 30s · rolling sshd restart · no host reboot',
+      },
     ],
     events: [
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Approved. Run check mode first, then execute.\nKeep restart blocked until validation passes.',
+        text: 'Execute the approved rollout.\nStop before fleet batches unless all three canaries pass.',
       },
-      { tone: 'ok', text: '2 package changes applied · config preserved · restart blocked' },
       {
-        tone: 'cmd',
-        intent: 'request',
-        text: 'Validate the candidate configuration and health.',
+        tone: 'ok',
+        text: 'canaries 3/3 patched · fixed OpenSSH packages verified\nSSH reconnect 3/3 · sshd healthy 3/3 · fleet gate open',
+      },
+      {
+        tone: 'agent',
+        text: 'batch 1/7 passed · remaining six batches released automatically · 28 hosts remaining',
+      },
+      {
+        tone: 'ok',
+        text: '7 batches completed in 3m 31s · 31/31 patched · failed 0\nSSH reconnect 31/31 · sshd healthy 31/31',
+      },
+      {
+        tone: 'agent',
+        text: '31 hosts healthy · rescanning all 2,418 CMDB assets for CVE-2024-6387 exposure',
       },
       {
         tone: 'info',
-        text: 'config valid · local health 200 · restart gate clear\nconfig preserved · health gate open',
+        text: '2,418 hosts rescanned · vulnerable hosts 0 · public exposure 0\n31 fixed versions verified · rollback used 0',
       },
       {
         tone: 'cmd',
-        intent: 'approval',
-        text: 'Restart nginx. Roll back if checks fail.\nUse the snapshot if health checks fail.',
+        intent: 'request',
+        text: 'Publish the discovery, rollout, and rescan evidence, then close SEC-4821.',
       },
-      { tone: 'ok', text: 'nginx restarted · config valid · workers healthy · rollback unused' },
-      { tone: 'cmd', intent: 'request', text: 'Verify and close the incident.' },
-      { tone: 'ok', text: 'prod-web-07 healthy · change record updated · incident closed' },
+      {
+        tone: 'ok',
+        text: 'SEC-4821 closed · CMDB inventory, host evidence, package diffs, and rollout logs attached\nelapsed 4m 18s · 31 hosts remediated · remaining exposure 0',
+      },
     ],
-    foot: ['prod-web-07 healthy', 'CHG-4821', 'snapshot'],
+    foot: ['SEC-4821 closed', '4m 18s', 'fleet verified'],
   } satisfies ExecutionRun,
 };
 
