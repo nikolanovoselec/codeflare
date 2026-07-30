@@ -23,7 +23,7 @@
  * No IntersectionObserver (old browser, not reduced): arm ordinary proofs at
  * once and leave bounded Transcript feeds in their resolved static state.
  */
-import { isApprovedExecutionHref } from '../lib/execution-link';
+import { EXECUTION_PR_URL, approvedExecutionLinkStart } from '../lib/execution-link';
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const artifacts = Array.from(document.querySelectorAll<HTMLElement>('[data-proof]'));
@@ -99,7 +99,7 @@ function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLi
         || typeof candidate.text !== 'string'
         || candidate.text.length === 0) return false;
       return candidate.href === undefined
-        || isApprovedExecutionHref(candidate.text, candidate.href);
+        || approvedExecutionLinkStart(candidate.text, candidate.href) !== null;
     });
     return valid ? value as FeedLine[] : [];
   } catch {
@@ -108,22 +108,22 @@ function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLi
 }
 
 function renderFeedRowText(row: HTMLElement, line: FeedLine): void {
-  const hrefStart = line.href ? line.text.indexOf(line.href) : -1;
-  if (!line.href || hrefStart < 0) {
+  const hrefStart = approvedExecutionLinkStart(line.text, line.href);
+  if (hrefStart === null) {
     row.textContent = line.text;
     return;
   }
   const link = document.createElement('a');
   link.className = 'terminal-inline-link';
-  link.href = line.href;
+  link.href = EXECUTION_PR_URL;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   link.tabIndex = -1;
-  link.textContent = line.href;
+  link.textContent = EXECUTION_PR_URL;
   row.replaceChildren(
     line.text.slice(0, hrefStart),
     link,
-    line.text.slice(hrefStart + line.href.length),
+    line.text.slice(hrefStart + EXECUTION_PR_URL.length),
   );
 }
 

@@ -1,7 +1,11 @@
 export const EXECUTION_PR_URL =
   'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1';
 
-/** Only the owner-approved PR URL may become interactive terminal content. */
-export function isApprovedExecutionHref(text: string, href: unknown): href is string {
-  return href === EXECUTION_PR_URL && text.split('\n').includes(EXECUTION_PR_URL);
+/** Return the offset of the one owner-approved standalone URL, never URL input. */
+export function approvedExecutionLinkStart(text: string, href: unknown): number | null {
+  if (href !== EXECUTION_PR_URL) return null;
+  const start = text.length - EXECUTION_PR_URL.length;
+  if (start < 0 || text.slice(start) !== EXECUTION_PR_URL) return null;
+  if (start > 0 && text[start - 1] !== '\n') return null;
+  return text.indexOf(EXECUTION_PR_URL) === start ? start : null;
 }

@@ -27,7 +27,7 @@
  * reduced motion (the scripts only animate from this resting state).
  */
 import type { TranscriptLine } from '../content/site';
-import { isApprovedExecutionHref } from '../lib/execution-link';
+import { EXECUTION_PR_URL, approvedExecutionLinkStart } from '../lib/execution-link';
 
 interface Props {
   lines: TranscriptLine[];
@@ -48,10 +48,13 @@ const feedWindows = [
   resolvedFeed,
 ];
 const linkParts = (line: TranscriptLine): [string, string, string] | null => {
-  if (!isApprovedExecutionHref(line.text, line.href)) return null;
-  const start = line.text.indexOf(line.href);
-  if (start < 0) return null;
-  return [line.text.slice(0, start), line.href, line.text.slice(start + line.href.length)];
+  const start = approvedExecutionLinkStart(line.text, line.href);
+  if (start === null) return null;
+  return [
+    line.text.slice(0, start),
+    EXECUTION_PR_URL,
+    line.text.slice(start + EXECUTION_PR_URL.length),
+  ];
 };
 ---
 
@@ -68,7 +71,7 @@ const linkParts = (line: TranscriptLine): [string, string, string] | null => {
                   <Fragment>
                     {parts[0]}<a
                       class="terminal-inline-link"
-                      href={parts[1]}
+                      href={EXECUTION_PR_URL}
                       target="_blank"
                       rel="noopener noreferrer"
                     >{parts[1]}</a>{parts[2]}
@@ -110,7 +113,7 @@ const linkParts = (line: TranscriptLine): [string, string, string] | null => {
                   <Fragment>
                     {parts[0]}<a
                       class="terminal-inline-link"
-                      href={parts[1]}
+                      href={EXECUTION_PR_URL}
                       target="_blank"
                       rel="noopener noreferrer"
                       tabindex="-1"
