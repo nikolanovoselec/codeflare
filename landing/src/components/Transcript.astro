@@ -39,6 +39,11 @@ interface Props {
 const { lines, animate = 'static', typed = '', feed = [], label = 'Terminal transcript' } = Astro.props;
 const lastIndex = lines.length - 1;
 const resolvedFeed = feed.slice(-lines.length);
+const feedTimeline = [...lines, ...feed];
+const feedWindows = Array.from(
+  { length: feed.length + 1 },
+  (_, index) => feedTimeline.slice(index, index + lines.length),
+);
 ---
 
 <div class="terminal-body">
@@ -50,6 +55,22 @@ const resolvedFeed = feed.slice(-lines.length);
             <li data-feed-accessible-line>{line.text}</li>
           ))}
         </ol>
+        <div
+          class="transcript-feed-size"
+          data-feed-size-reserve
+          aria-hidden="true"
+        >
+          {feedWindows.map((window) => (
+            <div class="transcript-feed-size-window" data-feed-size-window>
+              {window.map((line) => (
+                <span class={`t-line ${line.tone === 'cmd' ? 't-feed-command' : `t-${line.tone}`}`}>
+                  {line.tone === 'cmd' && <span class="t-feed-prompt" aria-hidden="true">❯ </span>}
+                  <span data-feed-size-text>{line.text}</span>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
         <div
           class="transcript-feed"
           data-roll
