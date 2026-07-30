@@ -471,67 +471,56 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
         });
       }
     }
-    const expectOrderedStory = (
-      run: (typeof runs)[number],
-      beats: RegExp[],
-    ) => {
-      const timeline = [...run.context, ...run.events].map((line) => line.text);
-      let cursor = 0;
-      for (const beat of beats) {
-        const offset = timeline.slice(cursor).findIndex((line) => beat.test(line));
-        expect(offset).toBeGreaterThanOrEqual(0);
-        cursor += offset + 1;
-      }
-    };
-
-    expectOrderedStory(EXECUTION.software, [
-      /t\.anderson@metacortex\.ai.*repo clone.*codeflare-inference-mesh/,
-      /repository cloned.*develop clean.*graph current/,
-      /pi "Plan Inference Mesh routing\. Do not edit\."/,
-      /planning mode.*requirements linked.*tests identified/,
-      /Execute only that plan.*tests first/,
-      /implementation complete.*routing and fallback tests pass/,
-      /code-reviewer.*doc-updater.*spec-reviewer/,
-      /fallback assertion missing/,
-      /Accept the fallback gap.*rerun code-reviewer.*doc-updater.*spec-reviewer/,
-      /all clean.*reviewed head pushed/,
-      /pull request.*exact-head CI before merge/,
-      /PR #84 opened.*exact-head CI green.*approval recorded/,
-      /Merge PR #84.*review and CI receipts/,
-      /merged into main.*evidence retained/,
-      /Realign develop.*origin\/main.*clean worktree/,
-      /develop aligned.*worktree clean.*evidence retained/,
-    ]);
     const softwareTimeline = [...EXECUTION.software.context, ...EXECUTION.software.events];
-    const firstPushIndex = softwareTimeline.findIndex((line) =>
-      line.tone === 'cmd'
-        ? /\bgit\s+push\b|^Push\b/.test(line.text)
-        : /\bpushed\b/.test(line.text),
-    );
-    const cleanReviewIndex = softwareTimeline.findIndex((line) => /all clean/.test(line.text));
-    expect(firstPushIndex).toBe(cleanReviewIndex);
-    expect(softwareTimeline[firstPushIndex].text.indexOf('pushed')).toBeGreaterThan(
-      softwareTimeline[firstPushIndex].text.indexOf('all clean'),
-    );
-
-    expectOrderedStory(EXECUTION.infrastructure, [
-      /t\.anderson@metacortex\.ai.*ssh prod-web-07/,
-      /read-only session.*host up 47 days/,
-      /retained coredump.*failure boundary/,
-      /signal 11\/SEGV.*core retained/,
-      /recovery playbook in check mode/,
-      /check mode.*package changes.*no restart/,
-      /snapshot.*rollback command.*approval/,
-      /^⚠ package\+config rollback: ansible-playbook nginx-rollback\.yml --limit prod-web-07 -e snapshot=\/var\/backups\/nginx-4821 · restart blocked$/,
-      /CHG-4821.*snapshot.*checked playbook/,
-      /nginx 1\.26\.3 packages staged.*not restarted/,
-      /Validate the candidate configuration.*local health/,
-      /nginx -t.*workers_return_200/,
-      /Restart nginx.*rollback playbook/,
-      /nginx 1\.26\.3 restarted.*workers healthy/,
-      /Verify local health.*nginx errors.*close INC-4821/,
-      /health 200.*evidence retained.*INC-4821 closed/,
+    const infrastructureTimeline = [
+      ...EXECUTION.infrastructure.context,
+      ...EXECUTION.infrastructure.events,
+    ];
+    expect(softwareTimeline.map((line) => line.text)).toEqual([
+      't.anderson@metacortex.ai $ Clone codeflare-inference-mesh from production and switch to develop.',
+      'clone complete · develop checked out · graph current',
+      'Enter planning mode for Inference Mesh routing.',
+      'planning mode · 6 tasks · SDD requirements linked · TDD principles enforced',
+      'Execute the plan.',
+      'implementation complete · TDD suite green · worktree ready',
+      'Trigger review agents.',
+      'code-reviewer: fallback assertion missing · doc-updater: clean · spec-reviewer: clean',
+      'Fix it and rerun review.',
+      'code-reviewer: clean · doc-updater: clean · spec-reviewer: clean',
+      'Push the reviewed head and open a PR to main.',
+      'PR #84 opened · required checks green · ready to merge',
+      'Approve, update the PR body, and squash-merge to main.',
+      'PR #84 squash-merged · main updated · PR closed',
+      'Reset develop to origin/main and force-push.',
+      'develop aligned with origin/main · worktree clean',
     ]);
+    expect(infrastructureTimeline.map((line) => line.text)).toEqual([
+      't.anderson@metacortex.ai $ SSH to prod-web-07 and investigate INC-4821 read-only.',
+      'access approved · read-only session · host up 47 days · config unchanged',
+      'Correlate the crash with the coredump.',
+      '23:41 UTC · nginx worker · SIGSEGV · core and backtrace retained',
+      'Enter planning mode, analyze and plan a repair, then present it for approval.',
+      'repair plan · patch nginx · preserve config · validate before restart',
+      'Show the changes and rollback.',
+      'upgrade nginx to 1.26.3 · snapshot /etc/nginx · rollback to 1.24.0',
+      'Approved. Run check mode first, then execute.',
+      '2 package changes applied · config preserved · restart blocked',
+      'Validate the candidate configuration and health.',
+      'config valid · local health 200 · restart gate clear',
+      'Restart nginx. Roll back if checks fail.',
+      'nginx restarted · config valid · workers healthy · rollback unused',
+      'Verify and close the incident.',
+      'prod-web-07 healthy · change record updated · incident closed',
+    ]);
+    expect(softwareTimeline.filter((line) => line.text.includes('t.anderson@metacortex.ai')))
+      .toHaveLength(1);
+    expect(infrastructureTimeline.filter((line) => line.text.includes('t.anderson@metacortex.ai')))
+      .toHaveLength(1);
+    const firstPushIndex = softwareTimeline.findIndex((line) => /^Push\b/.test(line.text));
+    const cleanReviewIndex = softwareTimeline.findIndex((line) =>
+      /code-reviewer: clean.*doc-updater: clean.*spec-reviewer: clean/.test(line.text),
+    );
+    expect(firstPushIndex).toBeGreaterThan(cleanReviewIndex);
   });
 
   it('configures paired Execution terminals to stretch through shared layout', () => {
