@@ -2,8 +2,9 @@
 /**
  * Behavioral integration coverage for REQ-LANDING-011 motion and
  * REQ-LANDING-012 accessibility. Execution composes the shared Transcript feed
- * with proof.ts: each complete context history reveals top-down, then events append
- * into a fixed scrolling log that settles with its full history and blinking cursor.
+ * with proof.ts: populated opening rows reveal top-down while complete context
+ * stays retained, then events append into a fixed scrolling log that settles
+ * with its full history and blinking cursor.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -200,7 +201,7 @@ afterEach(() => {
 });
 
 describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
-  it('prepares complete context histories with top-to-bottom entrance indices', async () => {
+  it('prepares populated opening rows and retains complete context histories', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
     const observer = installIntersectionObserver();

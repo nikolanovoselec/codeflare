@@ -101,9 +101,9 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     expect(body.querySelector('[data-typeline]')).toBeNull();
   });
 
-  it("animate='feed' renders a resolved eight-row viewport with complete semantic content", async () => {
+  it("animate='feed' sizes from the first eight context rows while retaining complete semantic content", async () => {
     const context: TranscriptLine[] = Array.from(
-      { length: 8 },
+      { length: 12 },
       (_, index): TranscriptLine => ({
         tone: index % 2 === 0 ? 'cmd' : 'dim',
         text: `context-${index}`,
@@ -134,14 +134,14 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     );
     expect(sizeReserve.getAttribute('aria-hidden')).toBe('true');
     expect(sizeWindows).toHaveLength(2);
-    const expectedWindows = [context, feed.slice(-context.length)];
+    const expectedWindows = [context.slice(0, 8), feed.slice(-8)];
     expect(sizeWindows.map((window) =>
       Array.from(
         window.children,
         (line) => line.querySelector('[data-feed-size-text]')?.textContent,
       ),
     )).toEqual(expectedWindows.map((window) => window.map((line) => line.text)));
-    expect(sizeWindows.every((window) => window.children.length === context.length)).toBe(true);
+    expect(sizeWindows.every((window) => window.children.length === 8)).toBe(true);
     sizeWindows.forEach((window, windowIndex) => {
       Array.from(window.children).forEach((row, rowIndex) => {
         const prompt = row.querySelector<HTMLElement>('.t-feed-prompt');
