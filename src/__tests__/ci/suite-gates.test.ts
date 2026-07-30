@@ -299,26 +299,53 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     ]);
   });
 
-  it('REQ-OPS-001 AC4: complete-image and deploy builds share compatible caches', () => {
+  it('REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache', () => {
+    type Step = { name?: string; run?: string; uses?: string; with?: Record<string, string> };
+    type Job = { permissions?: Record<string, string>; steps?: Step[] };
     const testWorkflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+      jobs: Record<string, Job>;
     };
-    const deployWorkflow = parseYaml(
+    const imageWorkflow = parseYaml(
       readFileSync(join(REPO, '.github/workflows/container-image.yml'), 'utf8'),
-    ) as { jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }> };
-    const buildCommand = (steps: Array<{ name?: string; run?: string }> | undefined, name: string) =>
+    ) as { jobs: Record<string, Job> };
+    const deployWorkflow = parseYaml(
+      readFileSync(join(REPO, '.github/workflows/deploy.yml'), 'utf8'),
+    ) as { jobs: Record<string, Job> };
+    const buildCommand = (steps: Step[] | undefined, name: string) =>
       steps?.find((step) => step.name === name)?.run ?? '';
     const cacheFlags = (command: string) =>
       command.match(/--cache-(?:from|to) "[^"]+"/g)?.sort() ?? [];
+    const cacheRef = (command: string) =>
+      command.split('\n').find((line) => line.startsWith('CACHE_REF='));
+    const login = (steps: Step[] | undefined) =>
+      steps?.find((step) => step.name === 'Log in to GHCR for shared BuildKit cache');
 
-    const completeImage = buildCommand(testWorkflow.jobs['browser-ide-image'].steps, 'Build complete image');
-    const deployment = buildCommand(deployWorkflow.jobs.image.steps, 'Build container image');
+    const completeImageJob = testWorkflow.jobs['browser-ide-image'];
+    const imageJob = imageWorkflow.jobs.image;
+    const completeImage = buildCommand(completeImageJob.steps, 'Build complete image');
+    const deployment = buildCommand(imageJob.steps, 'Build container image');
+    const expectedFlags = [
+      '--cache-from "type=registry,ref=${CACHE_REF}"',
+      '--cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true"',
+    ];
 
-    expect(cacheFlags(completeImage)).toEqual([
-      '--cache-from "type=gha,scope=container-image-linux-amd64"',
-      '--cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true"',
-    ]);
-    expect(cacheFlags(deployment)).toEqual(cacheFlags(completeImage));
+    expect(cacheFlags(completeImage)).toEqual(expectedFlags);
+    expect(cacheFlags(deployment)).toEqual(expectedFlags);
+    expect(cacheRef(completeImage)).toBe('CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"');
+    expect(cacheRef(deployment)).toBe(cacheRef(completeImage));
+    expect(completeImageJob.permissions?.packages).toBe('write');
+    expect(imageJob.permissions?.packages).toBe('write');
+    expect(deployWorkflow.jobs.container.permissions?.packages).toBe('write');
+    for (const step of [login(completeImageJob.steps), login(imageJob.steps)]) {
+      expect(step).toMatchObject({
+        uses: 'docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0',
+        with: {
+          registry: 'ghcr.io',
+          username: '${{ github.actor }}',
+          password: '${{ secrets.GITHUB_TOKEN }}',
+        },
+      });
+    }
   });
 
   it('fails closed on coverage evidence and bounds the backend crash exception', () => {
