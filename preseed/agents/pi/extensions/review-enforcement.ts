@@ -610,12 +610,13 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       || pr.headRefOid !== preview.reviewHead) return;
     const review = { ...context, pr };
     const reviewsEnabled = reviewEnabled(review.repo);
-    const sentinelBypassed = reviewsEnabled && consumeBypassSentinel();
-    const bypassed = reviewsEnabled && (preview.bypassed || sentinelBypassed);
+    const reviewIsOpen = isEnforcedPr(review.pr);
+    const sentinelBypassed = reviewIsOpen && reviewsEnabled && consumeBypassSentinel();
+    const bypassed = reviewIsOpen && reviewsEnabled && (preview.bypassed || sentinelBypassed);
     if (bypassed) acknowledge(review.repo, review.pr.headRefOid);
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const shouldReview = isEnforcedPr(review.pr)
+    const shouldReview = reviewIsOpen
       && reviewsEnabled
       && !bypassed
       && ackHead !== review.pr.headRefOid;
