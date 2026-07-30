@@ -9,7 +9,7 @@
     "@gotgenes/pi-subagents": "18.0.3",
     "@juicesharp/rpiv-advisor": "1.20.0",
     "@juicesharp/rpiv-ask-user-question": "1.20.0",
-    "@juicesharp/rpiv-todo": "1.20.0",
+    "@juicesharp/rpiv-todo": "2.0.0",
     "context-mode": "1.0.169",
     "pi-mcp-adapter": "2.11.0",
     "pi-web-access": "0.13.0"
