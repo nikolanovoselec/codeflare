@@ -84,6 +84,10 @@ function sharedCacheLogin(steps: CacheStep[] | undefined) {
   return steps?.find((step) => step.name === 'Log in to GHCR for shared BuildKit cache');
 }
 
+function cachePrefixedArguments(args: string[]) {
+  return args.filter((arg) => arg.startsWith('--cache-'));
+}
+
 function valuesFollowing(args: string[], flag: string) {
   return args.flatMap((arg, index) => arg === flag ? [args[index + 1]] : []);
 }
@@ -431,8 +435,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       false,
       'ac7-complete-image',
     );
-    expect(args).not.toContain('--cache-from');
-    expect(args).not.toContain('--cache-to');
+    expect(cachePrefixedArguments(args)).toEqual([]);
   });
 
   it('REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache', () => {
@@ -453,6 +456,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       [deployment, 'ac4-deployment'],
     ]) {
       const args = captureDockerBuildArguments(command, true, label);
+      expect(cachePrefixedArguments(args)).toEqual(['--cache-from', '--cache-to']);
       expect(valuesFollowing(args, '--cache-from')).toEqual([expectedFrom]);
       expect(valuesFollowing(args, '--cache-to')).toEqual([expectedTo]);
     }
@@ -507,8 +511,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         label,
       );
       expect(args).toEqual(expect.arrayContaining(['buildx', 'build', '--load']));
-      expect(args).not.toContain('--cache-from');
-      expect(args).not.toContain('--cache-to');
+      expect(cachePrefixedArguments(args)).toEqual([]);
     }
   });
 
