@@ -5,7 +5,7 @@
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -417,7 +417,7 @@ describe('REQ-OPS-027: code-server coupled-pin automation', () => {
     const fakeBin = join(fixture, 'bin');
     mkdirSync(join(fixture, 'scripts/ci'), { recursive: true });
     mkdirSync(fakeBin);
-    symlinkSync(CODE_SERVER_PIN_UPDATER, join(fixture, 'scripts/ci/update-code-server-pins.mjs'));
+    copyFileSync(CODE_SERVER_PIN_UPDATER, join(fixture, 'scripts/ci/update-code-server-pins.mjs'));
     writeFileSync(join(fakeBin, 'git'), '#!/bin/sh\n[ "$1" = "diff" ] && exit 1\nexit 0\n');
     chmodSync(join(fakeBin, 'git'), 0o755);
     writeFileSync(join(fixture, 'Dockerfile'), [
