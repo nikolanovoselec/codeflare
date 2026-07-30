@@ -13,6 +13,7 @@ import { runInNewContext } from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
+import { CLOUDFLARE_TEST_OPTIONS } from '../../../vitest.config';
 import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
 import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pins.mjs';
@@ -395,8 +396,9 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
 describe('Cloudflare test transport capacity', () => {
   it('enables the larger WebSocket message ceiling for generated payloads', () => {
-    const config = readFileSync(join(REPO, 'vitest.config.ts'), 'utf8');
-    expect(config).toContain("'increase_websocket_message_size'");
+    expect(CLOUDFLARE_TEST_OPTIONS.miniflare.compatibilityFlags).toContain(
+      'increase_websocket_message_size',
+    );
   });
 });
 
