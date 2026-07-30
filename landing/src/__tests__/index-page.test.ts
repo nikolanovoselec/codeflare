@@ -476,7 +476,9 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       ...EXECUTION.infrastructure.context,
       ...EXECUTION.infrastructure.events,
     ];
-    expect(softwareTimeline.map((line) => line.text)).toEqual([
+    const approvedFirstLines = (timeline: ReadonlyArray<{ text: string }>) =>
+      timeline.map((line) => line.text.split('\n', 1)[0]);
+    expect(approvedFirstLines(softwareTimeline)).toEqual([
       't.anderson@metacortex.ai $ Clone codeflare-inference-mesh from production and switch to develop.',
       'clone complete · develop checked out · graph current',
       'Enter planning mode for Inference Mesh routing.',
@@ -494,7 +496,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       'Reset develop to origin/main and force-push.',
       'develop aligned with origin/main · worktree clean',
     ]);
-    expect(infrastructureTimeline.map((line) => line.text)).toEqual([
+    expect(approvedFirstLines(infrastructureTimeline)).toEqual([
       't.anderson@metacortex.ai $ SSH to prod-web-07 and investigate INC-4821 read-only.',
       'access approved · read-only session · host up 47 days · config unchanged',
       'Correlate the crash with the coredump.',
@@ -521,6 +523,19 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       /code-reviewer: clean.*doc-updater: clean.*spec-reviewer: clean/.test(line.text),
     );
     expect(firstPushIndex).toBeGreaterThan(cleanReviewIndex);
+  });
+
+  it('balances every context replacement pair into fourteen meaningful lines', () => {
+    for (const run of [EXECUTION.software, EXECUTION.infrastructure]) {
+      const contextBudgets = run.context.map((line) => line.text.split('\n').length);
+      const eventBudgets = run.events.map((line) => line.text.split('\n').length);
+      expect(contextBudgets).toEqual(eventBudgets);
+      expect(contextBudgets.reduce((total, lines) => total + lines, 0)).toBe(14);
+      expect(eventBudgets.reduce((total, lines) => total + lines, 0)).toBe(14);
+      for (const line of [...run.context, ...run.events]) {
+        expect(line.text.split('\n').every((part) => part.trim().length > 0)).toBe(true);
+      }
+    }
   });
 
   it('overlaps intrinsic sizing without distributing spare height between feed rows', () => {
