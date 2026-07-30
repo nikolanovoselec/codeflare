@@ -455,8 +455,8 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
 
     expect(EXECUTION.software.context).toHaveLength(8);
     expect(EXECUTION.software.events).toHaveLength(12);
-    expect(EXECUTION.infrastructure.context).toHaveLength(12);
-    expect(EXECUTION.infrastructure.events).toHaveLength(8);
+    expect(EXECUTION.infrastructure.context).toHaveLength(8);
+    expect(EXECUTION.infrastructure.events).toHaveLength(12);
     expect(softwareTimeline.map((line) => line.text)).toEqual([
       't.anderson@metacortex.ai $ Clone codeflare-inference-mesh from production and switch to develop.',
       'clone complete · develop checked out · graph current\nHEAD matches origin/develop · worktree clean',
