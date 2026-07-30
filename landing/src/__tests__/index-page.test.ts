@@ -472,27 +472,57 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
         });
       }
     }
-    expect(EXECUTION.software.events.map((line) => line.text).join(' ')).toMatch(
+    expect(EXECUTION.software.context[0].text).toBe(
+      't.anderson@metacortex.ai $ gh repo clone nikolanovoselec/codeflare-inference-mesh',
+    );
+    expect(EXECUTION.software.context[2].text).toContain(
+      'pi "Plan Inference Mesh routing. Do not edit."',
+    );
+    expect(EXECUTION.software.context[3].text).toContain('planning mode');
+    expect(EXECUTION.infrastructure.context[0].text).toMatch(
+      /^t\.anderson@metacortex\.ai \$ ssh prod-web-07/,
+    );
+    expect([...EXECUTION.software.context, ...EXECUTION.software.events]
+      .map((line) => line.text).join(' ')).toMatch(
       /code-reviewer.*doc-updater.*spec-reviewer/,
     );
   });
 
   it('balances meaningful transcript content across every side-by-side viewport', () => {
-    const wrappedLines = (text: string, firstLineColumns: number): number => {
+    const wrappedLines = (
+      text: string,
+      firstLineColumns: number,
+      leadingColumns = 0,
+    ): number => {
       const continuationColumns = firstLineColumns - 2;
       let lines = 1;
       let used = 0;
-      let capacity = firstLineColumns;
+      let capacity = firstLineColumns - leadingColumns;
 
-      for (const word of text.split(' ')) {
-        const needed = used === 0 ? word.length : word.length + 1;
-        if (used > 0 && used + needed > capacity) {
+      const fragments = text.split(' ').flatMap((word) =>
+        word.split(/(?<=[/-])/).map((fragment, index) => ({
+          fragment,
+          startsWord: index === 0,
+        })),
+      );
+      for (const { fragment, startsWord } of fragments) {
+        const needed = fragment.length + (used > 0 && startsWord ? 1 : 0);
+        if (fragment.length <= capacity && used + needed <= capacity) {
+          used += needed;
+          continue;
+        }
+        if (used > 0) {
           lines += 1;
           capacity = continuationColumns;
-          used = word.length;
-        } else {
-          used += needed;
+          used = 0;
         }
+        let remaining = fragment.length;
+        while (remaining > capacity) {
+          remaining -= capacity;
+          lines += 1;
+          capacity = continuationColumns;
+        }
+        used = remaining;
       }
       return lines;
     };
@@ -500,17 +530,44 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       Array.from({ length: run.events.length + 1 }, (_, eventCount) =>
         [...run.context, ...run.events.slice(0, eventCount)]
           .slice(-8)
-          .reduce((total, line) => total + wrappedLines(line.text, columns), 0),
+          .reduce(
+            (total, line) => total + wrappedLines(
+              line.text,
+              columns,
+              line.tone === 'cmd' ? 2 : 0,
+            ),
+            0,
+          ),
       );
     const softwareFoldable = viewportLineTotals(EXECUTION.software, 50);
     const infrastructureFoldable = viewportLineTotals(EXECUTION.infrastructure, 50);
     const softwareCompact = viewportLineTotals(EXECUTION.software, 37);
     const infrastructureCompact = viewportLineTotals(EXECUTION.infrastructure, 37);
+    const softwareBreakpointEdge = viewportLineTotals(EXECUTION.software, 31);
+    const infrastructureBreakpointEdge = viewportLineTotals(EXECUTION.infrastructure, 31);
+    const softwareDesktop = viewportLineTotals(EXECUTION.software, 60);
+    const infrastructureDesktop = viewportLineTotals(EXECUTION.infrastructure, 60);
 
     expect(softwareFoldable).toEqual(infrastructureFoldable);
-    softwareCompact.forEach((total, index) => {
-      expect(Math.abs(total - infrastructureCompact[index])).toBeLessThanOrEqual(1);
+    expect(softwareCompact).toEqual(infrastructureCompact);
+    softwareBreakpointEdge.forEach((total, index) => {
+      expect(Math.abs(total - infrastructureBreakpointEdge[index])).toBeLessThanOrEqual(1);
     });
+    expect(softwareDesktop).toEqual(infrastructureDesktop);
+    for (const totals of [
+      softwareFoldable,
+      infrastructureFoldable,
+      softwareCompact,
+      infrastructureCompact,
+      softwareDesktop,
+      infrastructureDesktop,
+    ]) {
+      expect(new Set(totals).size).toBe(1);
+    }
+    for (const run of [EXECUTION.software, EXECUTION.infrastructure]) {
+      expect(wrappedLines(run.title, 37)).toBe(1);
+      expect(wrappedLines(run.foot.join(' · '), 44)).toBe(1);
+    }
   });
 
   it('configures paired Execution terminals to stretch through shared layout', () => {

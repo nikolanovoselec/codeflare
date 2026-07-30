@@ -253,8 +253,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Constraints:**
 
 - Reuse the Hero's shared Terminal, Transcript, identity style, semantic tones, typography, spacing, typing cadence, and proof entrance; do not introduce a second visual system.
-- The software transcript keeps engineer intent and approvals visible while showing one continuous repository lifecycle from initial inspection through test-first implementation, explicit `code-reviewer`, `doc-updater`, and `spec-reviewer` review, CI, merge, and branch realignment.
-- The infrastructure transcript keeps engineer direction and execution approval visible while showing one continuous incident response from read-only host inspection and retained-coredump diagnosis through check-mode bounded patching, a configuration snapshot, validation, restart, and health verification, with cyan distinguishing diagnostic evidence.
+- The software transcript keeps `t.anderson@metacortex.ai` visible as the user while showing one continuous `codeflare-inference-mesh` lifecycle from clone and planning mode through approved test-first execution, explicit `code-reviewer`, `doc-updater`, and `spec-reviewer` review, exact-head CI, merge, and branch realignment.
+- The infrastructure transcript keeps `t.anderson@metacortex.ai` visible as the user while showing one continuous incident response from read-only host inspection and retained-coredump diagnosis through check-mode bounded patching, a configuration snapshot, validation, restart, and health verification, with cyan distinguishing diagnostic evidence.
 - Transcript content uses credible commands and concrete outputs an engineer would type or read; it contains no actor-label narration or invented product command.
 - Infrastructure copy exposes no non-public network implementation or provider-roadmap dependency.
 - Execution remains a high-level overview while existing Method, Operations, Security, Context, Pipeline, Orchestration, Cost, Platform, IDE, and tooling sections retain detailed ownership.
