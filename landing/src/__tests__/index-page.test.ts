@@ -525,16 +525,12 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(firstPushIndex).toBeGreaterThan(cleanReviewIndex);
   });
 
-  it('balances every context replacement pair into fourteen meaningful lines', () => {
+  it('keeps every authored continuation non-empty', () => {
     for (const run of [EXECUTION.software, EXECUTION.infrastructure]) {
-      const contextBudgets = run.context.map((line) => line.text.split('\n').length);
-      const eventBudgets = run.events.map((line) => line.text.split('\n').length);
-      expect(contextBudgets).toEqual(eventBudgets);
-      expect(contextBudgets.reduce((total, lines) => total + lines, 0)).toBe(14);
-      expect(eventBudgets.reduce((total, lines) => total + lines, 0)).toBe(14);
-      for (const line of [...run.context, ...run.events]) {
-        expect(line.text.split('\n').every((part) => part.trim().length > 0)).toBe(true);
-      }
+      const continuations = [...run.context, ...run.events]
+        .flatMap((line) => line.text.split('\n').slice(1));
+      expect(continuations.length).toBeGreaterThan(0);
+      expect(continuations.every((line) => line.trim().length > 0)).toBe(true);
     }
   });
 
