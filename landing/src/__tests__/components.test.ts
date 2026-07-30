@@ -109,11 +109,13 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
         text: `context-${index}`,
       }),
     );
+    const linkHref = 'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1';
     const feed: TranscriptLine[] = Array.from(
       { length: 10 },
       (_, index): TranscriptLine => ({
         tone: index % 2 === 0 ? 'ok' : 'agent',
-        text: `event-${index}`,
+        text: index === 2 ? `event-${index}\n${linkHref}` : `event-${index}`,
+        ...(index === 2 ? { href: linkHref } : {}),
       }),
     );
     const rendered = dom(await container.renderToString(Transcript, {
@@ -159,6 +161,17 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
       rendered.querySelectorAll('[data-feed-accessible-line]'),
       (line) => line.textContent,
     )).toEqual([...context, ...feed].map((line) => line.text));
+    const visualLink = roll.querySelector<HTMLAnchorElement>('.terminal-inline-link');
+    expect(visualLink?.textContent).toBe(linkHref);
+    expect(visualLink?.href).toBe(linkHref);
+    expect(visualLink?.target).toBe('_blank');
+    expect(visualLink?.rel).toContain('noopener');
+    expect(visualLink?.tabIndex).toBe(-1);
+    const semanticLink = rendered.querySelector<HTMLAnchorElement>(
+      '[data-feed-accessible-line] .terminal-inline-link',
+    );
+    expect(semanticLink?.href).toBe(linkHref);
+    expect(semanticLink?.tabIndex).toBe(0);
     expect(body.querySelector('.t-caret')).toBeNull();
   });
 

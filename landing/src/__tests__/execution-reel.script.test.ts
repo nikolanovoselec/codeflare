@@ -21,6 +21,7 @@ const VIEWPORT_ROWS = 8;
 interface FeedLine {
   tone: 'cmd' | 'agent' | 'info' | 'ok' | 'dim' | 'warn' | 'deny';
   text: string;
+  href?: string;
 }
 
 interface FeedFixture {
@@ -299,7 +300,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
       fixture.infrastructureContext.map((line) => line.text),
     );
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(180_000);
     expect(visibleLines(fixture.softwareList)).toEqual(
       [...fixture.softwareContext, ...fixture.softwareEvents].map((line) => line.text),
     );
@@ -309,6 +310,15 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.softwareList.children).toHaveLength(
       fixture.softwareContext.length + fixture.softwareEvents.length,
     );
+    const prLink = fixture.softwareList.querySelector<HTMLAnchorElement>('.terminal-inline-link');
+    expect(prLink?.textContent).toBe(
+      'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+    );
+    expect(prLink?.href).toBe(
+      'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+    );
+    expect(prLink?.target).toBe('_blank');
+    expect(prLink?.rel).toContain('noopener');
 
     expect(getComputedStyle(finalCaret!).animation).toContain('caret');
     expect(getComputedStyle(finalCaret!).animation).toContain('infinite');
@@ -382,6 +392,27 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.softwareList.style.height).toBe('');
   });
 
+  it('rejects a feed link outside the owned GitHub organization', async () => {
+    const fixture = buildFixture();
+    const softwareResolved = visibleLines(fixture.softwareList);
+    fixture.softwareEvents[3] = {
+      ...fixture.softwareEvents[3],
+      text: 'PR opened\nhttps://github.com/attacker/repository/pull/1',
+      href: 'https://github.com/attacker/repository/pull/1',
+    };
+    fixture.softwareList.dataset.feedEvents = JSON.stringify(fixture.softwareEvents);
+    mockMatchMedia(false);
+    const observer = installIntersectionObserver();
+
+    await import('../scripts/proof');
+    observer.intersect(fixture.software, 'feed');
+    vi.advanceTimersByTime(60_000);
+
+    expect(visibleLines(fixture.softwareList)).toEqual(softwareResolved);
+    expect(fixture.softwareList.dataset.feedState).toBe('resolved');
+    expect(fixture.softwareList.querySelector('.terminal-inline-link')).toBeNull();
+  });
+
   it('rejects either malformed feed payload without replacing or animating the resolved viewport', async () => {
     const fixture = buildFixture();
     const softwareResolved = visibleLines(fixture.softwareList);
@@ -423,7 +454,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
 
   it('completes both authored simulations independently and never restarts them', async () => {
     const fixture = buildFixture();
-    expect(fixture.softwareEvents).toHaveLength(8);
+    expect(fixture.softwareEvents).toHaveLength(12);
     expect(fixture.infrastructureEvents).toHaveLength(8);
     mockMatchMedia(false);
     const observer = installIntersectionObserver();

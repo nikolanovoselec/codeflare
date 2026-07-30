@@ -446,89 +446,79 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(body.querySelectorAll('#operations')).toHaveLength(1);
   });
 
-  it('keeps engineer intent visible throughout both coherent execution timelines', () => {
-    const runs = [EXECUTION.software, EXECUTION.infrastructure];
-    expect([...new Set(EXECUTION.infrastructure.context.map((line) => line.tone))]).toEqual(
-      expect.arrayContaining(['cmd', 'ok', 'info']),
-    );
-    expect(EXECUTION.infrastructure.events.some((line) => line.tone === 'info')).toBe(true);
-    expect(EXECUTION.software.context).toHaveLength(8);
-    expect(EXECUTION.infrastructure.context.slice(8).map((line) => line.tone)).toEqual([
-      'cmd',
-      'info',
-      'cmd',
-      'info',
-    ]);
-    for (const run of runs) {
-      expect(run.context.length).toBeGreaterThanOrEqual(8);
-      expect(run.events).toHaveLength(8);
-      expect([...run.context, ...run.events].map((line) => line.intent).filter(Boolean)).toEqual(
-        expect.arrayContaining(['request', 'approval']),
-      );
-      for (const timeline of [run.context, run.events]) {
-        timeline.forEach((line, index) => {
-          if (index % 2 === 0) {
-            expect(line.tone).toBe('cmd');
-            expect(line.intent).toMatch(/^(request|approval)$/);
-            expect(line.text.startsWith('$')).toBe(false);
-          } else {
-            expect(line.tone).not.toBe('cmd');
-            expect(line.intent).toBeUndefined();
-          }
-        });
-      }
-    }
+  it('keeps every owner-approved row in both coherent execution timelines', () => {
     const softwareTimeline = [...EXECUTION.software.context, ...EXECUTION.software.events];
     const infrastructureTimeline = [
       ...EXECUTION.infrastructure.context,
       ...EXECUTION.infrastructure.events,
     ];
-    const infrastructureApprovedTimeline = [
-      ...EXECUTION.infrastructure.context.slice(0, 8),
-      ...EXECUTION.infrastructure.events,
-    ];
-    const approvedFirstLines = (timeline: ReadonlyArray<{ text: string }>) =>
-      timeline.map((line) => line.text.split('\n', 1)[0]);
-    expect(approvedFirstLines(softwareTimeline)).toEqual([
+
+    expect(EXECUTION.software.context).toHaveLength(8);
+    expect(EXECUTION.software.events).toHaveLength(12);
+    expect(EXECUTION.infrastructure.context).toHaveLength(12);
+    expect(EXECUTION.infrastructure.events).toHaveLength(8);
+    expect(softwareTimeline.map((line) => line.text)).toEqual([
       't.anderson@metacortex.ai $ Clone codeflare-inference-mesh from production and switch to develop.',
-      'clone complete · develop checked out · graph current',
+      'clone complete · develop checked out · graph current\nHEAD matches origin/develop · worktree clean',
       'Enter planning mode for Inference Mesh routing.',
       'planning mode · 6 tasks · SDD requirements linked · TDD principles enforced',
-      'Execute the plan.',
-      'implementation complete · TDD suite green · worktree ready',
+      'Execute the plan.\nStop if the approved scope changes.',
+      'implementation complete · TDD suite green · worktree ready\n6/6 tasks complete · requirement anchors updated',
       'Trigger review agents.',
       'code-reviewer: fallback assertion missing · doc-updater: clean · spec-reviewer: clean',
-      'Fix it and rerun review.',
+      'Fix it and rerun review.\nShow me the final diff when review is clean.',
       'code-reviewer: clean · doc-updater: clean · spec-reviewer: clean',
       'Push the reviewed head and open a PR to main.',
-      'PR #84 opened · required checks green · ready to merge',
-      'Approve, update the PR body, and squash-merge to main.',
-      'PR #84 squash-merged · main updated · PR closed',
+      'PR #1 opened · required checks green · ready to merge\nhttps://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      'Deploy develop to integration.',
+      'integration deploy green · dynamic/codeflare-mesh route live · private node path ready',
+      'Run the end-to-end inference path on integration.',
+      'AI Gateway → Worker router → scheduler reservation\ncf1:network → Cloudflare Mesh/WARP → private node\nstream complete · reservation released · audit event recorded',
+      'Approve, update the PR body, and squash-merge to main.\nKeep the implementation and verification details in the PR body.',
+      'PR #1 squash-merged · main updated · PR closed\nmain @ 8ef188a · production deploy queued',
       'Reset develop to origin/main and force-push.',
-      'develop aligned with origin/main · worktree clean',
+      'develop aligned with origin/main · worktree clean\norigin/develop updated with --force-with-lease · 8ef188a',
     ]);
-    expect(approvedFirstLines(infrastructureApprovedTimeline)).toEqual([
-      't.anderson@metacortex.ai $ SSH to prod-web-07 and investigate INC-4821 read-only.',
-      'access approved · read-only session · host up 47 days · config unchanged',
-      'Correlate the crash with the coredump.',
-      '23:41 UTC · nginx worker · SIGSEGV · core and backtrace retained',
-      'Enter planning mode, analyze and plan a repair, then present it for approval.',
-      'repair plan · patch nginx · preserve config · validate before restart',
-      'Show the changes and rollback.',
-      'upgrade nginx to 1.26.3 · snapshot /etc/nginx · rollback to 1.24.0',
-      'Approved. Run check mode first, then execute.',
-      '2 package changes applied · config preserved · restart blocked',
-      'Validate the candidate configuration and health.',
-      'config valid · local health 200 · restart gate clear',
-      'Restart nginx. Roll back if checks fail.',
-      'nginx restarted · config valid · workers healthy · rollback unused',
-      'Verify and close the incident.',
-      'prod-web-07 healthy · change record updated · incident closed',
+    expect(infrastructureTimeline.map((line) => line.text)).toEqual([
+      't.anderson@metacortex.ai $ Trace CVE-2024-6387 across every internet-facing Linux host. Discovery only.',
+      'CMDB: 2,418 hosts scanned · 186 publicly exposed · 37 running affected OpenSSH versions',
+      'SSH to all 37 candidates in parallel. Confirm package version, glibc, and live sshd exposure.',
+      '37 checked in 42s · 31 confirmed vulnerable · 6 false positives removed',
+      'Enter planning mode. Build a canary-first rollout for the 31 vulnerable hosts, with rollback and stop conditions.',
+      'Ubuntu 18 · Debian 8 · RHEL 5 · 3 canaries · 7 rollout batches',
+      'Show the rollback path and automatic stop conditions.',
+      'rollback role rendered · serial: 5 · max_fail_percentage: 0\nSSH reconnect and sshd health required after every host',
+      'List every host in the canary batch.',
+      'ansible-playbook openssh-cve-2024-6387.yml --limit cve-2024-6387-canary --list-hosts\n  hosts (3): aws-fra-edge-03 · azure-fra-edge-02 · azure-zrh-bastion-01',
+      'Show me the batch timeline before I approve.',
+      'canary 45s · 6 rollout batches × 30s · final rescan 45s\nestimated 4m 30s · rolling sshd restart · no host reboot',
+      'Execute the approved rollout.\nStop before fleet batches unless all three canaries pass.',
+      'canaries 3/3 patched · fixed OpenSSH packages verified\nSSH reconnect 3/3 · sshd healthy 3/3 · fleet gate open',
+      'batch 1/7 passed · remaining six batches released automatically · 28 hosts remaining',
+      '7 batches completed in 3m 31s · 31/31 patched · failed 0\nSSH reconnect 31/31 · sshd healthy 31/31',
+      '31 hosts healthy · rescanning all 2,418 CMDB assets for CVE-2024-6387 exposure',
+      '2,418 hosts rescanned · vulnerable hosts 0 · public exposure 0\n31 fixed versions verified · rollback used 0',
+      'Publish the discovery, rollout, and rescan evidence, then close SEC-4821.',
+      'SEC-4821 closed · CMDB inventory, host evidence, package diffs, and rollout logs attached\nelapsed 4m 18s · 31 hosts remediated · remaining exposure 0',
     ]);
+    expect(EXECUTION.software.foot).toEqual(['PR #1 merged', 'CI green', 'develop synced']);
+    expect(EXECUTION.infrastructure.foot).toEqual(['SEC-4821 closed', '4m 18s', 'fleet verified']);
+    expect(softwareTimeline).toHaveLength(20);
+    expect(infrastructureTimeline).toHaveLength(20);
+    for (const line of [...softwareTimeline, ...infrastructureTimeline]) {
+      if (line.tone === 'cmd') {
+        expect(line.intent).toMatch(/^(request|approval)$/);
+      } else {
+        expect(line.intent).toBeUndefined();
+      }
+    }
     expect(softwareTimeline.filter((line) => line.text.includes('t.anderson@metacortex.ai')))
       .toHaveLength(1);
     expect(infrastructureTimeline.filter((line) => line.text.includes('t.anderson@metacortex.ai')))
       .toHaveLength(1);
+    expect(softwareTimeline.find((line) => line.href)?.href).toBe(
+      'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+    );
     const firstPushIndex = softwareTimeline.findIndex((line) => /^Push\b/.test(line.text));
     const cleanReviewIndex = softwareTimeline.findIndex((line) =>
       /code-reviewer: clean.*doc-updater: clean.*spec-reviewer: clean/.test(line.text),
@@ -536,10 +526,25 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(firstPushIndex).toBeGreaterThan(cleanReviewIndex);
   });
 
+  it('renders the real merged PR as a terminal-styled external link', () => {
+    const document = documentDom(html);
+    const style = document.createElement('style');
+    style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
+    document.head.append(style);
+    const link = document.querySelector<HTMLAnchorElement>(
+      '#execution a[href="https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1"]',
+    )!;
+    expect(link).not.toBeNull();
+    expect(link.classList.contains('terminal-inline-link')).toBe(true);
+    expect(link.target).toBe('_blank');
+    expect(link.rel).toContain('noopener');
+    expect(document.defaultView!.getComputedStyle(link).textDecorationLine).toBe('none');
+  });
+
   it('keeps every authored continuation non-empty', () => {
     const runs = [
-      { run: EXECUTION.software, continuationCount: 8 },
-      { run: EXECUTION.infrastructure, continuationCount: 3 },
+      { run: EXECUTION.software, continuationCount: 10 },
+      { run: EXECUTION.infrastructure, continuationCount: 8 },
     ];
     for (const { run, continuationCount } of runs) {
       const continuations = [...run.context, ...run.events]
