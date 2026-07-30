@@ -1648,7 +1648,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-041: consumes a one-shot bypass on reminder-only PR creation', async () => {
+  it('REQ-AGENT-041: consumes a one-shot bypass and acknowledges the exact PR head', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     writeFileSync(REVIEW_BYPASS_FILE, '', 'utf8');
@@ -1664,8 +1664,8 @@ describe('Pi review reminder and settled enforcement', () => {
         details: {
           ...boundaryIdentity(fixture, 'create-1'),
           head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
+          ackHead: fixture.head,
+          reviewRange: undefined,
           scope: diffScope(),
           requiredLanes: [],
           launchWaves: launchWaves([], true),
@@ -1674,13 +1674,12 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
-    // pr-create is a settled-processed boundary: the live tool_result honors
-    // the bypass (requiredLanes []) but leaves the sentinel for the settled
-    // reap, which consumes it exactly once.
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(true);
     harness.sent.splice(0);
     await harness.emit('agent_settled');
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(false);
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
     harness.sent.splice(0);
 
     appendSession(fixture.sessionFile,
@@ -1688,11 +1687,14 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-2', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
-    expect(harness.sent).toHaveLength(1);
-    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      ackHead: fixture.head,
+      requiredLanes: [],
+      ciEvent: 'push',
+    });
   });
 
-  it('REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement', async () => {
+  it('REQ-AGENT-041: an explicit post-boundary user bypass acknowledges the exact PR head', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -1710,8 +1712,8 @@ describe('Pi review reminder and settled enforcement', () => {
         details: {
           ...boundaryIdentity(fixture),
           head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
+          ackHead: fixture.head,
+          reviewRange: undefined,
           missingLanes: [],
           launchWaves: launchWaves([], true),
           ciEvent: 'push',
@@ -1719,8 +1721,40 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
-    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
+  });
+
+  it('REQ-AGENT-041: a post-boundary sentinel acknowledges the exact PR head', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
+    writeFileSync(REVIEW_BYPASS_FILE, '', 'utf8');
+
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(existsSync(REVIEW_BYPASS_FILE)).toBe(false);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-follow-up',
+        details: {
+          ...boundaryIdentity(fixture),
+          head: fixture.head,
+          ackHead: fixture.head,
+          reviewRange: undefined,
+          missingLanes: [],
+          launchWaves: launchWaves([], true),
+          ciEvent: 'push',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
   });
 
   it('REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it', async () => {
