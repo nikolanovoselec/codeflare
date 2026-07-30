@@ -23,6 +23,8 @@
  * No IntersectionObserver (old browser, not reduced): arm ordinary proofs at
  * once and leave bounded Transcript feeds in their resolved static state.
  */
+import { isApprovedExecutionHref } from '../lib/execution-link';
+
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const artifacts = Array.from(document.querySelectorAll<HTMLElement>('[data-proof]'));
 
@@ -96,21 +98,8 @@ function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLi
         || !FEED_TONES.has(candidate.tone)
         || typeof candidate.text !== 'string'
         || candidate.text.length === 0) return false;
-      if (candidate.href === undefined) return true;
-      if (typeof candidate.href !== 'string' || !candidate.text.includes(candidate.href)) return false;
-      try {
-        const href = new URL(candidate.href);
-        return href.protocol === 'https:'
-          && href.hostname === 'github.com'
-          && href.port === ''
-          && href.username === ''
-          && href.password === ''
-          && href.search === ''
-          && href.hash === ''
-          && href.pathname.startsWith('/nikolanovoselec/');
-      } catch {
-        return false;
-      }
+      return candidate.href === undefined
+        || isApprovedExecutionHref(candidate.text, candidate.href);
     });
     return valid ? value as FeedLine[] : [];
   } catch {

@@ -4,6 +4,7 @@
  * are build-time trusted content rendered via set:html.
  */
 import { CONTACT_TOPICS, type ContactTopic } from '../../../src/lib/contact-topics';
+import { EXECUTION_PR_URL } from '../lib/execution-link';
 
 export interface NavLink {
   label: string;
@@ -355,8 +356,8 @@ export const EXECUTION = {
       },
       {
         tone: 'ok',
-        text: 'PR #1 opened · required checks green · ready to merge\nhttps://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
-        href: 'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+        text: `PR #1 opened · required checks green · ready to merge\n${EXECUTION_PR_URL}`,
+        href: EXECUTION_PR_URL,
       },
       { tone: 'cmd', intent: 'request', text: 'Deploy develop to integration.' },
       {

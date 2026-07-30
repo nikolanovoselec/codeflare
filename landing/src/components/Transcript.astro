@@ -27,6 +27,7 @@
  * reduced motion (the scripts only animate from this resting state).
  */
 import type { TranscriptLine } from '../content/site';
+import { isApprovedExecutionHref } from '../lib/execution-link';
 
 interface Props {
   lines: TranscriptLine[];
@@ -47,7 +48,7 @@ const feedWindows = [
   resolvedFeed,
 ];
 const linkParts = (line: TranscriptLine): [string, string, string] | null => {
-  if (!line.href) return null;
+  if (!isApprovedExecutionHref(line.text, line.href)) return null;
   const start = line.text.indexOf(line.href);
   if (start < 0) return null;
   return [line.text.slice(0, start), line.href, line.text.slice(start + line.href.length)];
@@ -58,7 +59,7 @@ const linkParts = (line: TranscriptLine): [string, string, string] | null => {
   {
     animate === 'feed' ? (
       <Fragment>
-        <ol class="sr-only" aria-label={label}>
+        <ol class="sr-only transcript-feed-semantic" aria-label={label}>
           {[...lines, ...feed].map((line) => {
             const parts = linkParts(line);
             return (

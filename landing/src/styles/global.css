@@ -777,6 +777,7 @@ svg {
    pair stretching can expose more retained context. No-JS and reduced-motion visitors
    instead size against the resolved state. */
 .execution-terminal .terminal-body {
+  position: relative;
   display: grid;
   flex: 1;
   overflow-x: hidden;
@@ -930,6 +931,30 @@ svg {
 .terminal-inline-link:focus-visible {
   outline: 1px solid currentColor;
   outline-offset: 2px;
+}
+
+/* The complete semantic transcript stays visually hidden until its external PR
+   link receives keyboard focus. Reveal only that row inside the terminal so the
+   focus target is visible without duplicating the animated transcript. */
+.execution-terminal .transcript-feed-semantic:focus-within {
+  z-index: 3;
+  top: 1.15rem;
+  right: 1.25rem;
+  left: 1.25rem;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: pre-wrap;
+  list-style: none;
+  background: var(--bg-terminal);
+}
+
+.transcript-feed-semantic:focus-within > li:not(:focus-within) {
+  display: none;
 }
 
 /* Phone: the transcript wraps instead of scrolling sideways (the old overflow).
