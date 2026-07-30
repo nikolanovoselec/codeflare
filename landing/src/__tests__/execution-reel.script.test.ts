@@ -311,8 +311,45 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
 
     expect(getComputedStyle(finalCaret!).animation).toContain('caret');
     expect(getComputedStyle(finalCaret!).animation).toContain('infinite');
+
+    Object.defineProperty(fixture.softwareList, 'scrollHeight', {
+      configurable: true,
+      value: 500,
+    });
+    window.dispatchEvent(new Event('resize'));
+    vi.advanceTimersByTime(0);
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 300, behavior: 'auto' });
     style.remove();
   });
+
+  it.each(['missing', 'throwing'] as const)(
+    'finishes typing with a %s scrollTo implementation',
+    async (scrollToMode) => {
+      const fixture = buildFixture();
+      Object.defineProperties(fixture.softwareList, {
+        scrollHeight: { configurable: true, value: 400 },
+        clientHeight: { configurable: true, value: 200 },
+        scrollTo: {
+          configurable: true,
+          value: scrollToMode === 'throwing'
+            ? vi.fn(() => { throw new TypeError('unsupported scroll options'); })
+            : undefined,
+        },
+      });
+      mockMatchMedia(false);
+      const observer = installIntersectionObserver();
+
+      await import('../scripts/proof');
+      observer.intersect(fixture.software, 'feed');
+      vi.advanceTimersByTime(120_000);
+
+      expect(fixture.softwareList.dataset.feedState).toBe('complete');
+      expect(fixture.softwareList.scrollTop).toBe(200);
+      expect(fixture.softwareList.children).toHaveLength(
+        fixture.softwareContext.length + fixture.softwareEvents.length,
+      );
+    },
+  );
 
   it('keeps wrapped row geometry reserved inside the fixed scrolling viewport', async () => {
     const fixture = buildFixture();

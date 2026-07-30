@@ -539,58 +539,62 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
   });
 
   it('sizes fixed scrolling logs from resolved then initial states without row gaps', () => {
-    const document = documentDom(html);
-    const style = document.createElement('style');
-    style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
-    document.head.append(style);
-    const view = document.defaultView!;
-    const card = document.querySelector<HTMLElement>('#execution .execution-card')!;
-    const faces = document.querySelectorAll<HTMLElement>('#execution .execution-face');
-    const standardBody = document.querySelector<HTMLElement>(
-      '.terminal:not(.execution-terminal) .terminal-body',
-    )!;
-    const standardJustification = view.getComputedStyle(standardBody).justifyContent;
-    const expectFirstGridCell = (element: HTMLElement) => {
-      expect(view.getComputedStyle(element).gridArea).toMatch(/^1\s*\/\s*1(?:\s*\/|$)/);
-    };
-    const expectStandardLineRhythm = (element: HTMLElement) => {
-      expect(view.getComputedStyle(element).justifyContent).toBe(standardJustification);
-    };
+    for (const prepared of [false, true]) {
+      const document = documentDom(html);
+      if (prepared) {
+        document.querySelectorAll('#execution .terminal-body').forEach((terminalBody) => {
+          terminalBody.classList.add('is-feed-prepared');
+        });
+      }
+      const style = document.createElement('style');
+      style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
+      document.head.append(style);
+      const view = document.defaultView!;
+      const card = document.querySelector<HTMLElement>('#execution .execution-card')!;
+      const faces = document.querySelectorAll<HTMLElement>('#execution .execution-face');
+      const standardBody = document.querySelector<HTMLElement>(
+        '.terminal:not(.execution-terminal) .terminal-body',
+      )!;
+      const standardJustification = view.getComputedStyle(standardBody).justifyContent;
+      const expectFirstGridCell = (element: HTMLElement) => {
+        expect(view.getComputedStyle(element).gridArea).toMatch(/^1\s*\/\s*1(?:\s*\/|$)/);
+      };
+      const expectStandardLineRhythm = (element: HTMLElement) => {
+        expect(view.getComputedStyle(element).justifyContent).toBe(standardJustification);
+      };
 
-    expect(view.getComputedStyle(card).alignItems).toBe('start');
-    expect(faces).toHaveLength(2);
-    faces.forEach((face) => {
-      const terminal = face.querySelector<HTMLElement>('.execution-terminal')!;
-      const terminalBody = terminal.querySelector<HTMLElement>('.terminal-body')!;
-      const sizeReserve = terminalBody.querySelector<HTMLElement>('[data-feed-size-reserve]')!;
-      const feed = terminalBody.querySelector<HTMLElement>('[data-feed-events]')!;
-      expect(view.getComputedStyle(face).display).toBe('flex');
-      expect(view.getComputedStyle(terminal).display).toBe('flex');
-      expect(view.getComputedStyle(terminal).flexGrow).toBe('1');
-      expect(view.getComputedStyle(terminalBody).display).toBe('grid');
-      expect(view.getComputedStyle(terminalBody).flexGrow).toBe('1');
-      expect(view.getComputedStyle(sizeReserve).display).toBe('grid');
-      expect(view.getComputedStyle(sizeReserve).visibility).toBe('hidden');
-      expectFirstGridCell(sizeReserve);
-      const sizeWindows = Array.from(
-        sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]'),
-      );
-      expect(sizeWindows.length).toBeGreaterThan(1);
-      sizeWindows.forEach((window) => {
-        expectFirstGridCell(window);
-        expectStandardLineRhythm(window);
+      expect(view.getComputedStyle(card).alignItems).toBe('start');
+      expect(faces).toHaveLength(2);
+      faces.forEach((face) => {
+        const terminal = face.querySelector<HTMLElement>('.execution-terminal')!;
+        const terminalBody = terminal.querySelector<HTMLElement>('.terminal-body')!;
+        const sizeReserve = terminalBody.querySelector<HTMLElement>('[data-feed-size-reserve]')!;
+        const feed = terminalBody.querySelector<HTMLElement>('[data-feed-events]')!;
+        expect(view.getComputedStyle(face).display).toBe('flex');
+        expect(view.getComputedStyle(terminal).display).toBe('flex');
+        expect(view.getComputedStyle(terminal).flexGrow).toBe('1');
+        expect(view.getComputedStyle(terminalBody).display).toBe('grid');
+        expect(view.getComputedStyle(terminalBody).flexGrow).toBe('1');
+        expect(view.getComputedStyle(sizeReserve).display).toBe('grid');
+        expect(view.getComputedStyle(sizeReserve).visibility).toBe('hidden');
+        expectFirstGridCell(sizeReserve);
+        const sizeWindows = Array.from(
+          sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]'),
+        );
+        expect(sizeWindows.length).toBeGreaterThan(1);
+        sizeWindows.forEach((window) => {
+          expectFirstGridCell(window);
+          expectStandardLineRhythm(window);
+        });
+        expect(view.getComputedStyle(sizeWindows[0]).display).toBe(prepared ? 'flex' : 'none');
+        expect(view.getComputedStyle(sizeWindows.at(-1)!).display).toBe(prepared ? 'none' : 'flex');
+        expectFirstGridCell(feed);
+        expectStandardLineRhythm(feed);
+        expect(view.getComputedStyle(feed).contain).toContain('size');
+        expect(view.getComputedStyle(feed).overflow).toBe('hidden');
+        expect(view.getComputedStyle(feed.querySelector<HTMLElement>('.t-line')!).flexShrink).toBe('0');
       });
-      expect(view.getComputedStyle(sizeWindows[0]).display).toBe('none');
-      expect(view.getComputedStyle(sizeWindows.at(-1)!).display).toBe('flex');
-      terminalBody.classList.add('is-feed-prepared');
-      expect(view.getComputedStyle(sizeWindows[0]).display).toBe('flex');
-      expect(view.getComputedStyle(sizeWindows.at(-1)!).display).toBe('none');
-      expectFirstGridCell(feed);
-      expectStandardLineRhythm(feed);
-      expect(view.getComputedStyle(feed).contain).toContain('size');
-      expect(view.getComputedStyle(feed).overflow).toBe('hidden');
-      expect(view.getComputedStyle(feed.querySelector<HTMLElement>('.t-line')!).flexShrink).toBe('0');
-    });
+    }
   });
 
   it('composes two shared Transcript simulations with full eight-row viewports', () => {
