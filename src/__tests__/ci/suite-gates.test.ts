@@ -362,17 +362,33 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(frontend.if).toContain("needs.changes.outputs.webui == 'true'");
     expect(backend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
     expect(frontend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
+
+    const action = parseYaml(readFileSync(join(REPO, '.github/actions/coverage-suite/action.yml'), 'utf8')) as {
+      runs: { steps: Array<{ name?: string; run?: string }> };
+    };
+    const runStep = action.runs.steps.find((step) => step.name === 'Run suite with coverage');
+    const command = (runStep?.run ?? '').replace(/\\\s*\n\s*/g, ' ').replace(/\s+/g, ' ').trim();
+    expect(command).toContain(
+      'node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" /tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH"',
+    );
   });
 });
 
 describe('REQ-OPS-027: code-server coupled-pin automation', () => {
-  it('routes code-server bumps through one dedicated workflow job', () => {
+  it('routes code-server bumps through one dedicated fail-closed updater', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
-      jobs: Record<string, unknown>;
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
+    const job = workflow.jobs['code-server'];
+    const applyStep = job.steps?.find((step) => step.name === 'Apply bump and invalidate the release checksum');
+    const commands = (applyStep?.run ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
 
-    expect(workflow.jobs['code-server']).toBeDefined();
+    expect(job).toBeDefined();
     expect(workflow.jobs['openvscode-server']).toBeUndefined();
+    expect(commands).toContain('node scripts/ci/update-code-server-pins.mjs Dockerfile');
   });
 
   it('executes the updater through its CLI boundary', () => {
