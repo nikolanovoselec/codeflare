@@ -84,6 +84,10 @@ function sharedCacheLogin(steps: CacheStep[] | undefined) {
   return steps?.find((step) => step.name === 'Log in to GHCR for shared BuildKit cache');
 }
 
+function valuesFollowing(args: string[], flag: string) {
+  return args.flatMap((arg, index) => arg === flag ? [args[index + 1]] : []);
+}
+
 function captureDockerBuildArguments(command: string, cacheEnabled: boolean, label: string) {
   const bin = join(work, 'bin');
   const docker = join(bin, 'docker');
@@ -449,8 +453,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       [deployment, 'ac4-deployment'],
     ]) {
       const args = captureDockerBuildArguments(command, true, label);
-      expect(args.at(args.indexOf('--cache-from') + 1)).toBe(expectedFrom);
-      expect(args.at(args.indexOf('--cache-to') + 1)).toBe(expectedTo);
+      expect(valuesFollowing(args, '--cache-from')).toEqual([expectedFrom]);
+      expect(valuesFollowing(args, '--cache-to')).toEqual([expectedTo]);
     }
     expect(completeImageJob.permissions?.packages).toBe('write');
     expect(imageJob.permissions?.packages).toBe('write');
