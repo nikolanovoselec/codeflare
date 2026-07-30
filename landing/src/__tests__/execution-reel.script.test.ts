@@ -455,7 +455,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
   it('completes both authored simulations independently and never restarts them', async () => {
     const fixture = buildFixture();
     expect(fixture.softwareEvents).toHaveLength(12);
-    expect(fixture.infrastructureEvents).toHaveLength(8);
+    expect(fixture.infrastructureEvents).toHaveLength(12);
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
 
