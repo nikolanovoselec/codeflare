@@ -391,7 +391,7 @@ export const EXECUTION = {
         intent: 'request',
         text: 'Explain both changes, confirm the snapshot, and give the exact rollback command before approval.',
       },
-      { tone: 'warn', text: '⚠ snapshot ready · rollback: rsync -a /var/backups/nginx-4821/ /etc/nginx/ · restart blocked' },
+      { tone: 'warn', text: '⚠ package+config rollback: ansible-playbook nginx-rollback.yml --limit prod-web-07 -e snapshot=/var/backups/nginx-4821 · restart blocked' },
     ],
     events: [
       {
@@ -409,7 +409,7 @@ export const EXECUTION = {
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Restart nginx now. Roll back from the snapshot if config or health checks fail.',
+        text: 'Restart nginx now. Run the rollback playbook if config or health checks fail.',
       },
       { tone: 'ok', text: '✓ nginx 1.26.3 restarted · config valid · workers healthy · rollback unused' },
       {

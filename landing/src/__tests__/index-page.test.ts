@@ -502,6 +502,15 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       /Realign develop.*origin\/main.*clean worktree/,
       /develop aligned.*worktree clean.*evidence retained/,
     ]);
+    const softwareTimeline = [...EXECUTION.software.context, ...EXECUTION.software.events]
+      .map((line) => line.text);
+    const firstPushIndex = softwareTimeline.findIndex((line) => /pushed/.test(line));
+    const cleanReviewIndex = softwareTimeline.findIndex((line) => /all clean/.test(line));
+    expect(firstPushIndex).toBe(cleanReviewIndex);
+    expect(softwareTimeline[firstPushIndex].indexOf('pushed')).toBeGreaterThan(
+      softwareTimeline[firstPushIndex].indexOf('all clean'),
+    );
+
     expectOrderedStory(EXECUTION.infrastructure, [
       /t\.anderson@metacortex\.ai.*ssh prod-web-07/,
       /read-only session.*host up 47 days/,
@@ -510,12 +519,12 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       /recovery playbook in check mode/,
       /check mode.*package changes.*no restart/,
       /snapshot.*rollback command.*approval/,
-      /rollback: rsync.*restart blocked/,
+      /package\+config rollback: ansible-playbook.*nginx-rollback.*restart blocked/,
       /CHG-4821.*snapshot.*checked playbook/,
       /nginx 1\.26\.3 packages staged.*not restarted/,
       /Validate the candidate configuration.*local health/,
       /nginx -t.*workers_return_200/,
-      /Restart nginx.*Roll back/,
+      /Restart nginx.*rollback playbook/,
       /nginx 1\.26\.3 restarted.*workers healthy/,
       /Verify local health.*nginx errors.*close INC-4821/,
       /health 200.*evidence retained.*INC-4821 closed/,
