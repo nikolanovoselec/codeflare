@@ -16,10 +16,11 @@
  *                   four feature terminals.
  *   - 'roll-middle' first and last line pinned; the middle lines sit in a
  *                   [data-roll] list that proof.ts rolls (the dogfood proof).
- *   - 'feed'        a resolved viewport whose first eight initial `lines` set
- *                   base sizing; proof.ts restores full context and reveals every
- *                   row fitting the stretched opening viewport in order, while
- *                   retaining clipped overflow before rolling in `feed` events.
+ *   - 'feed'        the server-rendered fallback shows the final resolved `feed`
+ *                   rows. Under normal motion, the first eight context `lines`
+ *                   establish base sizing; proof.ts restores full context, reveals
+ *                   every row fitting the stretched opening viewport in order,
+ *                   retains clipped overflow, then rolls in `feed` events.
  *   - 'static'      plain lines, no caret, no roll.
  *
  * Default markup is the resolved state, fully legible with no JS and under
