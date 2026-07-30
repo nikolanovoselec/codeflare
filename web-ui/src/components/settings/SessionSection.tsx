@@ -10,6 +10,7 @@ import {
 } from '@mdi/js';
 import Icon from '../Icon';
 import type { Settings } from '../../lib/settings';
+import type { AgentNotificationEnablement } from '../../lib/agent-notifications';
 import { isTouchDevice } from '../../lib/mobile';
 import AdminActionButton from './AdminActionButton';
 
@@ -21,7 +22,7 @@ interface SessionSectionProps {
   fastStartEnabled: Accessor<boolean>;
   workspaceSyncEnabled: Accessor<boolean>;
   clipboardAccess: Accessor<boolean>;
-  notificationPermission: Accessor<NotificationPermission>;
+  notificationPermission: Accessor<AgentNotificationEnablement>;
   sleepAfter: Accessor<string>;
   canChangeSleepAfter: Accessor<boolean>;
   isFreeUser: Accessor<boolean>;
@@ -148,7 +149,9 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
               ? 'Enabled'
               : props.notificationPermission() === 'denied'
                 ? 'Blocked in browser site settings'
-                : 'Notify when Pi or Claude is ready for input in terminal tab 1.'}
+                : props.notificationPermission() === 'unavailable'
+                  ? 'Unavailable in this browser'
+                  : 'Notify when Pi or Claude is ready for input in terminal tab 1.'}
           </span>
         </div>
       </section>

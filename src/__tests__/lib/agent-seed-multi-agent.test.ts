@@ -371,6 +371,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/memory-inject.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
       '.pi/agent/extensions/memory-vault.ts',
+      '.pi/agent/extensions/native-notifications.ts',
       '.pi/agent/extensions/post-compaction-recall-helpers.ts',
       '.pi/agent/extensions/post-compaction-recall.ts',
       '.pi/agent/extensions/review-command.ts',

@@ -551,9 +551,9 @@ The vault editor proxy at `/api/vault/<token>/*` (the bucket-stable serving path
 
 Surface: [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (proxy exists). Rate-limit infrastructure: [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (shared bucket and 30/60s window).
 
-### Native agent browser notifications ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notifications))
+### Native agent browser notifications ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notification-delivery), [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers))
 
-Terminal OSC payloads are hostile and do not prove agent provenance. The browser registers the OSC 777 handler only for terminal tab 1 of a session selected as Pi or Claude, accepts only `notify` with non-empty plain text, rejects C0/C1 controls, and bounds native titles to 64 UTF-8 bytes, bodies to 256 bytes, and session names to 64 bytes. Payloads never become markup, URLs, commands, action buttons, logs, or persisted history.
+Terminal OSC payloads are hostile and do not prove agent provenance. The browser registers the OSC 777 handler only for terminal tab 1 of a session selected as Pi or Claude, accepts only `notify` with non-empty plain text, rejects C0/C1 controls, and bounds composed native titles to 64 UTF-8 bytes, bodies to 256 bytes, and session names to 64 bytes. Payloads never become markup, URLs, commands, action buttons, logs, or persisted history.
 
 Notification permission is requested only from the Settings user gesture and remains browser-owned; terminal output cannot trigger the prompt. Delivery uses an existing same-origin service-worker registration and creates no push subscription, backend call, queue, storage, retry, poll, container wake, or cross-session relay. The worker has no fetch/cache/push/sync handlers. Clicks validate the recorded URL against the current origin and may focus only an existing same-origin client; they never open an arbitrary URL. Pi's repository-owned OSC extension emits only fixed input-needed and settled-completion text, never question or model content, and is disabled in RPC mode so terminal bytes cannot corrupt code-server native Chat's strict JSONL transport. The official Claude IDE package remains unmodified and retains its upstream in-product notifications.
 
@@ -611,7 +611,8 @@ CVE-2026-56852 is narrower than a global ID suppression: Trivy emits its JSON fi
 - [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted-tool boundary
 - [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent process cleanup
 - [REQ-IDE-018](../../sdd/spec/browser-ide.md#req-ide-018-native-pi-chat-browser-notifications) - Code OSS-owned Pi native Chat OS notifications
-- [REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notifications) - Bounded native terminal notifications without a backend event service
+- [REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notification-delivery) - Bounded native terminal notification delivery without a backend event service
+- [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers) - Fixed Pi and Claude terminal notification producers
 - [REQ-OPS-009](../../sdd/spec/operations.md#req-ops-009-supply-chain-security-monitoring) - Supply chain security monitoring
 - [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) - Security-posture scanning workflows
 - [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation) - Service token authentication scoped to automation, not user identity (AD68)

@@ -10,7 +10,9 @@ const mockAttachCustomKeyEventHandler = vi.fn();
 const mockScrollToBottom = vi.fn();
 const mockRefresh = vi.fn();
 const mockFocus = vi.fn();
-const mockRegisterOscHandler = vi.fn(() => ({ dispose: vi.fn() }));
+const mockRegisterOscHandler = vi.fn(
+  (_identifier: number, _handler: (data: string) => boolean) => ({ dispose: vi.fn() }),
+);
 
 const mockTerminalInstance = {
   loadAddon: mockLoadAddon,

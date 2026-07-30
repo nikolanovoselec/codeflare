@@ -4,7 +4,12 @@ const SUPPORTED_AGENTS = new Set<AgentType>(['pi', 'claude-code']);
 const MAX_TITLE_BYTES = 64;
 const MAX_BODY_BYTES = 256;
 const MAX_SESSION_BYTES = 64;
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
+function containsControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
+  });
+}
 const WORKER_PATH = '/agent-notifications-sw.js';
 const WORKER_SCOPE = '/';
 
@@ -20,6 +25,8 @@ export interface AgentNotificationPayload {
   readonly sessionUrl: string;
 }
 
+export type AgentNotificationEnablement = NotificationPermission | 'unavailable';
+
 export interface AgentNotificationWorker {
   showNotification(title: string, options: NotificationOptions): Promise<void>;
 }
@@ -33,7 +40,7 @@ export interface AgentNotificationBrowser {
 
 function boundedPlainText(value: string, maxBytes: number): boolean {
   return value.length > 0
-    && !CONTROL_CHARACTERS.test(value)
+    && !containsControlCharacter(value)
     && new TextEncoder().encode(value).byteLength <= maxBytes;
 }
 
@@ -54,11 +61,12 @@ export function parseAgentNotification(
   if (separator < 0) return undefined;
   const title = data.slice('notify;'.length, separator);
   const body = data.slice(separator + 1);
-  if (!boundedPlainText(title, MAX_TITLE_BYTES) || !boundedPlainText(body, MAX_BODY_BYTES)) {
+  const composedTitle = `${title} · ${context.sessionName}`;
+  if (!boundedPlainText(composedTitle, MAX_TITLE_BYTES) || !boundedPlainText(body, MAX_BODY_BYTES)) {
     return undefined;
   }
   return Object.freeze({
-    title: `${title} · ${context.sessionName}`,
+    title: composedTitle,
     body,
     sessionUrl: window.location.href,
   });
@@ -72,10 +80,14 @@ export function agentNotificationPermission(
 
 export async function enableAgentNotifications(
   browser: AgentNotificationBrowser = defaultBrowser,
-): Promise<NotificationPermission> {
-  const permission = await browser.requestPermission();
-  if (permission === 'granted') await browser.registerWorker();
-  return permission;
+): Promise<AgentNotificationEnablement> {
+  try {
+    const permission = await browser.requestPermission();
+    if (permission !== 'granted') return permission;
+    return await browser.registerWorker() ? 'granted' : 'unavailable';
+  } catch {
+    return 'unavailable';
+  }
 }
 
 export async function showAgentNotification(

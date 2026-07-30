@@ -16,7 +16,7 @@ const context = Object.freeze({
 function browser(overrides: Partial<AgentNotificationBrowser> = {}): AgentNotificationBrowser {
   return {
     permission: () => 'granted',
-    requestPermission: vi.fn(async () => 'granted'),
+    requestPermission: vi.fn(async (): Promise<NotificationPermission> => 'granted'),
     registerWorker: vi.fn(async () => ({ showNotification: vi.fn(async () => undefined) })),
     getWorker: vi.fn(async () => ({ showNotification: vi.fn(async () => undefined) })),
     ...overrides,
@@ -90,7 +90,9 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
   });
 
   it('does not register a worker after permission denial', async () => {
-    const env = browser({ requestPermission: vi.fn(async () => 'denied') });
+    const env = browser({
+      requestPermission: vi.fn(async (): Promise<NotificationPermission> => 'denied'),
+    });
 
     await expect(enableAgentNotifications(env)).resolves.toBe('denied');
 

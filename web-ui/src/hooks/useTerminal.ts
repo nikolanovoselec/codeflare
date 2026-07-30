@@ -384,7 +384,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
-    const session = sessionStore.sessions.find((candidate) => candidate.id === props.sessionId);
+    const session = sessionStore.sessions?.find((candidate) => candidate.id === props.sessionId);
     if (props.terminalId === '1' && (session?.agentType === 'pi' || session?.agentType === 'claude-code')) {
       notificationDisposable = t.parser.registerOscHandler(777, (data) => {
         void showAgentNotification(data, {

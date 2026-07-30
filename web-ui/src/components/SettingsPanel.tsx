@@ -19,6 +19,7 @@ import DeployKeysSection from './settings/DeployKeysSection';
 import LlmKeysSection from './settings/LlmKeysSection';
 import AdminActionButton from './settings/AdminActionButton';
 import { agentNotificationPermission, enableAgentNotifications } from '../lib/agent-notifications';
+import type { AgentNotificationEnablement } from '../lib/agent-notifications';
 // SubscriptionManagement moved to standalone admin page at /admin/subscriptions
 import '../styles/settings-panel.css';
 
@@ -118,7 +119,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentMessage, setRecreateAgentMessage] = createSignal<string | null>(null);
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
   const [openGroup, setOpenGroup] = createSignal<AccordionGroup>('appearance');
-  const [notificationPermission, setNotificationPermission] = createSignal<NotificationPermission>('default');
+  const [notificationPermission, setNotificationPermission] = createSignal<AgentNotificationEnablement>('default');
 
   // Live tier — refreshed from API each time panel opens so tier
   // upgrades take effect without a full page reload.

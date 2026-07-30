@@ -26,7 +26,9 @@ const mockGetLlmKeys = vi.hoisted(() => vi.fn());
 const mockUpdateLlmKeys = vi.hoisted(() => vi.fn());
 const mockGetDeployKeys = vi.hoisted(() => vi.fn());
 const mockUpdateDeployKeys = vi.hoisted(() => vi.fn());
-const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(async () => 'granted' as NotificationPermission));
+const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(
+  async (): Promise<'granted' | 'unavailable'> => 'granted',
+));
 
 // Defaults
 mockGetLlmKeys.mockResolvedValue({});

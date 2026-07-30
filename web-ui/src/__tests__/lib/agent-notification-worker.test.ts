@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 
-const workerSource = readFileSync(new URL('../../../public/agent-notifications-sw.js', import.meta.url), 'utf8');
+const workerSource = readFileSync(resolve(process.cwd(), 'public/agent-notifications-sw.js'), 'utf8');
 
 function loadWorker(clients: Array<{ url: string; focus: () => Promise<void> }>) {
   const listeners = new Map<string, (event: any) => void>();
