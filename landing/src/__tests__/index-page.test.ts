@@ -523,7 +523,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(firstPushIndex).toBeGreaterThan(cleanReviewIndex);
   });
 
-  it('overlaps every intrinsic sizing window with its live Execution feed', () => {
+  it('overlaps intrinsic sizing without distributing spare height between feed rows', () => {
     const document = documentDom(html);
     const style = document.createElement('style');
     style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
@@ -531,8 +531,15 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     const view = document.defaultView!;
     const card = document.querySelector<HTMLElement>('#execution .execution-card')!;
     const faces = document.querySelectorAll<HTMLElement>('#execution .execution-face');
+    const standardBody = document.querySelector<HTMLElement>(
+      '.terminal:not(.execution-terminal) .terminal-body',
+    )!;
+    const standardJustification = view.getComputedStyle(standardBody).justifyContent;
     const expectFirstGridCell = (element: HTMLElement) => {
       expect(view.getComputedStyle(element).gridArea).toMatch(/^1\s*\/\s*1(?:\s*\/|$)/);
+    };
+    const expectStandardLineRhythm = (element: HTMLElement) => {
+      expect(view.getComputedStyle(element).justifyContent).toBe(standardJustification);
     };
 
     expect(view.getComputedStyle(card).alignItems).toBe('stretch');
@@ -552,8 +559,12 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       expectFirstGridCell(sizeReserve);
       const sizeWindows = sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]');
       expect(sizeWindows.length).toBeGreaterThan(0);
-      sizeWindows.forEach(expectFirstGridCell);
+      sizeWindows.forEach((window) => {
+        expectFirstGridCell(window);
+        expectStandardLineRhythm(window);
+      });
       expectFirstGridCell(feed);
+      expectStandardLineRhythm(feed);
     });
   });
 
