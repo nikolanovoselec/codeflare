@@ -502,13 +502,16 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       /Realign develop.*origin\/main.*clean worktree/,
       /develop aligned.*worktree clean.*evidence retained/,
     ]);
-    const softwareTimeline = [...EXECUTION.software.context, ...EXECUTION.software.events]
-      .map((line) => line.text);
-    const firstPushIndex = softwareTimeline.findIndex((line) => /\bpush(?:ed)?\b/.test(line));
-    const cleanReviewIndex = softwareTimeline.findIndex((line) => /all clean/.test(line));
+    const softwareTimeline = [...EXECUTION.software.context, ...EXECUTION.software.events];
+    const firstPushIndex = softwareTimeline.findIndex((line) =>
+      line.tone === 'cmd'
+        ? /\bgit\s+push\b|^Push\b/.test(line.text)
+        : /\bpushed\b/.test(line.text),
+    );
+    const cleanReviewIndex = softwareTimeline.findIndex((line) => /all clean/.test(line.text));
     expect(firstPushIndex).toBe(cleanReviewIndex);
-    expect(softwareTimeline[firstPushIndex].indexOf('pushed')).toBeGreaterThan(
-      softwareTimeline[firstPushIndex].indexOf('all clean'),
+    expect(softwareTimeline[firstPushIndex].text.indexOf('pushed')).toBeGreaterThan(
+      softwareTimeline[firstPushIndex].text.indexOf('all clean'),
     );
 
     expectOrderedStory(EXECUTION.infrastructure, [
@@ -519,7 +522,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       /recovery playbook in check mode/,
       /check mode.*package changes.*no restart/,
       /snapshot.*rollback command.*approval/,
-      /package\+config rollback: ansible-playbook nginx-rollback\.yml --limit prod-web-07 -e snapshot=\/var\/backups\/nginx-4821.*restart blocked/,
+      /^⚠ package\+config rollback: ansible-playbook nginx-rollback\.yml --limit prod-web-07 -e snapshot=\/var\/backups\/nginx-4821 · restart blocked$/,
       /CHG-4821.*snapshot.*checked playbook/,
       /nginx 1\.26\.3 packages staged.*not restarted/,
       /Validate the candidate configuration.*local health/,
