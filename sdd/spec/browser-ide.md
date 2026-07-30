@@ -527,3 +527,30 @@ A full code-server browser editor for an advanced running session. The editor op
 **Status:** Implemented
 
 ---
+
+### REQ-IDE-018: Native Pi Chat browser notifications
+
+**Intent:** Pi native Chat uses the pinned Code OSS browser-notification lifecycle for completed responses and native confirmations instead of a Codeflare-owned duplicate event path.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The Pi inventory enables Code OSS OS notifications for received responses and confirmations when the editor window is not focused. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-TERM-023: Pi native Chat uses Code OSS browser notifications) -->
+2. Unsupported and Claude inventories retain their existing Chat behavior, and the official Claude package remains checksum-pinned and unmodified. <!-- @impl: openvscode/claude/managed-settings.mjs::buildUnsupportedOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) -->
+
+**Constraints:**
+
+- Code OSS owns permission requests, focus policy, notification lifetime, and click-to-focus behavior for native Chat.
+- The terminal OSC bridge under [REQ-TERM-023](terminal.md#req-term-023-native-agent-browser-notifications) does not duplicate Pi native Chat events.
+- The official Claude panel retains its upstream in-product notification behavior; no extension patch, DOM observer, or private relay is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-TERM-023](terminal.md#req-term-023-native-agent-browser-notifications)
+
+**Verification:** Automated managed-settings and fixed-inventory tests; deployed Pi native Chat verification.
+
+**Status:** Planned
+
+---

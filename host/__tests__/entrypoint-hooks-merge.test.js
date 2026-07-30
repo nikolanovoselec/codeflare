@@ -166,6 +166,15 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     }
   });
 
+  it('REQ-TERM-023: both Claude session modes select the native OSC notification channel without adding hooks', () => {
+    const { advanced, standard } = settingsConfigs();
+
+    assert.equal(advanced.preferredNotifChannel, 'ghostty');
+    assert.equal(standard.preferredNotifChannel, 'ghostty');
+    assert.equal(hookEntries(advanced, 'Notification').length, 0);
+    assert.equal(hookEntries(advanced, 'Stop').filter((hook) => (hook.command ?? '').includes('notification')).length, 0);
+  });
+
   // REQ-MEM-011 AC1: hooks (PreToolUse and UserPromptSubmit) are merged into
   // settings.json ONLY in advanced mode. Default mode gets only
   // skipDangerousModePermissionPrompt -- no hook registrations.
@@ -191,7 +200,7 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     // default-mode literal fails here rather than shipping to Standard sessions.
     assert.deepEqual(
       Object.keys(standard).sort(),
-      ['disableAgentView', 'skipDangerousModePermissionPrompt']
+      ['disableAgentView', 'preferredNotifChannel', 'skipDangerousModePermissionPrompt']
     );
   });
 

@@ -26,6 +26,7 @@ const mockGetLlmKeys = vi.hoisted(() => vi.fn());
 const mockUpdateLlmKeys = vi.hoisted(() => vi.fn());
 const mockGetDeployKeys = vi.hoisted(() => vi.fn());
 const mockUpdateDeployKeys = vi.hoisted(() => vi.fn());
+const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(async () => 'granted' as NotificationPermission));
 
 // Defaults
 mockGetLlmKeys.mockResolvedValue({});
@@ -49,6 +50,11 @@ vi.mock('../../api/storage', () => ({
     written: ['Getting-Started.md', 'Documentation/README.md'],
     skipped: [],
   })),
+}));
+
+vi.mock('../../lib/agent-notifications', () => ({
+  agentNotificationPermission: vi.fn(() => 'default'),
+  enableAgentNotifications: mockEnableAgentNotifications,
 }));
 
 vi.mock('../../stores/session', () => ({
@@ -236,6 +242,19 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const error = await screen.findByTestId('settings-recreate-docs-error');
       expect(error.textContent).toContain('Seed failed');
+    });
+  });
+
+  describe('Agent notifications / REQ-TERM-023', () => {
+    it('requests browser permission only after the user clicks the session-settings action', async () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(mockEnableAgentNotifications).not.toHaveBeenCalled();
+      await fireEvent.click(screen.getByTestId('settings-agent-notifications'));
+
+      expect(mockEnableAgentNotifications).toHaveBeenCalledOnce();
+      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent('Enabled');
     });
   });
 

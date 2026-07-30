@@ -634,3 +634,35 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Status:** Implemented
 
 ---
+
+### REQ-TERM-023: Native agent browser notifications
+
+**Intent:** A user can leave a live Pi or Claude terminal in the background and receive the agent's native completion or input-needed notification through the browser without Codeflare operating a notification event service.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After an explicit browser-permission action, a valid OSC 777 notification from terminal tab 1 of a Pi or Claude session produces one bounded plain-text browser notification carrying the current session identity. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023) -->
+2. Pi emits only after `agent_settled`, and Claude uses its native `ghostty` notification channel in both session modes without a Codeflare Notification or Stop hook. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (Pi native terminal notifications / REQ-TERM-023) --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-023: both Claude session modes select the native OSC notification channel without adding hooks) -->
+3. Unsupported agents, non-primary tabs, malformed operations, empty fields, control-bearing text, titles over 64 UTF-8 bytes, and bodies over 256 UTF-8 bytes produce no browser notification and do not alter terminal execution. <!-- @impl: web-ui/src/lib/agent-notifications.ts::parseAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
+4. Terminal output never requests notification permission. The existing Settings user action owns the only permission request, browser permission remains authoritative, and denied/default permission fails quietly without duplicate persisted state. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::enableAgentNotifications --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-023) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
+5. A same-origin no-fetch service worker supports notification display on desktop and mobile-class browsers; a notification click may focus only an existing same-origin Codeflare client and never opens an arbitrary URL. <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (agent notification service worker / REQ-TERM-023) -->
+6. Notifications create no history, push subscription, backend route, container wake, retry, poll, cross-session relay, or credential-bearing persistence; delivery ends when the live page can no longer process terminal output. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
+
+**Constraints:**
+
+- Browser permission is per origin and browser profile. Codeflare does not persist a duplicate permission setting.
+- Terminal control bytes are hostile input and do not prove cryptographic agent provenance; tab and selected-agent checks limit the feature surface while text validation keeps notifications inert.
+- The service worker has no fetch, cache, push, sync, or network behavior.
+- The official Claude IDE extension remains checksum-pinned and unmodified; its own panel retains upstream in-product notifications.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-IDE-018](browser-ide.md#req-ide-018-native-pi-chat-browser-notifications), [REQ-SEC-015](security.md#req-sec-015-http-security-headers)
+
+**Verification:** Automated frontend, preseed-extension, entrypoint-settings, and service-worker behavior tests; deployed desktop and mobile browser verification.
+
+**Status:** Planned
+
+---

@@ -5,6 +5,7 @@ import {
   buildBaseOpenVscodeSettings,
   buildManagedSettings,
   buildOpenVscodeSettings,
+  buildPiOpenVscodeSettings,
   buildUnsupportedOpenVscodeSettings,
 } from "../managed-settings.mjs";
 
@@ -61,6 +62,15 @@ test("REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore 
   assert.deepEqual(buildBaseOpenVscodeSettings(), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+  });
+});
+
+test("REQ-IDE-018 + REQ-TERM-023: Pi native Chat uses Code OSS browser notifications", () => {
+  assert.deepEqual(buildPiOpenVscodeSettings(), {
+    "security.workspace.trust.enabled": false,
+    "extensions.ignoreRecommendations": true,
+    "chat.notifyWindowOnResponseReceived": "windowNotFocused",
+    "chat.notifyWindowOnConfirmation": "windowNotFocused",
   });
 });
 

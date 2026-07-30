@@ -10,6 +10,7 @@ const mockAttachCustomKeyEventHandler = vi.fn();
 const mockScrollToBottom = vi.fn();
 const mockRefresh = vi.fn();
 const mockFocus = vi.fn();
+const mockRegisterOscHandler = vi.fn(() => ({ dispose: vi.fn() }));
 
 const mockTerminalInstance = {
   loadAddon: mockLoadAddon,
@@ -38,6 +39,7 @@ const mockTerminalInstance = {
   },
   parser: {
     registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
+    registerOscHandler: mockRegisterOscHandler,
   },
   registerLinkProvider: vi.fn(() => ({ dispose: vi.fn() })),
   _core: {},
@@ -87,6 +89,7 @@ vi.mock('../../stores/terminal', () => ({
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
+    sessions: [{ id: 'test-session-123', agentType: 'pi', name: 'Test session' }],
     isSessionInitializing: vi.fn(() => false),
     getInitProgressForSession: vi.fn(() => null),
     getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
@@ -125,6 +128,10 @@ vi.mock('../../lib/settings', () => ({
   loadSettings: vi.fn(() => ({ clipboardAccess: true })),
 }));
 
+vi.mock('../../lib/agent-notifications', () => ({
+  showAgentNotification: vi.fn(async () => undefined),
+}));
+
 import { useTerminal, type UseTerminalOptions, DECTCEM_CURSOR_PARAM, KEYBOARD_REFIT_DEBOUNCE_MS } from '../../hooks/useTerminal';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { terminalStore } from '../../stores/terminal';
@@ -132,6 +139,7 @@ import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
 import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
+import { showAgentNotification } from '../../lib/agent-notifications';
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 // REQ-MOB-010: FitAddon fit calls are coordinated
@@ -280,6 +288,30 @@ describe('useTerminal hook', () => {
       );
 
       dispose();
+    });
+  });
+
+  describe('native agent notifications / REQ-TERM-023', () => {
+    it('registers OSC 777 for the selected terminal-1 agent and disposes it on unmount', () => {
+      const oscDispose = vi.fn();
+      mockRegisterOscHandler.mockReturnValueOnce({ dispose: oscDispose });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, sessionName: 'Test session' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(mockRegisterOscHandler).toHaveBeenCalledWith(777, expect.any(Function));
+      const handler = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 777)?.[1];
+      expect(handler?.('notify;Pi;Ready for input')).toBe(true);
+      expect(showAgentNotification).toHaveBeenCalledWith(
+        'notify;Pi;Ready for input',
+        { agentType: 'pi', terminalId: '1', sessionName: 'Test session' },
+      );
+
+      dispose();
+      expect(oscDispose).toHaveBeenCalledOnce();
     });
   });
 
