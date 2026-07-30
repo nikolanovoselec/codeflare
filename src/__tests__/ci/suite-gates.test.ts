@@ -300,7 +300,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
   });
 
   it('REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache', () => {
-    type Step = { name?: string; run?: string; uses?: string; with?: Record<string, string> };
+    type Step = { name?: string; run?: string; uses?: string; if?: string; env?: Record<string, string>; with?: Record<string, string> };
     type Job = { permissions?: Record<string, string>; steps?: Step[] };
     const testWorkflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: Record<string, Job>;
@@ -326,7 +326,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const deployment = buildCommand(imageJob.steps, 'Build container image');
     const expectedFlags = [
       '--cache-from "type=registry,ref=${CACHE_REF}"',
-      '--cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true"',
+      '--cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true"',
     ];
 
     expect(cacheFlags(completeImage)).toEqual(expectedFlags);
@@ -335,8 +335,15 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(cacheRef(deployment)).toBe(cacheRef(completeImage));
     expect(completeImageJob.permissions?.packages).toBe('write');
     expect(imageJob.permissions?.packages).toBe('write');
+    expect(deployWorkflow.jobs.verify.permissions?.packages).toBe('write');
     expect(deployWorkflow.jobs.container.permissions?.packages).toBe('write');
-    for (const step of [login(completeImageJob.steps), login(imageJob.steps)]) {
+    const completeImageLogin = login(completeImageJob.steps);
+    expect(completeImageLogin?.if).toBe(
+      "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository",
+    );
+    expect(completeImageJob.steps?.find((step) => step.name === 'Build complete image')?.env?.CACHE_WRITE_ALLOWED)
+      .toBe("${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}");
+    for (const step of [completeImageLogin, login(imageJob.steps)]) {
       expect(step).toMatchObject({
         uses: 'docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0',
         with: {

@@ -913,21 +913,38 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      actions: write # shared type=gha BuildKit cache warms the later deploy build
+      packages: write # trusted same-repository heads publish the cross-ref BuildKit cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Log in to GHCR for shared BuildKit cache
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Build complete image
         env:
           IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
+          CACHE_WRITE_ALLOWED: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
+          set -euo pipefail
+          CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"
+          CACHE_ARGS=()
+          if [ "$CACHE_WRITE_ALLOWED" = "true" ]; then
+            CACHE_ARGS+=(
+              --cache-from "type=registry,ref=${CACHE_REF}"
+              --cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true"
+            )
+          fi
           docker buildx build --platform linux/amd64 \
-            --cache-from "type=gha,scope=container-image-linux-amd64" \
-            --cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true" \
+            "${CACHE_ARGS[@]}" \
             --load \
             --tag "$IMAGE" .
 

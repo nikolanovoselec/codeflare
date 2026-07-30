@@ -70,7 +70,7 @@ jobs:
     environment: ${{ inputs.environment }}
     permissions:
       contents: read
-      actions: write # type=gha buildx cache writes to the Actions cache service
+      packages: write # read and refresh the cross-ref GHCR BuildKit cache
       id-token: write # OIDC identity the provenance attestation is signed against
       attestations: write # store the attestation on this repository
     timeout-minutes: 30
@@ -225,10 +225,18 @@ jobs:
           CACHE_BUST: ${{ inputs.cache-bust }}
         run: printf '%s\n' "$CACHE_BUST" > .cache-bust
 
-      # The 'default' docker builder doesn't support type=gha cache. The
-      # docker-container driver (provisioned by setup-buildx-action) does
-      # and is what unlocks --cache-from / --cache-to against the
-      # built-in GitHub Actions cache service. No extra registry creds.
+      - name: Log in to GHCR for shared BuildKit cache
+        if: steps.reuse.outputs.reused != 'true'
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The docker-container driver supports the registry-backed cache shared
+      # across pull-request refs and deployment branch refs. GitHub's `type=gha`
+      # cache is ref-scoped, so the deploy could not read the cache populated by
+      # an otherwise identical PR complete-image build.
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
         if: steps.reuse.outputs.reused != 'true'
 
@@ -243,9 +251,10 @@ jobs:
           # --load keeps the image available to the local docker daemon
           # so the Trivy scan step and the push step that follow can
           # reference it by tag, unchanged.
+          CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"
           docker buildx build --platform linux/amd64 \
-            --cache-from "type=gha,scope=container-image-linux-amd64" \
-            --cache-to "type=gha,mode=max,scope=container-image-linux-amd64,ignore-error=true" \
+            --cache-from "type=registry,ref=${CACHE_REF}" \
+            --cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true" \
             --load \
             --label "org.opencontainers.image.revision=${REF}" \
             -t "${IMAGE_NAME}:${TAG}" .

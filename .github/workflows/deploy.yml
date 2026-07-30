@@ -149,7 +149,7 @@ jobs:
       && needs.verify-existing.outputs.verified == 'false'
     permissions:
       contents: read
-      actions: write # called complete-image job writes the shared BuildKit cache
+      packages: write # called complete-image job writes the shared GHCR BuildKit cache
     uses: ./.github/workflows/test.yml
     with:
       # Keeps this deploy's inline verify in its own concurrency group. Without
@@ -316,7 +316,7 @@ jobs:
       && needs.prepare.result == 'success'
     permissions:
       contents: read
-      actions: write # type=gha buildx cache writes to the Actions cache service
+      packages: write # the callee reads and refreshes the cross-ref GHCR BuildKit cache
       id-token: write # the callee signs a build-provenance attestation
       attestations: write # ...and stores it on this repository
     # zizmor: ignore[secrets-inherit] the callee binds inputs.environment, and
