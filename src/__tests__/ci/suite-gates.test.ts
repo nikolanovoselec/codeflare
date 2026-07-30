@@ -15,6 +15,10 @@ import { parse as parseYaml } from 'yaml';
 
 import { CLOUDFLARE_TEST_OPTIONS } from '../../../vitest.config';
 import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
+import {
+  sharedCacheEnabled,
+  shouldAttemptSharedCacheLogin,
+} from '../../../scripts/ci/container-build-cache-policy.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
 import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pins.mjs';
 
@@ -174,10 +178,16 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     );
 
     const imageSteps = imageJob.steps ?? [];
-    const criticalSteps = imageSteps.filter((step) => step.name !== 'Upload image evidence');
+    const optionalCacheSteps = new Set([
+      'Resolve shared cache eligibility',
+      'Log in to GHCR for shared BuildKit cache',
+      'Resolve shared cache availability',
+    ]);
+    const criticalSteps = imageSteps.filter((step) =>
+      step.name !== 'Upload image evidence' && !optionalCacheSteps.has(step.name ?? ''));
     expect(criticalSteps.every((step) => step.if === undefined && step['continue-on-error'] !== true)).toBe(true);
     const imageCommands = imageSteps.flatMap((step) => step.run ?? []).join('\n');
-    expect(imageJob.permissions?.actions).toBe('write');
+    expect(imageJob.permissions?.packages).toBe('write');
     expect(imageCommands).toContain('docker buildx build');
     expect(imageCommands).toContain('--load');
     expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
@@ -189,6 +199,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const imageUses = imageSteps.flatMap((step) => step.uses ?? []);
     expect(imageUses.map((use) => use.split('@')[0])).toEqual([
       'actions/checkout',
+      'docker/login-action',
       'docker/setup-buildx-action',
       'actions/upload-artifact',
     ]);
@@ -196,7 +207,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(imageCommands).not.toMatch(
       /\b(?:docker|podman)\s+(?:(?:image|manifest)\s+)?(?:login|push)\b|\bdocker\s+(?:buildx\s+build|build)\b[^;&]*--push\b|\b(?:npm\s+publish|oras\s+push|skopeo\s+copy)\b/i,
     );
-    expect(JSON.stringify(imageSteps)).not.toMatch(/(?:login|build-push)-action/i);
+    expect(JSON.stringify(imageSteps)).not.toMatch(/build-push-action/i);
 
     const requiredJobs = Array.isArray(summaryJob.needs) ? summaryJob.needs : [summaryJob.needs];
     expect(requiredJobs).toEqual(expect.arrayContaining([
@@ -299,8 +310,38 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     ]);
   });
 
+  it('REQ-OPS-001 AC7: keeps fork and read-only automation verification off the shared cache', () => {
+    expect(shouldAttemptSharedCacheLogin({
+      eventName: 'pull_request',
+      repository: 'owner/codeflare',
+      headRepository: 'owner/codeflare',
+      actor: 'contributor',
+    })).toBe(true);
+    expect(shouldAttemptSharedCacheLogin({
+      eventName: 'push',
+      repository: 'owner/codeflare',
+      headRepository: '',
+      actor: 'maintainer',
+    })).toBe(true);
+    expect(shouldAttemptSharedCacheLogin({
+      eventName: 'pull_request',
+      repository: 'owner/codeflare',
+      headRepository: 'fork/codeflare',
+      actor: 'contributor',
+    })).toBe(false);
+    expect(shouldAttemptSharedCacheLogin({
+      eventName: 'pull_request',
+      repository: 'owner/codeflare',
+      headRepository: 'owner/codeflare',
+      actor: 'dependabot[bot]',
+    })).toBe(false);
+    expect(sharedCacheEnabled('success')).toBe(true);
+    expect(sharedCacheEnabled('failure')).toBe(false);
+    expect(sharedCacheEnabled('skipped')).toBe(false);
+  });
+
   it('REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache', () => {
-    type Step = { name?: string; run?: string; uses?: string; if?: string; env?: Record<string, string>; with?: Record<string, string> };
+    type Step = { name?: string; id?: string; run?: string; uses?: string; if?: string; env?: Record<string, string>; with?: Record<string, string>; 'continue-on-error'?: boolean };
     type Job = { permissions?: Record<string, string>; steps?: Step[] };
     const testWorkflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: Record<string, Job>;
@@ -326,7 +367,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const deployment = buildCommand(imageJob.steps, 'Build container image');
     const expectedFlags = [
       '--cache-from "type=registry,ref=${CACHE_REF}"',
-      '--cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true"',
+      '--cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true"',
     ];
 
     expect(cacheFlags(completeImage)).toEqual(expectedFlags);
@@ -338,14 +379,17 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(deployWorkflow.jobs.verify.permissions?.packages).toBe('write');
     expect(deployWorkflow.jobs.container.permissions?.packages).toBe('write');
     const completeImageLogin = login(completeImageJob.steps);
-    expect(completeImageLogin?.if).toBe(
-      "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository",
-    );
-    expect(completeImageJob.steps?.find((step) => step.name === 'Build complete image')?.env?.CACHE_WRITE_ALLOWED)
-      .toBe("${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}");
-    for (const step of [completeImageLogin, login(imageJob.steps)]) {
+    const deploymentLogin = login(imageJob.steps);
+    expect(completeImageLogin).toMatchObject({
+      id: 'cache-login',
+      if: "steps.cache-policy.outputs.login_allowed == 'true'",
+      'continue-on-error': true,
+    });
+    for (const step of [completeImageLogin, deploymentLogin]) {
       expect(step).toMatchObject({
+        id: 'cache-login',
         uses: 'docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0',
+        'continue-on-error': true,
         with: {
           registry: 'ghcr.io',
           username: '${{ github.actor }}',
@@ -353,6 +397,10 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         },
       });
     }
+    expect(completeImageJob.steps?.find((step) => step.name === 'Build complete image')?.env?.CACHE_ENABLED)
+      .toBe('${{ steps.cache.outputs.enabled }}');
+    expect(imageJob.steps?.find((step) => step.name === 'Build container image')?.env?.CACHE_ENABLED)
+      .toBe('${{ steps.cache.outputs.enabled }}');
   });
 
   it('fails closed on coverage evidence and bounds the backend crash exception', () => {
