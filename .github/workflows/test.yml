@@ -913,7 +913,7 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      packages: write # trusted same-repository heads publish the cross-ref BuildKit cache
+      packages: read # same-repository checks may consume but never publish the trusted cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -959,10 +959,7 @@ jobs:
           CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"
           CACHE_ARGS=()
           if [ "$CACHE_ENABLED" = "true" ]; then
-            CACHE_ARGS+=(
-              --cache-from "type=registry,ref=${CACHE_REF}"
-              --cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true"
-            )
+            CACHE_ARGS+=(--cache-from "type=registry,ref=${CACHE_REF}")
           fi
           docker buildx build --platform linux/amd64 \
             "${CACHE_ARGS[@]}" \

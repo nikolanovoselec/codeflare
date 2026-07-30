@@ -150,7 +150,7 @@ jobs:
     permissions:
       actions: read # called evidence resolver reads prior PR Checks artifacts
       contents: read
-      packages: write # called complete-image job writes the shared GHCR BuildKit cache
+      packages: read # called complete-image job may consume but never publish the trusted cache
     uses: ./.github/workflows/test.yml
     with:
       # Keeps this deploy's inline verify in its own concurrency group. Without
