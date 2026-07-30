@@ -111,8 +111,8 @@ function feedRow(line: FeedLine, index: number): HTMLElement {
 }
 
 /** Normal motion restores the complete context history. Its first eight rows
- *  size and reveal the opening viewport; extra history occupies available stretched
- *  space and remains retained beyond the clipped viewport.
+ *  establish base sizing; every populated row fitting the stretched opening viewport
+ *  reveals in order, while further context remains retained beyond the clipped edge.
  *  The server-rendered final event viewport remains untouched for no-JS and
  *  reduced-motion visitors. */
 function prepareFeed(list: HTMLElement): void {

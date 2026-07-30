@@ -732,8 +732,9 @@ svg {
    Execution overview (REQ-LANDING-010)
 
    Both Hero-scale terminals render full resolved viewports for no-JS and
-   reduced-motion visitors. Normal motion reveals eight initial rows top-down,
-   then appends the remaining session through a fixed, clipped terminal log.
+   reduced-motion visitors. In normal motion, eight rows establish base sizing;
+   every populated row fitting the stretched opening viewport reveals top-down,
+   while further retained rows remain clipped before live events append.
    -------------------------------------------------------------------------- */
 #execution .section-head {
   max-width: 52rem;
@@ -772,8 +773,9 @@ svg {
 
 /* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
    Long real command output wraps within each frame instead of scrolling sideways.
-   The hidden sizing layer fixes each frame to its initial eight-row viewport during motion;
-   no-JS and reduced-motion visitors instead size against the resolved state. */
+   The hidden sizing layer establishes each frame's initial eight-row base during motion;
+   pair stretching can expose more retained context. No-JS and reduced-motion visitors
+   instead size against the resolved state. */
 .execution-terminal .terminal-body {
   display: grid;
   flex: 1;
@@ -800,7 +802,8 @@ svg {
 }
 
 /* The resolved state sizes no-JS/reduced-motion markup. Once proof.ts restores
-   the complete context history, its first eight rows become the motion viewport. */
+   the complete context history, its first eight rows establish the motion base;
+   equal-height pair stretching can expose more context before overflow clips. */
 .execution-terminal .transcript-feed-size-window:last-child,
 .execution-terminal .terminal-body.is-feed-prepared .transcript-feed-size-window:first-child {
   display: flex;
