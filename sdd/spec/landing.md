@@ -252,12 +252,12 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Constraints:**
 
-- Reuse the Hero's shared Terminal, Transcript, identity style, semantic tones, typography, spacing, typing cadence, and proof entrance; do not introduce a second visual system.
-- The software transcript shows `t.anderson@metacortex.ai` only in its opening request while following one continuous `codeflare-inference-mesh` lifecycle from production clone and planning mode through SDD/TDD execution, explicit `code-reviewer`, `doc-updater`, and `spec-reviewer` outcomes, required CI, PR-body update, squash merge, and forced `develop` realignment.
-- The infrastructure transcript shows `t.anderson@metacortex.ai` only in its opening request while following one continuous incident response from read-only host inspection and retained-coredump diagnosis through a versioned nginx repair and rollback plan, check-mode execution, configuration validation, restart, and health verification, with cyan distinguishing diagnostic evidence.
-- Engineer requests remain minimal while agent outcomes expose the concrete work and named evidence; transcript content contains no actor-label narration or invented product command.
-- Infrastructure copy exposes no non-public network implementation or provider-roadmap dependency.
-- Execution remains a high-level overview while existing Method, Operations, Security, Context, Pipeline, Orchestration, Cost, Platform, IDE, and tooling sections retain detailed ownership.
+- Reuse the shared terminal visual and motion system.
+- The software transcript shows `t.anderson@metacortex.ai` once, in its opening request. It follows production clone, planning, SDD/TDD execution, named review outcomes, a reviewed-head PR, required CI, merge approval, squash merge, and `develop` realignment.
+- The infrastructure transcript shows `t.anderson@metacortex.ai` once, in its opening request. It follows read-only coredump diagnosis, a versioned repair and rollback plan, approval to check then execute, confirmed patching, validation, restart, and health verification.
+- Later engineer requests stay minimal; agent outcomes carry named evidence.
+- Infrastructure copy exposes no private network or roadmap details.
+- Execution remains an overview; detailed sections retain their existing ownership.
 
 **Priority:** P1
 

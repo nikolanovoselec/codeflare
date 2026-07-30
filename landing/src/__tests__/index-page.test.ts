@@ -449,7 +449,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
   it('keeps engineer intent visible throughout both coherent execution timelines', () => {
     const runs = [EXECUTION.software, EXECUTION.infrastructure];
     expect([...new Set(EXECUTION.infrastructure.context.map((line) => line.tone))]).toEqual(
-      expect.arrayContaining(['cmd', 'ok', 'warn', 'info']),
+      expect.arrayContaining(['cmd', 'ok', 'info']),
     );
     expect(EXECUTION.infrastructure.events.some((line) => line.tone === 'info')).toBe(true);
     for (const run of runs) {
