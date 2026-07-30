@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-30
+
+- **The Execution overview preserves engineer intent across its complete timelines** ([REQ-LANDING-010](landing.md#req-landing-010-execution-overview-reel) remains Implemented). Both the initial eight-row history and animated continuation now alternate concrete engineer requests or approvals with observable agent outcomes. The software run follows one checkout-timeout repair from read-only diagnosis and test-first implementation through explicit `code-reviewer`, `doc-updater`, and `spec-reviewer` review, exact-head CI, merge, and branch realignment. The infrastructure run follows one nginx incident from read-only coredump diagnosis through check mode, approved snapshot and patch, restart, health verification, and closure.
+
 ## 2026-07-29
 
 - **Deployment image reuse now fingerprints only production container inputs** ([REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) remains Implemented). Host test-only changes no longer create a new deployment image tag; host packages, configuration, and `src` changes still invalidate it, while Dockerfile COPY/ADD coverage continues to fail closed.

@@ -114,13 +114,13 @@ export interface FeatureTerminal {
 }
 
 export interface ExecutionLine extends TranscriptLine {
-  /** Human direction that must remain visible in the settled eight-row view. */
+  /** Human direction preserved in the initial history and settled viewport. */
   intent?: 'request' | 'approval';
 }
 
 export interface ExecutionRun {
   title: string;
-  context: TranscriptLine[];
+  context: ExecutionLine[];
   events: ExecutionLine[];
   foot: string[];
 }
@@ -314,39 +314,52 @@ export const EXECUTION = {
     context: [
       {
         tone: 'cmd',
-        text: 't.anderson@metacortex.ai $ git clone https://github.com/nikolanovoselec/codeflare-inference-mesh.git && cd codeflare-inference-mesh',
+        intent: 'request',
+        text: 'Inspect the checkout timeout on develop. Trace the request path, but do not change anything.',
       },
-      { tone: 'dim', text: "Cloning into 'codeflare-inference-mesh'... done." },
-      { tone: 'cmd', text: '$ git switch develop' },
-      { tone: 'dim', text: "Switched to branch 'develop'" },
-      { tone: 'cmd', text: '$ pi --resume 7f2c' },
-      { tone: 'agent', text: '✻ session resumed · repository context restored' },
-      { tone: 'cmd', text: 'update the repository knowledge graph' },
-      { tone: 'ok', text: '✓ 428 symbols · 1,906 relations indexed' },
+      { tone: 'agent', text: '✻ develop clean · graph current · timeout isolated to retry exhaustion' },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Plan the smallest fix. Preserve the gateway contract and link every affected requirement.',
+      },
+      { tone: 'agent', text: '✻ plan ready · 4 tasks · REQ-MESH-014 and callers linked' },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Approved. Write the failing behavioral tests first and show me the broken contract.',
+      },
+      { tone: 'warn', text: '⚠ 2 tests fail · exhausted routes return 500 instead of 504' },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Implement only that plan. Keep retries bounded and leave unrelated routing untouched.',
+      },
+      { tone: 'ok', text: '✓ 86 tests passed · timeout maps to 504 · retry cap unchanged' },
     ],
     events: [
       {
         tone: 'cmd',
         intent: 'request',
-        text: 'Clone nikolanovoselec/codeflare-inference-mesh and inspect develop before changing anything.',
+        text: 'Run code-reviewer on the diff, then doc-updater and spec-reviewer against its findings.',
       },
-      { tone: 'agent', text: '✻ repository ready · develop clean · graph current' },
-      {
-        tone: 'cmd',
-        intent: 'request',
-        text: 'Planning mode: add Inference Mesh routing. Preserve the gateway contract and write tests first.',
-      },
-      { tone: 'agent', text: '✻ plan ready · 6 tasks · affected requirements linked' },
+      { tone: 'agent', text: '✻ code-reviewer: retry-budget assertion missing · doc-updater: aligned · spec-reviewer: clean' },
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Approved. Execute the plan, push develop, and open the pull request.',
+        text: 'Accept that finding. Add the missing retry-budget assertion, then rerun all three reviewers.',
       },
-      { tone: 'ok', text: '✓ 84 tests passed · PR #84 · reviews clean · CI green' },
+      { tone: 'ok', text: '✓ code-reviewer clean · doc-updater clean · spec-reviewer clean' },
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'PR #84 is approved. Merge it, then reset develop to origin/main.',
+        text: 'Push this head and open the pull request. Do not merge until required CI is green.',
+      },
+      { tone: 'ok', text: '✓ PR #84 opened · exact-head CI green · approval recorded' },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Merge PR #84, then realign develop with origin/main and retain the evidence.',
       },
       { tone: 'ok', text: '✓ merged into main · develop aligned · evidence retained' },
     ],
@@ -355,52 +368,56 @@ export const EXECUTION = {
   infrastructure: {
     title: 'codeflare · infrastructure operations',
     context: [
-      { tone: 'cmd', text: 't.anderson@metacortex.ai $ ssh prod-web-07' },
-      { tone: 'ok', text: '✓ Access approved · session recorded' },
-      { tone: 'cmd', text: '$ hostnamectl && uptime' },
-      {
-        tone: 'dim',
-        text: 'Ubuntu 22.04.5 LTS · up 47 days · load average: 0.31, 0.28, 0.24',
-      },
-      { tone: 'cmd', text: '$ sudo journalctl -p err -b --no-pager | tail' },
-      { tone: 'warn', text: 'nginx[1842]: worker process exited on signal 11 (core dumped)' },
       {
         tone: 'cmd',
-        text: '$ sudo coredumpctl info nginx --no-pager | grep -E "Timestamp|Executable|Signal"',
+        intent: 'request',
+        text: 'Investigate INC-4821 on prod-web-07. Use read-only commands and do not restart nginx.',
       },
+      { tone: 'ok', text: '✓ access approved · host up 47 days · configuration unchanged' },
       {
-        tone: 'info',
-        text: 'Timestamp: 23:41:08 UTC · Executable: /usr/sbin/nginx · Signal: 11/SEGV',
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Correlate the nginx error with the retained coredump and report the failure boundary.',
       },
+      { tone: 'info', text: '23:41:08 UTC · nginx worker · signal 11/SEGV · core retained' },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Plan the smallest bounded repair and run the recovery playbook in check mode.',
+      },
+      { tone: 'info', text: 'ansible-playbook nginx-recover.yml --limit prod-web-07 --check · 2 changes' },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Explain those two changes and confirm the rollback point before I approve them.',
+      },
+      { tone: 'warn', text: '⚠ upgrade nginx packages · preserve current config · restart still blocked' },
     ],
     events: [
       {
         tone: 'cmd',
-        intent: 'request',
-        text: 'SSH to prod-web-07 and diagnose the nginx crash. Do not change state.',
+        intent: 'approval',
+        text: 'Approved under CHG-4821. Snapshot the nginx configuration, then apply the playbook.',
       },
-      { tone: 'agent', text: '✻ Access approved · signal 11 isolated · configuration unchanged' },
+      { tone: 'ok', text: '✓ snapshot saved · 2 packages upgraded · nginx not restarted' },
       {
         tone: 'cmd',
         intent: 'request',
-        text: 'Plan the smallest bounded repair. Run the playbook in check mode first.',
+        text: 'Validate the candidate configuration and local health before requesting a restart.',
       },
-      {
-        tone: 'info',
-        text: 'ansible-playbook ops/nginx-recover.yml --limit prod-web-07 --check · 2 changes',
-      },
+      { tone: 'info', text: 'nginx -t: syntax ok · service active · existing workers still serving 200' },
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Approved. Snapshot the current nginx configuration and execute CHG-4821.',
+        text: 'Restart nginx now. Roll back from the snapshot if config or health checks fail.',
       },
-      { tone: 'ok', text: '✓ configuration snapshot saved · playbook applied · 2 packages upgraded' },
+      { tone: 'ok', text: '✓ nginx restarted · configuration valid · rollback not required' },
       {
         tone: 'cmd',
-        intent: 'approval',
-        text: 'Restart nginx, verify its configuration and local health, then report.',
+        intent: 'request',
+        text: 'Verify local health and error logs, then close the incident with retained evidence.',
       },
-      { tone: 'ok', text: '✓ config valid · nginx active · health 200 in 0.018s · snapshot retained' },
+      { tone: 'ok', text: '✓ health 200 in 0.018s · no new errors · INC-4821 resolved' },
     ],
     foot: ['prod-web-07 healthy', 'CHG-4821', 'config snapshot'],
   } satisfies ExecutionRun,
