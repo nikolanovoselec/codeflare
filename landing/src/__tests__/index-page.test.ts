@@ -476,7 +476,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     );
   });
 
-  it('keeps paired Execution terminals equal-height through shared layout', () => {
+  it('configures paired Execution terminals to stretch through shared layout', () => {
     const document = documentDom(html);
     const style = document.createElement('style');
     style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
