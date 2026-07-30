@@ -60,7 +60,7 @@ interface TreeEntry {
   readonly path: string;
   readonly kind: 'directory' | 'file';
   readonly content?: string;
-  readonly executable?: boolean;
+  readonly executable?: number;
 }
 
 async function snapshotTree(root: string, directory = ''): Promise<TreeEntry[]> {
@@ -78,7 +78,7 @@ async function snapshotTree(root: string, directory = ''): Promise<TreeEntry[]> 
         path,
         kind: 'file',
         content: (await readFile(join(root, path))).toString('base64'),
-        executable: Boolean(info.mode & 0o111),
+        executable: info.mode & 0o111,
       });
     }
   }
@@ -87,6 +87,7 @@ async function snapshotTree(root: string, directory = ''): Promise<TreeEntry[]> 
 
 test('REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories', async () => {
   const { source, claudeSource, target } = await fixture();
+  const claudeSourceSnapshot = await snapshotTree(claudeSource);
   const staged = await stageFixture(source, claudeSource, target);
 
   assert.deepEqual((await readdir(join(target, 'extensions'))).sort(), ['claude', 'none', 'pi']);
@@ -99,7 +100,7 @@ test('REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported 
   assert.deepEqual(await readdir(staged.inventories.claude), ['anthropic.claude-code']);
   assert.deepEqual(
     await snapshotTree(join(staged.inventories.claude, 'anthropic.claude-code')),
-    await snapshotTree(claudeSource),
+    claudeSourceSnapshot,
   );
   assert.equal(
     JSON.parse(await readFile(join(staged.inventories.pi, 'codeflare-agent-sidebar', 'package.json'), 'utf8')).publisher,
