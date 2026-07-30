@@ -253,9 +253,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Constraints:**
 
 - Reuse the Hero's shared Terminal, Transcript, identity style, semantic tones, typography, spacing, typing cadence, and proof entrance; do not introduce a second visual system.
-- The software transcript opens with `t.anderson@metacortex.ai` as the user while showing one continuous `codeflare-inference-mesh` lifecycle from clone and planning mode through approved test-first execution, explicit `code-reviewer`, `doc-updater`, and `spec-reviewer` review, exact-head CI, merge, and branch realignment.
-- The infrastructure transcript opens with `t.anderson@metacortex.ai` as the user while showing one continuous incident response from read-only host inspection and retained-coredump diagnosis through check-mode bounded patching, a configuration snapshot, validation, restart, and health verification, with cyan distinguishing diagnostic evidence.
-- Transcript content uses credible commands and concrete outputs an engineer would type or read; it contains no actor-label narration or invented product command.
+- The software transcript shows `t.anderson@metacortex.ai` only in its opening request while following one continuous `codeflare-inference-mesh` lifecycle from production clone and planning mode through SDD/TDD execution, explicit `code-reviewer`, `doc-updater`, and `spec-reviewer` outcomes, required CI, PR-body update, squash merge, and forced `develop` realignment.
+- The infrastructure transcript shows `t.anderson@metacortex.ai` only in its opening request while following one continuous incident response from read-only host inspection and retained-coredump diagnosis through a versioned nginx repair and rollback plan, check-mode execution, configuration validation, restart, and health verification, with cyan distinguishing diagnostic evidence.
+- Engineer requests remain minimal while agent outcomes expose the concrete work and named evidence; transcript content contains no actor-label narration or invented product command.
 - Infrastructure copy exposes no non-public network implementation or provider-roadmap dependency.
 - Execution remains a high-level overview while existing Method, Operations, Security, Context, Pipeline, Orchestration, Cost, Platform, IDE, and tooling sections retain detailed ownership.
 
