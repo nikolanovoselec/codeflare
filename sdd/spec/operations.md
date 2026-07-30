@@ -809,28 +809,3 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Status:** Implemented
 
 ---
-
-### REQ-OPS-031: Vendored Impeccable mutation safety
-
-**Intent:** Impeccable refreshes preserve Codeflare's repository boundary and cannot corrupt PNG assets while attaching prompt metadata.
-
-**Applies To:** Contributor
-
-**Acceptance Criteria:**
-
-1. Each Impeccable refresh applies the reviewed safety overlay before copying either runtime tree and fails if the overlay no longer applies cleanly. <!-- @impl: scripts/update-impeccable-skill.mjs::applySafetyPatch --> <!-- @impl: scripts/update-impeccable-skill.mjs::rewriteFiles --> <!-- @manual -->
-2. Implicit persisted, pointer, and fresh app roots must resolve physically inside the current Git repository; explicit targets retain their existing behavior. <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/live/roots.mjs::realInsideOrEqual --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/live/roots.mjs::assertImplicitAppRoot --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/live/roots.mjs::realInsideOrEqual --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/live/roots.mjs::assertImplicitAppRoot --> <!-- @test: host/__tests__/impeccable-preseed-safety.test.js (ignores stale, external, and symlink-escaped persisted app roots) -->
-3. PNG prompt embedding in both runtime trees identifies the terminal `IEND` from bounded length-prefixed chunks and preserves unrelated ancillary data. <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::parsePngChunks --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::parsePngChunks --> <!-- @test: host/__tests__/impeccable-preseed-safety.test.js (embeds a prompt before the real IEND chunk when ancillary payload contains IEND bytes) -->
-4. PNG prompt embedding in both runtime trees atomically replaces the original file. <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::writeAtomic --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::writeAtomic --> <!-- @test: host/__tests__/impeccable-preseed-safety.test.js (embeds a prompt before the real IEND chunk when ancillary payload contains IEND bytes) -->
-
-**Constraints:** The safety overlay remains narrow and changes only the reviewed root-resolution and PNG-embedding surfaces.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
-
-**Verification:** Mixed — automated host tests execute both runtime copies; workflow refresh ordering and fail-closed patch application are checked manually.
-
-**Status:** Implemented
-
----

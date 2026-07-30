@@ -15,7 +15,6 @@
 // which is the one a builder reads.
 
 import fs from 'node:fs';
-import { randomUUID } from 'node:crypto';
 import zlib from 'node:zlib';
 
 const KEYWORD = 'impeccable:prompt';
@@ -44,36 +43,6 @@ function pngChunk(type, data) {
   data.copy(out, 8);
   out.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type, 'ascii'), data])), 8 + data.length);
   return out;
-}
-
-function parsePngChunks(b) {
-  const chunks = [];
-  let off = 8;
-  while (off < b.length) {
-    if (off + 12 > b.length) throw new Error('truncated PNG chunk header');
-    const len = b.readUInt32BE(off);
-    const end = off + 12 + len;
-    if (end > b.length) throw new Error('PNG chunk exceeds file bounds');
-    const type = b.toString('ascii', off + 4, off + 8);
-    chunks.push({ off, end, len, type, data: b.subarray(off + 8, off + 8 + len) });
-    off = end;
-    if (type === 'IEND') {
-      if (len !== 0 || off !== b.length) throw new Error('invalid terminal PNG IEND chunk');
-      return chunks;
-    }
-  }
-  throw new Error('PNG has no terminal IEND chunk');
-}
-
-function writeAtomic(target, data) {
-  const temp = `${target}.tmp-${process.pid}-${randomUUID()}`;
-  try {
-    fs.writeFileSync(temp, data, { mode: fs.statSync(target).mode });
-    fs.renameSync(temp, target);
-  } catch (err) {
-    try { fs.rmSync(temp, { force: true }); } catch { /* best-effort cleanup */ }
-    throw err;
-  }
 }
 
 function readPngText(b) {
@@ -126,34 +95,30 @@ const prompt = argOf('--prompt') ?? (argOf('--prompt-file') ? fs.readFileSync(ar
 if (!prompt) { console.error('embed-prompt: --prompt or --prompt-file required'); process.exit(1); }
 
 if (isPng) {
-  let chunks;
-  try {
-    chunks = parsePngChunks(buf);
-  } catch (err) {
-    console.error(`embed-prompt: malformed PNG: ${err.message}`);
-    process.exit(1);
-  }
-  const body = chunks
-    .filter(({ type, data }) => {
-      if (type === 'IEND') return false;
+  // Insert (or replace) our tEXt chunk immediately before IEND.
+  const iend = buf.indexOf(Buffer.from('IEND', 'ascii')) - 4;
+  if (iend < 8) { console.error('embed-prompt: malformed PNG'); process.exit(1); }
+  // Drop any existing chunk with our keyword to keep embedding idempotent.
+  let body = buf.subarray(8, iend);
+  const existing = readPngText(buf);
+  if (existing != null) {
+    const parts = [];
+    let off = 8;
+    while (off + 12 <= buf.length && off < iend + 12) {
+      const len = buf.readUInt32BE(off);
+      const type = buf.toString('ascii', off + 4, off + 8);
+      const chunk = buf.subarray(off, off + 12 + len);
+      const data = buf.subarray(off + 8, off + 8 + len);
       const nul = data.indexOf(0);
-      return !((type === 'tEXt' || type === 'zTXt')
-        && nul !== -1
-        && data.toString('latin1', 0, nul) === KEYWORD);
-    })
-    .map(({ off, end }) => buf.subarray(off, end));
-  const iend = chunks.at(-1);
-  const promptChunk = pngChunk('tEXt', Buffer.concat([
-    Buffer.from(KEYWORD, 'latin1'),
-    Buffer.from([0]),
-    Buffer.from(prompt, 'utf8'),
-  ]));
-  writeAtomic(file, Buffer.concat([
-    buf.subarray(0, 8),
-    ...body,
-    promptChunk,
-    buf.subarray(iend.off, iend.end),
-  ]));
+      const ours = (type === 'tEXt' || type === 'zTXt') && nul !== -1 && data.toString('latin1', 0, nul) === KEYWORD;
+      if (!ours && type !== 'IEND') parts.push(chunk);
+      off += 12 + len;
+    }
+    body = Buffer.concat(parts).subarray(8 * 0); // parts exclude signature
+    fs.writeFileSync(file, Buffer.concat([buf.subarray(0, 8), body, pngChunk('tEXt', Buffer.concat([Buffer.from(KEYWORD, 'latin1'), Buffer.from([0]), Buffer.from(prompt, 'utf8')])), pngChunk('IEND', Buffer.alloc(0))]));
+  } else {
+    fs.writeFileSync(file, Buffer.concat([buf.subarray(0, iend), pngChunk('tEXt', Buffer.concat([Buffer.from(KEYWORD, 'latin1'), Buffer.from([0]), Buffer.from(prompt, 'utf8')])), buf.subarray(iend)]));
+  }
   console.log(`EMBEDDED: ${file} (png tEXt, ${prompt.length} chars)`);
 } else if (isJpeg) {
   const seg = Buffer.from(`${KEYWORD}\0${prompt}`, 'utf8');

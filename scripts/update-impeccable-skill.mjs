@@ -10,7 +10,6 @@ const repoRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.ur
 const tempRoot = mkdtempSync(join(tmpdir(), 'impeccable-skill-'));
 const bundlePath = join(tempRoot, 'bundle.zip');
 const outDir = join(tempRoot, 'out');
-const safetyPatch = join(repoRoot, 'scripts', 'patches', 'impeccable-safety.patch');
 
 try {
   const response = await fetch(BUNDLE_URL, { headers: { 'user-agent': 'codeflare-shadow-pin-bot' } });
@@ -19,7 +18,6 @@ try {
   execFileSync('unzip', ['-q', bundlePath, '-d', outDir]);
 
   const source = join(outDir, '.claude', 'skills', 'impeccable');
-  applySafetyPatch(source);
   const sourceSkill = join(source, 'SKILL.md');
   const skillText = readFileSync(sourceSkill, 'utf8');
   const version = skillText.match(/^version:\s*(.+)$/m)?.[1];
@@ -38,16 +36,6 @@ try {
   console.log(`Updated Impeccable preseed skill to ${version}`);
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
-}
-
-function applySafetyPatch(source) {
-  // Keep Codeflare's reviewed filesystem-boundary and atomic-write hardening
-  // reproducible across future wholesale upstream bundle refreshes. git apply
-  // fails closed if upstream changes either patch surface.
-  execFileSync('git', ['apply', '--unidiff-zero', '--whitespace=nowarn', safetyPatch], {
-    cwd: source,
-    stdio: 'inherit',
-  });
 }
 
 function rewriteFiles(root, runtimePath) {
