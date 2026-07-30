@@ -394,7 +394,7 @@ export const EXECUTION = {
         intent: 'approval',
         text: 'Approved. Snapshot the current nginx configuration and execute CHG-4821.',
       },
-      { tone: 'ok', text: '✓ rollback saved · playbook applied · 2 packages upgraded' },
+      { tone: 'ok', text: '✓ configuration snapshot saved · playbook applied · 2 packages upgraded' },
       {
         tone: 'cmd',
         intent: 'approval',

@@ -65,7 +65,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The container image is built in the CI runner whenever its inputs (Dockerfile COPY sources, weekly salt, cache-bust) produce a tag not yet present in the target registry; otherwise the existing image is reused without rebuild or rescan. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) --> <!-- @manual -->
+1. The container image is built in the CI runner whenever its hashed inputs and weekly salt produce a tag not yet present in the target registry; otherwise the existing image is reused without rebuild or rescan. Cache-bust independently forces a rebuild and invalidates build layers. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) --> <!-- @manual -->
 2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
 3. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 4. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, path, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
@@ -74,7 +74,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 
 - The container-binding and scaling steps rebuild the registry URI from the image tag this REQ produces — the URI itself is never a workflow output, since it would embed a masked secret and be silently dropped; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
-- The hash selectively covers copied production paths and additionally includes Dockerfile, ignore and scan policy, weekly salt, and cache-bust inputs; a coverage guard disables reuse when a COPY source falls outside the hashed path set.
+- The hash selectively covers copied production paths and additionally includes Dockerfile, ignore and scan policy, and the weekly salt. Cache-bust disables reuse without changing the tag; a coverage guard disables reuse when a COPY source falls outside the hashed path set.
 - The weekly hash salt bounds reuse: an unchanged image is rebuilt and rescanned at least once per ISO week.
 
 **Priority:** P0
