@@ -662,7 +662,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Verification:** Automated frontend and service-worker behavior tests; deployed desktop and mobile browser verification.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

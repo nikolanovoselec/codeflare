@@ -32,8 +32,8 @@ export interface AgentNotificationWorker {
 }
 
 export interface AgentNotificationBrowser {
-  permission(): NotificationPermission;
-  requestPermission(): Promise<NotificationPermission>;
+  permission(): AgentNotificationEnablement;
+  requestPermission(): Promise<AgentNotificationEnablement>;
   registerWorker(): Promise<AgentNotificationWorker | undefined>;
   getWorker(): Promise<AgentNotificationWorker | undefined>;
 }
@@ -62,7 +62,11 @@ export function parseAgentNotification(
   const title = data.slice('notify;'.length, separator);
   const body = data.slice(separator + 1);
   const composedTitle = `${title} · ${context.sessionName}`;
-  if (!boundedPlainText(composedTitle, MAX_TITLE_BYTES) || !boundedPlainText(body, MAX_BODY_BYTES)) {
+  if (
+    !boundedPlainText(title, MAX_TITLE_BYTES)
+    || !boundedPlainText(composedTitle, MAX_TITLE_BYTES)
+    || !boundedPlainText(body, MAX_BODY_BYTES)
+  ) {
     return undefined;
   }
   return Object.freeze({
@@ -74,7 +78,7 @@ export function parseAgentNotification(
 
 export function agentNotificationPermission(
   browser: AgentNotificationBrowser = defaultBrowser,
-): NotificationPermission {
+): AgentNotificationEnablement {
   return browser.permission();
 }
 
@@ -109,9 +113,9 @@ export async function showAgentNotification(
 }
 
 const defaultBrowser: AgentNotificationBrowser = {
-  permission: () => typeof Notification === 'undefined' ? 'denied' : Notification.permission,
+  permission: () => typeof Notification === 'undefined' ? 'unavailable' : Notification.permission,
   requestPermission: async () => {
-    if (typeof Notification === 'undefined') return 'denied';
+    if (typeof Notification === 'undefined') return 'unavailable';
     return Notification.requestPermission();
   },
   registerWorker: async () => {
