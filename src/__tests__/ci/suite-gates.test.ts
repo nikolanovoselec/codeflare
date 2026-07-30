@@ -5,7 +5,7 @@
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -362,15 +362,34 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(frontend.if).toContain("needs.changes.outputs.webui == 'true'");
     expect(backend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
     expect(frontend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
+  });
 
+  it('executes the reusable coverage action through its configured fail-closed boundary', () => {
     const action = parseYaml(readFileSync(join(REPO, '.github/actions/coverage-suite/action.yml'), 'utf8')) as {
       runs: { steps: Array<{ name?: string; run?: string }> };
     };
     const runStep = action.runs.steps.find((step) => step.name === 'Run suite with coverage');
-    const command = (runStep?.run ?? '').replace(/\\\s*\n\s*/g, ' ').replace(/\s+/g, ' ').trim();
-    expect(command).toContain(
-      'node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" /tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH"',
-    );
+    const fakeBin = join(work, 'bin');
+    mkdirSync(fakeBin);
+    const fakeNpm = join(fakeBin, 'npm');
+    writeFileSync(fakeNpm, '#!/bin/sh\nprintf "%s\\n" "$FAKE_NPM_OUTPUT"\nexit "${FAKE_NPM_STATUS:-0}"\n');
+    chmodSync(fakeNpm, 0o755);
+
+    const execute = (output: string) => spawnSync('bash', ['-c', runStep?.run ?? ''], {
+      cwd: work,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        GITHUB_WORKSPACE: REPO,
+        TOLERATE_POOL_CRASH: 'false',
+        FAKE_NPM_OUTPUT: output,
+        FAKE_NPM_STATUS: '0',
+      },
+    });
+
+    expect(execute('Test Files  1 passed (1)\n Tests  2 passed (2)').status).toBe(1);
+    expect(execute(' All files | 100 | 100 | 100 | 100 |\n Test Files  1 passed (1)\n Tests  2 passed (2)').status).toBe(0);
   });
 });
 
@@ -381,14 +400,55 @@ describe('REQ-OPS-027: code-server coupled-pin automation', () => {
     };
     const job = workflow.jobs['code-server'];
     const applyStep = job.steps?.find((step) => step.name === 'Apply bump and invalidate the release checksum');
-    const commands = (applyStep?.run ?? '')
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'));
 
     expect(job).toBeDefined();
     expect(workflow.jobs['openvscode-server']).toBeUndefined();
-    expect(commands).toContain('node scripts/ci/update-code-server-pins.mjs Dockerfile');
+    expect(applyStep).toBeDefined();
+  });
+
+  it('executes the configured workflow step through the updater boundary', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const applyStep = workflow.jobs['code-server'].steps?.find(
+      (step) => step.name === 'Apply bump and invalidate the release checksum',
+    );
+    const fixture = join(work, 'shadow-pin');
+    const fakeBin = join(fixture, 'bin');
+    mkdirSync(join(fixture, 'scripts/ci'), { recursive: true });
+    mkdirSync(fakeBin);
+    symlinkSync(CODE_SERVER_PIN_UPDATER, join(fixture, 'scripts/ci/update-code-server-pins.mjs'));
+    writeFileSync(join(fakeBin, 'git'), '#!/bin/sh\n[ "$1" = "diff" ] && exit 1\nexit 0\n');
+    chmodSync(join(fakeBin, 'git'), 0o755);
+    writeFileSync(join(fixture, 'Dockerfile'), [
+      'CODE_SERVER_VERSION="4.1.0"',
+      'CODE_SERVER_SHA256="old"',
+      'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
+      'CODE_SERVER_CODE_VERSION="1.1.0"',
+      'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+    ].join('\n'));
+
+    const result = spawnSync('bash', ['-c', applyStep?.run ?? ''], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        BRANCH: 'bump/code-server-4.130.0',
+        CUR: '4.1.0',
+        LAT: '4.130.0',
+        GH_TOKEN: 'test-token',
+        GITHUB_REPOSITORY: 'example/codeflare',
+        CODE_SERVER_VERSION: '4.130.0',
+        CODE_SERVER_COMMIT: '3333333333333333333333333333333333333333',
+        CODE_SERVER_CODE_VERSION: '1.130.0',
+        CODE_SERVER_VSCODE_COMMIT: '4444444444444444444444444444444444444444',
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(join(fixture, 'Dockerfile'), 'utf8')).toContain('CODE_SERVER_VERSION="4.130.0"');
+    expect(readFileSync(join(fixture, 'Dockerfile'), 'utf8')).toContain('CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY"');
   });
 
   it('executes the updater through its CLI boundary', () => {
