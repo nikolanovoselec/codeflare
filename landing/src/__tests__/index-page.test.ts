@@ -17,6 +17,7 @@ import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
 import { dom, decodeEntities, documentDom } from './_helpers/dom';
 import { APP_LINKS } from '../config';
+import type { ExecutionRun } from '../content/site';
 import {
   AGENTS,
   COST,
@@ -474,6 +475,42 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(EXECUTION.software.events.map((line) => line.text).join(' ')).toMatch(
       /code-reviewer.*doc-updater.*spec-reviewer/,
     );
+  });
+
+  it('balances meaningful transcript content across every side-by-side viewport', () => {
+    const wrappedLines = (text: string, firstLineColumns: number): number => {
+      const continuationColumns = firstLineColumns - 2;
+      let lines = 1;
+      let used = 0;
+      let capacity = firstLineColumns;
+
+      for (const word of text.split(' ')) {
+        const needed = used === 0 ? word.length : word.length + 1;
+        if (used > 0 && used + needed > capacity) {
+          lines += 1;
+          capacity = continuationColumns;
+          used = word.length;
+        } else {
+          used += needed;
+        }
+      }
+      return lines;
+    };
+    const viewportLineTotals = (run: ExecutionRun, columns: number) =>
+      Array.from({ length: run.events.length + 1 }, (_, eventCount) =>
+        [...run.context, ...run.events.slice(0, eventCount)]
+          .slice(-8)
+          .reduce((total, line) => total + wrappedLines(line.text, columns), 0),
+      );
+    const softwareFoldable = viewportLineTotals(EXECUTION.software, 50);
+    const infrastructureFoldable = viewportLineTotals(EXECUTION.infrastructure, 50);
+    const softwareCompact = viewportLineTotals(EXECUTION.software, 37);
+    const infrastructureCompact = viewportLineTotals(EXECUTION.infrastructure, 37);
+
+    expect(softwareFoldable).toEqual(infrastructureFoldable);
+    softwareCompact.forEach((total, index) => {
+      expect(Math.abs(total - infrastructureCompact[index])).toBeLessThanOrEqual(1);
+    });
   });
 
   it('configures paired Execution terminals to stretch through shared layout', () => {
