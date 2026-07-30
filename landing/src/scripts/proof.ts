@@ -124,8 +124,13 @@ function prepareFeed(list: HTMLElement): void {
 function scrollFeedToEnd(list: HTMLElement, behavior: ScrollBehavior = 'auto'): void {
   const top = Math.max(0, list.scrollHeight - list.clientHeight);
   if (typeof list.scrollTo === 'function') {
-    list.scrollTo({ top, behavior });
-    return;
+    try {
+      list.scrollTo({ top, behavior });
+      return;
+    } catch {
+      // Older or partial browser implementations can expose scrollTo while
+      // rejecting the options object. Direct assignment is the safe fallback.
+    }
   }
   list.scrollTop = top;
 }
@@ -236,6 +241,19 @@ function startFeeds(el: HTMLElement): void {
   if (feeds.length === 0) return;
   for (const feed of feeds) startFeed(feed);
 }
+
+let feedResizePending = false;
+window.addEventListener('resize', () => {
+  if (feedResizePending) return;
+  feedResizePending = true;
+  window.setTimeout(() => {
+    feedResizePending = false;
+    const feeds = document.querySelectorAll<HTMLElement>(
+      '[data-feed-state="running"], [data-feed-state="complete"]',
+    );
+    feeds.forEach((feed) => scrollFeedToEnd(feed));
+  }, 0);
+});
 
 /** Begin the shared slow loop for ordinary proof-row lists on an armed artifact. */
 function startRoll(el: HTMLElement): void {
