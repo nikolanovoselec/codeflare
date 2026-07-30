@@ -10,8 +10,8 @@
  * sequence plays once, then the element is unobserved.
  *
  * Some artifacts carry a [data-roll] list. Ordinary proof lists move the top
- * row to the bottom on a slow loop. Transcript simulations first reveal eight
- * complete rows in authored order, then append typed events into a clipped,
+ * row to the bottom on a slow loop. Transcript simulations first reveal their
+ * complete context history in authored order, then append typed events into a clipped,
  * fixed-height log using the established cadence. Pinned terminal chrome never moves.
  *
  * Reduced motion: do nothing. The default (no `.is-live`) markup is already the
@@ -110,12 +110,14 @@ function feedRow(line: FeedLine, index: number): HTMLElement {
   return row;
 }
 
-/** Normal motion starts from eight populated context rows. The server-rendered
- *  final event viewport remains untouched for no-JS and reduced-motion visitors. */
+/** Normal motion starts from the complete populated context history. The first
+ *  eight rows size the viewport; extra history can fill an equal stretched frame.
+ *  The server-rendered final event viewport remains untouched for no-JS and
+ *  reduced-motion visitors. */
 function prepareFeed(list: HTMLElement): void {
   const context = parseFeed(list, 'feedContext');
   const events = parseFeed(list, 'feedEvents');
-  if (context.length !== 8 || events.length < context.length) return;
+  if (context.length < 8 || events.length < 8) return;
   list.replaceChildren(...context.map(feedRow));
   list.closest<HTMLElement>('.terminal-body')?.classList.add('is-feed-prepared');
   list.dataset.feedState = 'ready';
@@ -207,7 +209,7 @@ function startFeed(list: HTMLElement): void {
   if (list.dataset.feedStarted === 'true' || list.dataset.feedState !== 'ready') return;
   const context = parseFeed(list, 'feedContext');
   const events = parseFeed(list, 'feedEvents');
-  if (context.length !== 8 || events.length < context.length || list.children.length !== 8) return;
+  if (context.length < 8 || events.length < 8 || list.children.length !== context.length) return;
   list.dataset.feedStarted = 'true';
   list.dataset.feedState = 'running';
   let index = 0;

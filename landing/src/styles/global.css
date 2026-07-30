@@ -749,7 +749,7 @@ svg {
 .execution-card {
   display: grid;
   gap: clamp(2rem, 4vw, 3.5rem);
-  align-items: start;
+  align-items: stretch;
 }
 
 .execution-face {
@@ -772,7 +772,7 @@ svg {
 
 /* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
    Long real command output wraps within each frame instead of scrolling sideways.
-   The hidden sizing layer fixes each frame to its initial context during motion;
+   The hidden sizing layer fixes each frame to its initial eight-row viewport during motion;
    no-JS and reduced-motion visitors instead size against the resolved state. */
 .execution-terminal .terminal-body {
   display: grid;
@@ -800,7 +800,7 @@ svg {
 }
 
 /* The resolved state sizes no-JS/reduced-motion markup. Once proof.ts restores
-   the initial context, that first state becomes the permanent motion viewport. */
+   the complete context history, its first eight rows become the motion viewport. */
 .execution-terminal .transcript-feed-size-window:last-child,
 .execution-terminal .terminal-body.is-feed-prepared .transcript-feed-size-window:first-child {
   display: flex;

@@ -395,6 +395,18 @@ export const EXECUTION = {
       { tone: 'info', text: 'repair plan · patch nginx · preserve config · validate before restart' },
       { tone: 'cmd', intent: 'request', text: 'Show the changes and rollback.' },
       { tone: 'info', text: 'upgrade nginx to 1.26.3 · snapshot /etc/nginx · rollback to 1.24.0' },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Confirm the rollback artifact and hold execution.',
+      },
+      { tone: 'info', text: 'snapshot reserved · rollback playbook ready · execution blocked' },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Summarize the check-mode gates before approval.',
+      },
+      { tone: 'info', text: 'package diff bounded · config preservation required · restart gated' },
     ],
     events: [
       {

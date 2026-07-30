@@ -38,12 +38,12 @@ interface Props {
 }
 const { lines, animate = 'static', typed = '', feed = [], label = 'Terminal transcript' } = Astro.props;
 const lastIndex = lines.length - 1;
-const resolvedFeed = feed.slice(-lines.length);
-const feedTimeline = [...lines, ...feed];
-const feedWindows = Array.from(
-  { length: feed.length + 1 },
-  (_, index) => feedTimeline.slice(index, index + lines.length),
-);
+const viewportRows = Math.min(8, lines.length);
+const resolvedFeed = feed.slice(-viewportRows);
+const feedWindows = [
+  lines.slice(0, viewportRows),
+  resolvedFeed,
+];
 ---
 
 <div class="terminal-body">
