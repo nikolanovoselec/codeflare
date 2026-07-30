@@ -192,7 +192,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(imageCommands).toContain('--load');
     expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
     // Identity and pinning shape, not the digest itself: what AC7 protects is
-    // which actions this job may run -- adding a login or push action has to
+    // which actions this job may run -- adding an image-publishing action has to
     // fail here -- and that each is pinned to an immutable digest rather than a
     // floating tag. Asserting the digest value instead made every routine bump
     // of either action fail for a reason the AC does not care about.
@@ -380,6 +380,32 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(deployWorkflow.jobs.container.permissions?.packages).toBe('write');
     const completeImageLogin = login(completeImageJob.steps);
     const deploymentLogin = login(imageJob.steps);
+    const completeImagePolicy = completeImageJob.steps?.find(
+      (step) => step.name === 'Resolve shared cache eligibility',
+    );
+    const availabilitySteps = [completeImageJob, imageJob].map((job) =>
+      job.steps?.find((step) => step.name === 'Resolve shared cache availability'));
+    expect(completeImagePolicy).toMatchObject({
+      id: 'cache-policy',
+      env: {
+        EVENT_NAME: '${{ github.event_name }}',
+        REPOSITORY: '${{ github.repository }}',
+        HEAD_REPOSITORY: '${{ github.event.pull_request.head.repo.full_name }}',
+        ACTOR: '${{ github.actor }}',
+      },
+    });
+    expect(completeImagePolicy?.run).toContain(
+      'node scripts/ci/container-build-cache-policy.mjs eligibility',
+    );
+    for (const step of availabilitySteps) {
+      expect(step).toMatchObject({
+        id: 'cache',
+        env: { LOGIN_OUTCOME: '${{ steps.cache-login.outcome }}' },
+      });
+      expect(step?.run).toContain(
+        'node scripts/ci/container-build-cache-policy.mjs availability',
+      );
+    }
     expect(completeImageLogin).toMatchObject({
       id: 'cache-login',
       if: "steps.cache-policy.outputs.login_allowed == 'true'",

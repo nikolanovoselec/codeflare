@@ -226,12 +226,23 @@ jobs:
         run: printf '%s\n' "$CACHE_BUST" > .cache-bust
 
       - name: Log in to GHCR for shared BuildKit cache
+        id: cache-login
         if: steps.reuse.outputs.reused != 'true'
+        continue-on-error: true
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve shared cache availability
+        id: cache
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          LOGIN_OUTCOME: ${{ steps.cache-login.outcome }}
+        run: >-
+          node scripts/ci/container-build-cache-policy.mjs availability
+          "$LOGIN_OUTCOME" >> "$GITHUB_OUTPUT"
 
       # The docker-container driver supports the registry-backed cache shared
       # across pull-request refs and deployment branch refs. GitHub's `type=gha`
@@ -247,14 +258,22 @@ jobs:
           TAG: ${{ steps.hash.outputs.tag }}
           REGISTRY: ${{ inputs.registry }}
           REF: ${{ inputs.ref }}
+          CACHE_ENABLED: ${{ steps.cache.outputs.enabled }}
         run: |
+          set -euo pipefail
           # --load keeps the image available to the local docker daemon
           # so the Trivy scan step and the push step that follow can
           # reference it by tag, unchanged.
           CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"
+          CACHE_ARGS=()
+          if [ "$CACHE_ENABLED" = "true" ]; then
+            CACHE_ARGS+=(
+              --cache-from "type=registry,ref=${CACHE_REF}"
+              --cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true"
+            )
+          fi
           docker buildx build --platform linux/amd64 \
-            --cache-from "type=registry,ref=${CACHE_REF}" \
-            --cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true" \
+            "${CACHE_ARGS[@]}" \
             --load \
             --label "org.opencontainers.image.revision=${REF}" \
             -t "${IMAGE_NAME}:${TAG}" .

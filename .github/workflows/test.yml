@@ -919,28 +919,49 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve shared cache eligibility
+        id: cache-policy
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          ACTOR: ${{ github.actor }}
+        run: >-
+          node scripts/ci/container-build-cache-policy.mjs eligibility
+          "$EVENT_NAME" "$REPOSITORY" "$HEAD_REPOSITORY" "$ACTOR" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR for shared BuildKit cache
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        id: cache-login
+        if: steps.cache-policy.outputs.login_allowed == 'true'
+        continue-on-error: true
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve shared cache availability
+        id: cache
+        env:
+          LOGIN_OUTCOME: ${{ steps.cache-login.outcome }}
+        run: >-
+          node scripts/ci/container-build-cache-policy.mjs availability
+          "$LOGIN_OUTCOME" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Build complete image
         env:
           IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
-          CACHE_WRITE_ALLOWED: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          CACHE_ENABLED: ${{ steps.cache.outputs.enabled }}
         run: |
           set -euo pipefail
           CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"
           CACHE_ARGS=()
-          if [ "$CACHE_WRITE_ALLOWED" = "true" ]; then
+          if [ "$CACHE_ENABLED" = "true" ]; then
             CACHE_ARGS+=(
               --cache-from "type=registry,ref=${CACHE_REF}"
-              --cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true"
+              --cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true"
             )
           fi
           docker buildx build --platform linux/amd64 \
