@@ -210,7 +210,6 @@ A file lost to a mis-shard, a stale exclude, or a worker dying mid-run fails the
 ### Property-Based Fuzz Tests
 
 **Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to main, weekly, and manual dispatch.
-Backend properties exercise pure helper logic under the plain Node forks pool; frontend and host fuzz suites retain their owned runtimes. This avoids routing large backend fuzz results through the Cloudflare Workers test transport. <!-- @impl: vitest.fuzz.config.mjs -->
 **Local:** Default 1,000 iterations. Override with `FAST_CHECK_NUM_RUNS=50000`.
 
 | Suite | File | What it covers |

@@ -38,7 +38,7 @@ jobs:
       - name: Run backend fuzz tests (extended iterations)
         env:
           FAST_CHECK_NUM_RUNS: '50000'
-        run: npx vitest run --config vitest.fuzz.config.mjs --reporter=verbose
+        run: npx vitest run src/__tests__/fuzz/ --reporter=verbose
 
       - name: Install frontend dependencies
         run: cd web-ui && npm ci

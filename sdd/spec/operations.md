@@ -472,7 +472,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The fuzz workflow runs on PRs to `main`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`. <!-- @manual -->
 2. Fuzz testing uses fast-check with 50,000 iterations for property-based testing. <!-- @manual -->
-3. Backend fuzz tests run under the plain Node forks pool rather than the Cloudflare Workers pool, while frontend and host fuzz suites retain their owned runtimes. <!-- @impl: vitest.fuzz.config.mjs --> <!-- @impl: .github/workflows/fuzz.yml::Run backend fuzz tests (extended iterations) --> <!-- @test: host/__tests__/fuzz-workflow-runtime.test.js (discovers backend fuzz tests under the plain Node forks pool) -->
 
 **Constraints:**
 
@@ -482,7 +481,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated test ([Backend fuzz runtime contract](../../host/__tests__/fuzz-workflow-runtime.test.js)); trigger and iteration-count checks remain manual.
+**Verification:** Manual check
 
 **Status:** Implemented
 
