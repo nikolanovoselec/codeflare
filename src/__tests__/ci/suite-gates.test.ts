@@ -289,7 +289,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       step.name !== 'Upload image evidence' && !optionalCacheSteps.has(step.name ?? ''));
     expect(criticalSteps.every((step) => step.if === undefined && step['continue-on-error'] !== true)).toBe(true);
     const imageCommands = imageSteps.flatMap((step) => step.run ?? []).join('\n');
-    expect(imageJob.permissions?.packages).toBe('write');
+    expect(imageJob.permissions?.packages).toBe('read');
     expect(imageCommands).toContain('docker buildx build');
     expect(imageCommands).toContain('--load');
     expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
@@ -412,7 +412,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     ]);
   });
 
-  it('REQ-OPS-031 AC2: PR verification reads trusted cache without publishing or exposing forks', () => {
+  it('REQ-OPS-031 AC3: excludes forks and Dependabot from shared-cache authentication', () => {
     expect(shouldAttemptSharedCacheLogin({
       eventName: 'pull_request',
       repository: 'owner/codeflare',
@@ -464,7 +464,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(cachePrefixedArguments(args)).toEqual([]);
   });
 
-  it('REQ-OPS-031 AC1: PR verification reads and only deployment publishes the cross-ref cache', () => {
+  it('REQ-OPS-031 AC1 + AC2 + AC5: imports one cache, restricts publication, and ignores export errors', () => {
     const { completeImageJob, imageJob, deployWorkflow } = readCacheWorkflowContract();
     const completeImage = cacheBuildCommand(completeImageJob.steps, 'Build complete image');
     const deployment = cacheBuildCommand(imageJob.steps, 'Build container image');
@@ -516,7 +516,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     );
   });
 
-  it('REQ-OPS-031 AC3: cache unavailability cannot block complete-image or deploy builds', () => {
+  it('REQ-OPS-031 AC4: cache login unavailability cannot block complete-image or deploy builds', () => {
     expect(sharedCacheEnabled('success')).toBe(true);
     expect(sharedCacheEnabled('failure')).toBe(false);
     expect(sharedCacheEnabled('skipped')).toBe(false);
