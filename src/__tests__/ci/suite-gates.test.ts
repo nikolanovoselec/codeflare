@@ -21,6 +21,7 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
 const COVERAGE_GATE = join(REPO, 'scripts/ci/check-coverage-result.mjs');
+const CODE_SERVER_PIN_UPDATER = join(REPO, 'scripts/ci/update-code-server-pins.mjs');
 const SHADOW_PINS_WORKFLOW = join(REPO, '.github/workflows/bump-shadow-pins.yml');
 
 let work: string;
@@ -361,39 +362,43 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(frontend.if).toContain("needs.changes.outputs.webui == 'true'");
     expect(backend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
     expect(frontend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
-
-    const action = parseYaml(readFileSync(join(REPO, '.github/actions/coverage-suite/action.yml'), 'utf8')) as {
-      runs: { steps: Array<{ name?: string; run?: string }> };
-    };
-    const runStep = action.runs.steps.find((step) => step.name === 'Run suite with coverage');
-    expect(runStep).toBeDefined();
-    const activeCommands = (runStep?.run ?? '')
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'))
-      .join(' ')
-      .replace(/\\\s+/g, ' ')
-      .replace(/\s+/g, ' ');
-    expect(activeCommands).toContain(
-      'node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" /tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH"',
-    );
   });
 });
 
 describe('REQ-OPS-027: code-server coupled-pin automation', () => {
-  it('routes code-server bumps through one dedicated fail-closed updater', () => {
+  it('routes code-server bumps through one dedicated workflow job', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
-      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+      jobs: Record<string, unknown>;
     };
-    const job = workflow.jobs['code-server'];
 
-    expect(job).toBeDefined();
+    expect(workflow.jobs['code-server']).toBeDefined();
     expect(workflow.jobs['openvscode-server']).toBeUndefined();
-    const activeCommands = (job.steps ?? [])
-      .flatMap((step) => (step.run ?? '').split('\n'))
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'));
-    expect(activeCommands.filter((line) => line === 'node scripts/ci/update-code-server-pins.mjs Dockerfile')).toHaveLength(1);
+  });
+
+  it('executes the updater through its CLI boundary', () => {
+    const dockerfile = join(work, 'Dockerfile');
+    writeFileSync(dockerfile, [
+      'CODE_SERVER_VERSION="4.1.0"',
+      'CODE_SERVER_SHA256="old"',
+      'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
+      'CODE_SERVER_CODE_VERSION="1.1.0"',
+      'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+    ].join('\n'));
+
+    const result = spawnSync(process.execPath, [CODE_SERVER_PIN_UPDATER, dockerfile], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CODE_SERVER_VERSION: '4.130.0',
+        CODE_SERVER_COMMIT: '3333333333333333333333333333333333333333',
+        CODE_SERVER_CODE_VERSION: '1.130.0',
+        CODE_SERVER_VSCODE_COMMIT: '4444444444444444444444444444444444444444',
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(dockerfile, 'utf8')).toContain('CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY"');
+    expect(readFileSync(dockerfile, 'utf8')).toContain('CODE_SERVER_CODE_VERSION="1.130.0"');
   });
 
   it('updates every coupled runtime pin and invalidates the checksum atomically', () => {

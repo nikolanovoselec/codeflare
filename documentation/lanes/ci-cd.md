@@ -102,7 +102,7 @@ The run title (`run-name`) resolves and displays the deploy target (production /
    - Hashes `Dockerfile`, ignore/scan policy, `entrypoint.sh`, `host/package.json`, `host/package-lock.json`, `host/tsconfig.json`, `host/src/`, `openvscode/`, `preseed/`, seed and image-smoke scripts, and the ISO week.
    - Changes under `host/__tests__/` do not invalidate the deployment image.
    - If `in-<hash>` already exists in the target registry, the already-scanned image is reused and build/scan/push are skipped.
-   - Otherwise buildx builds with the shared `container-image-linux-amd64` `type=gha` layer cache also populated by the PR complete-image lane; the base image comes from `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits).
+   - Otherwise buildx builds with the shared `container-image-linux-amd64` `type=gha` layer cache populated by the PR complete-image lane; the base image comes from `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits).
    - Trivy scans HIGH/CRITICAL with `ignore-unfixed: true` and `.trivyignore` for consciously accepted fixable CVEs (daily-cached vuln DB) — see [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011).
    - Push runs in a bounded retry loop (30 attempts, 30s apart); a COPY-coverage guard disables reuse if a Dockerfile COPY source ever falls outside the hashed path set.
    - The hashed path set also covers `.dockerignore` and `.trivyignore`: a deleted CVE suppression previously left the reuse tag unchanged, so the image was reused and the scan that would now fail never ran.

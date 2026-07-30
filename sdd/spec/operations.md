@@ -75,7 +75,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 
 - The container-binding and scaling steps rebuild the registry URI from the image tag this REQ produces — the URI itself is never a workflow output, since it would embed a masked secret and be silently dropped; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
-- The hash selectively covers copied production paths and additionally includes Dockerfile, ignore and scan policy, and the weekly salt. Cache-bust disables reuse without changing the tag; a coverage guard disables reuse when a COPY source falls outside the hashed path set.
+- The hash covers copied production paths, Dockerfile, ignore and scan policy, and the weekly salt.
+- Cache-bust disables reuse without changing the content-addressed tag.
+- A COPY coverage gap disables reuse.
 - The weekly hash salt bounds reuse: an unchanged image is rebuilt and rescanned at least once per ISO week.
 
 **Priority:** P0
@@ -787,12 +789,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Every PR Checks run fingerprints the tracked inputs that assemble or smoke-test the Browser IDE image plus platform and weekly freshness, independently from unrelated landing, dashboard, documentation, and specification files; an uncovered Dockerfile source disables reuse. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::isBrowserIdeImageInput --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::fingerprintEntries --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image input fingerprint) -->
-2. An affected pull-request run may reuse only a direct successful complete-image execution from the same repository, pull request, PR Checks workflow, and unchanged reuse contract whose immutable receipt has the matching image fingerprint; candidates are evaluated newest-first from one bounded page, and invalid evidence falls back to execution. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::validateBrowserIdeImageEvidence --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::resolveReusableBrowserIdeImageRun --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse evidence) --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse CLI boundary) -->
+2. An affected pull-request run may reuse only direct successful complete-image evidence from the same repository, pull request, PR Checks workflow, and unchanged reuse contract when its immutable receipt matches the image fingerprint; invalid evidence falls back to execution. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::validateBrowserIdeImageEvidence --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::resolveReusableBrowserIdeImageRun --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse evidence) --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse CLI boundary) -->
 3. The required `test` status fails when an affected complete-image lane is merely skipped, and accepts only a successful current execution or validated reuse; full runs never reuse this PR-only evidence. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::browserIdeImageGate --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image aggregate gate) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips) -->
 4. The current head's exact-tree receipt records whether complete-image evidence executed, was reused, or was not required, including the evidence source run when present, so exact-tree deployment verification remains authoritative. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::buildPrChecksReceipt --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (current exact-tree receipt with Browser IDE image provenance) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips) -->
 
 **Constraints:**
 
+- Candidate discovery evaluates one bounded page newest-first.
 - Reused evidence never chains through another reused run.
 - Missing, malformed, expired, cross-repository, cross-PR, changed-contract, failed, skipped, truncated, stale-week, or COPY/ADD-uncovered source evidence cannot authorize a skip.
 - Scheduled, manual, called, merge-group, and post-merge full runs execute the complete-image lane when required.

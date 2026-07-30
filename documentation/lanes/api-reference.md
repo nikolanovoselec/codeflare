@@ -101,7 +101,9 @@ The in-container SilverBullet editor is reached through the Worker proxy. Under 
 
 ## Browser IDE
 
-The in-container code-server runtime (full Code OSS editor) is reached through the Worker proxy. Unlike the Vault, the IDE is **session-keyed** ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable)): the browser and Worker retain `/api/vscode/<sessionId>/`, while the trusted host strips only that exact session prefix before forwarding HTTP or WebSocket traffic to loopback code-server. Canonical forwarded host/protocol identity preserves Origin enforcement. Public `folder`, `workspace`, and `ew` selectors are rejected at Worker and host boundaries; the private root hop selects `/home/user/workspace`, and the successful root response projects its equivalent fixed `folderUri` into Code OSS while the browser location remains clean. The sessionId in the URL is the sole container selector; there is no bucket-stable serving path. A bounded per-user UI snapshot is storage state, not a route selector.
+The in-container code-server runtime (full Code OSS editor) is reached through the Worker proxy. Unlike the Vault, the IDE is **session-keyed** ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable)): the browser and Worker retain `/api/vscode/<sessionId>/`, while the trusted host strips only that exact session prefix before forwarding HTTP or WebSocket traffic to loopback code-server. Canonical forwarded host/protocol identity preserves Origin enforcement. Public `folder`, `workspace`, and `ew` selectors are rejected at Worker and host boundaries; the private root hop selects `/home/user/workspace`, and the successful root response projects its equivalent fixed `folderUri` into Code OSS while the browser location remains clean.
+
+The sessionId in the URL is the sole container selector; there is no bucket-stable serving path. A bounded per-user UI snapshot is storage state, not a route selector.
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
