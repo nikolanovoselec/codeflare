@@ -253,9 +253,10 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Constraints:**
 
 - Reuse the shared terminal visual and motion system.
-- The software transcript shows `t.anderson@metacortex.ai` once, in its opening request. It follows production clone, planning, SDD/TDD execution, named review outcomes, a reviewed-head PR, required CI, merge approval, squash merge, and `develop` realignment.
-- The infrastructure transcript shows `t.anderson@metacortex.ai` once, in its opening request. It follows read-only coredump diagnosis, a versioned repair and rollback plan, approval to check then execute, confirmed patching, validation, restart, and health verification.
+- The software transcript shows `t.anderson@metacortex.ai` once in its opening request and follows production clone, planning, SDD/TDD execution, named review outcomes, a reviewed-head PR, required CI, merge approval, squash merge, and `develop` realignment.
+- The infrastructure transcript shows `t.anderson@metacortex.ai` once in its opening request and follows read-only coredump diagnosis, a versioned repair and rollback plan, approval to check then execute, confirmed patching, validation, restart, and health verification.
 - Later engineer requests stay minimal; agent outcomes carry named evidence.
+- No actor-label narration or invented product commands; diagnostic evidence uses cyan.
 - Infrastructure copy exposes no private network or roadmap details.
 - Execution remains an overview; detailed sections retain their existing ownership.
 
