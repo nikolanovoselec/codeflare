@@ -773,8 +773,21 @@ svg {
 /* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
    Long real command output wraps within each frame instead of scrolling sideways. */
 .execution-terminal .terminal-body {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   overflow-x: hidden;
+}
+
+/* Each terminal owns a full-height feed viewport. Variable wrapping and typing
+   therefore use that terminal's spare room independently instead of changing
+   the list height mid-run and producing a trailing void followed by a jump. */
+.execution-terminal .transcript-feed {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 0;
 }
 
 .execution-terminal .t-line {
