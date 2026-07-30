@@ -796,17 +796,15 @@ svg {
   display: flex;
   grid-area: 1 / 1;
   flex-direction: column;
-  justify-content: space-between;
   min-height: 0;
 }
 
-/* Each terminal owns a full-height live viewport. Because the grid track is set
-   by the tallest hidden authored viewport, wrapping and typing redistribute only
-   the feed's internal spare room and never resize the terminal frame. */
+/* Each terminal owns a full-height live viewport. The grid track stays fixed by
+   the tallest hidden authored viewport, while rows retain the contiguous line
+   rhythm used by every other landing-page terminal. */
 .execution-terminal .transcript-feed {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   min-height: 0;
 }
 
