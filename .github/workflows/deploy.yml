@@ -148,6 +148,7 @@ jobs:
       && needs.verify-existing.result == 'success'
       && needs.verify-existing.outputs.verified == 'false'
     permissions:
+      actions: read # called evidence resolver reads prior PR Checks artifacts
       contents: read
       packages: write # called complete-image job writes the shared GHCR BuildKit cache
     uses: ./.github/workflows/test.yml
