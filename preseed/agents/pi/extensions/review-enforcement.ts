@@ -556,11 +556,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!review || !isEnforcedPr(review.pr)) return;
     resumedWithoutBoundary = false;
 
-    const skipReview = bypassSentinelPresent();
-    if (skipReview && !boundary.classification.settled) consumeBypassSentinel();
+    const reviewsEnabled = reviewEnabled(review.repo);
+    const skipReview = reviewsEnabled && bypassSentinelPresent();
+    if (skipReview) {
+      acknowledge(review.repo, review.pr.headRefOid);
+      if (!boundary.classification.settled) consumeBypassSentinel();
+    }
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const requiredLanes = reviewEnabled(review.repo) && !skipReview && ackHead !== review.pr.headRefOid
+    const requiredLanes = reviewsEnabled && !skipReview && ackHead !== review.pr.headRefOid
       ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
       : [];
     const ciEvent = ciBoundaryEvent(boundary.classification.event);
@@ -605,11 +609,14 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       || pr.headRefName !== preview.reviewBranch
       || pr.headRefOid !== preview.reviewHead) return;
     const review = { ...context, pr };
+    const reviewsEnabled = reviewEnabled(review.repo);
+    const sentinelBypassed = reviewsEnabled && consumeBypassSentinel();
+    const bypassed = reviewsEnabled && (preview.bypassed || sentinelBypassed);
+    if (bypassed) acknowledge(review.repo, review.pr.headRefOid);
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const bypassed = preview.bypassed || consumeBypassSentinel();
     const shouldReview = isEnforcedPr(review.pr)
-      && reviewEnabled(review.repo)
+      && reviewsEnabled
       && !bypassed
       && ackHead !== review.pr.headRefOid;
     const requiredLanes = shouldReview

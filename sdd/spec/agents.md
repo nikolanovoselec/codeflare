@@ -1311,16 +1311,16 @@ None.
 
 ### REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
 
-**Intent:** Review enforcement needs only Claude's explicit user-controlled bypasses and bounded fail-open behavior. Bypasses skip the current boundary without falsely acknowledging its head.
+**Intent:** Review enforcement needs only explicit user-controlled bypasses and bounded fail-open behavior. A bypass acknowledges the exact validated boundary head so settled recovery cannot launch reviewers for that head.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A user-created one-shot sentinel bypasses one otherwise eligible root review boundary without writing acknowledgement. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: consumes a one-shot bypass on reminder-only PR creation) -->
+1. A user-created one-shot sentinel bypasses one otherwise eligible root review boundary and acknowledges its exact validated PR head, whether present when the boundary completes or created before settled recovery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: consumes a one-shot bypass and acknowledges the exact PR head) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: a post-boundary sentinel acknowledges the exact PR head) -->
 2. A non-SDD project does not consume the one-shot sentinel. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (H1: vibe-coding project does NOT consume the /tmp/review-bypass sentinel) -->
 3. Only a finalized user message after the latest boundary containing `skip review` or `skip verification` is recognized as a transcript bypass. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary) -->
-4. A recognized post-boundary user bypass emits no reminder and writes no acknowledgement. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement) -->
+4. A recognized post-boundary user bypass emits no reviewer reminder and acknowledges the exact validated PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: an explicit post-boundary user bypass acknowledges the exact PR head) -->
 5. Child sessions never consume the sentinel, write acknowledgement, or mutate the block counter. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 6. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
 7. A different head starts a fresh follow-up count. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it) -->

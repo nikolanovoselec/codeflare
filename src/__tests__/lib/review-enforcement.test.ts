@@ -1682,14 +1682,21 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.head);
     harness.sent.splice(0);
 
+    write(fixture.repo, 'src/next.ts', 'export const next = true;\n');
+    git(fixture.repo, 'add', 'src/next.ts');
+    git(fixture.repo, 'commit', '-m', 'next boundary');
+    const nextHead = git(fixture.repo, 'rev-parse', 'HEAD');
+    fixture.pr.headRefOid = nextHead;
     appendSession(fixture.sessionFile,
       assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
       toolResult('push-2', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
     expect(harness.sent[0]?.message.details).toMatchObject({
+      head: nextHead,
       ackHead: fixture.head,
-      requiredLanes: [],
+      reviewRange: `${fixture.head}..${nextHead}`,
+      requiredLanes: ['code-reviewer'],
       ciEvent: 'push',
     });
   });
