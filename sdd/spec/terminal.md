@@ -664,6 +664,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Verification:** Automated frontend, preseed-extension, entrypoint-settings, and service-worker behavior tests; deployed desktop and mobile browser verification.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---

@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = '886346e66755b015';
+export const PRESEED_CONTENT_HASH = 'aa11798d24ba695b';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -2902,7 +2902,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".pi/agent/extensions/native-notifications.ts",
     "contentType": "text/typescript; charset=utf-8",
-    "content": "import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';\n\nexport function isPiRpcMode(argv: readonly string[]): boolean {\n  return argv.some((value, index) => value === '--mode' && argv[index + 1] === 'rpc');\n}\n\nexport default function nativeNotifications(pi: ExtensionAPI): void {\n  // RPC stdout is strict JSONL. Native Chat uses Code OSS notifications instead.\n  if (isPiRpcMode(process.argv)) return;\n  pi.on('agent_settled', async () => {\n    process.stdout.write('\\u001b]777;notify;Pi;Ready for input\\u0007');\n  });\n}\n",
+    "content": "import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';\n\nconst INPUT_NEEDED = '\\u001b]777;notify;Pi;Agent needs your input\\u0007';\nconst READY_FOR_INPUT = '\\u001b]777;notify;Pi;Ready for input\\u0007';\n\nexport function isPiRpcMode(argv: readonly string[]): boolean {\n  return argv.some((value, index) => value === '--mode' && argv[index + 1] === 'rpc');\n}\n\nfunction emit(sequence: string): void {\n  process.stdout.write(sequence);\n}\n\nexport default function nativeNotifications(\n  pi: ExtensionAPI,\n  argv: readonly string[] = process.argv,\n): void {\n  // RPC stdout is strict JSONL. Native Chat uses Code OSS notifications instead.\n  if (isPiRpcMode(argv)) return;\n\n  let turnSignal: AbortSignal | undefined;\n  let suppressCompletion = false;\n\n  pi.on('agent_start', async (_event, ctx) => {\n    turnSignal = ctx.signal;\n    suppressCompletion = false;\n  });\n\n  pi.on('tool_call', async (event) => {\n    if (event.toolName === 'ask_user_question') emit(INPUT_NEEDED);\n  });\n\n  pi.on('tool_result', async (event) => {\n    if (event.toolName !== 'ask_user_question') return;\n    const details = event.details as { cancelled?: boolean } | undefined;\n    suppressCompletion = details?.cancelled === true;\n  });\n\n  pi.on('agent_settled', async () => {\n    const suppressed = suppressCompletion || turnSignal?.aborted === true;\n    turnSignal = undefined;\n    suppressCompletion = false;\n    if (!suppressed) emit(READY_FOR_INPUT);\n  });\n}\n",
     "modes": [
       "default",
       "advanced"

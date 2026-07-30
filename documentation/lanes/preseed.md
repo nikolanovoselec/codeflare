@@ -34,7 +34,7 @@ deployed on Recreate or new bucket creation.
 |---------|---------|----------|-------------------------|
 | Memory plugin & rule | No | Yes | Yes |
 | Core environment rules (cloudflare-environment, no-local-builds, git-workflow) | Yes | Yes | Yes |
-| Pi startup header, local statusline, and settled terminal notification | Yes | Yes | Yes |
+| Pi startup header, local statusline, and fixed terminal notifications | Yes | Yes | Yes |
 | Cloudflare-stack, ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (Claude + Pi) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn`, `run-review-lane` | No | Yes | Yes |
@@ -58,7 +58,7 @@ After explicit opt-in, package settings expose context-mode skills but filter ou
 
 The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. Every Pi skill treats `ctx_*` tools as optional; `/ctx off` switches root workflows to documented native fallbacks without narrowing work.
 
-The native `native-notifications.ts` extension is seeded in both modes. It emits Pi's standard OSC 777 ready signal only at `agent_settled`, avoiding premature notifications during retry, compaction, or queued continuation. It registers nothing under `--mode rpc`, whose stdout is strict JSONL; code-server native Chat instead uses Code OSS's browser-notification lifecycle. Claude needs no notification hook: both session-mode settings select Claude's built-in `ghostty` notification channel ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notifications)).
+The repository-owned `native-notifications.ts` extension is seeded in both modes. It emits fixed OSC 777 text when `ask_user_question` needs attention and emits completion only at `agent_settled`, avoiding premature completion during retry, compaction, or queued continuation. Cancellation and abort suppress stale completion. It registers nothing under `--mode rpc`, whose stdout is strict JSONL; code-server native Chat instead uses Code OSS's browser-notification lifecycle. No reviewed third-party notifier met both Codeflare's transport contract and the required maintenance/adoption threshold. Claude needs no notification hook: both session-mode settings select Claude's built-in `ghostty` notification channel ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notifications)).
 
 In-process subagents always use native fallbacks. The three PR reviewers expose only `bash` and consume their exact packet through the Bash/Node transport.
 
