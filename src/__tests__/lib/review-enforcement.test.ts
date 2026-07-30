@@ -1797,7 +1797,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-058: reports a previously planned head that merged without acknowledgement', async () => {
+  it('REQ-AGENT-041/REQ-AGENT-058: a merged PR neither consumes bypass nor writes acknowledgement', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -1807,6 +1807,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent());
     harness.sent.splice(0);
     fixture.pr.state = 'MERGED';
+    writeFileSync(REVIEW_BYPASS_FILE, '', 'utf8');
 
     await harness.emit('agent_settled');
 
@@ -1819,6 +1820,7 @@ describe('Pi review reminder and settled enforcement', () => {
       options: { triggerTurn: false },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(existsSync(REVIEW_BYPASS_FILE)).toBe(true);
   });
 
   it('REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes', async () => {
