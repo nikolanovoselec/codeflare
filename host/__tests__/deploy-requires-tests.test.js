@@ -25,6 +25,7 @@ const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
 const deployWorkflow = parseYaml(deployYml);
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
+const testWorkflow = parseYaml(testYml);
 
 // Jobs that check out a ref, build, or deploy. Every one must be unreachable
 // unless the code was verified. `verify-existing` resolves reuse and `verify` is its inline fallback, so neither is itself gated.
@@ -97,8 +98,43 @@ describe('manual deploys cannot skip tests', () => {
   });
 
   it('publishes the actual checked-out tree as a reusable verification receipt', () => {
-    assert.match(testYml, /git rev-parse 'HEAD\^\{tree\}'/, 'the receipt must identify the tested tree, not only event metadata');
-    assert.match(testYml, /pr-checks-receipt-\$\{\{ github\.run_id \}\}/, 'the receipt artifact must be bound to its run id');
+    const steps = testWorkflow.jobs.summary.steps;
+    const receipt = steps.find((step) => step.name === 'Write exact tested-tree receipt');
+    const upload = steps.find((step) => step.name === 'Upload exact tested-tree receipt');
+
+    assert.equal(receipt?.if, undefined);
+    assert.deepEqual(receipt?.env, {
+      REPOSITORY: '${{ github.repository }}',
+      RUN_ID: '${{ github.run_id }}',
+      RUN_ATTEMPT: '${{ github.run_attempt }}',
+      IMAGE_FINGERPRINT: '${{ needs.browser-ide-image-reuse.outputs.fingerprint }}',
+      FULL: "${{ needs.changes.outputs.full || 'false' }}",
+      IDE: "${{ needs.changes.outputs.ide || 'false' }}",
+      IMAGE_REUSE_RESULT: '${{ needs.browser-ide-image-reuse.result }}',
+      IMAGE_REUSED: "${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}",
+      IMAGE_SOURCE_RUN_ID: '${{ needs.browser-ide-image-reuse.outputs.source_run_id }}',
+      IMAGE_RESULT: '${{ needs.browser-ide-image.result }}',
+    });
+    assert.deepEqual(receipt?.run?.split('\n').map((line) => line.trim()).filter(Boolean), [
+      'set -euo pipefail',
+      'tested_commit=$(git rev-parse HEAD)',
+      "tested_tree=$(git rev-parse 'HEAD^{tree}')",
+      'node scripts/ci/browser-ide-image-reuse.mjs receipt \\',
+      '"$REPOSITORY" "$RUN_ID" "$RUN_ATTEMPT" "$tested_commit" "$tested_tree" \\',
+      '"$IMAGE_FINGERPRINT" "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" \\',
+      '"$IMAGE_REUSED" "$IMAGE_SOURCE_RUN_ID" "$IMAGE_RESULT" \\',
+      '> /tmp/pr-checks-receipt.json',
+    ]);
+    assert.deepEqual(upload, {
+      name: 'Upload exact tested-tree receipt',
+      uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+      with: {
+        name: 'pr-checks-receipt-${{ github.run_id }}',
+        path: '/tmp/pr-checks-receipt.json',
+        'retention-days': 7,
+        'if-no-files-found': 'error',
+      },
+    });
   });
 
   it('automatically resolves an exact-tree PR Checks run before every manual deploy', () => {

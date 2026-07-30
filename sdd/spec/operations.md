@@ -34,11 +34,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, and deployment. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
-4. Complete-image verification warms reusable image-build work that a later deployment of the same repository can consume across workflow refs. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache) -->
-5. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
-6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-7. Fork pull requests and Dependabot run complete-image verification without authenticating to or reading or writing the shared mutable build cache. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::shouldAttemptSharedCacheLogin --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-001 AC7: keeps fork and Dependabot verification off the shared cache) -->
-8. Shared-cache login or export unavailability does not fail complete-image verification or deployment image builds. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::sharedCacheEnabled --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-001 AC8: cache unavailability cannot block complete-image or deploy builds) -->
+4. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+5. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -809,5 +806,32 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Verification:** Automated host tests exercise fingerprint selection, evidence validation, the fake-GitHub CLI boundary, and the aggregate truth table; workflow-structure tests bind those decisions into the required status and exact-tree receipt.
 
 **Status:** Implemented
+
+---
+
+### REQ-OPS-031: Trusted cross-ref container build cache
+
+**Intent:** Browser IDE verification and deployment can reuse container build work across workflow refs without allowing pull requests to publish cache state consumed by deployment.
+
+**Applies To:** Contributor
+
+**Acceptance Criteria:**
+
+1. Same-repository complete-image verification and deployment import one shared GHCR BuildKit cache reference, while only deployment exports updates to it. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC1: PR verification reads and only deployment publishes the cross-ref cache) -->
+2. Same-repository pull-request verification receives read-only cache access, while forks and Dependabot authenticate to neither read nor write the shared mutable cache. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::shouldAttemptSharedCacheLogin --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC2: PR verification reads trusted cache without publishing or exposing forks) -->
+3. Shared-cache login or deployment export unavailability does not fail complete-image verification or deployment image builds. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::sharedCacheEnabled --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC3: cache unavailability cannot block complete-image or deploy builds) -->
+
+**Constraints:**
+
+- Pull-request jobs receive no Cloudflare or Docker Hub deployment credentials.
+- Shared cache use is optional and never replaces the complete-image smoke, vulnerability scan, SBOM, digest, provenance, or attestation gates.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-030](#req-ops-030-browser-ide-complete-image-verification-reuse)
+
+**Verification:** Automated workflow-structure and fake-Docker tests execute cache-enabled and cache-unavailable build paths and assert the exact import/export arguments and permissions.
+
+**Status:** Partial
 
 ---

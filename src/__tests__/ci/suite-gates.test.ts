@@ -412,7 +412,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     ]);
   });
 
-  it('REQ-OPS-001 AC7: keeps fork and Dependabot verification off the shared cache', () => {
+  it('REQ-OPS-031 AC2: PR verification reads trusted cache without publishing or exposing forks', () => {
     expect(shouldAttemptSharedCacheLogin({
       eventName: 'pull_request',
       repository: 'owner/codeflare',
@@ -464,7 +464,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(cachePrefixedArguments(args)).toEqual([]);
   });
 
-  it('REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache', () => {
+  it('REQ-OPS-031 AC1: PR verification reads and only deployment publishes the cross-ref cache', () => {
     const { completeImageJob, imageJob, deployWorkflow } = readCacheWorkflowContract();
     const completeImage = cacheBuildCommand(completeImageJob.steps, 'Build complete image');
     const deployment = cacheBuildCommand(imageJob.steps, 'Build container image');
@@ -477,18 +477,21 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(cacheRef(deployment)).toBe(cacheRef(completeImage));
     const expectedFrom = 'type=registry,ref=ghcr.io/owner/codeflare/container-build-cache:linux-amd64';
     const expectedTo = `${expectedFrom},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true`;
-    for (const [command, label] of [
-      [completeImage, 'ac4-complete-image'],
-      [deployment, 'ac4-deployment'],
-    ]) {
-      const args = captureDockerBuildArguments(command, true, label);
-      expect(cachePrefixedArguments(args)).toEqual(['--cache-from', '--cache-to']);
-      expect(valuesFollowing(args, '--cache-from')).toEqual([expectedFrom]);
-      expect(valuesFollowing(args, '--cache-to')).toEqual([expectedTo]);
-    }
-    expect(completeImageJob.permissions?.packages).toBe('write');
+    const completeImageArgs = captureDockerBuildArguments(
+      completeImage,
+      true,
+      'ac1-complete-image',
+    );
+    expect(cachePrefixedArguments(completeImageArgs)).toEqual(['--cache-from']);
+    expect(valuesFollowing(completeImageArgs, '--cache-from')).toEqual([expectedFrom]);
+    expect(valuesFollowing(completeImageArgs, '--cache-to')).toEqual([]);
+    const deploymentArgs = captureDockerBuildArguments(deployment, true, 'ac1-deployment');
+    expect(cachePrefixedArguments(deploymentArgs)).toEqual(['--cache-from', '--cache-to']);
+    expect(valuesFollowing(deploymentArgs, '--cache-from')).toEqual([expectedFrom]);
+    expect(valuesFollowing(deploymentArgs, '--cache-to')).toEqual([expectedTo]);
+    expect(completeImageJob.permissions?.packages).toBe('read');
     expect(imageJob.permissions?.packages).toBe('write');
-    expect(deployWorkflow.jobs.verify.permissions?.packages).toBe('write');
+    expect(deployWorkflow.jobs.verify.permissions?.packages).toBe('read');
     expect(deployWorkflow.jobs.container.permissions?.packages).toBe('write');
     for (const step of [
       sharedCacheLogin(completeImageJob.steps),
@@ -513,7 +516,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     );
   });
 
-  it('REQ-OPS-001 AC8: cache unavailability cannot block complete-image or deploy builds', () => {
+  it('REQ-OPS-031 AC3: cache unavailability cannot block complete-image or deploy builds', () => {
     expect(sharedCacheEnabled('success')).toBe(true);
     expect(sharedCacheEnabled('failure')).toBe(false);
     expect(sharedCacheEnabled('skipped')).toBe(false);
