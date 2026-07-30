@@ -366,6 +366,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 2. The two Hero-scale terminals have equal outer heights when displayed side by side at tablet and desktop widths. <!-- @impl: landing/src/styles/global.css::execution-card --> <!-- @impl: landing/src/styles/global.css::execution-face --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @manual -->
 3. Across the initial and every rolling eight-row viewport, each independently progressing transcript fills its own terminal body without leaving more than one rendered line of trailing void. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/styles/global.css::execution-terminal .transcript-feed --> <!-- @manual -->
 4. The shared rolling-row transition keeps eight rows populated and does not shift surrounding page content while typed command lines wrap. <!-- @impl: landing/src/scripts/proof.ts::typeFeedRow --> <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps wrapped row geometry reserved for the complete event while typing) --> <!-- @manual -->
+5. Each terminal reserves its tallest authored eight-row viewport before playback, keeping its outer frame fixed from initial reveal through final state at desktop, tablet, and mobile widths. <!-- @impl: landing/src/components/Transcript.astro::transcript-feed-size --> <!-- @impl: landing/src/styles/global.css::execution-terminal .transcript-feed-size --> <!-- @test: landing/src/__tests__/components.test.ts (animate='feed' renders a resolved eight-row viewport with complete semantic content) --> <!-- @test: landing/src/__tests__/index-page.test.ts (reserves static paired terminal geometry for every responsive feed state) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -375,7 +376,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Manual check
+**Verification:** Automated structural coverage for intrinsic viewport reservation plus deployed desktop, tablet, and mobile checks.
 
 **Status:** Partial
 

@@ -128,6 +128,37 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     );
     expect(JSON.parse(roll.dataset.feedContext!)).toEqual(context);
     expect(JSON.parse(roll.dataset.feedEvents!)).toEqual(feed);
+    const sizeReserve = body.querySelector<HTMLElement>('[data-feed-size-reserve]')!;
+    const sizeWindows = Array.from(
+      sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]'),
+    );
+    const timeline = [...context, ...feed];
+    expect(sizeReserve.getAttribute('aria-hidden')).toBe('true');
+    expect(sizeWindows).toHaveLength(feed.length + 1);
+    const expectedWindows = Array.from(
+      { length: feed.length + 1 },
+      (_, index) => timeline.slice(index, index + context.length),
+    );
+    expect(sizeWindows.map((window) =>
+      Array.from(
+        window.children,
+        (line) => line.querySelector('[data-feed-size-text]')?.textContent,
+      ),
+    )).toEqual(expectedWindows.map((window) => window.map((line) => line.text)));
+    expect(sizeWindows.every((window) => window.children.length === context.length)).toBe(true);
+    sizeWindows.forEach((window, windowIndex) => {
+      Array.from(window.children).forEach((row, rowIndex) => {
+        const prompt = row.querySelector<HTMLElement>('.t-feed-prompt');
+        if (expectedWindows[windowIndex][rowIndex].tone === 'cmd') {
+          expect(row.classList.contains('t-feed-command')).toBe(true);
+          expect(prompt?.textContent).toBe('❯ ');
+          expect(prompt?.getAttribute('aria-hidden')).toBe('true');
+          expect(row.firstElementChild).toBe(prompt);
+        } else {
+          expect(prompt).toBeNull();
+        }
+      });
+    });
     expect(rendered.querySelectorAll('[data-feed-accessible-line]')).toHaveLength(
       context.length + feed.length,
     );

@@ -523,7 +523,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(firstPushIndex).toBeGreaterThan(cleanReviewIndex);
   });
 
-  it('configures paired Execution terminals to stretch through shared layout', () => {
+  it('reserves static paired terminal geometry for every responsive feed state', () => {
     const document = documentDom(html);
     const style = document.createElement('style');
     style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
@@ -531,16 +531,29 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     const view = document.defaultView!;
     const card = document.querySelector<HTMLElement>('#execution .execution-card')!;
     const faces = document.querySelectorAll<HTMLElement>('#execution .execution-face');
+    const expectFirstGridCell = (element: HTMLElement) => {
+      expect(view.getComputedStyle(element).gridArea).toMatch(/^1\s*\/\s*1(?:\s*\/|$)/);
+    };
 
     expect(view.getComputedStyle(card).alignItems).toBe('stretch');
     expect(faces).toHaveLength(2);
     faces.forEach((face) => {
       const terminal = face.querySelector<HTMLElement>('.execution-terminal')!;
       const terminalBody = terminal.querySelector<HTMLElement>('.terminal-body')!;
+      const sizeReserve = terminalBody.querySelector<HTMLElement>('[data-feed-size-reserve]')!;
+      const feed = terminalBody.querySelector<HTMLElement>('[data-feed-events]')!;
       expect(view.getComputedStyle(face).display).toBe('flex');
       expect(view.getComputedStyle(terminal).display).toBe('flex');
       expect(view.getComputedStyle(terminal).flexGrow).toBe('1');
+      expect(view.getComputedStyle(terminalBody).display).toBe('grid');
       expect(view.getComputedStyle(terminalBody).flexGrow).toBe('1');
+      expect(view.getComputedStyle(sizeReserve).display).toBe('grid');
+      expect(view.getComputedStyle(sizeReserve).visibility).toBe('hidden');
+      expectFirstGridCell(sizeReserve);
+      const sizeWindows = sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]');
+      expect(sizeWindows.length).toBeGreaterThan(0);
+      sizeWindows.forEach(expectFirstGridCell);
+      expectFirstGridCell(feed);
     });
   });
 
