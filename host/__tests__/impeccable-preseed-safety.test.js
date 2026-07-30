@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -16,9 +17,10 @@ import { deflateSync } from 'node:zlib';
 import { describe, it } from 'node:test';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const impeccableRoot = resolve(__dirname, '../../preseed/agents/pi/skills/impeccable');
-const rootsModule = join(impeccableRoot, 'scripts/live/roots.mjs');
-const embedPrompt = join(impeccableRoot, 'scripts/embed-prompt.mjs');
+const impeccableRoots = ['claude', 'pi'].map((agent) => ({
+  agent,
+  root: resolve(__dirname, `../../preseed/agents/${agent}/skills/impeccable`),
+}));
 
 const crcTable = (() => {
   const table = new Uint32Array(256);
@@ -123,11 +125,39 @@ describe('vendored Impeccable safety patches', () => {
         }),
       );
 
-      const { resolveLiveRoots } = await import(`${pathToFileURL(rootsModule).href}?fixture=${Date.now()}`);
-      const resolved = resolveLiveRoots(repo);
-      assert.equal(resolved.source, 'fresh');
-      assert.equal(resolved.manifest.appRoot, repo);
-      assert.equal(resolved.manifest.repoRoot, repo);
+      for (const { agent, root } of impeccableRoots) {
+        const rootsModule = join(root, 'scripts/live/roots.mjs');
+        const { resolveLiveRoots } = await import(
+          `${pathToFileURL(rootsModule).href}?fixture=${agent}-${Date.now()}`
+        );
+        const resolved = resolveLiveRoots(repo);
+        assert.equal(resolved.source, 'fresh');
+        assert.equal(resolved.manifest.appRoot, repo);
+        assert.equal(resolved.manifest.repoRoot, repo);
+        assert.throws(
+          () => resolveLiveRoots(escapedLink),
+          /implicit app root resolves outside the repository/,
+        );
+
+        rmSync(join(symlinkTarget, '.impeccable/live/roots.json'), { force: true });
+        assert.throws(
+          () => resolveLiveRoots(escapedLink),
+          /implicit app root resolves outside the repository/,
+        );
+        writeFileSync(
+          join(symlinkTarget, '.impeccable/live/roots.json'),
+          JSON.stringify({
+            version: 1,
+            appRoot: escapedLink,
+            repoRoot: repo,
+            contextRoot: null,
+            sessionRoot: join(escapedLink, '.impeccable/live'),
+            productPath: null,
+            designPath: null,
+            resolvedFrom: 'fixture',
+          }),
+        );
+      }
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
@@ -135,7 +165,6 @@ describe('vendored Impeccable safety patches', () => {
 
   it('embeds a prompt before the real IEND chunk when ancillary payload contains IEND bytes', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'codeflare-impeccable-png-'));
-    const image = join(fixture, 'fixture.png');
     const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const ihdr = Buffer.alloc(13);
     ihdr.writeUInt32BE(1, 0);
@@ -145,44 +174,44 @@ describe('vendored Impeccable safety patches', () => {
     const ancillary = Buffer.from('payload-before-IEND-payload-after', 'utf8');
 
     try {
-      writeFileSync(image, Buffer.concat([
-        signature,
-        pngChunk('IHDR', ihdr),
-        pngChunk('iTXt', ancillary),
-        pngChunk('IDAT', deflateSync(Buffer.from([0, 0, 0, 0, 0]))),
-        pngChunk('IEND', Buffer.alloc(0)),
-      ]));
+      for (const { agent, root } of impeccableRoots) {
+        const image = join(fixture, `${agent}.png`);
+        const embedPrompt = join(root, 'scripts/embed-prompt.mjs');
+        writeFileSync(image, Buffer.concat([
+          signature,
+          pngChunk('IHDR', ihdr),
+          pngChunk('iTXt', ancillary),
+          pngChunk('IDAT', deflateSync(Buffer.from([0, 0, 0, 0, 0]))),
+          pngChunk('IEND', Buffer.alloc(0)),
+        ]));
+        const originalInode = statSync(image).ino;
 
-      const result = spawnSync(process.execPath, [embedPrompt, image, '--prompt', 'approved prompt'], {
-        encoding: 'utf8',
-      });
-      assert.equal(result.status, 0, result.stderr);
+        const result = spawnSync(process.execPath, [embedPrompt, image, '--prompt', 'approved prompt'], {
+          encoding: 'utf8',
+        });
+        assert.equal(result.status, 0, result.stderr);
+        assert.notEqual(statSync(image).ino, originalInode, `${agent} replaces the PNG atomically`);
 
-      const chunks = parsePng(readFileSync(image));
-      assert.deepEqual(chunks.map(({ type }) => type), ['IHDR', 'iTXt', 'IDAT', 'tEXt', 'IEND']);
-      assert.deepEqual(chunks[1].data, ancillary);
-      assert.equal(chunks.at(-1).data.length, 0);
-      assert.deepEqual(
-        chunks[3].data,
-        Buffer.concat([
-          Buffer.from('impeccable:prompt', 'latin1'),
-          Buffer.from([0]),
-          Buffer.from('approved prompt', 'utf8'),
-        ]),
-      );
-      assert.deepEqual(
-        readFileSync(image).subarray(0, 8),
-        signature,
-      );
-      assert.deepEqual(
-        readFileSync(image).subarray(-12),
-        pngChunk('IEND', Buffer.alloc(0)),
-      );
-      assert.equal(
-        readFileSync(image).includes(Buffer.from('payload-before-IEND-payload-after')),
-        true,
-      );
-      assert.deepEqual(readdirSync(fixture), ['fixture.png']);
+        const chunks = parsePng(readFileSync(image));
+        assert.deepEqual(chunks.map(({ type }) => type), ['IHDR', 'iTXt', 'IDAT', 'tEXt', 'IEND']);
+        assert.deepEqual(chunks[1].data, ancillary);
+        assert.equal(chunks.at(-1).data.length, 0);
+        assert.deepEqual(
+          chunks[3].data,
+          Buffer.concat([
+            Buffer.from('impeccable:prompt', 'latin1'),
+            Buffer.from([0]),
+            Buffer.from('approved prompt', 'utf8'),
+          ]),
+        );
+        assert.deepEqual(readFileSync(image).subarray(0, 8), signature);
+        assert.deepEqual(readFileSync(image).subarray(-12), pngChunk('IEND', Buffer.alloc(0)));
+        assert.equal(
+          readFileSync(image).includes(Buffer.from('payload-before-IEND-payload-after')),
+          true,
+        );
+      }
+      assert.deepEqual(readdirSync(fixture), ['claude.png', 'pi.png']);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
