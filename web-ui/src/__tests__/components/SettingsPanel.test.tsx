@@ -26,6 +26,7 @@ const mockGetLlmKeys = vi.hoisted(() => vi.fn());
 const mockUpdateLlmKeys = vi.hoisted(() => vi.fn());
 const mockGetDeployKeys = vi.hoisted(() => vi.fn());
 const mockUpdateDeployKeys = vi.hoisted(() => vi.fn());
+const mockAgentNotificationPermission = vi.hoisted(() => vi.fn<() => NotificationPermission | 'unavailable'>(() => 'default'));
 const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(
   async (): Promise<'granted' | 'unavailable'> => 'granted',
 ));
@@ -55,7 +56,7 @@ vi.mock('../../api/storage', () => ({
 }));
 
 vi.mock('../../lib/agent-notifications', () => ({
-  agentNotificationPermission: vi.fn(() => 'default'),
+  agentNotificationPermission: mockAgentNotificationPermission,
   enableAgentNotifications: mockEnableAgentNotifications,
 }));
 
@@ -111,6 +112,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
     mockGetLlmKeys.mockResolvedValue({});
     mockUpdateLlmKeys.mockResolvedValue({});
+    mockAgentNotificationPermission.mockReturnValue('default');
     mockEnableAgentNotifications.mockResolvedValue('granted');
   });
 
@@ -260,13 +262,16 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent('Enabled');
     });
 
-    it('does not report notifications as enabled when browser setup is unavailable', async () => {
+    it('reports unavailable browser setup before and after the enable action', async () => {
+      mockAgentNotificationPermission.mockReturnValueOnce('unavailable');
       mockEnableAgentNotifications.mockResolvedValueOnce('unavailable');
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
+      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent(
+        'Unavailable in this browser',
+      );
       await fireEvent.click(screen.getByTestId('settings-agent-notifications'));
-
       expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent(
         'Unavailable in this browser',
       );

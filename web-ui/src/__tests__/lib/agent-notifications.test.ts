@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  agentNotificationPermission,
   enableAgentNotifications,
   parseAgentNotification,
   showAgentNotification,
@@ -24,6 +25,8 @@ function browser(overrides: Partial<AgentNotificationBrowser> = {}): AgentNotifi
 }
 
 describe('native agent browser notifications / REQ-TERM-023', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it('converts one native OSC 777 notification into bounded inert text for terminal 1', () => {
     expect(parseAgentNotification('notify;Pi;Ready for input', context)).toEqual({
       title: 'Pi · Matrix',
@@ -78,6 +81,13 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
 
     expect(env.requestPermission).not.toHaveBeenCalled();
     expect(env.getWorker).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing Notification API as unavailable before and after the enable action', async () => {
+    vi.stubGlobal('Notification', undefined);
+
+    expect(agentNotificationPermission()).toBe('unavailable');
+    await expect(enableAgentNotifications()).resolves.toBe('unavailable');
   });
 
   it('requests permission and registers the inert worker only from the explicit enable action', async () => {

@@ -539,13 +539,13 @@ A full code-server browser editor for an advanced running session. The editor op
 1. The Pi inventory enables Code OSS OS notifications for received responses and confirmations when the editor window is not focused. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018: Pi native Chat uses Code OSS browser notifications) -->
 2. The unsupported inventory retains its existing disabled native Chat behavior. <!-- @impl: openvscode/claude/managed-settings.mjs::buildUnsupportedOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-005: unsupported inventory suppresses native Chat and Copilot setup) -->
 3. The Claude inventory retains its existing suppression of unrelated native Chat setup. <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup) -->
-4. The official Claude package remains checksum-pinned and unmodified. <!-- @impl: Dockerfile --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension -->
+4. The Claude inventory presents the official upstream panel's in-product notification behavior without a Codeflare modification to that package. <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension -->
 
 **Constraints:**
 
 - Code OSS owns permission requests, focus policy, notification lifetime, and click-to-focus behavior for native Chat.
 - The terminal OSC bridge under [REQ-TERM-023](terminal.md#req-term-023-native-agent-browser-notification-delivery) does not duplicate Pi native Chat events.
-- The official Claude panel retains its upstream in-product notification behavior; no extension patch, DOM observer, or private relay is introduced.
+- The official Claude package remains checksum-pinned during the image build; no extension patch, DOM observer, or private relay is introduced.
 
 **Priority:** P1
 
