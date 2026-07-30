@@ -523,7 +523,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(firstPushIndex).toBeGreaterThan(cleanReviewIndex);
   });
 
-  it('reserves static paired terminal geometry for every responsive feed state', () => {
+  it('overlaps every intrinsic sizing window with its live Execution feed', () => {
     const document = documentDom(html);
     const style = document.createElement('style');
     style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
