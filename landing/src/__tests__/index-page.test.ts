@@ -537,10 +537,17 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     faces.forEach((face) => {
       const terminal = face.querySelector<HTMLElement>('.execution-terminal')!;
       const terminalBody = terminal.querySelector<HTMLElement>('.terminal-body')!;
+      const feed = terminalBody.querySelector<HTMLElement>('.transcript-feed')!;
       expect(view.getComputedStyle(face).display).toBe('flex');
       expect(view.getComputedStyle(terminal).display).toBe('flex');
       expect(view.getComputedStyle(terminal).flexGrow).toBe('1');
+      expect(view.getComputedStyle(terminalBody).display).toBe('flex');
+      expect(view.getComputedStyle(terminalBody).flexDirection).toBe('column');
       expect(view.getComputedStyle(terminalBody).flexGrow).toBe('1');
+      expect(view.getComputedStyle(feed).display).toBe('flex');
+      expect(view.getComputedStyle(feed).flexDirection).toBe('column');
+      expect(view.getComputedStyle(feed).flexGrow).toBe('1');
+      expect(view.getComputedStyle(feed).justifyContent).toBe('space-between');
     });
   });
 
