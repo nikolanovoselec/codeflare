@@ -27,6 +27,7 @@ export default defineConfig({
           // auto-inject (and log [vpw:debug] noise) on every test file.
           'enable_nodejs_v8_module',
           'enable_nodejs_process_v2',
+          'increase_websocket_message_size',
         ],
       },
       wrangler: { configPath: './wrangler.toml' },
