@@ -526,10 +526,14 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
   });
 
   it('keeps every authored continuation non-empty', () => {
-    for (const run of [EXECUTION.software, EXECUTION.infrastructure]) {
+    const runs = [
+      { run: EXECUTION.software, continuationCount: 8 },
+      { run: EXECUTION.infrastructure, continuationCount: 3 },
+    ];
+    for (const { run, continuationCount } of runs) {
       const continuations = [...run.context, ...run.events]
         .flatMap((line) => line.text.split('\n').slice(1));
-      expect(continuations.length).toBeGreaterThan(0);
+      expect(continuations).toHaveLength(continuationCount);
       expect(continuations.every((line) => line.trim().length > 0)).toBe(true);
     }
   });
