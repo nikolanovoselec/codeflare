@@ -329,7 +329,7 @@ export const EXECUTION = {
         intent: 'approval',
         text: 'Approved. Execute only that plan, write tests first, and leave unrelated routing untouched.',
       },
-      { tone: 'ok', text: '✓ implementation complete · routing and fallback tests pass · develop pushed' },
+      { tone: 'ok', text: '✓ implementation complete · routing and fallback tests pass · worktree ready' },
       {
         tone: 'cmd',
         intent: 'request',
@@ -343,7 +343,7 @@ export const EXECUTION = {
         intent: 'approval',
         text: 'Accept the fallback gap. Add its assertion; rerun code-reviewer, doc-updater, spec-reviewer.',
       },
-      { tone: 'ok', text: '✓ code-reviewer · doc-updater · spec-reviewer · all clean' },
+      { tone: 'ok', text: '✓ code-reviewer · doc-updater · spec-reviewer all clean · reviewed head pushed' },
       {
         tone: 'cmd',
         intent: 'request',
@@ -391,13 +391,13 @@ export const EXECUTION = {
         intent: 'request',
         text: 'Explain both changes, confirm the snapshot, and give the exact rollback command before approval.',
       },
-      { tone: 'warn', text: '⚠ upgrade nginx packages · preserve current config · restart still blocked' },
+      { tone: 'warn', text: '⚠ snapshot ready · rollback: rsync -a /var/backups/nginx-4821/ /etc/nginx/ · restart blocked' },
     ],
     events: [
       {
         tone: 'cmd',
         intent: 'approval',
-        text: 'Approved under CHG-4821. Save /etc/nginx as the rollback point, then apply the checked playbook.',
+        text: 'Approved under CHG-4821. Create that snapshot, then apply the checked playbook.',
       },
       { tone: 'ok', text: '✓ snapshot saved · nginx 1.26.3 packages staged · service not restarted' },
       {

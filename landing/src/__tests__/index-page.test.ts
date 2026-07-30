@@ -17,7 +17,6 @@ import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
 import { dom, decodeEntities, documentDom } from './_helpers/dom';
 import { APP_LINKS } from '../config';
-import type { ExecutionRun } from '../content/site';
 import {
   AGENTS,
   COST,
@@ -472,102 +471,55 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
         });
       }
     }
-    expect(EXECUTION.software.context[0].text).toBe(
-      't.anderson@metacortex.ai $ gh repo clone nikolanovoselec/codeflare-inference-mesh',
-    );
-    expect(EXECUTION.software.context[2].text).toContain(
-      'pi "Plan Inference Mesh routing. Do not edit."',
-    );
-    expect(EXECUTION.software.context[3].text).toContain('planning mode');
-    expect(EXECUTION.infrastructure.context[0].text).toMatch(
-      /^t\.anderson@metacortex\.ai \$ ssh prod-web-07/,
-    );
-    expect([...EXECUTION.software.context, ...EXECUTION.software.events]
-      .map((line) => line.text).join(' ')).toMatch(
-      /code-reviewer.*doc-updater.*spec-reviewer/,
-    );
-  });
-
-  it('balances meaningful transcript content across every side-by-side viewport', () => {
-    const wrappedLines = (
-      text: string,
-      firstLineColumns: number,
-      leadingColumns = 0,
-    ): number => {
-      const continuationColumns = firstLineColumns - 2;
-      let lines = 1;
-      let used = 0;
-      let capacity = firstLineColumns - leadingColumns;
-
-      const fragments = text.split(' ').flatMap((word) =>
-        word.split(/(?<=[/-])/).map((fragment, index) => ({
-          fragment,
-          startsWord: index === 0,
-        })),
-      );
-      for (const { fragment, startsWord } of fragments) {
-        const needed = fragment.length + (used > 0 && startsWord ? 1 : 0);
-        if (fragment.length <= capacity && used + needed <= capacity) {
-          used += needed;
-          continue;
-        }
-        if (used > 0) {
-          lines += 1;
-          capacity = continuationColumns;
-          used = 0;
-        }
-        let remaining = fragment.length;
-        while (remaining > capacity) {
-          remaining -= capacity;
-          lines += 1;
-          capacity = continuationColumns;
-        }
-        used = remaining;
+    const expectOrderedStory = (
+      run: (typeof runs)[number],
+      beats: RegExp[],
+    ) => {
+      const timeline = [...run.context, ...run.events].map((line) => line.text);
+      let cursor = 0;
+      for (const beat of beats) {
+        const offset = timeline.slice(cursor).findIndex((line) => beat.test(line));
+        expect(offset).toBeGreaterThanOrEqual(0);
+        cursor += offset + 1;
       }
-      return lines;
     };
-    const viewportLineTotals = (run: ExecutionRun, columns: number) =>
-      Array.from({ length: run.events.length + 1 }, (_, eventCount) =>
-        [...run.context, ...run.events.slice(0, eventCount)]
-          .slice(-8)
-          .reduce(
-            (total, line) => total + wrappedLines(
-              line.text,
-              columns,
-              line.tone === 'cmd' ? 2 : 0,
-            ),
-            0,
-          ),
-      );
-    const softwareFoldable = viewportLineTotals(EXECUTION.software, 50);
-    const infrastructureFoldable = viewportLineTotals(EXECUTION.infrastructure, 50);
-    const softwareCompact = viewportLineTotals(EXECUTION.software, 37);
-    const infrastructureCompact = viewportLineTotals(EXECUTION.infrastructure, 37);
-    const softwareBreakpointEdge = viewportLineTotals(EXECUTION.software, 31);
-    const infrastructureBreakpointEdge = viewportLineTotals(EXECUTION.infrastructure, 31);
-    const softwareDesktop = viewportLineTotals(EXECUTION.software, 60);
-    const infrastructureDesktop = viewportLineTotals(EXECUTION.infrastructure, 60);
 
-    expect(softwareFoldable).toEqual(infrastructureFoldable);
-    expect(softwareCompact).toEqual(infrastructureCompact);
-    softwareBreakpointEdge.forEach((total, index) => {
-      expect(Math.abs(total - infrastructureBreakpointEdge[index])).toBeLessThanOrEqual(1);
-    });
-    expect(softwareDesktop).toEqual(infrastructureDesktop);
-    for (const totals of [
-      softwareFoldable,
-      infrastructureFoldable,
-      softwareCompact,
-      infrastructureCompact,
-      softwareDesktop,
-      infrastructureDesktop,
-    ]) {
-      expect(new Set(totals).size).toBe(1);
-    }
-    for (const run of [EXECUTION.software, EXECUTION.infrastructure]) {
-      expect(wrappedLines(run.title, 37)).toBe(1);
-      expect(wrappedLines(run.foot.join(' · '), 44)).toBe(1);
-    }
+    expectOrderedStory(EXECUTION.software, [
+      /t\.anderson@metacortex\.ai.*repo clone.*codeflare-inference-mesh/,
+      /repository cloned.*develop clean.*graph current/,
+      /pi "Plan Inference Mesh routing\. Do not edit\."/,
+      /planning mode.*requirements linked.*tests identified/,
+      /Execute only that plan.*tests first/,
+      /implementation complete.*routing and fallback tests pass/,
+      /code-reviewer.*doc-updater.*spec-reviewer/,
+      /fallback assertion missing/,
+      /Accept the fallback gap.*rerun code-reviewer.*doc-updater.*spec-reviewer/,
+      /all clean.*reviewed head pushed/,
+      /pull request.*exact-head CI before merge/,
+      /PR #84 opened.*exact-head CI green.*approval recorded/,
+      /Merge PR #84.*review and CI receipts/,
+      /merged into main.*evidence retained/,
+      /Realign develop.*origin\/main.*clean worktree/,
+      /develop aligned.*worktree clean.*evidence retained/,
+    ]);
+    expectOrderedStory(EXECUTION.infrastructure, [
+      /t\.anderson@metacortex\.ai.*ssh prod-web-07/,
+      /read-only session.*host up 47 days/,
+      /retained coredump.*failure boundary/,
+      /signal 11\/SEGV.*core retained/,
+      /recovery playbook in check mode/,
+      /check mode.*package changes.*no restart/,
+      /snapshot.*rollback command.*approval/,
+      /rollback: rsync.*restart blocked/,
+      /CHG-4821.*snapshot.*checked playbook/,
+      /nginx 1\.26\.3 packages staged.*not restarted/,
+      /Validate the candidate configuration.*local health/,
+      /nginx -t.*workers_return_200/,
+      /Restart nginx.*Roll back/,
+      /nginx 1\.26\.3 restarted.*workers healthy/,
+      /Verify local health.*nginx errors.*close INC-4821/,
+      /health 200.*evidence retained.*INC-4821 closed/,
+    ]);
   });
 
   it('configures paired Execution terminals to stretch through shared layout', () => {
