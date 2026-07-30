@@ -134,6 +134,12 @@ function realInsideOrEqual(candidate, root) {
   }
 }
 
+function assertImplicitAppRoot(manifest, gitRoot) {
+  if (gitRoot && !realInsideOrEqual(manifest.appRoot, gitRoot)) {
+    throw new Error(`[impeccable live] implicit app root resolves outside the repository: ${manifest.appRoot}`);
+  }
+}
+
 /**
  * Scan downward (bounded depth) for directories carrying a dev-server config.
  * Used when live boots from a directory that is not itself an app root and no
@@ -399,12 +405,15 @@ function readManifestAt(appRoot) {
  */
 export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}) {
   const absCwd = path.resolve(cwd);
+  const gitRoot = findGitRoot(absCwd);
 
   if (!targetPath) {
-    const persisted = walkUp(absCwd, findGitRoot(absCwd) || absCwd, (dir) => readManifestAt(dir));
-    if (persisted) return { manifest: persisted, source: 'persisted' };
+    const persisted = walkUp(absCwd, gitRoot || absCwd, (dir) => readManifestAt(dir));
+    if (persisted) {
+      assertImplicitAppRoot(persisted, gitRoot);
+      return { manifest: persisted, source: 'persisted' };
+    }
 
-    const gitRoot = findGitRoot(absCwd);
     if (gitRoot) {
       // Several apps in one repo may have booted live. Preference order:
       // a running helper server, then an app whose durable store still holds
@@ -440,6 +449,7 @@ export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}
 
   const fresh = resolveRoots({ cwd: absCwd, targetPath });
   if (fresh.selection) return { selection: fresh.selection, source: 'fresh' };
+  if (!targetPath) assertImplicitAppRoot(fresh.manifest, gitRoot);
   return { manifest: fresh.manifest, source: 'fresh' };
 }
 

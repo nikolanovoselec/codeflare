@@ -19,13 +19,7 @@ try {
   execFileSync('unzip', ['-q', bundlePath, '-d', outDir]);
 
   const source = join(outDir, '.claude', 'skills', 'impeccable');
-  // Keep Codeflare's reviewed filesystem-boundary and atomic-write hardening
-  // reproducible across future wholesale upstream bundle refreshes. Fail closed
-  // if upstream changes either patch surface so the overlay must be re-reviewed.
-  execFileSync('git', ['apply', '--whitespace=nowarn', safetyPatch], {
-    cwd: source,
-    stdio: 'inherit',
-  });
+  applySafetyPatch(source);
   const sourceSkill = join(source, 'SKILL.md');
   const skillText = readFileSync(sourceSkill, 'utf8');
   const version = skillText.match(/^version:\s*(.+)$/m)?.[1];
@@ -44,6 +38,16 @@ try {
   console.log(`Updated Impeccable preseed skill to ${version}`);
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
+}
+
+function applySafetyPatch(source) {
+  // Keep Codeflare's reviewed filesystem-boundary and atomic-write hardening
+  // reproducible across future wholesale upstream bundle refreshes. git apply
+  // fails closed if upstream changes either patch surface.
+  execFileSync('git', ['apply', '--unidiff-zero', '--whitespace=nowarn', safetyPatch], {
+    cwd: source,
+    stdio: 'inherit',
+  });
 }
 
 function rewriteFiles(root, runtimePath) {

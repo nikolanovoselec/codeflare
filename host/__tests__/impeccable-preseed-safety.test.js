@@ -99,6 +99,8 @@ describe('vendored Impeccable safety patches', () => {
         }),
       );
       mkdirSync(join(symlinkTarget, '.impeccable/live'), { recursive: true });
+      writeFileSync(join(symlinkTarget, 'package.json'), '{}');
+      writeFileSync(join(symlinkTarget, 'index.html'), '<main></main>');
       writeFileSync(
         join(symlinkTarget, '.impeccable/live/roots.json'),
         JSON.stringify({

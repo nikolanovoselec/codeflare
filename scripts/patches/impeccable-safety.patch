@@ -2,18 +2,9 @@ diff --git a/scripts/embed-prompt.mjs b/scripts/embed-prompt.mjs
 index 72a03b1..a052009 100644
 --- a/scripts/embed-prompt.mjs
 +++ b/scripts/embed-prompt.mjs
-@@ -15,6 +15,7 @@
- // which is the one a builder reads.
- 
- import fs from 'node:fs';
+@@ -17,0 +18 @@ import fs from 'node:fs';
 +import { randomUUID } from 'node:crypto';
- import zlib from 'node:zlib';
- 
- const KEYWORD = 'impeccable:prompt';
-@@ -45,6 +46,36 @@ function pngChunk(type, data) {
-   return out;
- }
- 
+@@ -47,0 +49,30 @@ function pngChunk(type, data) {
 +function parsePngChunks(b) {
 +  const chunks = [];
 +  let off = 8;
@@ -44,13 +35,7 @@ index 72a03b1..a052009 100644
 +  }
 +}
 +
- function readPngText(b) {
-   let off = 8;
-   while (off + 12 <= b.length) {
-@@ -95,30 +126,34 @@ const prompt = argOf('--prompt') ?? (argOf('--prompt-file') ? fs.readFileSync(ar
- if (!prompt) { console.error('embed-prompt: --prompt or --prompt-file required'); process.exit(1); }
- 
- if (isPng) {
+@@ -98,23 +129,6 @@ if (isPng) {
 -  // Insert (or replace) our tEXt chunk immediately before IEND.
 -  const iend = buf.indexOf(Buffer.from('IEND', 'ascii')) - 4;
 -  if (iend < 8) { console.error('embed-prompt: malformed PNG'); process.exit(1); }
@@ -80,7 +65,7 @@ index 72a03b1..a052009 100644
 +  } catch (err) {
 +    console.error(`embed-prompt: malformed PNG: ${err.message}`);
 +    process.exit(1);
-   }
+@@ -121,0 +136,21 @@ if (isPng) {
 +  const body = chunks
 +    .filter(({ type, data }) => {
 +      if (type === 'IEND') return false;
@@ -102,17 +87,11 @@ index 72a03b1..a052009 100644
 +    promptChunk,
 +    buf.subarray(iend.off, iend.end),
 +  ]));
-   console.log(`EMBEDDED: ${file} (png tEXt, ${prompt.length} chars)`);
- } else if (isJpeg) {
-   const seg = Buffer.from(`${KEYWORD}\0${prompt}`, 'utf8');
 diff --git a/scripts/live/roots.mjs b/scripts/live/roots.mjs
-index 1e27d9a..3f3df26 100644
+index 1e27d9a..3221f6e 100644
 --- a/scripts/live/roots.mjs
 +++ b/scripts/live/roots.mjs
-@@ -126,6 +126,14 @@ function insideOrEqual(candidate, root) {
-   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
- }
- 
+@@ -128,0 +129,14 @@ function insideOrEqual(candidate, root) {
 +function realInsideOrEqual(candidate, root) {
 +  try {
 +    return insideOrEqual(fs.realpathSync(candidate), fs.realpathSync(root));
@@ -121,14 +100,25 @@ index 1e27d9a..3f3df26 100644
 +  }
 +}
 +
- /**
-  * Scan downward (bounded depth) for directories carrying a dev-server config.
-  * Used when live boots from a directory that is not itself an app root and no
-@@ -404,6 +412,7 @@ export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}
-       // then the most recent boot. A stale pointer entry must never redirect
-       // status/poll/accept onto the wrong app's session store.
-       const candidates = readPointerEntries(gitRoot)
++function assertImplicitAppRoot(manifest, gitRoot) {
++  if (gitRoot && !realInsideOrEqual(manifest.appRoot, gitRoot)) {
++    throw new Error(`[impeccable live] implicit app root resolves outside the repository: ${manifest.appRoot}`);
++  }
++}
++
+@@ -393,0 +408 @@ export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}
++  const gitRoot = findGitRoot(absCwd);
+@@ -396,2 +411,5 @@ export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}
+-    const persisted = walkUp(absCwd, findGitRoot(absCwd) || absCwd, (dir) => readManifestAt(dir));
+-    if (persisted) return { manifest: persisted, source: 'persisted' };
++    const persisted = walkUp(absCwd, gitRoot || absCwd, (dir) => readManifestAt(dir));
++    if (persisted) {
++      assertImplicitAppRoot(persisted, gitRoot);
++      return { manifest: persisted, source: 'persisted' };
++    }
+@@ -399 +416,0 @@ export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}
+-    const gitRoot = findGitRoot(absCwd);
+@@ -406,0 +424 @@ export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}
 +        .filter((entry) => realInsideOrEqual(entry.appRoot, gitRoot))
-         .map((entry) => readManifestAt(entry.appRoot))
-         .filter(Boolean);
-       if (candidates.length > 0) {
+@@ -433,0 +452 @@ export function resolveLiveRoots(cwd = process.cwd(), { targetPath = null } = {}
++  if (!targetPath) assertImplicitAppRoot(fresh.manifest, gitRoot);

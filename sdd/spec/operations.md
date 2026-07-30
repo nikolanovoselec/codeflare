@@ -527,7 +527,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. Actionlint resolves its release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
 6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
 7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, and browser-run-mcp each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @manual -->
-8. Impeccable refreshes apply the reviewed safety overlay before copying both runtime trees; persisted app roots stay inside the repository and PNG prompt embedding uses parsed chunks plus atomic replacement. <!-- @impl: scripts/update-impeccable-skill.mjs::safetyPatch --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/live/roots.mjs::realInsideOrEqual --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::parsePngChunks --> <!-- @test: host/__tests__/impeccable-preseed-safety.test.js (vendored Impeccable safety patches) -->
 
 **Notes:** Workflow execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md).
 
@@ -806,6 +805,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-029](#req-ops-029-automatic-manual-deploy-verification-reuse)
 
 **Verification:** Automated host tests exercise fingerprint selection, evidence validation, the fake-GitHub CLI boundary, and the aggregate truth table; workflow-structure tests bind those decisions into the required status and exact-tree receipt.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-031: Vendored Impeccable mutation safety
+
+**Intent:** Impeccable refreshes preserve Codeflare's repository boundary and cannot corrupt PNG assets while attaching prompt metadata.
+
+**Applies To:** Contributor
+
+**Acceptance Criteria:**
+
+1. Each Impeccable refresh applies the reviewed safety overlay before copying either runtime tree and fails if the overlay no longer applies cleanly. <!-- @impl: scripts/update-impeccable-skill.mjs::applySafetyPatch --> <!-- @impl: scripts/update-impeccable-skill.mjs::rewriteFiles --> <!-- @manual -->
+2. Implicit persisted, pointer, and fresh app roots must resolve physically inside the current Git repository; explicit targets retain their existing behavior. <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/live/roots.mjs::realInsideOrEqual --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/live/roots.mjs::assertImplicitAppRoot --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/live/roots.mjs::realInsideOrEqual --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/live/roots.mjs::assertImplicitAppRoot --> <!-- @test: host/__tests__/impeccable-preseed-safety.test.js (ignores stale, external, and symlink-escaped persisted app roots) -->
+3. PNG prompt embedding in both runtime trees identifies the terminal `IEND` from bounded length-prefixed chunks and preserves unrelated ancillary data. <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::parsePngChunks --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::parsePngChunks --> <!-- @test: host/__tests__/impeccable-preseed-safety.test.js (embeds a prompt before the real IEND chunk when ancillary payload contains IEND bytes) -->
+4. PNG prompt embedding in both runtime trees atomically replaces the original file. <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::writeAtomic --> <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::writeAtomic --> <!-- @test: host/__tests__/impeccable-preseed-safety.test.js (embeds a prompt before the real IEND chunk when ancillary payload contains IEND bytes) -->
+
+**Constraints:** The safety overlay remains narrow and changes only the reviewed root-resolution and PNG-embedding surfaces.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
+
+**Verification:** Mixed — automated host tests execute both runtime copies; workflow refresh ordering and fail-closed patch application are checked manually.
 
 **Status:** Implemented
 

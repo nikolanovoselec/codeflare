@@ -203,11 +203,18 @@ scripts. It is scoped to Claude + Pi only: Claude gets the vendored tree in
 verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation.
 The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
 checks `impeccable.style`, refreshes both agent copies, updates both manifests,
-and regenerates the seed. Before either runtime copy is emitted,
-`update-impeccable-skill.mjs` applies the reviewed `impeccable-safety.patch`
-overlay and fails closed if upstream changes its patch surfaces. The overlay
-confines persisted live-app pointers to their real repository boundary and makes
-PNG prompt embedding use bounded chunk parsing plus atomic replacement.
+and regenerates the seed.
+
+Before either runtime copy is emitted, `update-impeccable-skill.mjs` applies the
+reviewed `impeccable-safety.patch` overlay and fails closed if upstream changes
+its patch surfaces. <!-- @impl: scripts/update-impeccable-skill.mjs::applySafetyPatch -->
+
+The overlay confines implicit live-app roots to their real repository boundary
+and makes PNG prompt embedding use bounded chunk parsing plus atomic replacement.
+<!-- @impl: preseed/agents/pi/skills/impeccable/scripts/live/roots.mjs::realInsideOrEqual -->
+<!-- @impl: preseed/agents/pi/skills/impeccable/scripts/live/roots.mjs::assertImplicitAppRoot -->
+<!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::parsePngChunks -->
+<!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::writeAtomic -->
 
 Skills are preseeded to `~/.claude/skills/<name>/SKILL.md` and adapted equivalents
 for agents that support skills. `consult-llm` is scoped to Claude + Pi only. On
