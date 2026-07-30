@@ -393,6 +393,13 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
   });
 });
 
+describe('Cloudflare test transport capacity', () => {
+  it('enables the larger WebSocket message ceiling for generated payloads', () => {
+    const config = readFileSync(join(REPO, 'vitest.config.ts'), 'utf8');
+    expect(config).toContain("'increase_websocket_message_size'");
+  });
+});
+
 describe('REQ-OPS-027: code-server coupled-pin automation', () => {
   it('routes code-server bumps through one dedicated fail-closed updater', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
