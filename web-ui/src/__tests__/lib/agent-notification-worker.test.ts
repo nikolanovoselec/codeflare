@@ -17,10 +17,12 @@ function loadWorker(clients: Array<{ url: string; focus: () => Promise<void> }>)
 }
 
 describe('agent notification service worker / REQ-TERM-023', () => {
-  it('focuses an existing same-origin client selected by a notification click', async () => {
+  it('focuses only the existing client that originated the notification', async () => {
+    const otherFocus = vi.fn(async () => undefined);
     const focus = vi.fn(async () => undefined);
     const { listeners } = loadWorker([
-      { url: 'https://codeflare.example/session', focus },
+      { url: 'https://codeflare.example/other-session', focus: otherFocus },
+      { url: 'https://codeflare.example/session#terminal', focus },
     ]);
     const close = vi.fn();
     let work: Promise<void> | undefined;
@@ -33,6 +35,7 @@ describe('agent notification service worker / REQ-TERM-023', () => {
 
     expect(close).toHaveBeenCalledOnce();
     expect(focus).toHaveBeenCalledOnce();
+    expect(otherFocus).not.toHaveBeenCalled();
   });
 
   it('does not focus a cross-origin client or open a new window', async () => {

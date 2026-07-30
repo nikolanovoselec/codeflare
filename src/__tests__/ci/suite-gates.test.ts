@@ -57,12 +57,37 @@ type CacheStep = {
   with?: Record<string, string>;
   'continue-on-error'?: boolean;
 };
-type CacheJob = { permissions?: Record<string, string>; steps?: CacheStep[] };
+type WorkflowPermissions = Record<string, string>;
+type CacheJob = { permissions?: WorkflowPermissions; steps?: CacheStep[] };
+type CacheWorkflow = {
+  permissions?: WorkflowPermissions;
+  jobs: Record<string, CacheJob>;
+};
+
+const PERMISSION_LEVEL = { none: 0, read: 1, write: 2 } as const;
+
+function requiredReusableWorkflowPermissions(workflow: CacheWorkflow) {
+  const required: WorkflowPermissions = {};
+  for (const job of Object.values(workflow.jobs)) {
+    for (const [scope, level] of Object.entries(job.permissions ?? workflow.permissions ?? {})) {
+      if (!(level in PERMISSION_LEVEL)) throw new Error(`unsupported ${scope} permission: ${level}`);
+      const existing = required[scope];
+      if (
+        !existing
+        || PERMISSION_LEVEL[level as keyof typeof PERMISSION_LEVEL]
+          > PERMISSION_LEVEL[existing as keyof typeof PERMISSION_LEVEL]
+      ) {
+        required[scope] = level;
+      }
+    }
+  }
+  return required;
+}
 
 function readCacheWorkflowContract() {
-  const testWorkflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-    jobs: Record<string, CacheJob>;
-  };
+  const testWorkflow = parseYaml(
+    readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8'),
+  ) as CacheWorkflow;
   const imageWorkflow = parseYaml(
     readFileSync(join(REPO, '.github/workflows/container-image.yml'), 'utf8'),
   ) as { jobs: Record<string, CacheJob> };
@@ -70,6 +95,7 @@ function readCacheWorkflowContract() {
     readFileSync(join(REPO, '.github/workflows/deploy.yml'), 'utf8'),
   ) as { jobs: Record<string, CacheJob> };
   return {
+    testWorkflow,
     completeImageJob: testWorkflow.jobs['browser-ide-image'],
     imageJob: imageWorkflow.jobs.image,
     deployWorkflow,
@@ -480,13 +506,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
   });
 
   it('REQ-OPS-029 AC2: inline deploy verification grants every reusable-workflow permission', () => {
-    const { deployWorkflow } = readCacheWorkflowContract();
+    const { deployWorkflow, testWorkflow } = readCacheWorkflowContract();
 
-    expect(deployWorkflow.jobs.verify.permissions).toMatchObject({
-      actions: 'read',
-      contents: 'read',
-      packages: 'write',
-    });
+    expect(deployWorkflow.jobs.verify.permissions).toEqual(
+      requiredReusableWorkflowPermissions(testWorkflow),
+    );
   });
 
   it('REQ-OPS-001 AC8: cache unavailability cannot block complete-image or deploy builds', () => {

@@ -643,11 +643,11 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Acceptance Criteria:**
 
-1. A valid OSC 777 signal from terminal tab 1 of a selected Pi or Claude session produces one bounded plain-text browser notification carrying the current session identity. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023) -->
+1. A valid OSC 777 signal from terminal tab 1 of a selected Pi or Claude session produces one bounded plain-text browser notification carrying the current session identity. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023) --> <!-- @manual: On deployed integration, verify Pi and Claude terminal-1 notifications on desktop and mobile-class browsers and confirm each notification remains bound to its originating session. -->
 2. Unsupported agents, non-primary tabs, malformed operations, empty fields, control-bearing text, composed titles over 64 UTF-8 bytes, and bodies over 256 UTF-8 bytes produce no browser notification. <!-- @impl: web-ui/src/lib/agent-notifications.ts::parseAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
-3. The Settings action is the only Codeflare path that requests browser-notification permission. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::enableAgentNotifications --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-023) -->
+3. The Settings action is the only Codeflare path that requests browser-notification permission. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::enableAgentNotifications --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-023) --> <!-- @manual: On deployed integration, confirm initial default, explicit grant, denial, and unavailable-browser states on desktop and mobile-class browsers without an initialization-time permission prompt. -->
 4. Denied/default permission or unavailable browser setup fails quietly without reporting notifications as enabled. <!-- @impl: web-ui/src/lib/agent-notifications.ts::enableAgentNotifications --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
-5. A notification click may focus only an existing same-origin Codeflare client and never opens an arbitrary URL. <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (agent notification service worker / REQ-TERM-023) -->
+5. A notification click may focus only the existing same-origin Codeflare client that originated it and never opens or substitutes another client or URL. <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (agent notification service worker / REQ-TERM-023) --> <!-- @manual: On deployed integration with two live sessions, click each notification and confirm only its originating tab receives focus. -->
 6. Notifications create no history, push subscription, backend route, container wake, retry, poll, cross-session relay, or credential-bearing persistence; delivery ends with the live page. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
 
 **Constraints:**
@@ -662,7 +662,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Verification:** Automated frontend and service-worker behavior tests; deployed desktop and mobile browser verification.
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
