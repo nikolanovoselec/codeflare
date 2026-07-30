@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-30
 
+- **Paired Execution terminals share one outer height at tablet and desktop widths** ([REQ-LANDING-014](landing.md#req-landing-014-execution-reel-responsive-layout-stability) remains Partial pending redeployed responsive verification). Open-foldable tablet evidence showed content wrapping made the software frame taller than infrastructure. The contract now requires both faces and their terminal bodies to share the same row height while retaining mobile stacking.
+
 - **The Execution overview preserves engineer intent across its complete timelines** ([REQ-LANDING-010](landing.md#req-landing-010-execution-overview-reel) remains Implemented). Both the initial eight-row history and animated continuation now alternate concrete engineer requests or approvals with observable agent outcomes. The software run follows one checkout-timeout repair from read-only diagnosis and test-first implementation through explicit `code-reviewer`, `doc-updater`, and `spec-reviewer` review, exact-head CI, merge, and branch realignment. The infrastructure run follows one nginx incident from read-only coredump diagnosis through check mode, approved snapshot and patch, restart, health verification, and closure.
 
 ## 2026-07-29

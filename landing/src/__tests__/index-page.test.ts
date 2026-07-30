@@ -9,6 +9,8 @@
  * matching copy strings. They double as the migration oracle: identical
  * structure proves the inline-to-component refactor preserved the page.
  */
+import { readFileSync } from 'node:fs';
+
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import IndexPage from '../pages/index.astro';
@@ -472,6 +474,27 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
     expect(EXECUTION.software.events.map((line) => line.text).join(' ')).toMatch(
       /code-reviewer.*doc-updater.*spec-reviewer/,
     );
+  });
+
+  it('keeps paired Execution terminals equal-height through shared layout', () => {
+    const document = documentDom(html);
+    const style = document.createElement('style');
+    style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
+    document.head.append(style);
+    const view = document.defaultView!;
+    const card = document.querySelector<HTMLElement>('#execution .execution-card')!;
+    const faces = document.querySelectorAll<HTMLElement>('#execution .execution-face');
+
+    expect(view.getComputedStyle(card).alignItems).toBe('stretch');
+    expect(faces).toHaveLength(2);
+    faces.forEach((face) => {
+      const terminal = face.querySelector<HTMLElement>('.execution-terminal')!;
+      const terminalBody = terminal.querySelector<HTMLElement>('.terminal-body')!;
+      expect(view.getComputedStyle(face).display).toBe('flex');
+      expect(view.getComputedStyle(terminal).display).toBe('flex');
+      expect(view.getComputedStyle(terminal).flexGrow).toBe('1');
+      expect(view.getComputedStyle(terminalBody).flexGrow).toBe('1');
+    });
   });
 
   it('composes two shared Transcript simulations with full eight-row viewports', () => {

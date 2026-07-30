@@ -361,7 +361,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The side-by-side Hero-scale terminals remain readable and contained without horizontal page overflow at tablet and desktop widths, then stack cleanly on mobile. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @impl: landing/src/styles/global.css::execution-card --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @manual -->
+1. At tablet and desktop widths, the two Hero-scale terminals remain readable, contained, equal in outer height, and free of horizontal page overflow; on mobile they stack cleanly. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @impl: landing/src/styles/global.css::execution-card --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @test: landing/src/__tests__/index-page.test.ts (keeps paired Execution terminals equal-height through shared layout) --> <!-- @manual -->
 2. The shared rolling-row transition keeps eight rows populated and does not shift surrounding page content while typed command lines wrap. <!-- @impl: landing/src/scripts/proof.ts::typeFeedRow --> <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps wrapped row geometry reserved for the complete event while typing) --> <!-- @manual -->
 
 **Constraints:**
