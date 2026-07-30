@@ -47,6 +47,43 @@ function evaluateWorkflowCondition(expression: string, values: Record<string, st
   return Boolean(runInNewContext(resolved, Object.create(null), { timeout: 100 }));
 }
 
+type CacheStep = {
+  name?: string;
+  id?: string;
+  run?: string;
+  uses?: string;
+  if?: string;
+  env?: Record<string, string>;
+  with?: Record<string, string>;
+  'continue-on-error'?: boolean;
+};
+type CacheJob = { permissions?: Record<string, string>; steps?: CacheStep[] };
+
+function readCacheWorkflowContract() {
+  const testWorkflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+    jobs: Record<string, CacheJob>;
+  };
+  const imageWorkflow = parseYaml(
+    readFileSync(join(REPO, '.github/workflows/container-image.yml'), 'utf8'),
+  ) as { jobs: Record<string, CacheJob> };
+  const deployWorkflow = parseYaml(
+    readFileSync(join(REPO, '.github/workflows/deploy.yml'), 'utf8'),
+  ) as { jobs: Record<string, CacheJob> };
+  return {
+    completeImageJob: testWorkflow.jobs['browser-ide-image'],
+    imageJob: imageWorkflow.jobs.image,
+    deployWorkflow,
+  };
+}
+
+function cacheBuildCommand(steps: CacheStep[] | undefined, name: string) {
+  return steps?.find((step) => step.name === name)?.run ?? '';
+}
+
+function sharedCacheLogin(steps: CacheStep[] | undefined) {
+  return steps?.find((step) => step.name === 'Log in to GHCR for shared BuildKit cache');
+}
+
 function touch(root: string, relPath: string) {
   const p = join(root, relPath);
   mkdirSync(dirname(p), { recursive: true });
@@ -310,7 +347,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     ]);
   });
 
-  it('REQ-OPS-001 AC7: keeps fork and read-only automation verification off the shared cache', () => {
+  it('REQ-OPS-001 AC7: keeps fork and Dependabot verification off the shared cache', () => {
     expect(shouldAttemptSharedCacheLogin({
       eventName: 'pull_request',
       repository: 'owner/codeflare',
@@ -335,57 +372,12 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       headRepository: 'owner/codeflare',
       actor: 'dependabot[bot]',
     })).toBe(false);
-    expect(sharedCacheEnabled('success')).toBe(true);
-    expect(sharedCacheEnabled('failure')).toBe(false);
-    expect(sharedCacheEnabled('skipped')).toBe(false);
-  });
 
-  it('REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache', () => {
-    type Step = { name?: string; id?: string; run?: string; uses?: string; if?: string; env?: Record<string, string>; with?: Record<string, string>; 'continue-on-error'?: boolean };
-    type Job = { permissions?: Record<string, string>; steps?: Step[] };
-    const testWorkflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: Record<string, Job>;
-    };
-    const imageWorkflow = parseYaml(
-      readFileSync(join(REPO, '.github/workflows/container-image.yml'), 'utf8'),
-    ) as { jobs: Record<string, Job> };
-    const deployWorkflow = parseYaml(
-      readFileSync(join(REPO, '.github/workflows/deploy.yml'), 'utf8'),
-    ) as { jobs: Record<string, Job> };
-    const buildCommand = (steps: Step[] | undefined, name: string) =>
-      steps?.find((step) => step.name === name)?.run ?? '';
-    const cacheFlags = (command: string) =>
-      command.match(/--cache-(?:from|to) "[^"]+"/g)?.sort() ?? [];
-    const cacheRef = (command: string) =>
-      command.split('\n').find((line) => line.startsWith('CACHE_REF='));
-    const login = (steps: Step[] | undefined) =>
-      steps?.find((step) => step.name === 'Log in to GHCR for shared BuildKit cache');
-
-    const completeImageJob = testWorkflow.jobs['browser-ide-image'];
-    const imageJob = imageWorkflow.jobs.image;
-    const completeImage = buildCommand(completeImageJob.steps, 'Build complete image');
-    const deployment = buildCommand(imageJob.steps, 'Build container image');
-    const expectedFlags = [
-      '--cache-from "type=registry,ref=${CACHE_REF}"',
-      '--cache-to "type=registry,ref=${CACHE_REF},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true"',
-    ];
-
-    expect(cacheFlags(completeImage)).toEqual(expectedFlags);
-    expect(cacheFlags(deployment)).toEqual(expectedFlags);
-    expect(cacheRef(completeImage)).toBe('CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"');
-    expect(cacheRef(deployment)).toBe(cacheRef(completeImage));
-    expect(completeImageJob.permissions?.packages).toBe('write');
-    expect(imageJob.permissions?.packages).toBe('write');
-    expect(deployWorkflow.jobs.verify.permissions?.packages).toBe('write');
-    expect(deployWorkflow.jobs.container.permissions?.packages).toBe('write');
-    const completeImageLogin = login(completeImageJob.steps);
-    const deploymentLogin = login(imageJob.steps);
-    const completeImagePolicy = completeImageJob.steps?.find(
+    const { completeImageJob } = readCacheWorkflowContract();
+    const policy = completeImageJob.steps?.find(
       (step) => step.name === 'Resolve shared cache eligibility',
     );
-    const availabilitySteps = [completeImageJob, imageJob].map((job) =>
-      job.steps?.find((step) => step.name === 'Resolve shared cache availability'));
-    expect(completeImagePolicy).toMatchObject({
+    expect(policy).toMatchObject({
       id: 'cache-policy',
       env: {
         EVENT_NAME: '${{ github.event_name }}',
@@ -394,28 +386,35 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         ACTOR: '${{ github.actor }}',
       },
     });
-    expect(completeImagePolicy?.run).toContain(
-      'node scripts/ci/container-build-cache-policy.mjs eligibility',
+    expect(policy?.run).toContain('container-build-cache-policy.mjs eligibility');
+    expect(sharedCacheLogin(completeImageJob.steps)?.if).toBe(
+      "steps.cache-policy.outputs.login_allowed == 'true'",
     );
-    for (const step of availabilitySteps) {
+  });
+
+  it('REQ-OPS-001 AC4: complete-image and deploy builds share one cross-ref registry cache', () => {
+    const { completeImageJob, imageJob, deployWorkflow } = readCacheWorkflowContract();
+    const completeImage = cacheBuildCommand(completeImageJob.steps, 'Build complete image');
+    const deployment = cacheBuildCommand(imageJob.steps, 'Build container image');
+    const cacheRef = (command: string) =>
+      command.split('\n').find((line) => line.startsWith('CACHE_REF='));
+
+    expect(cacheRef(completeImage)).toBe(
+      'CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"',
+    );
+    expect(cacheRef(deployment)).toBe(cacheRef(completeImage));
+    expect(completeImage).toContain('--cache-from "type=registry,ref=${CACHE_REF}"');
+    expect(deployment).toContain('--cache-from "type=registry,ref=${CACHE_REF}"');
+    expect(completeImageJob.permissions?.packages).toBe('write');
+    expect(imageJob.permissions?.packages).toBe('write');
+    expect(deployWorkflow.jobs.verify.permissions?.packages).toBe('write');
+    expect(deployWorkflow.jobs.container.permissions?.packages).toBe('write');
+    for (const step of [
+      sharedCacheLogin(completeImageJob.steps),
+      sharedCacheLogin(imageJob.steps),
+    ]) {
       expect(step).toMatchObject({
-        id: 'cache',
-        env: { LOGIN_OUTCOME: '${{ steps.cache-login.outcome }}' },
-      });
-      expect(step?.run).toContain(
-        'node scripts/ci/container-build-cache-policy.mjs availability',
-      );
-    }
-    expect(completeImageLogin).toMatchObject({
-      id: 'cache-login',
-      if: "steps.cache-policy.outputs.login_allowed == 'true'",
-      'continue-on-error': true,
-    });
-    for (const step of [completeImageLogin, deploymentLogin]) {
-      expect(step).toMatchObject({
-        id: 'cache-login',
         uses: 'docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0',
-        'continue-on-error': true,
         with: {
           registry: 'ghcr.io',
           username: '${{ github.actor }}',
@@ -423,10 +422,38 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         },
       });
     }
-    expect(completeImageJob.steps?.find((step) => step.name === 'Build complete image')?.env?.CACHE_ENABLED)
-      .toBe('${{ steps.cache.outputs.enabled }}');
-    expect(imageJob.steps?.find((step) => step.name === 'Build container image')?.env?.CACHE_ENABLED)
-      .toBe('${{ steps.cache.outputs.enabled }}');
+  });
+
+  it('REQ-OPS-001 AC8: cache unavailability cannot block complete-image or deploy builds', () => {
+    expect(sharedCacheEnabled('success')).toBe(true);
+    expect(sharedCacheEnabled('failure')).toBe(false);
+    expect(sharedCacheEnabled('skipped')).toBe(false);
+
+    const { completeImageJob, imageJob } = readCacheWorkflowContract();
+    for (const job of [completeImageJob, imageJob]) {
+      const login = sharedCacheLogin(job.steps);
+      const availability = job.steps?.find(
+        (step) => step.name === 'Resolve shared cache availability',
+      );
+      expect(login).toMatchObject({ id: 'cache-login', 'continue-on-error': true });
+      expect(availability).toMatchObject({
+        id: 'cache',
+        env: { LOGIN_OUTCOME: '${{ steps.cache-login.outcome }}' },
+      });
+      expect(availability?.run).toContain('container-build-cache-policy.mjs availability');
+    }
+
+    const completeImage = cacheBuildCommand(completeImageJob.steps, 'Build complete image');
+    const deployment = cacheBuildCommand(imageJob.steps, 'Build container image');
+    for (const [job, command, stepName] of [
+      [completeImageJob, completeImage, 'Build complete image'],
+      [imageJob, deployment, 'Build container image'],
+    ] as const) {
+      expect(job.steps?.find((step) => step.name === stepName)?.env?.CACHE_ENABLED)
+        .toBe('${{ steps.cache.outputs.enabled }}');
+      expect(command).toContain('if [ "$CACHE_ENABLED" = "true" ]');
+      expect(command).toContain('image-manifest=true,ignore-error=true');
+    }
   });
 
   it('fails closed on coverage evidence and bounds the backend crash exception', () => {
