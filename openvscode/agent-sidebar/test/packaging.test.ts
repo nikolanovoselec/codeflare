@@ -56,6 +56,35 @@ async function stageFixture(source: string, claudeSource: string, target: string
   });
 }
 
+interface TreeEntry {
+  readonly path: string;
+  readonly kind: 'directory' | 'file';
+  readonly content?: string;
+  readonly executable?: boolean;
+}
+
+async function snapshotTree(root: string, directory = ''): Promise<TreeEntry[]> {
+  const snapshot: TreeEntry[] = [];
+  const entries = await readdir(join(root, directory), { withFileTypes: true });
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      snapshot.push({ path, kind: 'directory' });
+      snapshot.push(...await snapshotTree(root, path));
+    } else {
+      assert.equal(entry.isFile(), true, `unsupported tree entry: ${path}`);
+      const info = await stat(join(root, path));
+      snapshot.push({
+        path,
+        kind: 'file',
+        content: (await readFile(join(root, path))).toString('base64'),
+        executable: Boolean(info.mode & 0o111),
+      });
+    }
+  }
+  return snapshot;
+}
+
 test('REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories', async () => {
   const { source, claudeSource, target } = await fixture();
   const staged = await stageFixture(source, claudeSource, target);
@@ -68,6 +97,10 @@ test('REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported 
   );
   assert.deepEqual(await readdir(staged.inventories.pi), ['codeflare-agent-sidebar']);
   assert.deepEqual(await readdir(staged.inventories.claude), ['anthropic.claude-code']);
+  assert.deepEqual(
+    await snapshotTree(join(staged.inventories.claude, 'anthropic.claude-code')),
+    await snapshotTree(claudeSource),
+  );
   assert.equal(
     JSON.parse(await readFile(join(staged.inventories.pi, 'codeflare-agent-sidebar', 'package.json'), 'utf8')).publisher,
     'codeflare',
