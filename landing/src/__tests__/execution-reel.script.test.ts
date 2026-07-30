@@ -2,7 +2,7 @@
 /**
  * Behavioral integration coverage for REQ-LANDING-011 motion and
  * REQ-LANDING-012 accessibility. Execution composes the shared Transcript feed
- * with proof.ts: eight complete context rows reveal top-down, then events append
+ * with proof.ts: each complete context history reveals top-down, then events append
  * into a fixed scrolling log that settles with its full history and blinking cursor.
  */
 import { readFileSync } from 'node:fs';
@@ -200,7 +200,7 @@ afterEach(() => {
 });
 
 describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
-  it('prepares full context viewports with top-to-bottom entrance indices', async () => {
+  it('prepares complete context histories with top-to-bottom entrance indices', async () => {
     const fixture = buildFixture();
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
@@ -214,13 +214,13 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(visibleLines(fixture.infrastructureList)).toEqual(
       fixture.infrastructureContext.map((line) => line.text),
     );
-    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
-    expect(fixture.infrastructureList.children).toHaveLength(VIEWPORT_ROWS);
+    expect(fixture.softwareList.children).toHaveLength(fixture.softwareContext.length);
+    expect(fixture.infrastructureList.children).toHaveLength(fixture.infrastructureContext.length);
     expect(
       Array.from(fixture.softwareList.children).map((row) =>
         (row as HTMLElement).style.getPropertyValue('--i'),
       ),
-    ).toEqual(Array.from({ length: VIEWPORT_ROWS }, (_, index) => String(index)));
+    ).toEqual(Array.from({ length: fixture.softwareContext.length }, (_, index) => String(index)));
 
     observer.intersect(fixture.software, 'prearm');
     expect(fixture.software.classList.contains('is-live')).toBe(true);

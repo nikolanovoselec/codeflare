@@ -132,13 +132,9 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     const sizeWindows = Array.from(
       sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]'),
     );
-    const timeline = [...context, ...feed];
     expect(sizeReserve.getAttribute('aria-hidden')).toBe('true');
-    expect(sizeWindows).toHaveLength(feed.length + 1);
-    const expectedWindows = Array.from(
-      { length: feed.length + 1 },
-      (_, index) => timeline.slice(index, index + context.length),
-    );
+    expect(sizeWindows).toHaveLength(2);
+    const expectedWindows = [context, feed.slice(-context.length)];
     expect(sizeWindows.map((window) =>
       Array.from(
         window.children,

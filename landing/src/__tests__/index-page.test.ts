@@ -452,8 +452,15 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       expect.arrayContaining(['cmd', 'ok', 'info']),
     );
     expect(EXECUTION.infrastructure.events.some((line) => line.tone === 'info')).toBe(true);
+    expect(EXECUTION.software.context).toHaveLength(8);
+    expect(EXECUTION.infrastructure.context.slice(8).map((line) => line.tone)).toEqual([
+      'cmd',
+      'info',
+      'cmd',
+      'info',
+    ]);
     for (const run of runs) {
-      expect(run.context).toHaveLength(8);
+      expect(run.context.length).toBeGreaterThanOrEqual(8);
       expect(run.events).toHaveLength(8);
       expect([...run.context, ...run.events].map((line) => line.intent).filter(Boolean)).toEqual(
         expect.arrayContaining(['request', 'approval']),
@@ -476,6 +483,10 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       ...EXECUTION.infrastructure.context,
       ...EXECUTION.infrastructure.events,
     ];
+    const infrastructureApprovedTimeline = [
+      ...EXECUTION.infrastructure.context.slice(0, 8),
+      ...EXECUTION.infrastructure.events,
+    ];
     const approvedFirstLines = (timeline: ReadonlyArray<{ text: string }>) =>
       timeline.map((line) => line.text.split('\n', 1)[0]);
     expect(approvedFirstLines(softwareTimeline)).toEqual([
@@ -496,7 +507,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       'Reset develop to origin/main and force-push.',
       'develop aligned with origin/main · worktree clean',
     ]);
-    expect(approvedFirstLines(infrastructureTimeline)).toEqual([
+    expect(approvedFirstLines(infrastructureApprovedTimeline)).toEqual([
       't.anderson@metacortex.ai $ SSH to prod-web-07 and investigate INC-4821 read-only.',
       'access approved · read-only session · host up 47 days · config unchanged',
       'Correlate the crash with the coredump.',
@@ -563,7 +574,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
         expect(view.getComputedStyle(element).justifyContent).toBe(standardJustification);
       };
 
-      expect(view.getComputedStyle(card).alignItems).toBe('start');
+      expect(view.getComputedStyle(card).alignItems).toBe('stretch');
       expect(faces).toHaveLength(2);
       faces.forEach((face) => {
         const terminal = face.querySelector<HTMLElement>('.execution-terminal')!;
@@ -609,7 +620,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       const terminal = face.querySelector('.terminal.execution-terminal[data-proof]')!;
       const feed = terminal.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
       expect(terminal).not.toBeNull();
-      expect(runs[index].context).toHaveLength(8);
+      expect(runs[index].context.length).toBeGreaterThanOrEqual(8);
       expect(runs[index].events.length).toBeGreaterThan(0);
       expect(feed.querySelectorAll(':scope > .t-line')).toHaveLength(8);
       expect(JSON.parse(feed.dataset.feedContext!)).toEqual(runs[index].context);
