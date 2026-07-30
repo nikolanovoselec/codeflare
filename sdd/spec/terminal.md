@@ -644,11 +644,12 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Acceptance Criteria:**
 
 1. After an explicit browser-permission action, a valid OSC 777 notification from terminal tab 1 of a Pi or Claude session produces one bounded plain-text browser notification carrying the current session identity. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023) -->
-2. Pi emits only after `agent_settled`, and Claude uses its native `ghostty` notification channel in both session modes without a Codeflare Notification or Stop hook. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (Pi native terminal notifications / REQ-TERM-023) --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-023: both Claude session modes select the native OSC notification channel without adding hooks) -->
+2. Pi's repository-owned notifier registers no behavior in RPC mode and emits only fixed OSC 777 text: one input-needed signal for `ask_user_question` and one completion signal after `agent_settled`, with stale completion suppressed after cancellation or abort. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (Pi native terminal notifications / REQ-TERM-023) -->
 3. Unsupported agents, non-primary tabs, malformed operations, empty fields, control-bearing text, titles over 64 UTF-8 bytes, and bodies over 256 UTF-8 bytes produce no browser notification and do not alter terminal execution. <!-- @impl: web-ui/src/lib/agent-notifications.ts::parseAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
 4. Terminal output never requests notification permission. The existing Settings user action owns the only permission request, browser permission remains authoritative, and denied/default permission fails quietly without duplicate persisted state. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::enableAgentNotifications --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-023) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
 5. A same-origin no-fetch service worker supports notification display on desktop and mobile-class browsers; a notification click may focus only an existing same-origin Codeflare client and never opens an arbitrary URL. <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (agent notification service worker / REQ-TERM-023) -->
 6. Notifications create no history, push subscription, backend route, container wake, retry, poll, cross-session relay, or credential-bearing persistence; delivery ends when the live page can no longer process terminal output. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
+7. Claude uses its native `ghostty` notification channel in both session modes without a Codeflare Notification or Stop hook. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-023: both Claude session modes select the native OSC notification channel without adding hooks) -->
 
 **Constraints:**
 
@@ -663,6 +664,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Verification:** Automated frontend, preseed-extension, entrypoint-settings, and service-worker behavior tests; deployed desktop and mobile browser verification.
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
