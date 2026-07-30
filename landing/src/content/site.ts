@@ -427,6 +427,8 @@ export const EXECUTION = {
         tone: 'info',
         text: 'rollback role rendered · serial: 5 · max_fail_percentage: 0\nSSH reconnect and sshd health required after every host',
       },
+    ],
+    events: [
       { tone: 'cmd', intent: 'request', text: 'List every host in the canary batch.' },
       {
         tone: 'info',
@@ -441,8 +443,6 @@ export const EXECUTION = {
         tone: 'info',
         text: 'canary 45s · 6 rollout batches × 30s · final rescan 45s\nestimated 4m 30s · rolling sshd restart · no host reboot',
       },
-    ],
-    events: [
       {
         tone: 'cmd',
         intent: 'approval',
