@@ -362,7 +362,8 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     observer.intersect(fixture.infrastructure, 'prearm');
     const exposedFirstRow = fixture.infrastructureList.firstElementChild;
     heroHeight = 410;
-    vi.advanceTimersByTime(5_000);
+    window.dispatchEvent(new Event('resize'));
+    vi.advanceTimersByTime(0);
     expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('405px');
     expect(fixture.infrastructureList.firstElementChild).toBe(exposedFirstRow);
 
