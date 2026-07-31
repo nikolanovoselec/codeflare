@@ -14,6 +14,21 @@ const DELETE_MS = 32;
 const HOLD_MS = 1700;
 const GAP_MS = 360;
 
+/** Freeze the Hero at the tallest authored command for the current width. The
+ *  candidates are measured through the real shared Terminal layout and restored
+ *  in one task, so visitors never see the temporary measurement strings. */
+function reserveHeroFrame(term: HTMLElement, typed: HTMLElement, commands: string[]): void {
+  const currentText = typed.textContent ?? '';
+  term.style.height = '';
+  let reservedHeight = 0;
+  for (const command of commands) {
+    typed.textContent = command;
+    reservedHeight = Math.max(reservedHeight, term.getBoundingClientRect().height);
+  }
+  typed.textContent = currentText;
+  if (reservedHeight > 0) term.style.height = `${reservedHeight}px`;
+}
+
 if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
   document.querySelectorAll<HTMLElement>('[data-ft-loop]').forEach((term, idx) => {
     const typed = term.querySelector<HTMLElement>('[data-ft-typed]');
@@ -43,6 +58,16 @@ if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       // Reflect the shuffled head as the resting/initial beat so the first paint
       // matches what types next.
       typed.textContent = loop[0];
+
+      let reservedWidth = window.innerWidth;
+      const reserve = () => reserveHeroFrame(term, typed, loop);
+      reserve();
+      void document.fonts?.ready.then(reserve);
+      window.addEventListener('resize', () => {
+        if (window.innerWidth === reservedWidth) return;
+        reservedWidth = window.innerWidth;
+        reserve();
+      });
     }
 
     let wi = 0;
