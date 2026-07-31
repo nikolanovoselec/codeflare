@@ -314,12 +314,8 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
       });
     }
 
-    let resizeCallback: ResizeObserverCallback = () => undefined;
     const observe = vi.fn();
     vi.stubGlobal('ResizeObserver', class {
-      constructor(callback: ResizeObserverCallback) {
-        resizeCallback = callback;
-      }
       observe = observe;
       disconnect = vi.fn();
       unobserve = vi.fn();
@@ -344,7 +340,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
         'selectorText' in rule && rule.selectorText === '.execution-terminal');
     expect(responsiveRule?.style.getPropertyValue('height'))
       .toBe('var(--execution-frame-height)');
-    expect(observe).toHaveBeenCalledWith(heroFrame);
+    expect(observe).not.toHaveBeenCalled();
     expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('390px');
     expect(fixture.softwareList.dataset.feedOpeningCount).toBe('3');
     expect(fixture.infrastructureList.dataset.feedOpeningCount).toBe('3');
@@ -366,8 +362,8 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     observer.intersect(fixture.infrastructure, 'prearm');
     const exposedFirstRow = fixture.infrastructureList.firstElementChild;
     heroHeight = 410;
-    resizeCallback([], {} as ResizeObserver);
-    expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('410px');
+    vi.advanceTimersByTime(5_000);
+    expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('405px');
     expect(fixture.infrastructureList.firstElementChild).toBe(exposedFirstRow);
 
     vi.stubGlobal('innerWidth', 1200);
