@@ -182,7 +182,7 @@ RUN LAZYGIT_VERSION="0.63.1" && \
 # SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
 # `silverbullet-server-...` (the actual server). We want the server.
 RUN SILVERBULLET_VERSION="2.10.0" && \
-    SILVERBULLET_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    SILVERBULLET_SHA256="ca33f7de3bae2f2e7d95cdd2cca1a023e51267388c9dbc8ff5acc33b1cbd5a7d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
     echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
     unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
@@ -407,7 +407,6 @@ RUN AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/nul
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY preseed/agents/pi/npm/ /opt/codeflare/pi-agent/npm/
 # Local Pi extensions, used by the jiti warm-up layer below (they reach user
 # containers via the R2 agent seed, verbatim — same content, so the
 # content-addressed cache entries baked from these files hit at runtime).

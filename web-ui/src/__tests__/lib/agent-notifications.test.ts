@@ -75,6 +75,8 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
     expect(showNotification).toHaveBeenCalledOnce();
     expect(showNotification).toHaveBeenCalledWith('Claude Code · Nebuchadnezzar', {
       body: 'Task complete',
+      tag: `codeflare-agent:${window.location.href}`,
+      renotify: true,
       data: { sessionUrl: window.location.href },
     });
     expect(env.requestPermission).not.toHaveBeenCalled();

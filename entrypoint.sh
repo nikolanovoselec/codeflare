@@ -744,10 +744,15 @@ relay_managed_pi_extensions() {
             [ -e "$f" ] || continue
             base="$(basename "$f")"
             if [ ! -f "$dest/$base" ]; then
-                cp "$f" "$dest/$base"
-                added=$((added + 1))
+                if cp "$f" "$dest/$base"; then
+                    added=$((added + 1))
+                else
+                    echo "[entrypoint] WARNING: mode-bake backfill failed for ${base}" | tee -a /tmp/sync.log
+                fi
             fi
         done
+    else
+        echo "[entrypoint] WARNING: mode-filtered bake missing at ${bake_ext}; skipping managed-extension backfill" | tee -a /tmp/sync.log
     fi
     echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /tmp/sync.log
 }

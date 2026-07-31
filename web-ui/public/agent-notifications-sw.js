@@ -13,7 +13,16 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil((async () => {
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const client = clients.find((entry) => new URL(entry.url).href === target.href);
-    await client?.focus();
+    // Match on origin + pathname: SPA navigation and warm-start query params
+    // change the full href without changing which tab owns the session.
+    const client = clients.find((entry) => {
+      const url = new URL(entry.url);
+      return url.origin === target.origin && url.pathname === target.pathname;
+    });
+    if (client) {
+      await client.focus();
+      return;
+    }
+    await self.clients.openWindow?.(target.href);
   })());
 });

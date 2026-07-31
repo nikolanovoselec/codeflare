@@ -108,6 +108,10 @@ export async function showAgentNotification(
     const worker = await browser.getWorker();
     await worker?.showNotification(payload.title, {
       body: payload.body,
+      // Per-session tag: a new notification replaces the previous one for the
+      // same session instead of stacking, without collapsing other sessions'.
+      tag: `codeflare-agent:${payload.sessionUrl}`,
+      renotify: true,
       data: { sessionUrl: payload.sessionUrl },
     });
   } catch {

@@ -9,7 +9,7 @@ function loadWorker(clients: Array<{ url: string; focus: () => Promise<void> }>)
   const listeners = new Map<string, (event: any) => void>();
   const self = {
     location: { origin: 'https://codeflare.example' },
-    clients: { matchAll: vi.fn(async () => clients) },
+    clients: { matchAll: vi.fn(async () => clients), openWindow: vi.fn(async () => null) },
     addEventListener: vi.fn((type: string, listener: (event: any) => void) => listeners.set(type, listener)),
   };
   runInNewContext(workerSource, { self, URL });
@@ -53,6 +53,40 @@ describe('agent notification service worker / REQ-TERM-023', () => {
 
     expect(focus).not.toHaveBeenCalled();
     expect(self.clients.matchAll).not.toHaveBeenCalled();
-    expect((self.clients as any).openWindow).toBeUndefined();
+    expect(self.clients.openWindow).not.toHaveBeenCalled();
+  });
+
+  it('opens the session in a new window when no open client matches its path', async () => {
+    const focus = vi.fn(async () => undefined);
+    const { listeners, self } = loadWorker([
+      { url: 'https://codeflare.example/settings', focus },
+    ]);
+    let work: Promise<void> | undefined;
+
+    listeners.get('notificationclick')?.({
+      notification: { data: { sessionUrl: 'https://codeflare.example/session?cf_since=1' }, close: vi.fn() },
+      waitUntil: (promise: Promise<void>) => { work = promise; },
+    });
+    await work;
+
+    expect(focus).not.toHaveBeenCalled();
+    expect(self.clients.openWindow).toHaveBeenCalledWith('https://codeflare.example/session?cf_since=1');
+  });
+
+  it('focuses the session tab across a query-string difference instead of opening a duplicate', async () => {
+    const focus = vi.fn(async () => undefined);
+    const { listeners, self } = loadWorker([
+      { url: 'https://codeflare.example/session', focus },
+    ]);
+    let work: Promise<void> | undefined;
+
+    listeners.get('notificationclick')?.({
+      notification: { data: { sessionUrl: 'https://codeflare.example/session?cf_since=1' }, close: vi.fn() },
+      waitUntil: (promise: Promise<void>) => { work = promise; },
+    });
+    await work;
+
+    expect(focus).toHaveBeenCalledOnce();
+    expect(self.clients.openWindow).not.toHaveBeenCalled();
   });
 });
