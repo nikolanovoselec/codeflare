@@ -67,6 +67,7 @@ All significant design choices are recorded as Architecture Decision Records (AD
 | Document | Location | Description |
 |----------|----------|-------------|
 | [README](../README.md) | Repo root | Product overview and default-mode setup |
+| [README media acceptance](acceptance/readme-media-2026-07-31.md) | `documentation/acceptance/` | Canonical capture provenance and manual media acceptance evidence |
 | [Private operations](https://github.com/nikolanovoselec/codeflare-private) | Private repository | Non-default deployment and operator configuration |
 | [Contributing](../CONTRIBUTING.md) | Repo root | Development workflow and guidelines |
 | [Security Policy](../SECURITY.md) | Repo root | Vulnerability reporting |

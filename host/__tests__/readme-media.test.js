@@ -179,8 +179,9 @@ function readGifSubBlocks(buffer, start) {
   assert.fail('GIF data sub-blocks are not terminated');
 }
 
-function decodeGifImage(data, minimumCodeSize, expectedPixels) {
+function decodeGifImage(data, minimumCodeSize, expectedPixels, colorCount) {
   assert.ok(minimumCodeSize >= 2 && minimumCodeSize <= 8, 'invalid GIF LZW code size');
+  assert.ok(colorCount > 0, 'GIF frame has no active color table');
   const clearCode = 1 << minimumCodeSize;
   const endCode = clearCode + 1;
   let dictionary;
@@ -224,6 +225,9 @@ function decodeGifImage(data, minimumCodeSize, expectedPixels) {
       entry = Uint8Array.from([...previous, previous[0]]);
     }
     assert.ok(entry, `GIF LZW references undefined code ${code}`);
+    for (const paletteIndex of entry) {
+      assert.ok(paletteIndex < colorCount, `GIF pixel index ${paletteIndex} exceeds its color table`);
+    }
     outputLength += entry.length;
     assert.ok(outputLength <= expectedPixels, 'GIF LZW decoded too many pixels');
 
@@ -245,7 +249,8 @@ function parseGif(buffer) {
   const height = buffer.readUInt16LE(8);
   assert.ok(width > 0 && height > 0, 'GIF dimensions must be positive');
   const packed = buffer[10];
-  let offset = 13 + ((packed & 0x80) ? 3 * 2 ** ((packed & 0x07) + 1) : 0);
+  const globalColorCount = (packed & 0x80) ? 2 ** ((packed & 0x07) + 1) : 0;
+  let offset = 13 + (3 * globalColorCount);
   assert.ok(offset <= buffer.length, 'truncated GIF global color table');
   let frames = 0;
   let loopCount;
@@ -292,16 +297,19 @@ function parseGif(buffer) {
     const frameWidth = buffer.readUInt16LE(offset + 4);
     const frameHeight = buffer.readUInt16LE(offset + 6);
     const imagePacked = buffer[offset + 8];
+    const localColorCount = (imagePacked & 0x80) ? 2 ** ((imagePacked & 0x07) + 1) : 0;
+    const activeColorCount = localColorCount || globalColorCount;
     assert.ok(frameWidth > 0 && frameHeight > 0, 'GIF frame dimensions must be positive');
     assert.ok(left + frameWidth <= width && top + frameHeight <= height, 'GIF frame exceeds its canvas');
+    assert.ok(activeColorCount > 0, 'GIF frame has no active color table');
     offset += 9;
-    if (imagePacked & 0x80) offset += 3 * 2 ** ((imagePacked & 0x07) + 1);
+    offset += 3 * localColorCount;
     assert.ok(offset < buffer.length, 'truncated GIF local color table');
     const minimumCodeSize = buffer[offset];
     offset += 1;
     const image = readGifSubBlocks(buffer, offset);
     offset = image.offset;
-    decodeGifImage(image.data, minimumCodeSize, frameWidth * frameHeight);
+    decodeGifImage(image.data, minimumCodeSize, frameWidth * frameHeight, activeColorCount);
     frames += 1;
   }
 
@@ -337,6 +345,15 @@ describe('README canonical landing media (REQ-LANDING-013/016/017/018)', () => {
     assert.match(
       uncommentedMarkdownHtml(['```markdown', 'content', '``` \t', '<picture>active</picture>'].join('\n')),
       /<picture>active<\/picture>/,
+    );
+  });
+
+  it('rejects decoded GIF pixels outside the active color table', () => {
+    const onePixelIndexThree = Buffer.from([0x5c, 0x01]);
+    assert.doesNotThrow(() => decodeGifImage(onePixelIndexThree, 2, 1, 4));
+    assert.throws(
+      () => decodeGifImage(onePixelIndexThree, 2, 1, 2),
+      /GIF pixel index 3 exceeds its color table/,
     );
   });
 
