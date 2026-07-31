@@ -134,6 +134,28 @@ db.commit(); db.close()
   assert.equal(existsSync(join(storage, 'state.vscdb')), true);
 });
 
+test('REQ-IDE-002: prefers the live vscode-remote storage dir over a stale file:// twin', () => {
+  const { workspace, dataRoot, snapshot } = fixture();
+  seedState(dataRoot, workspace); // stale file:// dir named 'fixture'
+  const remoteFolder = `vscode-remote://sess.example.com${workspace}`;
+  python(String.raw`
+import json, pathlib, sqlite3, sys
+root, folder, workspace = sys.argv[1:]
+storage = pathlib.Path(root) / 'data' / 'User' / 'workspaceStorage' / 'remotedir'
+storage.mkdir(parents=True)
+(storage / 'workspace.json').write_text(json.dumps({'folder': folder}))
+db = sqlite3.connect(storage / 'state.vscdb')
+db.execute('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)')
+db.execute('INSERT INTO ItemTable VALUES (?,?)', ('editors.mru', json.dumps([{'resource': (pathlib.Path(workspace) / 'src' / 'live.ts').as_uri()}])))
+db.commit(); db.close()
+`, dataRoot, remoteFolder, workspace);
+
+  execFileSync('python3', [SCRIPT, 'capture', '--data-root', dataRoot, '--snapshot', snapshot, '--workspace', workspace]);
+  const captured = JSON.parse(readFileSync(snapshot, 'utf8'));
+  assert.equal(captured.workspaceIdentity.folder, remoteFolder, 'capture picks the remote identity, not enumeration order');
+  assert.match(captured.workspaceState['editors.mru'], /live\.ts/, 'state comes from the remote dir, not the stale twin');
+});
+
 test('REQ-IDE-002: restores identity-less snapshots to the file-URI derived storage identity', () => {
   const { workspace, dataRoot, snapshot, root } = fixture();
   seedState(dataRoot, workspace);

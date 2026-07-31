@@ -171,7 +171,9 @@ export function vscodeUpstreamRequestTarget(
  */
 // Symmetric attribute-entity round-trip: decode releases &amp; last and encode
 // escapes & first, so any entity or literal &/</" inside a configuration value
-// survives projection byte-identical instead of re-emitting double-encoded.
+// survives projection semantically identical instead of re-emitting
+// double-encoded (a decoded &#39; re-emits as a bare apostrophe, which is
+// equivalent inside the double-quoted attribute).
 function decodeWorkbenchAttribute(value: string): string {
   return value
     .replaceAll('&quot;', '"')

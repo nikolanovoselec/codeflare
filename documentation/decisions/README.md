@@ -3229,7 +3229,8 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 - Repeated pull-request runs may reuse a direct successful complete-image execution from the same repository and PR only when the workflow contract and immutable fingerprint match.
 - The fingerprint binds tracked inputs, `linux/amd64`, and the ISO week. Uncovered Dockerfile inputs, full runs, and invalid evidence execute the image job normally.
 - The `/health` smoke check and the public `/health` route were both removed later; the deploy currently performs no post-deploy verification.
-- Container build/scan/push moves to reusable `container-image.yml`. PR complete-image verification and deployment import one GHCR-backed BuildKit cache. PR verification receives read-only package access; deployment alone publishes cache updates. Fork PRs and Dependabot do not authenticate to it.
+- Container build/scan/push moves to reusable `container-image.yml`. PR complete-image verification and deployment import one GHCR-backed BuildKit cache while preserving the `image_tag`/`reused` workflow outputs.
+- PR verification receives read-only package access; deployment alone publishes cache updates. Fork PRs and Dependabot do not authenticate to it.
 
   GitHub's `type=gha` cache was rejected because its ref scoping prevented pull-request verification and deployment from consuming one trusted layer set across their refs. Login failure disables cache use; deployment export errors cannot fail the image build.
 - Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned image.

@@ -147,6 +147,25 @@ describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed
     assert.doesNotMatch(projected, /&amp;amp;/, 'no double-encoding of pre-encoded entities');
   });
 
+  it('emits exact expected attribute bytes, independent of the decoder helpers', () => {
+    // Fixed-literal oracle: the configuration() helper mirrors the production
+    // decoder, so a shared ordering bug would cancel out in round-trip
+    // assertions. This expected string is authored by hand from the entity
+    // contract, not derived from the implementation.
+    const projected = projectVscodeWorkbenchWorkspace(html({
+      remoteAuthority: 'codeflare.example',
+      x: 'a&b',
+    }));
+    assert.ok(projected);
+    assert.ok(projected.includes(
+      'data-settings="{&quot;remoteAuthority&quot;:&quot;codeflare.example&quot;,'
+      + '&quot;x&quot;:&quot;a&amp;b&quot;,'
+      + '&quot;folderUri&quot;:{&quot;scheme&quot;:&quot;vscode-remote&quot;,'
+      + '&quot;authority&quot;:&quot;codeflare.example&quot;,'
+      + '&quot;path&quot;:&quot;/home/user/workspace&quot;}}"',
+    ), 'projected attribute must match the hand-authored encoded form');
+  });
+
   it('fails closed on missing, duplicate, malformed, invalid-authority, and oversized configuration', () => {
     const marker = html({ remoteAuthority: 'codeflare.example' });
     const cases = [

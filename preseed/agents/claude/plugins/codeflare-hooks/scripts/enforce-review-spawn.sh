@@ -114,23 +114,43 @@ if [ -n "$PRETOOL_MODE" ]; then
     Read|TaskOutput|TaskGet|TaskList|AskUserQuestion) exit 0 ;;
   esac
   [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0
-  # Fixed-string prefilters keep the per-call cost near zero for sessions that
-  # never ran a review lane: no spawn signature or no completed notification
-  # anywhere in the transcript means the gate cannot apply.
-  grep -qF -e 'run-review-lane.sh' \
-    -e '"subagent_type":"code-reviewer"' \
-    -e '"subagent_type":"spec-reviewer"' \
-    -e '"subagent_type":"doc-updater"' "$TRANSCRIPT" 2>/dev/null || exit 0
-  PRETOOL_COMPLETION_COUNT=$(grep -cF 'completed</status>' "$TRANSCRIPT" 2>/dev/null)
-  [ "$PRETOOL_COMPLETION_COUNT" -gt 0 ] 2>/dev/null || exit 0
   # Fingerprint cache: the gate's answer can only flip to "block" when a new
   # completed notification lands (a spawn alone cannot, and a published table
-  # only flips it to "allow" - the state the cache records). The same count as
-  # the last allow therefore skips the full correlation scan entirely, so the
-  # per-tool-call cost after a cleared round is one fixed-string grep.
+  # only flips it to "allow" - the state the cache records). The cache stores
+  # "<count>:<byte offset>" from the last allow; the transcript is append-only,
+  # so counting completions in the appended bytes alone decides whether the
+  # answer can have changed. After a cleared round each tool call costs one
+  # size check plus a scan of only the appended bytes, never a full pass. A
+  # marker split exactly at the offset by a mid-write snapshot can be missed
+  # once; the next completed notification re-runs the full check, so the miss
+  # cannot persist.
   PRETOOL_CLEAR_FILE="${TMPDIR:-/tmp}/sdd-pretool-triage-clear-$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')"
-  if [ "$(cat "$PRETOOL_CLEAR_FILE" 2>/dev/null)" = "$PRETOOL_COMPLETION_COUNT" ]; then
-    exit 0
+  PRETOOL_SIZE=$(wc -c < "$TRANSCRIPT" 2>/dev/null) || PRETOOL_SIZE=0
+  PRETOOL_CACHE_STATE=$(cat "$PRETOOL_CLEAR_FILE" 2>/dev/null)
+  PRETOOL_CACHED_COUNT="${PRETOOL_CACHE_STATE%%:*}"
+  PRETOOL_CACHED_OFFSET="${PRETOOL_CACHE_STATE##*:}"
+  case "$PRETOOL_CACHED_COUNT" in ''|*[!0-9]*) PRETOOL_CACHED_COUNT="" ;; esac
+  case "$PRETOOL_CACHED_OFFSET" in ''|*[!0-9]*) PRETOOL_CACHED_OFFSET="" ;; esac
+  if [ -n "$PRETOOL_CACHED_COUNT" ] && [ -n "$PRETOOL_CACHED_OFFSET" ] \
+     && [ "$PRETOOL_SIZE" -ge "$PRETOOL_CACHED_OFFSET" ] 2>/dev/null; then
+    # A cache entry exists only after a full pass proved lane spawns and an
+    # allow outcome, so the spawn prefilter is already answered.
+    PRETOOL_NEW=$(tail -c +$((PRETOOL_CACHED_OFFSET + 1)) "$TRANSCRIPT" 2>/dev/null | grep -cF 'completed</status>')
+    PRETOOL_COMPLETION_COUNT=$((PRETOOL_CACHED_COUNT + PRETOOL_NEW))
+    if [ "$PRETOOL_NEW" -eq 0 ] 2>/dev/null; then
+      printf '%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_SIZE" > "$PRETOOL_CLEAR_FILE" 2>/dev/null || true
+      exit 0
+    fi
+  else
+    # First pass for this transcript (or a truncated/rotated one): full
+    # fixed-string scans. No spawn signature or no completed notification
+    # anywhere means the gate cannot apply.
+    grep -qF -e 'run-review-lane.sh' \
+      -e '"subagent_type":"code-reviewer"' \
+      -e '"subagent_type":"spec-reviewer"' \
+      -e '"subagent_type":"doc-updater"' "$TRANSCRIPT" 2>/dev/null || exit 0
+    PRETOOL_COMPLETION_COUNT=$(grep -cF 'completed</status>' "$TRANSCRIPT" 2>/dev/null)
+    [ "$PRETOOL_COMPLETION_COUNT" -gt 0 ] 2>/dev/null || exit 0
   fi
 fi
 
@@ -720,7 +740,7 @@ triage_published_after_line() {
 if [ -n "$PRETOOL_MODE" ]; then
   pretool_allow() {
     [ -n "$PRETOOL_CLEAR_FILE" ] \
-      && printf '%s\n' "$PRETOOL_COMPLETION_COUNT" > "$PRETOOL_CLEAR_FILE" 2>/dev/null
+      && printf '%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_SIZE" > "$PRETOOL_CLEAR_FILE" 2>/dev/null
     exit 0
   }
   PRETOOL_LAST_COMPLETION=0
@@ -747,7 +767,13 @@ if [ -n "$PRETOOL_MODE" ]; then
   case "$PRETOOL_STRIKES" in ''|*[!0-9]*) PRETOOL_STRIKES=0 ;; esac
   [ "$PRETOOL_STRIKE_LINE" = "$PRETOOL_LAST_COMPLETION" ] || PRETOOL_STRIKES=0
   PRETOOL_STRIKES=$((PRETOOL_STRIKES + 1))
-  printf '%s:%s\n' "$PRETOOL_LAST_COMPLETION" "$PRETOOL_STRIKES" > "$PRETOOL_STRIKE_FILE" 2>/dev/null || true
+  # An unwritable counter means the -gt 5 escape can never fire, which is the
+  # permanent wedge the breaker exists to prevent - so a failed write fails
+  # open, matching this hook's global fail-safe direction.
+  printf '%s:%s\n' "$PRETOOL_LAST_COMPLETION" "$PRETOOL_STRIKES" > "$PRETOOL_STRIKE_FILE" 2>/dev/null || {
+    echo "enforce-review-spawn: PreToolUse strike counter unwritable; failing open" >&2
+    pretool_allow
+  }
   if [ "$PRETOOL_STRIKES" -gt 5 ]; then
     echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
     pretool_allow
