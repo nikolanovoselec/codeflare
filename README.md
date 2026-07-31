@@ -41,6 +41,7 @@ Codeflare gives agents a governed execution environment for software delivery an
 | **Deployed-system verification** | Correlate browser results with logs, checks, live URLs, and deployment state. Deterministic assertions remain in CI alongside semantic browser validation. |
 | **Operational recovery** | Diagnose failed builds or deployments, inspect current state, apply controlled corrections, and use documented deployment and rollback procedures. |
 
+<!-- readme-media-browser-e2e -->
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="assets/documentation/browser-e2e.png">
   <img src="assets/documentation/browser-e2e.gif" alt="A Codeflare agent drives and judges a mobile end-to-end browser flow." width="1200">
@@ -76,6 +77,7 @@ Codeflare applies one governed workflow across software delivery, browser automa
 
 Enterprise sessions apply the organization's requirements, engineering rules, review process, CI gates, browser verification, and deployment workflows. Humans retain approval for merges, production promotion, and consequential operational actions.
 
+<!-- readme-media-review-governance -->
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="assets/documentation/review-governance.png">
   <img src="assets/documentation/review-governance.gif" alt="Six specialist agents review one pull request before human triage." width="1200">
@@ -104,6 +106,7 @@ Enterprise Codeflare uses customer-configured services inside the customer's Clo
 
 ## Workspace experience
 
+<!-- readme-media-browser-vscode -->
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="assets/documentation/browser-vscode.png">
   <img src="assets/documentation/browser-vscode.gif" alt="Browser Visual Studio Code shows an agent editing and verifying Inference Mesh." width="1200">
@@ -135,12 +138,13 @@ Enterprise Codeflare uses customer-configured services inside the customer's Clo
 - A connected view of source code, requirements, decisions, plans, and documentation that helps agents trace dependencies and change impact.
 - Specialist agents for architecture, debugging, deployment, security, review, and refactoring.
 
+<!-- readme-media-execution -->
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="assets/documentation/execution.png">
-  <img src="assets/documentation/execution.gif" alt="Codeflare runs software delivery and infrastructure operations in governed terminal sessions." width="1200">
+  <img src="assets/documentation/execution.gif" alt="Codeflare shows software delivery alongside a private-preview infrastructure workflow in governed terminal sessions." width="1200">
 </picture>
 
-*Software delivery and infrastructure operations run as separate governed workflows inside the same execution platform.*
+*Software delivery and the private-preview infrastructure workflow run separately inside the same governed execution platform.*
 
 ### Supported agents
 
@@ -199,6 +203,14 @@ Enterprise rollout begins with the private deployment configuration rather than 
 
 Promotion is gated by repository CI, image scanning, immutable build/deployment evidence, and environment-specific verification. See [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) for the deployment runbook and configuration surface (access required).
 
+<!-- readme-media-deployment -->
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="assets/documentation/deployment.png">
+  <img src="assets/documentation/deployment.gif" alt="Codeflare deploys Inference Mesh to integration and verifies the live private route." width="1200">
+</picture>
+
+*The reviewed head reaches integration, then the live inference path is exercised before merge.*
+
 ---
 
 ## Community/default deployment quick start
@@ -223,13 +235,6 @@ Open **Actions → Deploy → Run workflow**, select `main`, and run the workflo
 ### 4. Run the setup wizard
 
 Find the Worker URL under **Cloudflare dashboard → Compute → Workers & Pages**. Open it; the wizard verifies the deployment token, configures a custom domain and allowed users, and creates the Cloudflare Access application.
-
-<picture>
-  <source media="(prefers-reduced-motion: reduce)" srcset="assets/documentation/deployment.png">
-  <img src="assets/documentation/deployment.gif" alt="Codeflare deploys Inference Mesh to integration and verifies the live private route." width="1200">
-</picture>
-
-*The reviewed head reaches integration, then the live inference path is exercised before merge.*
 
 The resulting Default-mode instance is ready for users to authenticate and start sessions. Users still need access to the selected agent's own subscription or credentials where that agent requires them.
 
@@ -355,6 +360,7 @@ See [CI/CD and Testing](documentation/lanes/ci-cd.md) for suite ownership, deplo
 
 [Codeflare Inference Mesh](https://github.com/nikolanovoselec/codeflare-inference-mesh) is optional private inference capacity for open models on customer-controlled GPU or CPU hardware. Codeflare can route approved workloads to that endpoint while hosted providers remain first-class defaults or fallbacks. Inference Mesh is a separate deployment and is not required for the customer's Cloudflare AI Gateway routing.
 
+<!-- readme-media-inference-mesh -->
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="assets/documentation/inference-mesh.png">
   <img src="assets/documentation/inference-mesh.gif" alt="Inference Mesh serves governed agent tokens from private idle compute capacity." width="1200">
