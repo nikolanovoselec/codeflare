@@ -324,7 +324,7 @@ function withGifLoopExtension(buffer, identifier, payload) {
   return Buffer.concat([buffer.subarray(0, insertion), extension, buffer.subarray(insertion)]);
 }
 
-describe('README canonical landing media (REQ-LANDING-013/016/017)', () => {
+describe('README canonical landing media (REQ-LANDING-013/016/017/018)', () => {
   it('keeps media inside open Markdown fences inactive until a valid matching close', () => {
     const cases = [
       ['```markdown', '```not-a-close', '<picture>suffix</picture>', '```'],

@@ -400,7 +400,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Verification:** Automated repository budget checks
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
