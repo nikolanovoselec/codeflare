@@ -68,6 +68,7 @@ src_globs:
   - "wrangler.toml"
   - ".github/workflows/*.yml"
   - ".trivyignore"
+  - "scripts/browser-ide-ui-state.py"
   - "openvscode/agent-sidebar/src/**"
   - "openvscode/agent-sidebar/package.json"
   - "openvscode/agent-sidebar/official-claude.json"
