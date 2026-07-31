@@ -106,17 +106,20 @@ function writeTranscript(cwd, lines) {
   return path;
 }
 
-function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile }) {
+function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
   // Per-test sentinel path keeps tests hermetic from production /tmp/review-bypass.
   if (bypassFile) env.REVIEW_BYPASS_FILE = bypassFile;
+  // Per-test TMPDIR keeps the PreToolUse gate's strike/clear state hermetic.
+  if (tmpDir) env.TMPDIR = tmpDir;
   // Prevent the hook from finding a real gh in PATH if we want it absent
   return spawnSync('bash', [HOOK], {
     cwd,
     input: JSON.stringify({
       hook_event_name: event,
       transcript_path: transcriptPath,
+      ...(toolName ? { tool_name: toolName } : {}),
     }),
     encoding: 'utf-8',
     env,
@@ -232,13 +235,136 @@ describe('enforce-review-spawn.sh — vibe-coding gate', () => {
 });
 
 describe('enforce-review-spawn.sh — event scoping', () => {
-  it('exits 0 silently on SubagentStop (only Stop is enforced)', () => {
+  it('exits 0 silently on SubagentStop (only Stop and PreToolUse are enforced)', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { event: 'SubagentStop', transcriptPath: t });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+});
+
+// REQ-AGENT-104 AC7: mid-turn triage gate. Once every spawned lane completed
+// and no canonical table follows the last completion, every tool outside the
+// read-only set is refused (exit 2 + stderr directive) until the table exists.
+describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
+  const completedRound = () => [
+    AGENT_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_cr1'),
+    DONE_LINE('toolu_cr1'),
+    AGENT_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_sr1'),
+    DONE_LINE('toolu_sr1'),
+    AGENT_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_du1'),
+    DONE_LINE('toolu_du1'),
+  ];
+  const pretool = (cwd, t, toolName) =>
+    runHook(cwd, {
+      event: 'PreToolUse',
+      transcriptPath: t,
+      toolName,
+      tmpDir: cwd,
+      bypassFile: join(cwd, 'absent-bypass'),
+    });
+
+  it('refuses a mutating tool once every spawned lane completed with no triage table after', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const r = pretool(cwd, t, 'Edit');
+    assert.equal(r.status, 2);
+    assert.ok(r.stderr.includes(TRIAGE_HEADER), 'directive carries the canonical header contract');
+    assert.equal(r.stdout, '');
+  });
+
+  it('allows read-only tools during the blocked window', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    for (const tool of ['Read', 'TaskOutput']) {
+      assert.equal(pretool(cwd, t, tool).status, 0, tool);
+    }
+  });
+
+  it('allows once the triage table is published after the last completion', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [...completedRound(), TRIAGE_LINE()]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('allows while any lane is still in flight', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound().slice(0, 5));
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('does not treat a failed lane as a completed round', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [...completedRound().slice(0, 5), FAILED_LINE('toolu_du1')]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('demands a fresh table when a lane re-runs after the previous round was triaged', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [
+      ...completedRound(),
+      TRIAGE_LINE(),
+      AGENT_LINE('spec-reviewer', '2026-05-03T12:10:00.000Z', 'toolu_sr2'),
+      DONE_LINE('toolu_sr2'),
+    ]);
+    assert.equal(pretool(cwd, t, 'Bash').status, 2);
+  });
+
+  it('re-blocks after a cleared round when a new completion lands', () => {
+    const cwd = makeFixture();
+    const cleared = [...completedRound(), TRIAGE_LINE()];
+    const t = writeTranscript(cwd, cleared);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    writeTranscript(cwd, [
+      ...cleared,
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:20:00.000Z', 'toolu_b9'),
+      LANE_BASH_DONE_LINE('toolu_b9'),
+    ]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+  });
+
+  it('covers the headless Bash lane transport', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+    ]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+  });
+
+  it('exits 0 for a transcript with no review lanes', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('honors the bypass sentinel without consuming it', () => {
+    const cwd = makeFixture();
+    const bypassFile = join(cwd, 'bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, completedRound());
+    const r = runHook(cwd, {
+      event: 'PreToolUse', transcriptPath: t, toolName: 'Edit', tmpDir: cwd, bypassFile,
+    });
+    assert.equal(r.status, 0);
+    assert.equal(existsSync(bypassFile), true, 'PreToolUse never consumes the one-shot sentinel');
+  });
+
+  it('gives up after five refused calls for the same round, then stays released', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const statuses = [];
+    for (let index = 0; index < 7; index += 1) statuses.push(pretool(cwd, t, 'Edit').status);
+    assert.deepEqual(statuses, [2, 2, 2, 2, 2, 0, 0]);
+  });
+
+  it('never writes the Stop-side acknowledgement from a PreToolUse pass', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [...completedRound(), TRIAGE_LINE()]);
+    pretool(cwd, t, 'Edit');
+    assert.equal(existsSync(join(cwd, '.git/sdd-last-ack-pr-head')), false);
   });
 });
 

@@ -2769,12 +2769,14 @@ None.
 4. Acknowledgement is followed by a fix directive that states the head is already acknowledged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::ROUND_COMPLETE_LINE --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — headless lane transport) -->
 5. Every path that advances the checkpoint applies the verdict requirement, including the retroactive scan. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::retroactive_ack_scan --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (applies the verdict requirement on the retroactive scan path, not just the live path) -->
 6. Repeated unanswered verdict demands acknowledge the head rather than leave the checkpoint wedged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::reack_on_repeated_demand --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (acknowledges after repeated unanswered demands instead of staying wedged) -->
+7. Once every lane spawned in the session has returned and no verdict follows the last return, tool execution other than result reading is refused mid-turn until the verdict is published. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::PRETOOL_MODE --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::pretool_allow --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PreToolUse triage gate) -->
 
 **Constraints:**
 
 - The verdict is recognised structurally, by its table header and divider in a message carrying no tool call; a command quoting the header is not a verdict.
 - The verdict demand is counted and rate-limited on its own, never on the counter that limits lane demands; sharing one lets a head be acknowledged before any verdict was asked for, and silences the demand that would have been answered.
 - Both runtimes recognise the same table shape, so a verdict is portable between them.
+- The mid-turn refusal never writes acknowledgement or counter state and reads the bypass sentinel without consuming it; five refused calls for one round release the gate instead of wedging the session, and a lane still in flight or ended without success never triggers it.
 
 **Priority:** P1
 

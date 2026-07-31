@@ -81,8 +81,64 @@ INPUT=$(cat 2>/dev/null) || exit 0
 HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 
-[ "$HOOK_EVENT" = "Stop" ] || exit 0
+case "$HOOK_EVENT" in
+  Stop) PRETOOL_MODE="" ;;
+  PreToolUse) PRETOOL_MODE=1 ;;
+  *) exit 0 ;;
+esac
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
+
+# ---------------------------------------------------------------------------
+# PreToolUse triage gate - prefilters. The full check lives after the shared
+# transcript helpers it reuses (search "PreToolUse triage gate - full check").
+#
+# The Stop-side verdict demand refuses to acknowledge a head until the
+# canonical triage table is published, but it only runs at turn end. A session
+# that keeps calling tools never reaches a Stop event, so fixes and pushes can
+# land BETWEEN the last lane completion and the verdict demand - the exact
+# window the round discipline forbids. This branch closes it: once every lane
+# spawned in the transcript has a completed notification and no triage table
+# follows the last of them, every tool outside the read-only set is refused
+# (exit 2) until the table is published as an assistant message. Publishing
+# the table needs no tool call, so the refusal is always escapable in-turn.
+#
+# This branch never writes acks or round counters - those stay Stop-owned. It
+# reads the bypass sentinel without consuming it (one-shot deletion is the
+# Stop path's job).
+# ---------------------------------------------------------------------------
+PRETOOL_CLEAR_FILE=""
+PRETOOL_COMPLETION_COUNT=""
+if [ -n "$PRETOOL_MODE" ]; then
+  TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+  case "$TOOL_NAME" in
+    Read|TaskOutput|TaskGet|TaskList|AskUserQuestion) exit 0 ;;
+  esac
+  [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0
+  # Fixed-string prefilters keep the per-call cost near zero for sessions that
+  # never ran a review lane: no spawn signature or no completed notification
+  # anywhere in the transcript means the gate cannot apply.
+  grep -qF -e 'run-review-lane.sh' \
+    -e '"subagent_type":"code-reviewer"' \
+    -e '"subagent_type":"spec-reviewer"' \
+    -e '"subagent_type":"doc-updater"' "$TRANSCRIPT" 2>/dev/null || exit 0
+  PRETOOL_COMPLETION_COUNT=$(grep -cF 'completed</status>' "$TRANSCRIPT" 2>/dev/null)
+  [ "$PRETOOL_COMPLETION_COUNT" -gt 0 ] 2>/dev/null || exit 0
+  # Fingerprint cache: the gate's answer can only flip to "block" when a new
+  # completed notification lands (a spawn alone cannot, and a published table
+  # only flips it to "allow" - the state the cache records). The same count as
+  # the last allow therefore skips the full correlation scan entirely, so the
+  # per-tool-call cost after a cleared round is one fixed-string grep.
+  PRETOOL_CLEAR_FILE="${TMPDIR:-/tmp}/sdd-pretool-triage-clear-$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')"
+  if [ "$(cat "$PRETOOL_CLEAR_FILE" 2>/dev/null)" = "$PRETOOL_COMPLETION_COUNT" ]; then
+    exit 0
+  fi
+fi
+
+# Stop-only candidate detection, gates, and bypass consumption. Deliberately
+# not re-indented: the guard exists so a PreToolUse pass can reach the shared
+# transcript helpers below without running push detection or consuming the
+# one-shot bypass sentinel.
+if [ -z "$PRETOOL_MODE" ]; then
 
 # Ordering note (PUSH_LINE -> REPO_DIR -> gates -> bypasses -> enforcement):
 # PUSH_LINE detection and REPO_DIR derivation must run BEFORE the
@@ -445,6 +501,8 @@ fi
 # equal to) HEAD.
 # ---------------------------------------------------------------------------
 
+fi # end Stop-only section - PreToolUse resumes here at the shared helpers
+
 # Lane-spawn match contract, shared by every coverage / in-flight check below.
 #
 # A lane counts as spawned under EITHER transport:
@@ -648,6 +706,55 @@ triage_published_after_line() {
           exit 1
         }'
 }
+
+# ---------------------------------------------------------------------------
+# PreToolUse triage gate - full check (prefilters at the top of this file).
+#
+# The state this gate blocks on is completed-awaiting-triage: every lane
+# spawned in this transcript has a completed notification, and no canonical
+# triage table follows the last of them. A lane still in flight - or one that
+# ended without success - is not that state; failed and missing lanes are the
+# Stop hook's demand to make, not this one's. Every path here exits, so the
+# Stop-only enforcement below this block never runs on a PreToolUse pass.
+# ---------------------------------------------------------------------------
+if [ -n "$PRETOOL_MODE" ]; then
+  pretool_allow() {
+    [ -n "$PRETOOL_CLEAR_FILE" ] \
+      && printf '%s\n' "$PRETOOL_COMPLETION_COUNT" > "$PRETOOL_CLEAR_FILE" 2>/dev/null
+    exit 0
+  }
+  PRETOOL_LAST_COMPLETION=0
+  for PRETOOL_LANE in code-reviewer spec-reviewer doc-updater; do
+    PRETOOL_SPAWN=$(lane_spawn_lines "$PRETOOL_LANE" | tail -1)
+    [ -n "$PRETOOL_SPAWN" ] || continue
+    PRETOOL_DONE=$(spawn_completion_line "$PRETOOL_SPAWN")
+    [ -n "$PRETOOL_DONE" ] || pretool_allow
+    [ "$PRETOOL_DONE" -gt "$PRETOOL_LAST_COMPLETION" ] 2>/dev/null \
+      && PRETOOL_LAST_COMPLETION=$PRETOOL_DONE
+  done
+  [ "$PRETOOL_LAST_COMPLETION" -gt 0 ] 2>/dev/null || pretool_allow
+  if triage_published_after_line "$PRETOOL_LAST_COMPLETION"; then
+    pretool_allow
+  fi
+  # 5-strike breaker keyed on the completion line, mirroring the Stop-side
+  # verdict breaker: a table the matcher cannot see must never wedge every
+  # tool for the rest of the session. After five refused calls for the same
+  # round, give up loudly and let the session proceed.
+  PRETOOL_STRIKE_FILE="${TMPDIR:-/tmp}/sdd-pretool-triage-strikes-$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')"
+  PRETOOL_STRIKE_STATE=$(cat "$PRETOOL_STRIKE_FILE" 2>/dev/null)
+  PRETOOL_STRIKE_LINE="${PRETOOL_STRIKE_STATE%%:*}"
+  PRETOOL_STRIKES="${PRETOOL_STRIKE_STATE##*:}"
+  case "$PRETOOL_STRIKES" in ''|*[!0-9]*) PRETOOL_STRIKES=0 ;; esac
+  [ "$PRETOOL_STRIKE_LINE" = "$PRETOOL_LAST_COMPLETION" ] || PRETOOL_STRIKES=0
+  PRETOOL_STRIKES=$((PRETOOL_STRIKES + 1))
+  printf '%s:%s\n' "$PRETOOL_LAST_COMPLETION" "$PRETOOL_STRIKES" > "$PRETOOL_STRIKE_FILE" 2>/dev/null || true
+  if [ "$PRETOOL_STRIKES" -gt 5 ]; then
+    echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
+    pretool_allow
+  fi
+  echo "REVIEW TRIAGE REQUIRED: every review lane spawned in this session has returned, and no triage verdict has been published since the last one completed. Before ANY further tool call, read each lane's report (Read and TaskOutput are permitted) and publish ONE triage table as its own assistant message - no tool calls in it - in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding across all lanes (a fully clean round gets one row per lane stating the runner's clean verdict). Judge each finding separately from its proposed fix: VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. Fixes, commits, and pushes come only after that table is visible." >&2
+  exit 2
+fi
 
 retroactive_ack_scan() {
   [ -f "$TRANSCRIPT" ] || return
