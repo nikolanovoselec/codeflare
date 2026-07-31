@@ -328,27 +328,32 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ---
 
-### REQ-LANDING-013: Execution reel capture readiness
+### REQ-LANDING-013: Canonical README media capture
 
-**Intent:** The deployed Execution reel can serve as the canonical source for deterministic GitHub README media without a capture-only duplicate.
+**Intent:** The deployed landing components serve as the canonical source for deterministic GitHub README media without capture-only product routes or duplicate mockups.
 
 **Applies To:** Maintainer
 
 **Acceptance Criteria:**
 
-1. The resolved reel is self-contained at a wide aspect suitable for GitHub GIF capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
-2. The reel provides meaningful first, transition, and final capture states. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @manual -->
-3. Reel content, entrance order, and typed activity sequencing are deterministic. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @manual -->
+1. The resolved Execution reel is self-contained at a wide aspect suitable for GitHub GIF capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
+2. The README's Execution, Browser VS Code, Browser E2E, review, deployment, and Inference Mesh GIFs derive from their deployed canonical landing components and content. <!-- @impl: README.md --> <!-- @manual -->
+3. Each GIF contains at least three deterministic frames, and the Execution, Browser E2E, and deployment captures play once into a resolved state. <!-- @impl: README.md --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) --> <!-- @manual -->
+4. Every GIF has an exact-dimension static PNG fallback selected through `prefers-reduced-motion`, descriptive alt text, and a 1,200-pixel README presentation width. <!-- @impl: README.md --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+5. The canonical media replaces the foldable, phone, IDE, and setup pictures; the Architecture diagram remains the section's visual explanation. <!-- @impl: README.md --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+6. Every GIF is at most 10 MiB and all twelve GIF/PNG assets together are at most 30 MiB. <!-- @impl: README.md --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+7. GitHub renders all six README media blocks legibly at repository content width, with animation and static fallback paths intact. <!-- @impl: README.md --> <!-- @manual -->
 
 **Constraints:**
 
-- README GIF encoding and asset replacement begin only after the landing implementation is reviewed, CI-green, deployed to integration, and visually approved.
+- Media encoding and README replacement begin only after the source landing implementation is reviewed, CI-green, deployed to integration, and visually approved.
+- Generated assets are repository-hosted and do not add a runtime dependency or alternate product rendering path.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Manual check
+**Verification:** Automated test ([README canonical landing media](../../host/__tests__/readme-media.test.js)); final rendering verified manually
 
 **Status:** Partial
 
