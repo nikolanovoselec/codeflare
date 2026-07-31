@@ -11,6 +11,13 @@ function emit(sequence: string): void {
   process.stdout.write(sequence);
 }
 
+// The ask_user_question package's public notifier channel. Channel names in
+// the rpiv:* namespace are immutable with append-only payloads, so this
+// subscription survives the package's major releases, unlike a toolName match
+// on tool_call (a 2.x rename would silently kill the attention signal). It
+// also fires only when a questionnaire will actually open (post-validation).
+const ASK_USER_PROMPT_EVENT = 'rpiv:ask-user:prompt';
+
 export default function nativeNotifications(
   pi: ExtensionAPI,
   argv: readonly string[] = process.argv,
@@ -26,9 +33,9 @@ export default function nativeNotifications(
     suppressCompletion = false;
   });
 
-  pi.on('tool_call', async (event) => {
-    if (event.toolName === 'ask_user_question') emit(INPUT_NEEDED);
-  });
+  // The payload (question/option text) is deliberately ignored: fixed inert
+  // notification text only, never model-authored content.
+  pi.events.on(ASK_USER_PROMPT_EVENT, () => emit(INPUT_NEEDED));
 
   pi.on('tool_result', async (event) => {
     if (event.toolName !== 'ask_user_question') return;
