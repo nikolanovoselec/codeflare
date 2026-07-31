@@ -216,9 +216,6 @@ Open **Actions → Deploy → Run workflow**, select `main`, and run the workflo
 
 Find the Worker URL under **Cloudflare dashboard → Compute → Workers & Pages**. Open it; the wizard verifies the deployment token, configures a custom domain and allowed users, and creates the Cloudflare Access application.
 
-![Guided setup](assets/documentation/guided-setup.png)
-*The setup wizard connects the deployment, identity boundary, and initial agent configuration.*
-
 The resulting Default-mode instance is ready for users to authenticate and start sessions. Users still need access to the selected agent's own subscription or credentials where that agent requires them.
 
 > GitHub push and direct Cloudflare API operations require operator-registered OAuth applications in supported non-enterprise modes. Enterprise and advanced setup is documented in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
