@@ -473,7 +473,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       'Deploy develop to integration.',
       'integration deploy green · dynamic/codeflare-mesh route live · private node path ready',
       'Run the end-to-end inference path on integration.',
-      'AI Gateway →> Inference Router → cf1:network Mesh -> Zero Trust Client → private node\nstream complete · reservation released · audit event recorded',
+      'AI Gateway → Inference Router → cf1:network Mesh → Zero Trust Client → private node\nstream complete · reservation released · audit event recorded',
       'Approve, update the PR body, and squash-merge to main.\nKeep the implementation and verification details in the PR body.',
       'PR #1 squash-merged · main updated · PR closed\nmain @ 8ef188a · production deploy queued',
       'Reset develop to origin/main and force-push.',
