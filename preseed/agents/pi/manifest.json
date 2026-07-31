@@ -350,60 +350,6 @@
       "advanced"
     ]
   },
-  "npm/rpiv-todo-session-isolation/install.d.mts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/install.mjs": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/index.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/todo.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/todo-overlay.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/state/lifecycle.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/state/store.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/state/state.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/tool/types.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
   "skills/frontend-components/SKILL.md": {
     "modes": [
       "advanced"

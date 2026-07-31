@@ -2339,23 +2339,20 @@ None.
 
 **Acceptance Criteria:**
 
-1. Child replay, mutation, and shutdown leave foreground task state unchanged. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/state/lifecycle.ts::registerSessionStateLifecycle --> <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/state/store.ts::slotFor --> <!-- @test: src/__tests__/lib/rpiv-todo-session-isolation.test.ts (keeps foreground tasks intact when a child session replays, mutates, and shuts down) -->
-2. Context-free todo rendering reads only the foreground session's slot. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/state/store.ts::getRenderState --> <!-- @test: src/__tests__/lib/rpiv-todo-session-isolation.test.ts (keeps foreground tasks intact when a child session replays, mutates, and shuts down) -->
-3. The compatibility guard fails closed before changing package files when the installed dependency version is unsupported. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/install.mjs::installRpivTodoSessionIsolation --> <!-- @test: src/__tests__/lib/rpiv-todo-session-isolation.test.ts (installs the supported override and fails closed before writing to an unsupported version) -->
-4. Session shutdown clears the active overlay reference even when overlay disposal fails. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/state/lifecycle.ts::disposeSessionOverlay --> <!-- @test: src/__tests__/lib/rpiv-todo-session-isolation.test.ts (clears the active overlay reference even when disposal fails) -->
+1. The pinned `@juicesharp/rpiv-todo` release ships session-keyed task state upstream (the reviewed equivalent of the retired [AD100](../../documentation/decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override), and every runtime pin surface names that exact release. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (rpiv-todo upstream session isolation (REQ-AGENT-081)) -->
+2. No Codeflare source override of rpiv-todo remains: no postinstall guard, no payload files, no manifest entries. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (rpiv-todo upstream session isolation (REQ-AGENT-081)) -->
 
 **Constraints:**
 
 - Task persistence remains transcript/branch-scoped; Codeflare adds no global task database.
-- The temporary installer accepts only rpiv-todo 1.20.0.
-- The override is removed after a reviewed upstream npm release includes equivalent session isolation.
+- Reintroducing a source override requires a new reviewed decision; the retired AD100 machinery must not return unreviewed.
 - User-added Pi packages and unrelated rpiv-todo behavior remain unchanged.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated test ([rpiv-todo session-isolation tests](../../src/__tests__/lib/rpiv-todo-session-isolation.test.ts))
+**Verification:** Automated test ([Pi settings/packages tests](../../host/__tests__/pi-settings-packages.test.js))
 
 **Status:** Implemented
 

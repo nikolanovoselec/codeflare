@@ -66,7 +66,7 @@ In-process subagents always use native fallbacks. The three PR reviewers expose 
 
 `pi-web-access` adds `web_search` and `fetch_content`. Both authenticate through Pi's model registry or zero-config Exa MCP, so neither needs a per-user API key.
 
-`@juicesharp/rpiv-todo` remains pinned at 1.20.0 but receives Codeflare's temporary [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) source override after npm install. The override mirrors the unreleased upstream session-isolation correction: task state is keyed by Pi session ID and context-free rendering stays bound to the foreground slot. The installer refuses any other package version. Its payload is present both in the image prewarm directory and in `.pi/agent/npm/rpiv-todo-session-isolation/`, so rebuilt containers and generated user seed converge on the same bytes ([REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)).
+`@juicesharp/rpiv-todo` is pinned at 2.0.0, which ships the session-isolation correction upstream: task state is keyed by Pi session ID and context-free rendering stays bound to the foreground slot. The temporary [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) source override that mirrored this fix while npm was at 1.20.0 is retired — no postinstall guard or payload remains, and a host test guards that the pin names the reviewed release ([REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)).
 
 `web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`). A user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots.
 
@@ -452,7 +452,6 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/skills/ci-monitoring/SKILL.md` | default, advanced | `~/.pi/agent/skills/ci-monitoring/SKILL.md` | CI launch contract |
 | `preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs` | default, advanced | `~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs` | Request resolver and attached PR-check monitor |
 | `preseed/agents/pi/agents/ci-monitor.md` | default, advanced | `~/.pi/agent/agents/ci-monitor.md` | Dedicated report-only CI subagent |
-| `preseed/agents/pi/npm/rpiv-todo-session-isolation/*` | default, advanced | `~/.pi/agent/npm/rpiv-todo-session-isolation/` | Version-gated rpiv-todo 1.20.0 session-isolation override |
 | `preseed/agents/pi/skills/pr-workflow/SKILL.md` | default, advanced | `~/.pi/agent/skills/pr-workflow/SKILL.md` | PR creation procedure |
 | `preseed/agents/pi/skills/git-review-pipeline/SKILL.md` | advanced | `~/.pi/agent/skills/git-review-pipeline/SKILL.md` | Session-scoped review procedure |
 | `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact Pi planning, TDD/SDD, capability, and review gates |

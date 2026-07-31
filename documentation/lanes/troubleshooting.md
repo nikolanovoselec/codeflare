@@ -298,9 +298,9 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Symptom:** The foreground `/todos` list resets to `No tasks` after a background reviewer or other child session starts, compacts, changes tree, or shuts down, even though an earlier valid todo snapshot remains in the foreground transcript.
 
-**Cause:** Images with unpatched `@juicesharp/rpiv-todo` 1.20.0 use one module-level task cell for every Pi session. A child lifecycle replay can overwrite the foreground cell with the child's empty list ([AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix)).
+**Cause:** Images built before the `@juicesharp/rpiv-todo` 2.0.0 pin carry 1.20.0, which uses one module-level task cell for every Pi session unless the retired [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override patched it. A child lifecycle replay can overwrite the foreground cell with the child's empty list.
 
-**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation). The image applies the version-gated session-isolation override during npm prewarm. If the build fails with `expected @juicesharp/rpiv-todo 1.20.0`, review the newer upstream package and remove or update the temporary override rather than bypassing the version guard.
+**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0 pin, which ships session-keyed task state upstream with no source override.
 
 ### Pi Web Search Crashed the Session
 

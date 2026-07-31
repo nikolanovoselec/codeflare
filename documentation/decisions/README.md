@@ -2928,15 +2928,17 @@ The dedicated agent runs one attached Node process and returns `CI_RESULT` throu
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-13)
+**Status:** Retired (2026-07-31); previously Accepted (2026-07-13)
 
-**Context:** `@juicesharp/rpiv-todo` 1.20.0 stores every Pi session's tasks in one module-level cell. Foreground snapshots remained in transcript ancestry, but child/subagent `session_start`, `session_compact`, and `session_tree` replayed into that shared cell and replaced the foreground list with the child's state. Live history showed valid lists of one, five, and four tasks followed by `No tasks`; a background CI-log agent reproduced the reset during this fix. Upstream main already partitions state by session ID and gates the render pointer to the foreground session, but no npm release contains that correction. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/install.mjs::installRpivTodoSessionIsolation -->
+**Context:** `@juicesharp/rpiv-todo` 1.20.0 stores every Pi session's tasks in one module-level cell. Foreground snapshots remained in transcript ancestry, but child/subagent `session_start`, `session_compact`, and `session_tree` replayed into that shared cell and replaced the foreground list with the child's state. Live history showed valid lists of one, five, and four tasks followed by `No tasks`; a background CI-log agent reproduced the reset during this fix. Upstream main already partitions state by session ID and gates the render pointer to the foreground session, but no npm release contains that correction.
 
 **Decision:** Keep rpiv-todo's session-scoped transcript semantics rather than replace it with a global disk-backed task product. While npm remains at 1.20.0, Codeflare applies a minimal source override after install: task state is keyed by Pi session ID, lifecycle replay mutates only that session's slot, child shutdown evicts only its slot, and context-free rendering reads the foreground slot. The installer fails closed on any package version other than 1.20.0 so a future upstream release must be reviewed instead of silently overwritten.
 
 **Alternatives considered:** `pi-tasklists` has the same session-replay shape and does not solve child isolation. `armory-todo` persists one global cross-session list, changing the desired session-local semantics. A Codeflare-global task database would add ownership, migration, and recovery machinery for a defect upstream has already fixed.
 
 **Consequences:** Reload and branch replay keep their existing task semantics, while subagent lifecycle events cannot erase foreground tasks. The image prewarm and generated Pi npm seed carry the same patch payload. The temporary override adds four pinned source files and must be removed when a reviewed upstream release ships the fix.
+
+**Retirement (2026-07-31):** `@juicesharp/rpiv-todo` 2.0.0 ships the equivalent session-keyed store upstream — `state/store.ts` partitions task state by Pi session ID and binds context-free rendering to the foreground slot, reviewed against the override payload before adoption; tool and command names are unchanged. The pin moved to 2.0.0 and the override machinery (payload directory, postinstall version guard, installer test, manifest entries) is removed. [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) now pins the reviewed upstream release and guards that no source override returns unreviewed.
 
 **Related REQ:** [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation), [Pi preseed](../lanes/preseed.md#agent-preseed-system).
 
