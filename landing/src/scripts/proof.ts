@@ -250,10 +250,10 @@ function typeFeedRow(
   window.setTimeout(tick, startDelay);
 }
 
-function placeFeedCaret(list: HTMLElement): void {
+function placeFeedCaret(list: HTMLElement, waiting = false): void {
   list.querySelector('.t-caret')?.remove();
   const caret = document.createElement('span');
-  caret.className = 't-caret';
+  caret.className = waiting ? 't-caret t-caret--waiting' : 't-caret';
   caret.setAttribute('aria-hidden', 'true');
   list.lastElementChild?.appendChild(caret);
 }
@@ -280,7 +280,7 @@ function startFeed(list: HTMLElement): void {
   const events = [...context.slice(openingCount), ...authoredEvents];
   list.dataset.feedStarted = 'true';
   list.dataset.feedState = 'running';
-  placeFeedCaret(list);
+  placeFeedCaret(list, true);
   let index = 0;
 
   const advance = () => {

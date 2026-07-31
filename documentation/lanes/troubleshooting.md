@@ -44,7 +44,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** code-server may not have been reaped before final sync, `~/.codeflare/ide-ui-state.json` may be absent or invalid, or the snapshot/filter allowlist may have drifted.
 
-**Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only that exact path survives the `~/.codeflare/**` R2 filter. Never sync `/tmp/openvscode-data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Managed inventory settings must be reapplied after restore.
+**Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only that exact path survives the `~/.codeflare/**` R2 filter. Never sync `/tmp/openvscode-data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Allowlisted workspace rows must match their key-specific canonical-resource schemas; unknown fields and opaque strings are invalid. Managed inventory settings must be reapplied after restore.
 
 ### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](../../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [REQ-IDE-013](../../sdd/spec/browser-ide.md#req-ide-013-account-backed-code-review-suppression), [REQ-IDE-014](../../sdd/spec/browser-ide.md#req-ide-014-active-editor-review-with-codeflare))
 

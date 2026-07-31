@@ -77,24 +77,43 @@ def safe_file_uri(value: str, workspace: Path) -> bool:
     return safe_workspace_path(unquote(parsed.path), workspace)
 
 
-def contains_only_workspace_resources(value: object, workspace: Path) -> bool:
+def safe_resource(value: object, workspace: Path) -> bool:
     if isinstance(value, str):
-        if value.startswith("file:"):
-            return safe_file_uri(value, workspace)
-        if value.startswith("/"):
-            return safe_workspace_path(value, workspace)
-        return True
-    if isinstance(value, list):
-        return all(contains_only_workspace_resources(item, workspace) for item in value)
-    if isinstance(value, dict):
-        if value.get("scheme") == "file" and isinstance(value.get("path"), str):
-            if not safe_workspace_path(value["path"], workspace):
-                return False
-        return all(contains_only_workspace_resources(item, workspace) for item in value.values())
-    return value is None or isinstance(value, (bool, int, float))
+        return safe_file_uri(value, workspace)
+    if not isinstance(value, dict) or set(value) - {"scheme", "path", "authority", "query", "fragment"}:
+        return False
+    if value.get("scheme") != "file" or not isinstance(value.get("path"), str):
+        return False
+    if value.get("authority", "") not in ("", "localhost"):
+        return False
+    if value.get("query", "") != "" or value.get("fragment", "") != "":
+        return False
+    return safe_workspace_path(value["path"], workspace)
 
 
-def safe_state_value(raw: object, workspace: Path) -> str | None:
+def state_matches_schema(key: str, value: object, workspace: Path) -> bool:
+    if key == "memento/workbench.parts.editor":
+        if not isinstance(value, dict) or set(value) != {"editorpart.state"}:
+            return False
+        state = value["editorpart.state"]
+        return (isinstance(state, dict)
+                and set(state) == {"resource"}
+                and safe_resource(state["resource"], workspace))
+    if key == "editors.mru":
+        return (isinstance(value, list)
+                and all(isinstance(item, dict)
+                        and set(item) == {"resource"}
+                        and safe_resource(item["resource"], workspace)
+                        for item in value))
+    if key == "workbench.explorer.treeViewState":
+        return (isinstance(value, dict)
+                and set(value) == {"expanded"}
+                and isinstance(value["expanded"], list)
+                and all(safe_resource(item, workspace) for item in value["expanded"]))
+    return False
+
+
+def safe_state_value(key: str, raw: object, workspace: Path) -> str | None:
     if isinstance(raw, bytes):
         try:
             raw = raw.decode("utf8")
@@ -106,7 +125,7 @@ def safe_state_value(raw: object, workspace: Path) -> str | None:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         return None
-    return raw if contains_only_workspace_resources(parsed, workspace) else None
+    return raw if state_matches_schema(key, parsed, workspace) else None
 
 
 def read_theme_settings(settings_path: Path) -> dict[str, object]:
@@ -168,7 +187,7 @@ def read_workspace_state(database: Path | None, workspace: Path) -> dict[str, st
                 tuple(WORKSPACE_STATE_KEYS),
             )
             for key, raw in rows:
-                safe = safe_state_value(raw, workspace)
+                safe = safe_state_value(key, raw, workspace)
                 if key in WORKSPACE_STATE_KEYS and safe is not None:
                     result[key] = safe
         finally:
@@ -254,7 +273,7 @@ def load_snapshot(path: Path, workspace: Path) -> dict[str, object] | None:
     for key, raw in state_values.items():
         if key not in WORKSPACE_STATE_KEYS:
             return None
-        safe = safe_state_value(raw, workspace)
+        safe = safe_state_value(key, raw, workspace)
         if safe is None:
             return None
         safe_state[key] = safe

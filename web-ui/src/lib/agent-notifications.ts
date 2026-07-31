@@ -1,11 +1,14 @@
 import type { AgentType } from '../types';
 
-const SUPPORTED_AGENTS = new Set<AgentType>(['pi', 'claude-code']);
+const AGENT_TITLES = new Map<AgentType, string>([
+  ['pi', 'Pi'],
+  ['claude-code', 'Claude Code'],
+]);
 const MAX_TITLE_BYTES = 64;
 const MAX_BODY_BYTES = 256;
 const MAX_SESSION_BYTES = 64;
 function containsControlCharacter(value: string): boolean {
-  return [...value].some((character) => {
+  return /\p{Cf}/u.test(value) || [...value].some((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
     return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
   });
@@ -48,10 +51,10 @@ export function parseAgentNotification(
   data: string,
   context: AgentNotificationContext,
 ): AgentNotificationPayload | undefined {
+  const agentTitle = context.agentType ? AGENT_TITLES.get(context.agentType) : undefined;
   if (
     context.terminalId !== '1'
-    || !context.agentType
-    || !SUPPORTED_AGENTS.has(context.agentType)
+    || !agentTitle
     || !boundedPlainText(context.sessionName, MAX_SESSION_BYTES)
     || !data.startsWith('notify;')
   ) {
@@ -59,11 +62,11 @@ export function parseAgentNotification(
   }
   const separator = data.indexOf(';', 'notify;'.length);
   if (separator < 0) return undefined;
-  const title = data.slice('notify;'.length, separator);
+  const payloadTitle = data.slice('notify;'.length, separator);
   const body = data.slice(separator + 1);
-  const composedTitle = `${title} · ${context.sessionName}`;
+  const composedTitle = `${agentTitle} · ${context.sessionName}`;
   if (
-    !boundedPlainText(title, MAX_TITLE_BYTES)
+    !boundedPlainText(payloadTitle, MAX_TITLE_BYTES)
     || !boundedPlainText(composedTitle, MAX_TITLE_BYTES)
     || !boundedPlainText(body, MAX_BODY_BYTES)
   ) {

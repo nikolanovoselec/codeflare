@@ -1051,6 +1051,12 @@ svg {
   animation: caret 1.1s steps(1) infinite;
 }
 
+/* The pre-typing hold caret occupies the final opening row's static position
+   without contributing width, so it cannot invalidate the measured fit. */
+.t-caret--waiting {
+  position: absolute;
+}
+
 @keyframes caret {
   50% {
     opacity: 0;
