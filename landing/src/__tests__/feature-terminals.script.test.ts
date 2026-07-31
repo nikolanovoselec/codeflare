@@ -51,6 +51,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.resetModules();
+  vi.unstubAllGlobals();
 });
 
 describe('feature-terminals.ts (REQ-LANDING-001)', () => {
@@ -181,6 +182,50 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     vi.runAllTimers();
     expect(typed.textContent).toBe('one');
 
+    rng.mockRestore();
+  });
+
+  it('REQ-LANDING-014: reserves the Hero frame at its tallest command across typing', async () => {
+    const run = ['short', 'the tallest wrapped command', 'medium command'];
+    const { term, typed } = buildFixture(run);
+    term.setAttribute('data-ft-shuffle', '');
+    mockMatchMedia(false);
+    vi.stubGlobal('innerWidth', 900);
+    let heightScale = 1;
+    const heights = new Map([
+      [run[0], 100],
+      [run[1], 140],
+      [run[2], 120],
+    ]);
+    term.getBoundingClientRect = vi.fn(() => {
+      const height = (heights.get(typed.textContent ?? '') ?? 80) * heightScale;
+      return {
+        height,
+        width: 400,
+        top: 0,
+        left: 0,
+        right: 400,
+        bottom: height,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      };
+    });
+    const rng = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    await import('../scripts/feature-terminals');
+
+    expect(term.style.height).toBe('140px');
+    vi.advanceTimersByTime(8_000);
+    expect(term.style.height).toBe('140px');
+
+    heightScale = 2;
+    window.dispatchEvent(new Event('resize'));
+    expect(term.style.height).toBe('140px');
+
+    vi.stubGlobal('innerWidth', 768);
+    window.dispatchEvent(new Event('resize'));
+    expect(term.style.height).toBe('280px');
     rng.mockRestore();
   });
 
