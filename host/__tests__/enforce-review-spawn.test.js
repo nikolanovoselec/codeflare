@@ -388,6 +388,26 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     }
   });
 
+  // The triage file is session-keyed by transcript-path cksum, exactly like
+  // the clear/strike state files, so sessions sharing one TMPDIR never
+  // acknowledge each other's rounds.
+  const triageFile = (cwd, t) => {
+    const key = spawnSync('bash', ['-c', 'printf %s "$1" | cksum', '_', t], { encoding: 'utf-8' })
+      .stdout.trim().split(' ')[0];
+    return join(cwd, `sdd-review-triage-${key}.md`);
+  };
+  const triageWrite = (cwd, t, filePath, tmpDir = cwd) => spawnSync('bash', [HOOK], {
+    cwd,
+    input: JSON.stringify({
+      hook_event_name: 'PreToolUse',
+      transcript_path: t,
+      tool_name: 'Write',
+      tool_input: { file_path: filePath },
+    }),
+    encoding: 'utf-8',
+    env: { ...process.env, TMPDIR: tmpDir, REVIEW_BYPASS_FILE: join(cwd, 'absent-bypass') },
+  });
+
   it('permits the round-stamped triage-file Write while blocked, and honours the file', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
@@ -395,30 +415,36 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     assert.equal(blocked.status, 2);
     const stamp = blocked.stderr.match(/round: (\d+)/)?.[1];
     assert.ok(stamp, 'the directive names the completion line the file must be stamped with');
+    assert.ok(blocked.stderr.includes(triageFile(cwd, t)),
+      'the directive names the session-keyed file path');
 
     // The Write to the named path is the one mutation allowed while blocked.
-    const writeCall = spawnSync('bash', [HOOK], {
-      cwd,
-      input: JSON.stringify({
-        hook_event_name: 'PreToolUse',
-        transcript_path: t,
-        tool_name: 'Write',
-        tool_input: { file_path: join(cwd, 'sdd-review-triage.md') },
-      }),
-      encoding: 'utf-8',
-      env: { ...process.env, TMPDIR: cwd, REVIEW_BYPASS_FILE: join(cwd, 'absent-bypass') },
-    });
+    const writeCall = triageWrite(cwd, t, triageFile(cwd, t));
     assert.equal(writeCall.status, 0, 'the triage-file Write must pass the gate');
 
-    writeFileSync(join(cwd, 'sdd-review-triage.md'),
+    writeFileSync(triageFile(cwd, t),
       `round: ${stamp}\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
     assert.equal(pretool(cwd, t, 'Edit').status, 0, 'a current round-stamped file clears the gate');
+  });
+
+  it('refuses a Write to any path other than the triage file while blocked', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const writeCall = triageWrite(cwd, t, join(cwd, 'src/anything.ts'));
+    assert.equal(writeCall.status, 2, 'the Write exemption must cover exactly one path');
+  });
+
+  it('accepts the triage-file Write when TMPDIR carries a trailing slash', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const writeCall = triageWrite(cwd, t, triageFile(cwd, t), `${cwd}/`);
+    assert.equal(writeCall.status, 0, 'path compare must normalise the trailing slash');
   });
 
   it('ignores a triage file stamped with a stale round', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
-    writeFileSync(join(cwd, 'sdd-review-triage.md'),
+    writeFileSync(triageFile(cwd, t),
       `round: 1\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
     assert.equal(pretool(cwd, t, 'Edit').status, 2,
       'a previous round\'s file must never clear a newer round');
