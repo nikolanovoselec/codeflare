@@ -21,58 +21,57 @@ function vulnerability(overrides = {}) {
   };
 }
 
-function report(results = [
-  { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability()] },
-  {
-    Target: 'usr/local/bin/lazygit',
-    Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0' })],
-  },
-]) {
+function report(results = [{
+  Target: 'usr/local/bin/lazygit',
+  Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0' })],
+}]) {
   return { Results: results };
 }
 
 describe('Trivy bounded exception gate', () => {
-  it('accepts only the reviewed gh and lazygit x/text findings', () => {
+  it('accepts only the remaining reviewed lazygit x/text finding', () => {
     assert.deepEqual(validateTrivyResult(report()), {
-      accepted: ['usr/bin/gh@v0.38.0', 'usr/local/bin/lazygit@v0.37.0'],
+      accepted: ['usr/local/bin/lazygit@v0.37.0'],
     });
   });
 
-  it('rejects the CVE in any additional image target', () => {
+  it('rejects the retired gh x/text finding', () => {
     const input = report([
+      { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability()] },
       ...report().Results,
-      { Target: 'opt/other/tool', Vulnerabilities: [vulnerability()] },
     ]);
-    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*opt\/other\/tool/s);
+    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*usr\/bin\/gh/s);
   });
 
-  it('rejects missing or installed-version-drifted reviewed findings', () => {
-    assert.throws(() => validateTrivyResult(report([report().Results[0]])), /missing reviewed finding.*lazygit/s);
+  it('rejects a missing or installed-version-drifted reviewed finding', () => {
+    assert.throws(() => validateTrivyResult(report([])), /missing reviewed finding.*lazygit/s);
     assert.throws(
-      () => validateTrivyResult(report([
-        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.39.0' })] },
-        report().Results[1],
-      ])),
-      /unexpected HIGH\/CRITICAL finding.*v0\.39\.0/s,
+      () => validateTrivyResult(report([{
+        Target: 'usr/local/bin/lazygit',
+        Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.38.0' })],
+      }])),
+      /unexpected HIGH\/CRITICAL finding.*v0\.38\.0/s,
     );
   });
 
   it('rejects duplicate findings and fixed-version or severity drift', () => {
     const cases = [
-      report([
-        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability(), vulnerability()] },
-        report().Results[1],
-      ]),
-      report([
-        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ FixedVersion: '0.39.1' })] },
-        report().Results[1],
-      ]),
-      report([
-        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ Severity: 'CRITICAL' })] },
-        report().Results[1],
-      ]),
+      report([{
+        Target: 'usr/local/bin/lazygit',
+        Vulnerabilities: [
+          vulnerability({ InstalledVersion: 'v0.37.0' }),
+          vulnerability({ InstalledVersion: 'v0.37.0' }),
+        ],
+      }]),
+      report([{
+        Target: 'usr/local/bin/lazygit',
+        Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0', FixedVersion: '0.39.1' })],
+      }]),
+      report([{
+        Target: 'usr/local/bin/lazygit',
+        Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0', Severity: 'CRITICAL' })],
+      }]),
     ];
-
     for (const input of cases) {
       assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
     }
@@ -80,22 +79,18 @@ describe('Trivy bounded exception gate', () => {
 
   it('rejects target, vulnerability-ID, or package drift independently', () => {
     const cases = [
-      report([
-        { Target: 'usr/bin/other', Vulnerabilities: [vulnerability()] },
-        report().Results[1],
-      ]),
-      report([
-        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ VulnerabilityID: 'CVE-2099-0001' })] },
-        report().Results[1],
-      ]),
-      report([
-        { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability({ PkgName: 'other' })] },
-        report().Results[1],
-      ]),
+      { Target: 'usr/bin/other', Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0' })] },
+      {
+        Target: 'usr/local/bin/lazygit',
+        Vulnerabilities: [vulnerability({ VulnerabilityID: 'CVE-2099-0001', InstalledVersion: 'v0.37.0' })],
+      },
+      {
+        Target: 'usr/local/bin/lazygit',
+        Vulnerabilities: [vulnerability({ PkgName: 'other', InstalledVersion: 'v0.37.0' })],
+      },
     ];
-
-    for (const input of cases) {
-      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+    for (const result of cases) {
+      assert.throws(() => validateTrivyResult(report([result])), /unexpected HIGH\/CRITICAL finding/);
     }
   });
 
