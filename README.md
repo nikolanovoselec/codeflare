@@ -120,17 +120,6 @@ Default, Onboarding, and SaaS deployments support Claude Code, Codex, GitHub Cop
 
 A Hono Worker authenticates HTTP and WebSocket traffic, serves the application APIs, routes sessions, and applies control-plane policy. One Container Durable Object coordinates each session lifecycle, while one Cloudflare Container provides that session's Linux environment, PTYs, selected agent, and code-server process.
 
-```mermaid
-graph LR
-    E[Engineer] --> A[Cloudflare Access]
-    A --> W[Hono Worker]
-    W --> D[Container Durable Object]
-    D --> C["Session container<br>PTYs · agent · code-server"]
-    W <--> K[(Workers KV)]
-    C <--> R[(Per-user R2)]
-    C -. boundary-intercepted enterprise model traffic .-> G[Customer AI Gateway]
-```
-
 Workers KV holds control-plane records and status, so dashboard polling does not wake a sleeping container. Per-user R2 storage carries selected persistent data between disposable sessions through bounded rclone synchronization.
 
 Enterprise egress interceptors keep supported model and integration credentials or routes at the Worker boundary where their contracts require it. The detailed component model, request paths, lifecycle states, and enterprise routing flows are maintained in [Architecture](documentation/lanes/architecture.md). API contracts are maintained separately in the [API reference](documentation/lanes/api-reference.md).
