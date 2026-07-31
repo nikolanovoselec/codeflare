@@ -454,6 +454,20 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       'a previous round\'s file must never clear a newer round');
   });
 
+  it('ignores triage files keyed to another session or to the legacy un-keyed name', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const stamp = pretool(cwd, t, 'Edit').stderr.match(/round: (\d+)/)?.[1];
+    assert.ok(stamp);
+    const table = `round: ${stamp}\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`;
+    // Correctly stamped tables under a foreign session's key and the legacy
+    // fixed name: neither may clear THIS session's gate.
+    writeFileSync(triageFile(cwd, join(cwd, 'other-transcript.jsonl')), table);
+    writeFileSync(join(cwd, 'sdd-review-triage.md'), table);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2,
+      'only the file keyed to this transcript may clear the gate');
+  });
+
   it('ignores a triage file whose current stamp lacks the stacked shape', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
