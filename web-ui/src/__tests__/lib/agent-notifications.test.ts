@@ -83,6 +83,21 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
     expect(env.registerWorker).not.toHaveBeenCalled();
   });
 
+  it('keys the replacement tag on the stable path, never transient query params', async () => {
+    vi.stubGlobal('location', new URL('http://localhost:3000/s/abc?warm=1'));
+    const showNotification = vi.fn(async () => undefined);
+    const env = browser({
+      getWorker: vi.fn(async () => ({ showNotification })),
+    });
+
+    await showAgentNotification('notify;Pi;Ready for input', context, env);
+
+    expect(showNotification).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      tag: 'codeflare-agent:http://localhost:3000/s/abc',
+      data: { sessionUrl: 'http://localhost:3000/s/abc?warm=1' },
+    }));
+  });
+
   it.each(['default', 'denied'] as const)('does not prompt or display when permission is %s', async (permission) => {
     const env = browser({
       permission: () => permission,
