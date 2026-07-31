@@ -199,6 +199,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.resetModules();
+  vi.unstubAllGlobals();
 });
 
 describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
@@ -247,6 +248,57 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
       expect(delays[index - 1]).toBeLessThan(delays[index]);
     }
     style.remove();
+  });
+
+  it('matches the Hero frame and types context that cannot fit instead of hiding it', async () => {
+    const fixture = buildFixture();
+    const hero = document.createElement('div');
+    hero.className = 'hero-terminal';
+    const heroFrame = document.createElement('div');
+    heroFrame.className = 'terminal';
+    heroFrame.getBoundingClientRect = vi.fn().mockReturnValue({
+      height: 390,
+      width: 350,
+      top: 0,
+      left: 0,
+      right: 350,
+      bottom: 390,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    hero.appendChild(heroFrame);
+    document.body.prepend(hero);
+    vi.stubGlobal('innerWidth', 900);
+    for (const list of [fixture.softwareList, fixture.infrastructureList]) {
+      Object.defineProperties(list, {
+        clientHeight: { configurable: true, value: 240 },
+        scrollHeight: {
+          configurable: true,
+          get: () => list.children.length * 60,
+        },
+      });
+    }
+    mockMatchMedia(false);
+    const observer = installIntersectionObserver();
+
+    await import('../scripts/proof');
+
+    expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('390px');
+    expect(fixture.softwareList.dataset.feedOpeningCount).toBe('4');
+    expect(fixture.infrastructureList.dataset.feedOpeningCount).toBe('4');
+    expect(visibleLines(fixture.infrastructureList)).toEqual(
+      fixture.infrastructureContext.slice(0, 4).map((line) => line.text),
+    );
+
+    observer.intersect(fixture.infrastructure, 'feed');
+    vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS);
+    expect(visibleLines(fixture.infrastructureList).at(-1)).toBe(
+      fixture.infrastructureContext[4].text.slice(0, 1),
+    );
+    expect(visibleLines(fixture.infrastructureList)[0]).toBe(
+      fixture.infrastructureContext[0].text,
+    );
   });
 
   it('types the simulation to completion in a fixed scrolling log with final cursor', async () => {
