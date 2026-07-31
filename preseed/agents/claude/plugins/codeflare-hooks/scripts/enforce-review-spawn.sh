@@ -1234,9 +1234,12 @@ fi
 
 # No lanes required -> already-clean PR HEAD for this diff shape. Ack
 # the checkpoint and exit silently so the next Stop event short-circuits
-# on the cheap path.
+# on the cheap path. This closes a round like the two verdict-side acks,
+# so it consumes the triage file the same way - a leftover file could
+# clear a colliding future round after a compaction rewrite.
 if [ -z "$REQUIRED_LANES" ]; then
   echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+  rm -f "$(triage_file_path)" 2>/dev/null || true
   clear_counter
   exit 0
 fi
