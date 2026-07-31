@@ -610,7 +610,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
         const terminalBodyStyle = view.getComputedStyle(terminalBody);
         expect(terminalBodyStyle.display).toBe('grid');
         expect(terminalBodyStyle.flexGrow).toBe('1');
-        expect(terminalBodyStyle.minHeight).toBe('0px');
+        expect(terminalBodyStyle.minHeight).toBe('0');
         expect(terminalBodyStyle.gridTemplateRows).toBe('minmax(0, 1fr)');
         expect(terminalBodyStyle.overflow).toBe('hidden');
         expect(view.getComputedStyle(sizeReserve).display).toBe('grid');
