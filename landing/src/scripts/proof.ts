@@ -27,6 +27,22 @@ import { EXECUTION_PR_URL, approvedExecutionLinkStart } from '../lib/execution-l
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const artifacts = Array.from(document.querySelectorAll<HTMLElement>('[data-proof]'));
+const executionReel = document.querySelector<HTMLElement>('[data-execution-reel]');
+const heroTerminal = document.querySelector<HTMLElement>('.hero-terminal > .terminal');
+
+/** Mobile and tablet Execution frames share the rendered Hero terminal height.
+ *  A CSS custom property keeps the relationship exact across wrapping widths. */
+function syncExecutionFrames(): boolean {
+  if (!executionReel || !heroTerminal) return false;
+  if (window.innerWidth > 1023) {
+    executionReel.style.removeProperty('--execution-frame-height');
+    return false;
+  }
+  const height = heroTerminal.getBoundingClientRect().height;
+  if (!Number.isFinite(height) || height <= 0) return false;
+  executionReel.style.setProperty('--execution-frame-height', `${height}px`);
+  return true;
+}
 
 const ROLL_FIRST_MS = 3000;
 const ROLL_EVERY_MS = 2600;
@@ -146,6 +162,18 @@ function prepareFeed(list: HTMLElement): void {
   if (context.length < 8 || events.length < 8) return;
   list.replaceChildren(...context.map(feedRow));
   list.closest<HTMLElement>('.terminal-body')?.classList.add('is-feed-prepared');
+
+  // Synchronized mobile/tablet frames can be shorter than the eight-row authored
+  // context at narrow half widths. Keep only the largest prefix that is wholly
+  // visible; startFeed queues the rest before the authored events.
+  const frameIsSynchronized = executionReel?.style
+    .getPropertyValue('--execution-frame-height').length;
+  if (frameIsSynchronized && list.clientHeight > 0) {
+    while (list.children.length > 1 && list.scrollHeight > list.clientHeight) {
+      list.lastElementChild?.remove();
+    }
+  }
+  list.dataset.feedOpeningCount = String(list.children.length);
   list.dataset.feedState = 'ready';
 }
 
@@ -234,8 +262,15 @@ function settleFeed(list: HTMLElement): void {
 function startFeed(list: HTMLElement): void {
   if (list.dataset.feedStarted === 'true' || list.dataset.feedState !== 'ready') return;
   const context = parseFeed(list, 'feedContext');
-  const events = parseFeed(list, 'feedEvents');
-  if (context.length < 8 || events.length < 8 || list.children.length !== context.length) return;
+  const authoredEvents = parseFeed(list, 'feedEvents');
+  const openingCount = Number(list.dataset.feedOpeningCount);
+  if (context.length < 8
+    || authoredEvents.length < 8
+    || !Number.isInteger(openingCount)
+    || openingCount < 1
+    || openingCount > context.length
+    || list.children.length !== openingCount) return;
+  const events = [...context.slice(openingCount), ...authoredEvents];
   list.dataset.feedStarted = 'true';
   list.dataset.feedState = 'running';
   let index = 0;
@@ -270,12 +305,23 @@ function startFeeds(el: HTMLElement): void {
   for (const feed of feeds) startFeed(feed);
 }
 
+function prepareReadyFeeds(): void {
+  document.querySelectorAll<HTMLElement>('[data-feed-state="ready"]')
+    .forEach((feed) => prepareFeed(feed));
+}
+
+function syncFramesAndReadyFeeds(): void {
+  syncExecutionFrames();
+  prepareReadyFeeds();
+}
+
 let feedResizePending = false;
 window.addEventListener('resize', () => {
   if (feedResizePending) return;
   feedResizePending = true;
   window.setTimeout(() => {
     feedResizePending = false;
+    syncFramesAndReadyFeeds();
     const feeds = document.querySelectorAll<HTMLElement>(
       '[data-feed-state="running"], [data-feed-state="complete"]',
     );
@@ -318,6 +364,14 @@ function startWithoutIntersectionObserver(): void {
     startRoll(el);
   }
 }
+
+syncExecutionFrames();
+
+if (typeof ResizeObserver === 'function' && heroTerminal) {
+  const frameObserver = new ResizeObserver(() => syncFramesAndReadyFeeds());
+  frameObserver.observe(heroTerminal);
+}
+void document.fonts?.ready.then(() => syncFramesAndReadyFeeds());
 
 if (reduced) {
   // Static markup is already the resolved artifact; no motion to arm.

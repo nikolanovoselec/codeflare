@@ -731,10 +731,9 @@ svg {
 /* --------------------------------------------------------------------------
    Execution overview (REQ-LANDING-010)
 
-   Both Hero-scale terminals render full resolved viewports for no-JS and
-   reduced-motion visitors. In normal motion, eight rows establish base sizing;
-   every populated row fitting the stretched opening viewport reveals top-down,
-   while further retained rows remain clipped before live events append.
+   Both Hero-scale terminals render full resolved viewports for no-JS visitors.
+   At mobile/tablet widths, the enhanced frames share the rendered Hero height
+   and reveal only the context prefix that wholly fits before live events append.
    -------------------------------------------------------------------------- */
 #execution .section-head {
   max-width: 52rem;
@@ -763,6 +762,15 @@ svg {
   flex-direction: column;
 }
 
+/* On mobile and tablet, proof.ts resolves this shared value from the rendered
+   Hero terminal. Both Execution frames therefore retain the same outer height
+   as each other and the Hero reel without hard-coding viewport-specific pixels. */
+@media (max-width: 1023.98px) {
+  .execution-terminal {
+    height: var(--execution-frame-height, auto);
+  }
+}
+
 .execution-terminal-title {
   min-width: 0;
   overflow: hidden;
@@ -773,9 +781,8 @@ svg {
 
 /* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
    Long real command output wraps within each frame instead of scrolling sideways.
-   The hidden sizing layer establishes each frame's initial eight-row base during motion;
-   pair stretching can expose more retained context. No-JS and reduced-motion visitors
-   instead size against the resolved state. */
+   The hidden sizing layer provides intrinsic desktop and no-JS sizing; enhanced
+   mobile/tablet frames use the rendered Hero height written by proof.ts. */
 .execution-terminal .terminal-body {
   position: relative;
   display: grid;
@@ -802,9 +809,9 @@ svg {
   min-height: 0;
 }
 
-/* The resolved state sizes no-JS/reduced-motion markup. Once proof.ts restores
-   the complete context history, its first eight rows establish the motion base;
-   equal-height pair stretching can expose more context before overflow clips. */
+/* The resolved state sizes no-JS markup. On desktop, the first eight context rows
+   establish the motion base; mobile/tablet enhancement uses the synchronized Hero
+   height and moves any context that cannot fit into the typed queue. */
 .execution-terminal .transcript-feed-size-window:last-child,
 .execution-terminal .terminal-body.is-feed-prepared .transcript-feed-size-window:first-child {
   display: flex;
