@@ -123,10 +123,16 @@ const defaultBrowser: AgentNotificationBrowser = {
   },
   registerWorker: async () => {
     if (!('serviceWorker' in navigator)) return undefined;
-    return navigator.serviceWorker.register(WORKER_PATH, { scope: WORKER_SCOPE });
+    await navigator.serviceWorker.register(WORKER_PATH, { scope: WORKER_SCOPE });
+    // showNotification rejects on a registration with no active worker, so the
+    // enable action resolves only once the worker has activated — otherwise the
+    // first notification after enabling is silently dropped.
+    return navigator.serviceWorker.ready;
   },
   getWorker: async () => {
     if (!('serviceWorker' in navigator)) return undefined;
-    return navigator.serviceWorker.getRegistration(WORKER_SCOPE);
+    const registration = await navigator.serviceWorker.getRegistration(WORKER_SCOPE);
+    if (!registration) return undefined;
+    return registration.active ? registration : navigator.serviceWorker.ready;
   },
 };

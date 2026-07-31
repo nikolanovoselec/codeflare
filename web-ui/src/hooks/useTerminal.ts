@@ -384,17 +384,20 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
-    const session = sessionStore.sessions?.find((candidate) => candidate.id === props.sessionId);
-    if (props.terminalId === '1' && (session?.agentType === 'pi' || session?.agentType === 'claude-code')) {
-      notificationDisposable = t.parser.registerOscHandler(777, (data) => {
-        void showAgentNotification(data, {
-          agentType: session.agentType,
-          terminalId: props.terminalId,
-          sessionName: props.sessionName ?? session.name,
-        });
-        return true;
+    // Registered unconditionally: the sessions store may still be loading when
+    // the terminal mounts (initial page load lands directly in a session), so a
+    // mount-time agent check would leave the handler unregistered for the life
+    // of the terminal. The agent/tab-1 gate runs in parseAgentNotification at
+    // event time instead, against the store's current session record.
+    notificationDisposable = t.parser.registerOscHandler(777, (data) => {
+      const session = sessionStore.sessions?.find((candidate) => candidate.id === props.sessionId);
+      void showAgentNotification(data, {
+        agentType: session?.agentType,
+        terminalId: props.terminalId,
+        sessionName: props.sessionName ?? session?.name ?? '',
       });
-    }
+      return true;
+    });
 
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 

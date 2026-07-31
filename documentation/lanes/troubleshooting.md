@@ -219,6 +219,16 @@ Every scroll route is buffer-authoritative — touch gestures, mouse wheel (capt
 
 **Verify:** Enter `/tui fullscreen` on mobile and swipe vertically with the keyboard closed, then use both floating arrow controls. Conversation history should move in each direction while horizontal swipes still navigate the prompt; with the keyboard open, vertical swipes send arrow keys rather than scrolling. CI's `touch-gestures.test.ts` verifies keyboard-closed wheel routing and the keyboard-open arrow-key lock, and `FloatingTerminalButtons.test.tsx` verifies PageUp/PageDown input replaces normal-buffer scrolling only in the alternate screen.
 
+### Agent Browser Notifications Never Appear
+
+**Symptom:** Enabling notifications in Settings shows no browser permission prompt (mobile), or Pi/Claude terminal activity produces no notification even after the permission is granted ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notification-delivery), [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers)).
+
+**Cause:** Split by surface. (1) iOS exposes the Notification API only inside an installed Home Screen web app, never in a Safari tab, so a tab can neither prompt nor display. (2) On builds before the event-time session fix, a terminal that mounted before the sessions store populated never registered its OSC 777 handler, so no notification could fire for that terminal's lifetime. (3) Right after enabling, a still-installing service worker rejects `showNotification`, dropping the first notifications. (4) A returning user's first session after a deploy could restore an extension tree that predates `native-notifications.ts`, because the relay only overwrote files already present and the Worker-side R2 seed of missing keys races the boot sync. (5) Claude sends its native notification only for task-complete and permission-prompt events, and suppresses it while the terminal has focus.
+
+**Fix:** On iOS, add Codeflare to the Home Screen (Share → Add to Home Screen), open it from there, and enable notifications in Settings — the hint marks this state. The web UI registers the OSC 777 handler unconditionally and resolves the session at event time; the enable/display paths wait for the activated worker; the entrypoint relay backfills missing managed extensions from the mode-filtered bake ([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake) AC4). Start a fresh session after deploying so the container runs the current image.
+
+**Verify:** With permission granted and the terminal unfocused, a settled Pi turn or completed Claude task in terminal tab 1 produces one notification titled with the agent and session name. `useTerminal.test.ts` covers the late-store registration, `agent-notifications.test.ts` covers the activated-worker path, and `entrypoint-governed-sync.test.js` covers the bake backfill.
+
 ### Container Stuck at "Waiting for Services"
 
 The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.

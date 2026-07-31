@@ -126,4 +126,44 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
   ])('reports notification enablement as unavailable after %s', async (_name, env) => {
     await expect(enableAgentNotifications(env)).resolves.toBe('unavailable');
   });
+
+  it('displays through the ready worker when the stored registration has not activated yet', async () => {
+    const readyShow = vi.fn(async () => undefined);
+    const inactiveShow = vi.fn(async () => undefined);
+    vi.stubGlobal('Notification', { permission: 'granted' });
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        getRegistration: vi.fn(async () => ({ active: null, showNotification: inactiveShow })),
+        ready: Promise.resolve({ active: {}, showNotification: readyShow }),
+      },
+    });
+
+    await showAgentNotification('notify;Pi;Ready for input', context);
+
+    expect(readyShow).toHaveBeenCalledOnce();
+    expect(inactiveShow).not.toHaveBeenCalled();
+  });
+
+  it('enable registers the worker at the root scope and resolves only through the ready registration', async () => {
+    let readyAwaited = false;
+    const register = vi.fn(async () => ({ active: null }));
+    vi.stubGlobal('Notification', {
+      permission: 'granted',
+      requestPermission: vi.fn(async (): Promise<NotificationPermission> => 'granted'),
+    });
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        register,
+        get ready() {
+          readyAwaited = true;
+          return Promise.resolve({ active: {}, showNotification: vi.fn(async () => undefined) });
+        },
+      },
+    });
+
+    await expect(enableAgentNotifications()).resolves.toBe('granted');
+
+    expect(register).toHaveBeenCalledWith('/agent-notifications-sw.js', { scope: '/' });
+    expect(readyAwaited).toBe(true);
+  });
 });

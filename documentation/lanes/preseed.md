@@ -530,9 +530,11 @@ following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-s
 
 At startup, R2 sync excludes the three retired durable-review extension paths. The
 managed-extension relay also removes local copies before Pi loads runtime code while
-preserving user-added extensions
+preserving user-added extensions, and backfills managed extensions missing from a
+returning user's restored tree out of the mode-filtered bake so a newly shipped
+extension arrives at boot instead of racing the Worker-side R2 seed
 ([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
-AC6–AC7).
+AC4, AC6–AC7).
 
 CI follows a distinct execution path inside the extension-issued launch plan. The
 root invokes the plan's request resolver exactly once after reviewer calls and

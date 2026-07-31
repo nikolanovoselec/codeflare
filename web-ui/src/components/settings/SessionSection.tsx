@@ -11,7 +11,7 @@ import {
 import Icon from '../Icon';
 import type { Settings } from '../../lib/settings';
 import type { AgentNotificationEnablement } from '../../lib/agent-notifications';
-import { isTouchDevice } from '../../lib/mobile';
+import { isTouchDevice, needsHomeScreenInstallForNotifications } from '../../lib/mobile';
 import AdminActionButton from './AdminActionButton';
 
 interface SessionSectionProps {
@@ -144,13 +144,20 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
             disabled={props.notificationPermission() === 'granted'}
             testId="settings-agent-notifications"
           />
-          <span class="settings-hint type-hint" data-testid="settings-agent-notifications-status">
+          <span
+            class="settings-hint type-hint"
+            data-testid="settings-agent-notifications-status"
+            data-guidance={props.notificationPermission() === 'unavailable'
+              && needsHomeScreenInstallForNotifications() ? 'ios-install' : undefined}
+          >
             {props.notificationPermission() === 'granted'
               ? 'Enabled'
               : props.notificationPermission() === 'denied'
                 ? 'Blocked in browser site settings'
                 : props.notificationPermission() === 'unavailable'
-                  ? 'Unavailable in this browser'
+                  ? (needsHomeScreenInstallForNotifications()
+                    ? 'On iOS, add Codeflare to your Home Screen (Share → Add to Home Screen), then enable notifications here.'
+                    : 'Unavailable in this browser')
                   : 'Notify when Pi or Claude is ready for input in terminal tab 1.'}
           </span>
         </div>

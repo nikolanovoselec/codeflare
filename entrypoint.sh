@@ -733,7 +733,23 @@ relay_managed_pi_extensions() {
             relaid=$((relaid + 1))
         fi
     done
-    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) from image source over post-sync tree" | tee -a /tmp/sync.log
+    # A managed extension that is NEW in this image exists in no returning
+    # user's restored tree, so overwrite-if-present alone never delivers it
+    # (the Worker-side R2 seed of missing keys races this boot's initial sync).
+    # Backfill missing ones from the MODE-FILTERED bake — the unfiltered warm
+    # tree above would leak advanced-only extensions into default sessions.
+    local added=0 bake_ext="${AGENT_SEED_BAKE_DIR:-/opt/codeflare/agent-seed-bake}/${SESSION_MODE:-default}/.pi/agent/extensions"
+    if [ -d "$bake_ext" ]; then
+        for f in "$bake_ext"/*.ts; do
+            [ -e "$f" ] || continue
+            base="$(basename "$f")"
+            if [ ! -f "$dest/$base" ]; then
+                cp "$f" "$dest/$base"
+                added=$((added + 1))
+            fi
+        done
+    fi
+    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /tmp/sync.log
 }
 
 # Step 2: Establish bisync baseline (after data is restored)

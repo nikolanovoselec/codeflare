@@ -89,9 +89,16 @@ vi.mock('../../stores/terminal', () => ({
   },
 }));
 
+// Mutable so tests can simulate the sessions store populating AFTER the
+// terminal mounts (the initial-load race the OSC handler must survive).
+const sessionState = vi.hoisted(() => ({
+  sessions: [{ id: 'test-session-123', agentType: 'pi', name: 'Test session' }] as
+    Array<{ id: string; agentType?: string; name: string }>,
+}));
+
 vi.mock('../../stores/session', () => ({
   sessionStore: {
-    sessions: [{ id: 'test-session-123', agentType: 'pi', name: 'Test session' }],
+    get sessions() { return sessionState.sessions; },
     isSessionInitializing: vi.fn(() => false),
     getInitProgressForSession: vi.fn(() => null),
     getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
@@ -294,7 +301,11 @@ describe('useTerminal hook', () => {
   });
 
   describe('native agent notifications / REQ-TERM-023', () => {
-    it('registers OSC 777 for the selected terminal-1 agent and disposes it on unmount', () => {
+    beforeEach(() => {
+      sessionState.sessions = [{ id: 'test-session-123', agentType: 'pi', name: 'Test session' }];
+    });
+
+    it('registers OSC 777 on mount and disposes it on unmount', () => {
       const oscDispose = vi.fn();
       mockRegisterOscHandler.mockReturnValueOnce({ dispose: oscDispose });
 
@@ -314,6 +325,34 @@ describe('useTerminal hook', () => {
 
       dispose();
       expect(oscDispose).toHaveBeenCalledOnce();
+    });
+
+    it('resolves the session at event time, so a terminal mounted before the store loads still notifies', () => {
+      sessionState.sessions = []; // store not yet populated when the terminal mounts
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      const handler = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 777)?.[1];
+      expect(handler).toBeTypeOf('function');
+
+      handler?.('notify;Pi;Ready for input');
+      expect(showAgentNotification).toHaveBeenLastCalledWith(
+        'notify;Pi;Ready for input',
+        expect.objectContaining({ agentType: undefined }),
+      );
+
+      sessionState.sessions = [{ id: 'test-session-123', agentType: 'pi', name: 'Test session' }];
+      handler?.('notify;Pi;Ready for input');
+      expect(showAgentNotification).toHaveBeenLastCalledWith(
+        'notify;Pi;Ready for input',
+        { agentType: 'pi', terminalId: '1', sessionName: 'Test session' },
+      );
+
+      dispose();
     });
   });
 

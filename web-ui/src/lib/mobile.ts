@@ -123,6 +123,19 @@ export function isIOSDevice(): boolean {
 }
 
 /**
+ * iOS/iPadOS exposes the Notification API only inside an installed Home Screen
+ * web app, never in a plain Safari tab. When that is why notifications are
+ * unavailable, Settings shows install guidance instead of a dead end.
+ */
+export function needsHomeScreenInstallForNotifications(): boolean {
+  if (!isIOSDevice()) return false;
+  const standalone = typeof window !== 'undefined'
+    && (window.matchMedia?.('(display-mode: standalone)').matches
+      || (navigator as Navigator & { standalone?: boolean }).standalone === true);
+  return !standalone;
+}
+
+/**
  * After focusing an input on a touch device, scroll it into the area above the
  * on-screen keyboard. The keyboard overlays the bottom of the screen, so a field
  * low on the page (e.g. the GitHub search bar, which sits below the session card)

@@ -7,7 +7,7 @@ import { loadSettings, saveSettings, defaultSettings } from '../../lib/settings'
 import type { Settings } from '../../lib/settings';
 import * as storageApi from '../../api/storage';
 
-const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false }));
+const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false, iosInstall: false }));
 
 const sessionStoreState = vi.hoisted(() => ({
   preferences: { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined } as { workspaceSyncEnabled: boolean | undefined; fastStartEnabled: boolean | undefined; sessionMode?: string | undefined },
@@ -20,6 +20,7 @@ const sessionStoreState = vi.hoisted(() => ({
 vi.mock('../../lib/mobile', () => ({
   isTouchDevice: () => mobileState.mobile,
   get isSamsungBrowser() { return mobileState.samsung; },
+  needsHomeScreenInstallForNotifications: () => mobileState.iosInstall,
 }));
 
 const mockGetLlmKeys = vi.hoisted(() => vi.fn());
@@ -275,6 +276,21 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent(
         'Unavailable in this browser',
       );
+      expect(screen.getByTestId('settings-agent-notifications-status')).not.toHaveAttribute('data-guidance');
+    });
+
+    it('marks the unavailable state with Home Screen install guidance on iOS browser tabs', () => {
+      mobileState.iosInstall = true;
+      try {
+        mockAgentNotificationPermission.mockReturnValueOnce('unavailable');
+        render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+        fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+        expect(screen.getByTestId('settings-agent-notifications-status'))
+          .toHaveAttribute('data-guidance', 'ios-install');
+      } finally {
+        mobileState.iosInstall = false;
+      }
     });
   });
 
