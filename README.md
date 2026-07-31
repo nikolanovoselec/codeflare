@@ -8,6 +8,11 @@ Codeflare is a customer-operated execution platform where engineers and AI agent
 
 Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudflare account and connects to the customer's identity, GitHub organization, inference controls, storage, and security policies. A public demonstration is available at [codeflare.ch](https://codeflare.ch); enterprise deployment guidance is maintained in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
+<p align="center">
+  <img src="assets/documentation/execution-software.gif" width="49%" alt="Codeflare software delivery execution">
+  <img src="assets/documentation/execution-infrastructure.gif" width="49%" alt="Codeflare infrastructure operations execution">
+</p>
+
 ## Contents
 
 - [What teams use Codeflare for](#what-teams-use-codeflare-for)
@@ -41,6 +46,11 @@ Codeflare gives agents a governed execution environment for software delivery an
 | **Deployed-system verification** | Correlate browser results with logs, checks, live URLs, and deployment state. Deterministic assertions remain in CI alongside semantic browser validation. |
 | **Operational recovery** | Diagnose failed builds or deployments, inspect current state, apply controlled corrections, and use documented deployment and rollback procedures. |
 
+<p align="center">
+  <img src="assets/documentation/inference-mesh.gif" width="46%" alt="Codeflare Inference Mesh execution">
+  <img src="assets/documentation/legacy-baseline.gif" width="52%" alt="Legacy inference baseline">
+</p>
+
 ---
 
 ## Disposable by design
@@ -59,6 +69,8 @@ Agents and trusted tools still have broad access inside their session. Disposabl
 
 Codeflare applies one governed workflow across software delivery, browser automation, and deployment. Infrastructure operations are coming soon and currently in private preview:
 
+![Codeflare governed execution terminals](assets/documentation/bottleneck-grid.gif)
+
 1. **Define intent:** requirements, acceptance criteria, and operational scope establish the approved outcome.
 2. **Execute:** agents work in repositories and supported software environments using the team's existing tools; private-preview operations extend execution to approved infrastructure.
 3. **Test:** behavioral tests prove observable contracts in CI, while Browser Run and Chrome DevTools exercise deployed user journeys against their acceptance criteria.
@@ -75,6 +87,8 @@ Enterprise sessions apply the organization's requirements, engineering rules, re
 
 Enterprise Codeflare uses customer-configured services inside the customer's Cloudflare account, keeping identity, AI governance, network policy, data, and operational evidence under customer control.
 
+![Codeflare observability and orchestration](assets/documentation/observability.gif)
+
 | Control | Enterprise behavior |
 |---|---|
 | **Identity and authorization** | Use the customer's corporate identity and groups through Cloudflare Access to govern who can enter and administer Codeflare. |
@@ -86,12 +100,13 @@ Enterprise Codeflare uses customer-configured services inside the customer's Clo
 | **Cost and usage control** | Attribute supported model usage to users and groups, constrain available routes, and stop session compute when it is no longer needed. |
 | **Operational evidence** | Retain CI results, security evidence, resource metrics, and AI usage analytics in systems the customer controls. |
 
+![Codeflare cost and usage ledger](assets/documentation/cost-ledger.gif)
+
 ---
 
 ## Workspace experience
 
-![Codeflare on a foldable tablet](assets/documentation/mobile-foldable.jpg)
-*One governed workspace from intent through verification, available through a browser without a local engineering toolchain.*
+![Codeflare platform session preload](assets/documentation/platform-preload.gif)
 
 ### Terminal and Browser VS Code
 
@@ -102,6 +117,8 @@ Enterprise Codeflare uses customer-configured services inside the customer's Clo
 - Continuity for selected editor preferences and open files without carrying credentials or chat history between runtimes.
 - Live resource, synchronization, and session status.
 - MultiView for observing several sessions side by side.
+
+![Codeflare Browser VS Code workbench](assets/documentation/browser-vscode.gif)
 
 ### Repository, browser, and infrastructure tools
 
@@ -116,9 +133,6 @@ Enterprise Codeflare uses customer-configured services inside the customer's Clo
 - Approved organizational context that carries across sessions without relying on a persistent agent process.
 - A connected view of source code, requirements, decisions, plans, and documentation that helps agents trace dependencies and change impact.
 - Specialist agents for architecture, debugging, deployment, security, review, and refactoring.
-
-![Codeflare on a phone](assets/documentation/mobile-phone.jpg)
-*The terminal workspace is optimized for mobile input as well as desktop and tablet use.*
 
 ### Supported agents
 
@@ -139,9 +153,6 @@ Codeflare's deepest integrations are with Claude Code and Pi. Other agents recei
 ---
 
 ## Architecture
-
-![Codeflare IDE](assets/documentation/hero-ide-fullscreen.png)
-*Terminal, Browser VS Code, repository controls, and operational tools share one disposable session runtime.*
 
 ```mermaid
 graph LR
