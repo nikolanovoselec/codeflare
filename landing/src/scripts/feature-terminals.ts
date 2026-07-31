@@ -59,15 +59,17 @@ if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       // matches what types next.
       typed.textContent = loop[0];
 
-      let reservedWidth = window.innerWidth;
-      const reserve = () => reserveHeroFrame(term, typed, loop);
-      reserve();
-      void document.fonts?.ready.then(reserve);
-      window.addEventListener('resize', () => {
-        if (window.innerWidth === reservedWidth) return;
-        reservedWidth = window.innerWidth;
+      if (term.closest('.hero-terminal')) {
+        let reservedWidth = window.innerWidth;
+        const reserve = () => reserveHeroFrame(term, typed, loop);
         reserve();
-      });
+        void document.fonts?.ready.then(reserve);
+        window.addEventListener('resize', () => {
+          if (window.innerWidth === reservedWidth) return;
+          reservedWidth = window.innerWidth;
+          reserve();
+        });
+      }
     }
 
     let wi = 0;
