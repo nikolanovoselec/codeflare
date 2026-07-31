@@ -1094,8 +1094,11 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
     ]);
+    // The stamp is the transcript line of the last completion, which is the
+    // fixture's final line - derived, so fixture growth cannot break it.
+    const stamp = readFileSync(t, 'utf-8').trim().split('\n').length;
     writeFileSync(triageFile(cwd, t),
-      `round: 7\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
+      `round: ${stamp}\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
     runHook(cwd, { transcriptPath: t, binDir, tmpDir: cwd });
     assert.equal(ackOf(cwd), 'filechannelsha', 'the file channel must back the Stop-side ack');
     assert.equal(existsSync(triageFile(cwd, t)), false,
@@ -1207,6 +1210,35 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     }
     assert.equal(acked, true,
       'repeated unanswered demands must acknowledge; a permanently wedged checkpoint is the failure being removed');
+  });
+
+  // The giveup ack must also consume the triage file: a stale file surviving
+  // the 5-strike escape is exactly what could clear a colliding future round
+  // after a compaction rewrite re-issues its line number.
+  it('consumes a stale triage file when the giveup ack closes the round', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'giveupsha'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+    ]);
+    writeFileSync(triageFile(cwd, t),
+      `round: 1\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
+    let acked = false;
+    for (let i = 0; i < 7 && !acked; i += 1) {
+      runHook(cwd, { transcriptPath: t, binDir, tmpDir: cwd });
+      acked = ackOf(cwd) === 'giveupsha';
+    }
+    assert.equal(acked, true,
+      'a stale-stamped file must not satisfy the verdict, so only the giveup can acknowledge');
+    assert.equal(existsSync(triageFile(cwd, t)), false,
+      'the giveup ack must consume the file');
   });
 
   // REQ-AGENT-104 AC5.
