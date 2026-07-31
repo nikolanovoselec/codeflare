@@ -11,7 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -191,7 +191,8 @@ const LANE_BASH_LINE = (lane, ts, toolUseId = 'toolu_b') =>
 // backgrounded Agent uses, so one completion contract covers both transports.
 const LANE_BASH_DONE_LINE = (toolUseId) => DONE_LINE(toolUseId);
 
-// The triage verdict: an assistant message carrying the table and NO tool call.
+// The triage verdict: an assistant message whose text carries the table
+// (tool calls may share the message - the text is the checkpoint).
 // The header/divider are contract values the gate matches on, the same two
 // constants Pi pins -- not prose, and not assertable copy.
 const TRIAGE_HEADER = '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |';
@@ -377,8 +378,30 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const t = writeTranscript(cwd, completedRound());
     const key = spawnSync('bash', ['-c', 'printf %s "$1" | cksum', '_', t], { encoding: 'utf-8' })
       .stdout.trim().split(' ')[0];
-    writeFileSync(join(cwd, `sdd-pretool-triage-clear-${key}`), '3\n');
-    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+    // Legacy two-field entry whose offset sits at EOF: honouring it would see
+    // nothing appended and allow, so only the strict three-field guard blocks.
+    writeFileSync(join(cwd, `sdd-pretool-triage-clear-${key}`), `1:${statSync(t).size}\n`);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2,
+      'legacy entry must not be honoured as a cleared round');
+  });
+
+  it('accepts a table sharing its message with the first fix tool call', () => {
+    const cwd = makeFixture();
+    const tableWithTool = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: `${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a finding | valid | a fix | proportionate | fix |`,
+          },
+          { type: 'tool_use', name: 'Edit', id: 'toolu_fix1', input: {} },
+        ],
+      },
+    });
+    const t = writeTranscript(cwd, [...completedRound(), tableWithTool]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0,
+      'a tool-free message ends the turn, so the table must count alongside fixes');
   });
 
   it('gives up after five refused calls for the same round, then stays released', () => {

@@ -727,7 +727,7 @@ spawn_completion_line() {
   ' "$TRANSCRIPT"
 }
 
-# An assistant message carrying the triage table and NO tool call.
+# An assistant message whose TEXT carries the triage table.
 #
 # Structural, not substring. The gate's own demand text quotes both constants,
 # and a model restating a required format ("I'll publish <header> over
@@ -735,10 +735,17 @@ spawn_completion_line() {
 # message that contains no verdict at all, inverting the gate. The header must
 # be its own line, the divider the line immediately after it, and at least one
 # data row must follow: that shape is a published table and nothing else is.
+#
+# Tool calls in the same message do NOT disqualify it. A tool-free assistant
+# message ends the turn, so requiring one forced a stall after every table and
+# made the fix phase depend on the Stop event that the stall was waiting for.
+# The table text is still published before the tools run - the checkpoint
+# stays visible - and only text blocks are extracted below, so nothing inside
+# a tool_use envelope can fake the shape.
 triage_published_after_line() {
   local min_line="$1"
   awk -v s="$min_line" '
-    NR > s && index($0, "\"type\":\"assistant\"") && !index($0, "\"type\":\"tool_use\"")
+    NR > s && index($0, "\"type\":\"assistant\"")
   ' "$TRANSCRIPT" \
     | jq -R -r 'fromjson? | [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]' 2>/dev/null \
     | awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
@@ -802,7 +809,7 @@ if [ -n "$PRETOOL_MODE" ]; then
     echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
     pretool_allow
   fi
-  echo "REVIEW TRIAGE REQUIRED: every review lane spawned in this session has returned, and no triage verdict has been published since the last one completed. Before ANY further tool call, read each lane's report (Read and TaskOutput are permitted) and publish ONE triage table as its own assistant message - no tool calls in it - in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding across all lanes (a fully clean round gets one row per lane stating the runner's clean verdict). Judge each finding separately from its proposed fix: VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. Fixes, commits, and pushes come only after that table is visible." >&2
+  echo "REVIEW TRIAGE REQUIRED: every review lane spawned in this session has returned, and no triage verdict has been published since the last one completed. Before ANY further tool call, read each lane's report (Read and TaskOutput are permitted) and publish ONE triage table in your visible text - it may share the message with your first fix tool calls, the table text itself is the checkpoint - in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding across all lanes (a fully clean round gets one row per lane stating the runner's clean verdict). Judge each finding separately from its proposed fix: VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. Fixes, commits, and pushes come only after that table is visible." >&2
   exit 2
 fi
 

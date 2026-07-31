@@ -2773,7 +2773,7 @@ None.
 
 **Constraints:**
 
-- The verdict is recognised structurally, by its table header and divider in a message carrying no tool call; a command quoting the header is not a verdict.
+- The verdict is recognised structurally, by its stacked table header, divider, and data row in assistant text; a command or demand quoting the header inline is not a verdict, and tool calls sharing the message do not disqualify it — a tool-free message would end the turn and stall the fix phase.
 - The verdict demand is counted and rate-limited on its own, never on the counter that limits lane demands; sharing one lets a head be acknowledged before any verdict was asked for, and silences the demand that would have been answered.
 - Both runtimes recognise the same table shape, so a verdict is portable between them.
 - The mid-turn refusal never writes acknowledgement or counter state and reads the bypass sentinel without consuming it; five refused calls for one round release the gate instead of wedging the session, and a lane still in flight or ended without success never triggers it.
