@@ -6,12 +6,12 @@
 
 Codeflare is a customer-operated execution platform where engineers and AI agents design and architect systems, build and debug software, automate end-to-end tests, deploy, verify, and recover software releases together. Infrastructure operations are coming soon and currently in private preview, covering approved patching and migration work. Work happens inside authenticated, disposable browser sessions, with organizational rules, evidence, and human approval built into the workflow instead of bolted onto laptops or long-lived shared runners.
 
-Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudflare account and connects to the customer's identity, GitHub organization, inference controls, storage, and security policies. A public demonstration is available at [codeflare.ch](https://codeflare.ch); enterprise deployment guidance is maintained in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
-
 <p align="center">
   <img src="assets/documentation/execution-software.gif" width="49%" alt="Codeflare software delivery execution">
   <img src="assets/documentation/execution-infrastructure.gif" width="49%" alt="Codeflare infrastructure operations execution">
 </p>
+
+Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudflare account and connects to the customer's identity, GitHub organization, inference controls, storage, and security policies. A public demonstration is available at [codeflare.ch](https://codeflare.ch); enterprise deployment guidance is maintained in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
 ---
 
