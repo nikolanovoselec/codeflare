@@ -643,6 +643,8 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
       const terminal = face.querySelector('.terminal.execution-terminal[data-proof]')!;
       const feed = terminal.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
       expect(terminal).not.toBeNull();
+      const expectedVariant = index === 0 ? 'software' : 'infrastructure';
+      expect(terminal.classList.contains(`execution-terminal--${expectedVariant}`)).toBe(true);
       expect(runs[index].context.length).toBeGreaterThanOrEqual(8);
       expect(runs[index].events.length).toBeGreaterThan(0);
       expect(feed.querySelectorAll(':scope > .t-line')).toHaveLength(8);

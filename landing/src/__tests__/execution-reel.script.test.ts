@@ -336,15 +336,14 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
 
     await import('../scripts/proof');
 
-    const responsiveRule = Array.from(style.sheet!.cssRules)
-      .filter((rule): rule is CSSMediaRule => 'conditionText' in rule)
-      .flatMap((rule) => Array.from(rule.cssRules))
+    const responsiveMedia = Array.from(style.sheet!.cssRules)
+      .find((rule): rule is CSSMediaRule =>
+        'conditionText' in rule && rule.conditionText === '(max-width: 1023.98px)');
+    const responsiveRule = Array.from(responsiveMedia?.cssRules ?? [])
       .find((rule): rule is CSSStyleRule =>
         'selectorText' in rule && rule.selectorText === '.execution-terminal');
     expect(responsiveRule?.style.getPropertyValue('height'))
-      .toBe('var(--execution-frame-height, auto)');
-    expect(fixture.software.classList.contains('execution-terminal')).toBe(true);
-    expect(fixture.infrastructure.classList.contains('execution-terminal')).toBe(true);
+      .toBe('var(--execution-frame-height)');
     expect(observe).toHaveBeenCalledWith(heroFrame);
     expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('390px');
     expect(fixture.softwareList.dataset.feedOpeningCount).toBe('3');

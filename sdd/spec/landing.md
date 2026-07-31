@@ -310,8 +310,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/proof.ts::reduced --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps the complete resolved event viewports under reduced motion) --> <!-- @manual -->
-2. Under reduced motion, both populated resolved event viewports remain visible and readable. <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps the complete resolved event viewports under reduced motion) --> <!-- @manual -->
+1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/proof.ts::reduced --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps intrinsic complete resolved event viewports under reduced motion) --> <!-- @manual -->
+2. Under reduced motion, both populated resolved event viewports remain visible and readable. <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps intrinsic complete resolved event viewports under reduced motion) --> <!-- @manual -->
 
 **Constraints:**
 
