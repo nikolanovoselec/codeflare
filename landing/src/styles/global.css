@@ -747,6 +747,10 @@ svg {
   min-width: 0;
 }
 
+.execution-reel {
+  --execution-frame-height: auto;
+}
+
 .execution-card {
   display: grid;
   gap: clamp(2rem, 4vw, 3.5rem);
@@ -763,11 +767,10 @@ svg {
   flex-direction: column;
 }
 
-/* Under normal-motion enhancement on mobile and tablet, proof.ts resolves this
-   shared value from the rendered Hero terminal. Both Execution frames therefore
-   retain the same outer height as each other and the Hero reel without hard-coded
-   viewport pixels. Without the variable, the declaration is invalid and intrinsic
-   no-JS/reduced-motion sizing remains in force. */
+/* Under normal-motion enhancement on mobile and tablet, proof.ts replaces the
+   intrinsic `auto` value with the rendered Hero terminal height. Both Execution
+   frames therefore retain the same outer height as each other and the Hero reel.
+   No-JS and reduced motion keep or restore `auto` intrinsic sizing. */
 @media (max-width: 1023.98px) {
   .execution-terminal {
     height: var(--execution-frame-height);
