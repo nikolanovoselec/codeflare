@@ -29,7 +29,7 @@ function crc32(buffer) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function activeMarkdownHtml(markdown) {
+function uncommentedMarkdownHtml(markdown) {
   const visible = [];
   let fence;
   let inComment = false;
@@ -86,8 +86,8 @@ function htmlAttributes(tag) {
   return attributes;
 }
 
-function activePictureBlocks(markdown) {
-  const html = activeMarkdownHtml(markdown);
+function topLevelPictureBlocks(markdown) {
+  const html = uncommentedMarkdownHtml(markdown);
   const blocks = new Map();
   for (const match of html.matchAll(/^<picture>\s*\n([\s\S]*?)^<\/picture>$/gm)) {
     const body = match[1];
@@ -332,10 +332,10 @@ describe('README canonical landing media (REQ-LANDING-013/016/017/018)', () => {
       ['````markdown', '```', '<picture>length</picture>', '````'],
     ];
     for (const lines of cases) {
-      assert.doesNotMatch(activeMarkdownHtml(lines.join('\n')), /<picture>/);
+      assert.doesNotMatch(uncommentedMarkdownHtml(lines.join('\n')), /<picture>/);
     }
     assert.match(
-      activeMarkdownHtml(['```markdown', 'content', '``` \t', '<picture>active</picture>'].join('\n')),
+      uncommentedMarkdownHtml(['```markdown', 'content', '``` \t', '<picture>active</picture>'].join('\n')),
       /<picture>active<\/picture>/,
     );
   });
@@ -360,12 +360,12 @@ describe('README canonical landing media (REQ-LANDING-013/016/017/018)', () => {
     );
   });
 
-  it('exposes every agreed picture as active README HTML with its accessibility attributes', () => {
-    const { blocks, html } = activePictureBlocks(README);
-    assert.equal(blocks.size, MEDIA.length, 'README must render exactly the agreed media blocks');
+  it('declares every agreed top-level README picture with its accessibility attributes', () => {
+    const { blocks, html } = topLevelPictureBlocks(README);
+    assert.equal(blocks.size, MEDIA.length, 'README must declare exactly the agreed top-level media blocks');
     for (const name of MEDIA) {
       const block = blocks.get(name);
-      assert.ok(block, `${name} must be active README HTML rather than commented or fenced text`);
+      assert.ok(block, `${name} must be an uncommented, unfenced top-level README picture block`);
       assert.equal(block.source.get('media'), '(prefers-reduced-motion: reduce)');
       assert.equal(block.source.get('srcset'), `assets/documentation/${name}.png`);
       assert.equal(block.image.get('src'), `assets/documentation/${name}.gif`);
@@ -373,7 +373,7 @@ describe('README canonical landing media (REQ-LANDING-013/016/017/018)', () => {
       assert.equal(block.image.get('width'), '1200');
     }
     for (const retired of RETIRED_README_PICTURES) {
-      assert.equal(html.includes(retired), false, `${retired} remains in active README content`);
+      assert.equal(html.includes(retired), false, `${retired} remains in uncommented README content`);
       assert.equal(existsSync(join(ROOT, 'assets', 'documentation', retired)), false, `${retired} still exists`);
     }
   });

@@ -209,7 +209,7 @@ Promotion is gated by repository CI, image scanning, immutable build/deployment 
   <img src="assets/documentation/deployment.gif" alt="Codeflare deploys Inference Mesh to integration and verifies the live private route." width="1200">
 </picture>
 
-*The reviewed head reaches integration, then the live inference path is exercised before merge.*
+*In this Inference Mesh example, the reviewed head reaches integration and the live inference path is exercised before merge.*
 
 ---
 

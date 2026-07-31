@@ -337,7 +337,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The resolved Execution reel is self-contained at a wide aspect suitable for README capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
-2. The six animations derive from the deployed Execution, Browser VS Code, Browser E2E, review, deployment, and Inference Mesh components and approved content. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @manual -->
+2. The six animations derive from the deployed Execution, Browser VS Code, Browser E2E, review, deployment, and Inference Mesh components and approved content. <!-- @manual -->
 3. Each GIF contains at least three decodable frames. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 4. Execution, Browser E2E, and deployment omit a loop extension. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 5. Execution, Browser E2E, and deployment end on their resolved static frame. <!-- @manual -->
@@ -365,7 +365,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. Every GIF has a decodable PNG fallback. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 2. Each PNG fallback has exactly the dimensions of its GIF. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-3. Each active picture block selects its PNG when `prefers-reduced-motion: reduce` matches. <!-- @impl: README.md::readme-media-browser-e2e --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+3. Each top-level README picture block declares its PNG source for `prefers-reduced-motion: reduce`. <!-- @impl: README.md::readme-media-browser-e2e --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 4. Each picture has alt text that describes the depicted product behavior. <!-- @impl: README.md::readme-media-review-governance --> <!-- @manual -->
 5. Each animated image declares a 1,200-pixel README presentation width. <!-- @impl: README.md::readme-media-browser-vscode --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 
@@ -412,7 +412,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The foldable, phone, IDE, and setup picture names are absent from active README content. <!-- @impl: scripts/ci/readme-media-contract.mjs::RETIRED_README_PICTURES --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+1. The foldable, phone, IDE, and setup picture names are absent from uncommented, unfenced README content. <!-- @impl: scripts/ci/readme-media-contract.mjs::RETIRED_README_PICTURES --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 2. The foldable, phone, IDE, and setup picture files are absent from repository media. <!-- @impl: scripts/ci/readme-media-contract.mjs::RETIRED_README_PICTURES --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 3. The Architecture section retains its Mermaid topology instead of a duplicate product screenshot. <!-- @impl: README.md::mermaid --> <!-- @manual -->
 
