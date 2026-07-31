@@ -39,6 +39,7 @@ When their public workflows or consumers change, update the private README in th
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [Architecture](lanes/architecture.md) | System overview, components, data flow, design rationale | Developers |
+| [README Media Acceptance](lanes/readme-media-acceptance.md) | Canonical capture provenance and manual media acceptance evidence | Developers |
 | [Architecture Internals](lanes/architecture-internals.md) | Backend library reference, code structure, CF-NNN index | Developers |
 | [API Reference](lanes/api-reference.md) | All API endpoints, request/response formats | Developers |
 | [Authentication & Billing](lanes/authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers, Security |
@@ -67,7 +68,6 @@ All significant design choices are recorded as Architecture Decision Records (AD
 | Document | Location | Description |
 |----------|----------|-------------|
 | [README](../README.md) | Repo root | Product overview and default-mode setup |
-| [README media acceptance](acceptance/readme-media-2026-07-31.md) | `documentation/acceptance/` | Canonical capture provenance and manual media acceptance evidence |
 | [Private operations](https://github.com/nikolanovoselec/codeflare-private) | Private repository | Non-default deployment and operator configuration |
 | [Contributing](../CONTRIBUTING.md) | Repo root | Development workflow and guidelines |
 | [Security Policy](../SECURITY.md) | Repo root | Vulnerability reporting |

@@ -348,6 +348,18 @@ describe('README canonical landing media (REQ-LANDING-013/016/017/018)', () => {
     );
   });
 
+  it('rejects a GIF frame without a global or local color table', () => {
+    const noColorTable = Buffer.concat([
+      Buffer.from('GIF89a', 'ascii'),
+      Buffer.from([
+        1, 0, 1, 0, 0, 0, 0,
+        0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0,
+        2, 2, 0x44, 0x01, 0, 0x3b,
+      ]),
+    ]);
+    assert.throws(() => parseGif(noColorTable), /GIF frame has no active color table/);
+  });
+
   it('rejects decoded GIF pixels outside the active color table', () => {
     const onePixelIndexThree = Buffer.from([0x5c, 0x01]);
     assert.doesNotThrow(() => decodeGifImage(onePixelIndexThree, 2, 1, 4));

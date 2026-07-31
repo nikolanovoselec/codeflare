@@ -818,6 +818,10 @@ for _ in $(seq 1 100); do
   [ -s "$MANAGED_PID_FILE" ] && [ -s "$OPENVSCODE_GENERATION_PIDFILE" ] && break
   sleep 0.02
 done
+if [ ! -s "$MANAGED_PID_FILE" ] || [ ! -s "$OPENVSCODE_GENERATION_PIDFILE" ]; then
+  echo "openvscode generation readiness timed out" >&2
+  exit 1
+fi
 read -r managed < "$MANAGED_PID_FILE"
 kill_pidfile_subtree "$OPENVSCODE_GENERATION_PIDFILE"
 kill_pidfile_subtree "$OPENVSCODE_PIDFILE"

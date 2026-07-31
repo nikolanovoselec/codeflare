@@ -349,7 +349,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Automated frame and loop decoding; source provenance and resolved one-shot frames accepted in the [2026-07-31 media record](../../documentation/acceptance/readme-media-2026-07-31.md)
+**Verification:** Automated frame and loop decoding; source provenance and resolved one-shot frames accepted in the [2026-07-31 media record](../../documentation/lanes/readme-media-acceptance.md)
 
 **Status:** Implemented
 
@@ -375,7 +375,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-013](#req-landing-013-canonical-readme-media-capture)
 
-**Verification:** Automated picture, decoding, dimension, and width checks; image-specific alt text accepted in the [2026-07-31 media record](../../documentation/acceptance/readme-media-2026-07-31.md)
+**Verification:** Automated picture, decoding, dimension, and width checks; image-specific alt text accepted in the [2026-07-31 media record](../../documentation/lanes/readme-media-acceptance.md)
 
 **Status:** Implemented
 
@@ -422,7 +422,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-016](#req-landing-016-readme-media-accessibility-and-composition)
 
-**Verification:** Automated README and repository retirement checks; retained Mermaid Architecture accepted in the [2026-07-31 media record](../../documentation/acceptance/readme-media-2026-07-31.md)
+**Verification:** Automated README and repository retirement checks; retained Mermaid Architecture accepted in the [2026-07-31 media record](../../documentation/lanes/readme-media-acceptance.md)
 
 **Status:** Implemented
 
