@@ -339,9 +339,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. The resolved Execution reel is self-contained at a wide aspect suitable for README capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
 2. The six animations derive from the deployed Execution, Browser VS Code, Browser E2E, review, deployment, and Inference Mesh components and approved content. <!-- @manual -->
 3. Each GIF contains at least three decodable frames. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-4. Execution, Browser E2E, and deployment omit a loop extension. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+4. Execution, Browser E2E, and deployment play exactly once. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 5. Execution, Browser E2E, and deployment end on their resolved static frame. <!-- @manual -->
-6. Browser VS Code, review, and Inference Mesh use an infinite loop extension. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+6. Browser VS Code, review, and Inference Mesh repeat indefinitely. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 
 **Constraints:** Media capture starts only after its landing source is reviewed, CI-green, deployed, and visually approved; it adds no capture-only product route.
 
@@ -349,9 +349,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Automated frame and loop decoding; source provenance and one-shot resolution verified manually
+**Verification:** Automated frame and loop decoding; source provenance and resolved one-shot frames accepted manually on 2026-07-31 from deployed landing head `e30d22a57948a2220af28db1d4df5f12e31dfad7`
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -375,9 +375,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-013](#req-landing-013-canonical-readme-media-capture)
 
-**Verification:** Automated picture, decoding, dimension, and width checks; alt assessment verified manually
+**Verification:** Automated picture, decoding, dimension, and width checks; image-specific alt text accepted manually on 2026-07-31
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -422,9 +422,9 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-016](#req-landing-016-readme-media-accessibility-and-composition)
 
-**Verification:** Automated README and repository retirement checks; Architecture assessed manually
+**Verification:** Automated README and repository retirement checks; retained Mermaid Architecture accepted manually on 2026-07-31
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

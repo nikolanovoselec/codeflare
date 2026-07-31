@@ -144,7 +144,7 @@ Enterprise Codeflare uses customer-configured services inside the customer's Clo
   <img src="assets/documentation/execution.gif" alt="Codeflare shows software delivery alongside a private-preview infrastructure workflow in governed terminal sessions." width="1200">
 </picture>
 
-*Software delivery and the private-preview infrastructure workflow run separately inside the same governed execution platform.*
+*This preview depicts software delivery alongside the coming-soon private-preview infrastructure workflow in separate governed terminal sessions.*
 
 ### Supported agents
 
