@@ -31,7 +31,8 @@ export interface AgentNotificationPayload {
 export type AgentNotificationEnablement = NotificationPermission | 'unavailable';
 
 export interface AgentNotificationWorker {
-  showNotification(title: string, options: NotificationOptions): Promise<void>;
+  // renotify is real Notification API surface the pinned lib.dom typing omits.
+  showNotification(title: string, options: NotificationOptions & { renotify?: boolean }): Promise<void>;
 }
 
 export interface AgentNotificationBrowser {
@@ -106,11 +107,15 @@ export async function showAgentNotification(
   if (!payload || browser.permission() !== 'granted') return;
   try {
     const worker = await browser.getWorker();
+    // Tag on origin+pathname — the same stable identity the service worker
+    // matches clients by — so history.replaceState query cleanups cannot split
+    // one session's notifications into separate stacks.
+    const scope = new URL(payload.sessionUrl);
     await worker?.showNotification(payload.title, {
       body: payload.body,
       // Per-session tag: a new notification replaces the previous one for the
       // same session instead of stacking, without collapsing other sessions'.
-      tag: `codeflare-agent:${payload.sessionUrl}`,
+      tag: `codeflare-agent:${scope.origin}${scope.pathname}`,
       renotify: true,
       data: { sessionUrl: payload.sessionUrl },
     });

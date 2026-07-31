@@ -729,8 +729,11 @@ relay_managed_pi_extensions() {
         [ -e "$f" ] || continue
         base="$(basename "$f")"
         if [ -f "$dest/$base" ]; then
-            cp "$f" "$dest/$base"
-            relaid=$((relaid + 1))
+            if cp "$f" "$dest/$base"; then
+                relaid=$((relaid + 1))
+            else
+                echo "[entrypoint] WARNING: managed-extension relay failed for ${base}" | tee -a /tmp/sync.log
+            fi
         fi
     done
     # A managed extension that is NEW in this image exists in no returning
