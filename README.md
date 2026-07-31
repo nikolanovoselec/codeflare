@@ -82,7 +82,7 @@ For an existing repository, `/sdd init` derives requirements, acceptance criteri
 
 Cloudflare Access protects the deployment and federates to the customer's identity provider. Codeflare can use customer-managed Access groups for admission and live admin elevation without creating a second directory.
 
-Supported enterprise agent traffic is intercepted at the platform boundary and routed through the customer's AI Gateway. Operators control route catalogs, default models, context limits, and per-group policy. Gateway credentials stay outside the container. Enterprise GitHub and Browser Rendering credentials are injected only at their allowlisted egress boundary, and a session cannot select another user's credential.
+Supported enterprise agent traffic is intercepted at the platform boundary and routed through the AI Gateway in the customer's own Cloudflare account. Operators control route catalogs, default models, context limits, and per-group policy. Gateway credentials stay outside the container. Enterprise GitHub and Browser Rendering credentials are injected only at their allowlisted egress boundary, and a session cannot select another user's credential.
 
 When configured and enabled, Strict Gateway Egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway and denies raw TCP and UDP internet egress. It is off by default and retains documented own-account Cloudflare exceptions.
 
