@@ -27,6 +27,7 @@ vi.mock('../../lib/mobile', () => ({
   isTouchDevice: () => false,
   getKeyboardHeight: () => 0,
   get isSamsungBrowser() { return false; },
+  needsHomeScreenInstallForNotifications: () => false,
 }));
 
 vi.mock('../../components/SessionSwitcher', () => ({

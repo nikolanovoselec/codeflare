@@ -38,6 +38,7 @@ const mockTerminalInstance = {
   },
   parser: {
     registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
+    registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
   },
   registerLinkProvider: vi.fn(() => ({ dispose: vi.fn() })),
 };
