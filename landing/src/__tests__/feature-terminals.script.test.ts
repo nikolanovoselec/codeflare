@@ -188,6 +188,10 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
   it('REQ-LANDING-014: reserves the Hero frame at its tallest command across typing', async () => {
     const run = ['short', 'the tallest wrapped command', 'medium command'];
     const { term, typed } = buildFixture(run);
+    const hero = document.createElement('div');
+    hero.className = 'hero-terminal';
+    hero.appendChild(term);
+    document.body.appendChild(hero);
     term.setAttribute('data-ft-shuffle', '');
     mockMatchMedia(false);
     vi.stubGlobal('innerWidth', 900);
@@ -216,9 +220,11 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     await import('../scripts/feature-terminals');
 
     expect(term.style.height).toBe('140px');
+    expect(typed.textContent).toBe(run[0]);
     vi.advanceTimersByTime(8_000);
     expect(term.style.height).toBe('140px');
 
+    const partialText = typed.textContent;
     heightScale = 2;
     window.dispatchEvent(new Event('resize'));
     expect(term.style.height).toBe('140px');
@@ -226,7 +232,31 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     vi.stubGlobal('innerWidth', 768);
     window.dispatchEvent(new Event('resize'));
     expect(term.style.height).toBe('280px');
+    expect(typed.textContent).toBe(partialText);
     rng.mockRestore();
+  });
+
+  it('REQ-LANDING-014: keeps shuffled non-Hero terminals intrinsically sized', async () => {
+    const run = ['one', 'two', 'three'];
+    const { term } = buildFixture(run);
+    term.setAttribute('data-ft-shuffle', '');
+    term.getBoundingClientRect = vi.fn(() => ({
+      height: 140,
+      width: 400,
+      top: 0,
+      left: 0,
+      right: 400,
+      bottom: 140,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }));
+    mockMatchMedia(false);
+
+    await import('../scripts/feature-terminals');
+
+    expect(term.style.height).toBe('');
+    expect(term.getBoundingClientRect).not.toHaveBeenCalled();
   });
 
   it('REQ-LANDING-001: a terminal with invalid JSON in data-ft-loop is skipped gracefully', async () => {
