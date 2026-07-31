@@ -352,6 +352,35 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     assert.equal(existsSync(bypassFile), true, 'PreToolUse never consumes the one-shot sentinel');
   });
 
+  it('re-blocks a rewritten transcript whose size still covers the cached offset', () => {
+    const cwd = makeFixture();
+    const filler = (ch) => JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: ch.repeat(5000) }] },
+    });
+    const junk = JSON.stringify({
+      type: 'user',
+      message: { content: [{ type: 'text', text: 'z'.repeat(2500) }] },
+    });
+    const t = writeTranscript(cwd, [filler('a'), ...completedRound(), TRIAGE_LINE()]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    // History rewrite: different prefix, completions end BEFORE the cached
+    // offset, trailing junk keeps the file at least as large - the appended-
+    // bytes count alone would see nothing new and fail open.
+    writeTranscript(cwd, [filler('b'), ...completedRound(), junk]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2,
+      'prefix fingerprint mismatch must force the full pass');
+  });
+
+  it('treats a legacy or malformed cache entry as no cache', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const key = spawnSync('bash', ['-c', 'printf %s "$1" | cksum', '_', t], { encoding: 'utf-8' })
+      .stdout.trim().split(' ')[0];
+    writeFileSync(join(cwd, `sdd-pretool-triage-clear-${key}`), '3\n');
+    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+  });
+
   it('gives up after five refused calls for the same round, then stays released', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());

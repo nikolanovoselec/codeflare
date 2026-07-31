@@ -181,7 +181,7 @@ def locate_workspace_database(data_root: Path, workspace: Path) -> tuple[Path, d
     # Both URI schemes can match at once (a stale file:// dir beside the live
     # vscode-remote:// one), so the pick must be deterministic: prefer the
     # remote identity the workbench actually uses, tie-break on newest state.
-    best: tuple[tuple[int, float], Path, dict[str, str]] | None = None
+    best: tuple[tuple[int, float, str], Path, dict[str, str]] | None = None
     for candidate in candidates:
         try:
             if candidate.is_symlink() or not candidate.is_dir():
@@ -200,7 +200,7 @@ def locate_workspace_database(data_root: Path, workspace: Path) -> tuple[Path, d
             db_info = database.lstat()
             if not stat.S_ISREG(db_info.st_mode) or stat.S_ISLNK(db_info.st_mode):
                 continue
-            rank = (1 if folder.startswith("vscode-remote:") else 0, db_info.st_mtime)
+            rank = (1 if folder.startswith("vscode-remote:") else 0, db_info.st_mtime, candidate.name)
             if best is None or rank > best[0]:
                 best = (rank, database, {"id": candidate.name, "folder": folder})
         except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):

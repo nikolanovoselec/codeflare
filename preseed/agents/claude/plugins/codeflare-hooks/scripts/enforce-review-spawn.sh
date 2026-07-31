@@ -117,28 +117,52 @@ if [ -n "$PRETOOL_MODE" ]; then
   # Fingerprint cache: the gate's answer can only flip to "block" when a new
   # completed notification lands (a spawn alone cannot, and a published table
   # only flips it to "allow" - the state the cache records). The cache stores
-  # "<count>:<byte offset>" from the last allow; the transcript is append-only,
-  # so counting completions in the appended bytes alone decides whether the
-  # answer can have changed. After a cleared round each tool call costs one
-  # size check plus a scan of only the appended bytes, never a full pass. A
-  # marker split exactly at the offset by a mid-write snapshot can be missed
-  # once; the next completed notification re-runs the full check, so the miss
-  # cannot persist.
+  # "<count>:<byte offset>:<prefix fingerprint>" from the last allow; the
+  # transcript is append-only, so counting completions in the appended bytes
+  # alone decides whether the answer can have changed. Two guards keep that
+  # assumption honest. The stored offset is rewound by the marker length, so a
+  # marker split by a mid-write snapshot is always fully inside the next scan
+  # window ("completed</status>" is never the file's final bytes - the
+  # "</task-notification>" suffix follows - so the rewind cannot double-count
+  # a settled tail). And the fingerprint of the first 4KiB detects a rewritten
+  # or compacted transcript that kept the path and a plausible size; mismatch
+  # discards the cache and takes the full pass. Sub-4KiB transcripts skip the
+  # fingerprint ("small") - a full pass is already cheap there.
   PRETOOL_CLEAR_FILE="${TMPDIR:-/tmp}/sdd-pretool-triage-clear-$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')"
   PRETOOL_SIZE=$(wc -c < "$TRANSCRIPT" 2>/dev/null) || PRETOOL_SIZE=0
+  if [ "$PRETOOL_SIZE" -ge 4096 ] 2>/dev/null; then
+    PRETOOL_PREFIX_CK=$(head -c 4096 "$TRANSCRIPT" 2>/dev/null | cksum | awk '{print $1}')
+  else
+    PRETOOL_PREFIX_CK=small
+  fi
+  if [ "$PRETOOL_SIZE" -gt 18 ] 2>/dev/null; then
+    PRETOOL_WRITE_OFFSET=$((PRETOOL_SIZE - 18))
+  else
+    PRETOOL_WRITE_OFFSET=0
+  fi
   PRETOOL_CACHE_STATE=$(cat "$PRETOOL_CLEAR_FILE" 2>/dev/null)
-  PRETOOL_CACHED_COUNT="${PRETOOL_CACHE_STATE%%:*}"
-  PRETOOL_CACHED_OFFSET="${PRETOOL_CACHE_STATE##*:}"
+  PRETOOL_CACHED_COUNT=""
+  PRETOOL_CACHED_OFFSET=""
+  PRETOOL_CACHED_CK=""
+  case "$PRETOOL_CACHE_STATE" in
+    *:*:*)
+      PRETOOL_CACHED_COUNT="${PRETOOL_CACHE_STATE%%:*}"
+      PRETOOL_CACHED_CK="${PRETOOL_CACHE_STATE##*:}"
+      PRETOOL_CACHED_OFFSET="${PRETOOL_CACHE_STATE#*:}"
+      PRETOOL_CACHED_OFFSET="${PRETOOL_CACHED_OFFSET%%:*}"
+      ;;
+  esac
   case "$PRETOOL_CACHED_COUNT" in ''|*[!0-9]*) PRETOOL_CACHED_COUNT="" ;; esac
   case "$PRETOOL_CACHED_OFFSET" in ''|*[!0-9]*) PRETOOL_CACHED_OFFSET="" ;; esac
   if [ -n "$PRETOOL_CACHED_COUNT" ] && [ -n "$PRETOOL_CACHED_OFFSET" ] \
+     && [ "$PRETOOL_CACHED_CK" = "$PRETOOL_PREFIX_CK" ] \
      && [ "$PRETOOL_SIZE" -ge "$PRETOOL_CACHED_OFFSET" ] 2>/dev/null; then
     # A cache entry exists only after a full pass proved lane spawns and an
     # allow outcome, so the spawn prefilter is already answered.
     PRETOOL_NEW=$(tail -c +$((PRETOOL_CACHED_OFFSET + 1)) "$TRANSCRIPT" 2>/dev/null | grep -cF 'completed</status>')
     PRETOOL_COMPLETION_COUNT=$((PRETOOL_CACHED_COUNT + PRETOOL_NEW))
     if [ "$PRETOOL_NEW" -eq 0 ] 2>/dev/null; then
-      printf '%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_SIZE" > "$PRETOOL_CLEAR_FILE" 2>/dev/null || true
+      printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" > "$PRETOOL_CLEAR_FILE" 2>/dev/null || true
       exit 0
     fi
   else
@@ -740,7 +764,7 @@ triage_published_after_line() {
 if [ -n "$PRETOOL_MODE" ]; then
   pretool_allow() {
     [ -n "$PRETOOL_CLEAR_FILE" ] \
-      && printf '%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_SIZE" > "$PRETOOL_CLEAR_FILE" 2>/dev/null
+      && printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" > "$PRETOOL_CLEAR_FILE" 2>/dev/null
     exit 0
   }
   PRETOOL_LAST_COMPLETION=0
