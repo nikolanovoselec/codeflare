@@ -382,7 +382,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Verification:** Manual check
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
