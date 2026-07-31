@@ -378,11 +378,72 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const t = writeTranscript(cwd, completedRound());
     const key = spawnSync('bash', ['-c', 'printf %s "$1" | cksum', '_', t], { encoding: 'utf-8' })
       .stdout.trim().split(' ')[0];
-    // Legacy two-field entry whose offset sits at EOF: honouring it would see
+    // Two-field legacy entry whose offset sits at EOF: honouring it would see
     // nothing appended and allow, so only the strict three-field guard blocks.
-    writeFileSync(join(cwd, `sdd-pretool-triage-clear-${key}`), `1:${statSync(t).size}\n`);
+    // The one-field malformed shape keeps its own coverage alongside.
+    for (const entry of ['3\n', `1:${statSync(t).size}\n`]) {
+      writeFileSync(join(cwd, `sdd-pretool-triage-clear-${key}`), entry);
+      assert.equal(pretool(cwd, t, 'Edit').status, 2,
+        `entry ${JSON.stringify(entry)} must not be honoured as a cleared round`);
+    }
+  });
+
+  it('permits the round-stamped triage-file Write while blocked, and honours the file', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const blocked = pretool(cwd, t, 'Edit');
+    assert.equal(blocked.status, 2);
+    const stamp = blocked.stderr.match(/round: (\d+)/)?.[1];
+    assert.ok(stamp, 'the directive names the completion line the file must be stamped with');
+
+    // The Write to the named path is the one mutation allowed while blocked.
+    const writeCall = spawnSync('bash', [HOOK], {
+      cwd,
+      input: JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        transcript_path: t,
+        tool_name: 'Write',
+        tool_input: { file_path: join(cwd, 'sdd-review-triage.md') },
+      }),
+      encoding: 'utf-8',
+      env: { ...process.env, TMPDIR: cwd, REVIEW_BYPASS_FILE: join(cwd, 'absent-bypass') },
+    });
+    assert.equal(writeCall.status, 0, 'the triage-file Write must pass the gate');
+
+    writeFileSync(join(cwd, 'sdd-review-triage.md'),
+      `round: ${stamp}\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0, 'a current round-stamped file clears the gate');
+  });
+
+  it('ignores a triage file stamped with a stale round', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    writeFileSync(join(cwd, 'sdd-review-triage.md'),
+      `round: 1\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
     assert.equal(pretool(cwd, t, 'Edit').status, 2,
-      'legacy entry must not be honoured as a cleared round');
+      'a previous round\'s file must never clear a newer round');
+  });
+
+  it('rejects a table that appears only inside a tool_use envelope', () => {
+    const cwd = makeFixture();
+    const toolOnlyTable = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'Edit',
+            id: 'toolu_fake1',
+            input: {
+              new_string: `${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |`,
+            },
+          },
+        ],
+      },
+    });
+    const t = writeTranscript(cwd, [...completedRound(), toolOnlyTable]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2,
+      'table text inside a tool_use input must not clear the checkpoint');
   });
 
   it('accepts a table sharing its message with the first fix tool call', () => {

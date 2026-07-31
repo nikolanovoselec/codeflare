@@ -113,6 +113,15 @@ if [ -n "$PRETOOL_MODE" ]; then
   case "$TOOL_NAME" in
     Read|TaskOutput|TaskGet|TaskList|AskUserQuestion) exit 0 ;;
   esac
+  # The one Write the gate permits while blocked: the round-stamped triage
+  # file. The harness does not persist an assistant message whose tool call
+  # this gate rejects, so a table published only as chat text can be invisible
+  # to every later scan - the file is the harness-independent checkpoint the
+  # directive demands alongside the visible table.
+  if [ "$TOOL_NAME" = "Write" ]; then
+    PRETOOL_WRITE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+    [ "$PRETOOL_WRITE_PATH" = "${TMPDIR:-/tmp}/sdd-review-triage.md" ] && exit 0
+  fi
   [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0
   # Fingerprint cache: the gate's answer can only flip to "block" when a new
   # completed notification lands (a spawn alone cannot, and a published table
@@ -758,6 +767,27 @@ triage_published_after_line() {
         }'
 }
 
+# The round-stamped triage file: the harness-independent verdict channel. A
+# message rejected by the PreToolUse gate is not persisted to the transcript,
+# so a table published only as chat text can be invisible to every scan. The
+# file must open with "round: <line>" naming the completion line the caller is
+# gating on - a stale round's file can never clear a newer round - followed by
+# the same stacked table shape the transcript check requires.
+triage_file_current() {
+  local expect="$1"
+  local file="${TMPDIR:-/tmp}/sdd-review-triage.md"
+  [ -f "$file" ] || return 1
+  [ "$(head -1 "$file" 2>/dev/null)" = "round: $expect" ] || return 1
+  awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
+    { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (rows[i] == h && rows[i + 1] == d && rows[i + 2] ~ /^\|.*\|$/) exit 0
+      }
+      exit 1
+    }' "$file"
+}
+
 # ---------------------------------------------------------------------------
 # PreToolUse triage gate - full check (prefilters at the top of this file).
 #
@@ -784,7 +814,8 @@ if [ -n "$PRETOOL_MODE" ]; then
       && PRETOOL_LAST_COMPLETION=$PRETOOL_DONE
   done
   [ "$PRETOOL_LAST_COMPLETION" -gt 0 ] 2>/dev/null || pretool_allow
-  if triage_published_after_line "$PRETOOL_LAST_COMPLETION"; then
+  if triage_published_after_line "$PRETOOL_LAST_COMPLETION" \
+     || triage_file_current "$PRETOOL_LAST_COMPLETION"; then
     pretool_allow
   fi
   # 5-strike breaker keyed on the completion line, mirroring the Stop-side
@@ -809,7 +840,7 @@ if [ -n "$PRETOOL_MODE" ]; then
     echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
     pretool_allow
   fi
-  echo "REVIEW TRIAGE REQUIRED: every review lane spawned in this session has returned, and no triage verdict has been published since the last one completed. Before ANY further tool call, read each lane's report (Read and TaskOutput are permitted) and publish ONE triage table in your visible text - it may share the message with your first fix tool calls, the table text itself is the checkpoint - in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding across all lanes (a fully clean round gets one row per lane stating the runner's clean verdict). Judge each finding separately from its proposed fix: VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. Fixes, commits, and pushes come only after that table is visible." >&2
+  echo "REVIEW TRIAGE REQUIRED: every review lane spawned in this session has returned, and no triage verdict has been published since the last one completed. Do BOTH of the following, then continue with your fixes. (1) Publish ONE triage table in your visible text, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding across all lanes (a fully clean round gets one row per lane stating the runner's clean verdict). (2) Write the SAME table to ${TMPDIR:-/tmp}/sdd-review-triage.md whose exact first line is 'round: $PRETOOL_LAST_COMPLETION' - that Write is permitted while blocked and is the machine-readable checkpoint (your chat text alone may never reach the transcript this gate scans). Judge each finding separately from its proposed fix: VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. Fixes, commits, and pushes come only after both exist. Read and TaskOutput are permitted for reading lane reports." >&2
   exit 2
 fi
 
@@ -1431,7 +1462,7 @@ fi
 # never relaunches review or CI for that head.
 if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
-  if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
+  if [ -n "$ROUND_COMPLETE_LINE" ] && { triage_published_after_line "$ROUND_COMPLETE_LINE" || triage_file_current "$ROUND_COMPLETE_LINE"; }; then
     echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
@@ -1445,7 +1476,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER'. Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
+  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' - in your visible text AND written to ${TMPDIR:-/tmp}/sdd-review-triage.md with exact first line 'round: $ROUND_COMPLETE_LINE' (the file is the machine checkpoint; chat text alone may never reach the transcript this gate scans). Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
 fi
 
 exit 0
