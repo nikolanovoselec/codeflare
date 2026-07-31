@@ -2,6 +2,8 @@
 
 ![Codeflare: governed AI agents for software delivery, browser automation, and infrastructure operations in private preview.](assets/documentation/og.png)
 
+![Codeflare agentic engineering engine](assets/documentation/hero-engine.gif)
+
 **Governed AI agents for software delivery, browser automation, and infrastructure operations in private preview.**
 
 Codeflare is a customer-operated execution platform where engineers and AI agents design and architect systems, build and debug software, automate end-to-end tests, deploy, verify, and recover software releases together. Infrastructure operations are coming soon and currently in private preview, covering approved patching and migration work. Work happens inside authenticated, disposable browser sessions, with organizational rules, evidence, and human approval built into the workflow instead of bolted onto laptops or long-lived shared runners.
@@ -12,25 +14,6 @@ Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudf
   <img src="assets/documentation/execution-software.gif" width="49%" alt="Codeflare software delivery execution">
   <img src="assets/documentation/execution-infrastructure.gif" width="49%" alt="Codeflare infrastructure operations execution">
 </p>
-
-## Contents
-
-- [What teams use Codeflare for](#what-teams-use-codeflare-for)
-- [Disposable by design](#disposable-by-design)
-- [Governed execution](#governed-execution)
-- [Enterprise controls](#enterprise-controls)
-- [Workspace experience](#workspace-experience)
-- [Architecture](#architecture)
-- [Deployment models](#deployment-models)
-- [Enterprise deployment](#enterprise-deployment)
-- [Community/default deployment quick start](#communitydefault-deployment-quick-start)
-- [Configuration](#configuration)
-- [Security boundaries](#security-boundaries)
-- [Development and operations](#development-and-operations)
-- [Testing and CI](#testing-and-ci)
-- [Documentation](#documentation)
-- [Codeflare Inference Mesh](#codeflare-inference-mesh)
-- [License](#license)
 
 ---
 
