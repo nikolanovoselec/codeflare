@@ -108,8 +108,11 @@ triage_file_path() {
 # window the round discipline forbids. This branch closes it: once every lane
 # spawned in the transcript has a completed notification and no triage table
 # follows the last of them, every tool outside the read-only set is refused
-# (exit 2) until the table is published as an assistant message. Publishing
-# the table needs no tool call, so the refusal is always escapable in-turn.
+# (exit 2) until the verdict exists in either channel: the stacked table in
+# assistant text, or the round-stamped triage file the directive names - the
+# one Write permitted while blocked, because a message whose tool call this
+# gate rejects is never persisted, so chat text alone cannot be relied on to
+# escape the refusal.
 #
 # This branch never writes acks or round counters - those stay Stop-owned. It
 # reads the bypass sentinel without consuming it (one-shot deletion is the
@@ -760,20 +763,27 @@ spawn_completion_line() {
 # The table text is still published before the tools run - the checkpoint
 # stays visible - and only text blocks are extracted below, so nothing inside
 # a tool_use envelope can fake the shape.
+# The canonical stacked shape on stdin: header, divider, and a data row on
+# consecutive lines. Shared by the transcript scan and the file check so the
+# two channels can never drift apart on what counts as a table.
+stacked_table_in_stream() {
+  awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
+    { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (rows[i] == h && rows[i + 1] == d && rows[i + 2] ~ /^\|.*\|$/) exit 0
+      }
+      exit 1
+    }'
+}
+
 triage_published_after_line() {
   local min_line="$1"
   awk -v s="$min_line" '
     NR > s && index($0, "\"type\":\"assistant\"")
   ' "$TRANSCRIPT" \
     | jq -R -r 'fromjson? | [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]' 2>/dev/null \
-    | awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
-        { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
-        END {
-          for (i = 1; i <= n; i++) {
-            if (rows[i] == h && rows[i + 1] == d && rows[i + 2] ~ /^\|.*\|$/) exit 0
-          }
-          exit 1
-        }'
+    | stacked_table_in_stream
 }
 
 # The round-stamped triage file: the harness-independent verdict channel. A
@@ -788,14 +798,7 @@ triage_file_current() {
   file=$(triage_file_path)
   [ -f "$file" ] || return 1
   [ "$(head -1 "$file" 2>/dev/null)" = "round: $expect" ] || return 1
-  awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
-    { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
-    END {
-      for (i = 1; i <= n; i++) {
-        if (rows[i] == h && rows[i + 1] == d && rows[i + 2] ~ /^\|.*\|$/) exit 0
-      }
-      exit 1
-    }' "$file"
+  stacked_table_in_stream < "$file"
 }
 
 # ---------------------------------------------------------------------------
@@ -1151,6 +1154,11 @@ reack_on_repeated_demand() {
   if [ "$strikes" = "GIVEUP" ] || { [ "$strikes" -ge 5 ] 2>/dev/null; }; then
     echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    # The triage file's stamp is a bare transcript line number, and a
+    # compaction rewrite can re-issue line numbers - so closing the round
+    # consumes the file, leaving nothing a colliding future round could be
+    # cleared by.
+    rm -f "$(triage_file_path)" 2>/dev/null || true
     clear_counter
     echo "enforce-review-spawn: ${CURRENT_PR_HEAD:0:7} acknowledged after repeated unanswered verdict demands; its findings were never triaged" >&2
     return 0
@@ -1475,6 +1483,11 @@ if all_required_lanes_completed_for_current_head; then
   if [ -n "$ROUND_COMPLETE_LINE" ] && { triage_published_after_line "$ROUND_COMPLETE_LINE" || triage_file_current "$ROUND_COMPLETE_LINE"; }; then
     echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    # The triage file's stamp is a bare transcript line number, and a
+    # compaction rewrite can re-issue line numbers - so closing the round
+    # consumes the file, leaving nothing a colliding future round could be
+    # cleared by.
+    rm -f "$(triage_file_path)" 2>/dev/null || true
     clear_counter
     emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane returned and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION from that table and nothing else — a rejected row stays rejected, and a row you accepted is not deferred. State what you fixed and anything you deliberately left."
   fi
