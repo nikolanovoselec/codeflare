@@ -316,7 +316,56 @@ function parseGif(buffer) {
   return { width, height, frames, loopCount };
 }
 
+function withGifLoopExtension(buffer, identifier, payload) {
+  assert.equal(Buffer.byteLength(identifier, 'ascii'), 11, 'GIF loop identifier must be 11 bytes');
+  const packed = buffer[10];
+  const insertion = 13 + ((packed & 0x80) ? 3 * 2 ** ((packed & 0x07) + 1) : 0);
+  const extension = Buffer.concat([
+    Buffer.from([0x21, 0xff, 0x0b]),
+    Buffer.from(identifier, 'ascii'),
+    Buffer.from([payload.length]),
+    payload,
+    Buffer.from([0]),
+  ]);
+  return Buffer.concat([buffer.subarray(0, insertion), extension, buffer.subarray(insertion)]);
+}
+
 describe('README canonical landing media (REQ-LANDING-013/016/017)', () => {
+  it('keeps media inside open Markdown fences inactive until a valid matching close', () => {
+    const cases = [
+      ['```markdown', '```not-a-close', '<picture>suffix</picture>', '```'],
+      ['```markdown', '~~~', '<picture>marker</picture>', '```'],
+      ['````markdown', '```', '<picture>length</picture>', '````'],
+    ];
+    for (const lines of cases) {
+      assert.doesNotMatch(activeMarkdownHtml(lines.join('\n')), /<picture>/);
+    }
+    assert.match(
+      activeMarkdownHtml(['```markdown', 'content', '``` \t', '<picture>active</picture>'].join('\n')),
+      /<picture>active<\/picture>/,
+    );
+  });
+
+  it('recognizes both GIF loop applications and rejects malformed loop payloads', () => {
+    const oneShot = readFileSync(join(ROOT, 'assets', 'documentation', 'browser-e2e.gif'));
+    assert.equal(
+      parseGif(withGifLoopExtension(oneShot, 'ANIMEXTS1.0', Buffer.from([1, 0, 0]))).loopCount,
+      0,
+    );
+    assert.equal(
+      parseGif(withGifLoopExtension(oneShot, 'NETSCAPE2.0', Buffer.from([1, 3, 0]))).loopCount,
+      3,
+    );
+    assert.throws(
+      () => parseGif(withGifLoopExtension(oneShot, 'ANIMEXTS1.0', Buffer.from([2, 0, 0]))),
+      /invalid GIF loop payload marker/,
+    );
+    assert.throws(
+      () => parseGif(withGifLoopExtension(oneShot, 'ANIMEXTS1.0', Buffer.from([1, 0]))),
+      /invalid GIF loop payload/,
+    );
+  });
+
   it('exposes every agreed picture as active README HTML with its accessibility attributes', () => {
     const { blocks, html } = activePictureBlocks(README);
     assert.equal(blocks.size, MEDIA.length, 'README must render exactly the agreed media blocks');
