@@ -374,6 +374,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 - Responsive behavior reuses the landing's existing breakpoints and spacing tokens.
 - No-JavaScript and reduced-motion rendering keeps intrinsic frame sizing and the complete resolved viewport.
+- The terminal body clips overflow and is not user-scrollable; only the scripted feed progression changes the log position. <!-- @impl: landing/src/styles/global.css::execution-terminal .terminal-body --> <!-- @test: landing/src/__tests__/index-page.test.ts (sizes fixed scrolling logs from resolved then initial states without row gaps) -->
 
 **Priority:** P1
 
