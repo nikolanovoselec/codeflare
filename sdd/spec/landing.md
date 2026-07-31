@@ -369,7 +369,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 4. Each picture has alt text that describes the depicted product behavior. <!-- @impl: README.md::readme-media-review-governance --> <!-- @manual -->
 5. Each animated image declares a 1,200-pixel README presentation width. <!-- @impl: README.md::readme-media-browser-vscode --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 6. The foldable, phone, IDE, and setup pictures are absent from active README content and repository media. <!-- @impl: README.md::readme-media-execution --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-7. The Architecture section retains its Mermaid topology instead of a duplicate product screenshot. <!-- @impl: README.md::graph LR --> <!-- @manual -->
+7. The Architecture section retains its Mermaid topology instead of a duplicate product screenshot. <!-- @impl: README.md::mermaid --> <!-- @manual -->
 
 **Constraints:** The six GIF/PNG pairs are repository-hosted and share their deployed landing composition.
 

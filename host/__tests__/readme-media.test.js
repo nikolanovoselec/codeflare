@@ -41,11 +41,12 @@ function activeMarkdownHtml(markdown) {
   let inComment = false;
 
   for (const rawLine of markdown.split('\n')) {
-    const fenceMarker = rawLine.match(/^ {0,3}(`{3,}|~{3,})/);
     if (fence) {
-      if (fenceMarker && fenceMarker[1][0] === fence.character && fenceMarker[1].length >= fence.length) fence = undefined;
+      const closingFence = rawLine.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+      if (closingFence && closingFence[1][0] === fence.character && closingFence[1].length >= fence.length) fence = undefined;
       continue;
     }
+    const fenceMarker = rawLine.match(/^ {0,3}(`{3,}|~{3,})/);
     if (fenceMarker) {
       fence = { character: fenceMarker[1][0], length: fenceMarker[1].length };
       continue;
@@ -277,7 +278,7 @@ function parseGif(buffer) {
         offset += headerLength;
         const payload = readGifSubBlocks(buffer, offset);
         offset = payload.offset;
-        if (identifier === 'NETSCAPE2.0') {
+        if (identifier === 'NETSCAPE2.0' || identifier === 'ANIMEXTS1.0') {
           assert.equal(loopCount, undefined, 'duplicate GIF loop extension');
           assert.equal(payload.data.length, 3, 'invalid GIF loop payload');
           assert.equal(payload.data[0], 1, 'invalid GIF loop payload marker');
