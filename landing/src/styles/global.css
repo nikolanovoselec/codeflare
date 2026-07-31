@@ -763,12 +763,14 @@ svg {
   flex-direction: column;
 }
 
-/* On mobile and tablet, proof.ts resolves this shared value from the rendered
-   Hero terminal. Both Execution frames therefore retain the same outer height
-   as each other and the Hero reel without hard-coding viewport-specific pixels. */
+/* Under normal-motion enhancement on mobile and tablet, proof.ts resolves this
+   shared value from the rendered Hero terminal. Both Execution frames therefore
+   retain the same outer height as each other and the Hero reel without hard-coded
+   viewport pixels. Without the variable, the declaration is invalid and intrinsic
+   no-JS/reduced-motion sizing remains in force. */
 @media (max-width: 1023.98px) {
   .execution-terminal {
-    height: var(--execution-frame-height, auto);
+    height: var(--execution-frame-height);
   }
 }
 
