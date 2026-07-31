@@ -75,7 +75,7 @@ if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     let wi = 0;
     let ci = loop[0].length;
     let phase: 'hold' | 'delete' | 'type' = 'hold';
-    typed.textContent = loop[0];
+    if (!shuffle) typed.textContent = loop[0];
 
     const step = () => {
       const word = loop[wi];
