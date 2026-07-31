@@ -598,7 +598,7 @@ Unreachable means the vulnerable code path is never reached with attacker-contro
 
 Every entry carries an inline comment recording the affected package, the impact, and which conditions apply. The allowlist is reviewed monthly and entries are removed once a fix reaches the image. (Pre-existing entries for unfixed CVEs are now redundant with `ignore-unfixed` but are left in place as a documented record.)
 
-CVE-2026-56852 is narrower than a global ID suppression: Trivy emits its JSON findings to `scripts/ci/validate-trivy-result.mjs`, which accepts only x/text v0.38.0 in `usr/bin/gh` and v0.37.0 in `usr/local/bin/lazygit`. Missing, duplicate, fixed, version-drifted, differently located, or additional HIGH/CRITICAL findings fail the deployment. This keeps the exception tied to the two reviewed artifacts and forces a new decision when either upstream binary changes.
+CVE-2026-56852 remains narrower than a global ID suppression. When the exact-head image installed gh v2.97.0 and its reviewed finding disappeared, `scripts/ci/validate-trivy-result.mjs` stopped before push and forced that occurrence's removal. The gate now accepts only x/text v0.37.0 in `usr/local/bin/lazygit`; missing, duplicate, fixed, version-drifted, differently located, or additional HIGH/CRITICAL findings fail deployment. Any recurrence in `usr/bin/gh` is unreviewed and fails. The CVE is not in the global ignore file.
 
 ### Protected R2 Paths
 

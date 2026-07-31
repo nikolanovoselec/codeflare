@@ -5,14 +5,6 @@ import { fileURLToPath } from 'node:url';
 
 const REVIEWED_FINDINGS = [
   {
-    target: 'usr/bin/gh',
-    vulnerabilityId: 'CVE-2026-56852',
-    packageName: 'golang.org/x/text',
-    installedVersion: 'v0.38.0',
-    fixedVersion: '0.39.0',
-    severity: 'HIGH',
-  },
-  {
     target: 'usr/local/bin/lazygit',
     vulnerabilityId: 'CVE-2026-56852',
     packageName: 'golang.org/x/text',

@@ -641,13 +641,13 @@ CVE-2026-48815
 # exposure profile as CVE-2026-27145 above.
 CVE-2026-39822
 
-# CVE-2026-56852 is deliberately NOT listed in this global ignore file. The
-# latest published gh v2.96.0 and lazygit v0.63.1 releases embed x/text v0.38.0
-# and v0.37.0; the lazygit archive is locally SHA-256 pinned. Their normalization
-# DoS is accepted only through scripts/ci/validate-trivy-result.mjs, which
-# requires exactly those two binary paths and versions and fails on any extra,
-# missing, fixed, or drifted occurrence. Remove that gate when both shipped
-# binaries embed x/text v0.39.0 or later.
+# CVE-2026-56852 is deliberately NOT listed in this global ignore file. gh
+# v2.97.0 no longer emits the reviewed finding, while lazygit v0.63.1 still
+# embeds x/text v0.37.0; its archive is locally SHA-256 pinned. The remaining
+# normalization DoS is accepted only through scripts/ci/validate-trivy-result.mjs,
+# which requires that exact binary path and version and fails on any extra,
+# missing, fixed, or drifted occurrence. Remove the gate when a lazygit release
+# embeds x/text v0.39.0 or later.
 
 # Browser IDE migration note (AD119): the OpenVSCode-specific vulnerability
 # acceptance was removed with that runtime. Fixable code-server findings must
