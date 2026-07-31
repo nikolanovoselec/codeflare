@@ -11,7 +11,6 @@
   <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/test.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/test.yml/badge.svg?branch=main" alt="PR Checks"></a>
   <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/codeql.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
   <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/scorecard.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/scorecard.yml/badge.svg?branch=main" alt="OpenSSF Scorecard"></a>
-  <a href="https://www.cloudflare.com"><img src="https://img.shields.io/badge/platform-Cloudflare-F38020?logo=cloudflare&logoColor=white" alt="Platform: Cloudflare"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-59636e" alt="License: PolyForm Noncommercial 1.0.0"></a>
 </p>
 
@@ -24,7 +23,7 @@
 
 ![Codeflare, the agentic engineering engine](assets/documentation/og.png)
 
-Codeflare runs autonomous engineering agents in isolated Cloudflare Containers. One engineer can direct several agents through architecture, implementation, testing, review, deployment, and operations while retaining control of intent, approvals, and production change.
+Codeflare runs autonomous engineering agents in isolated, ephemeral containers. One engineer can direct several agents through architecture, implementation, testing, review, deployment, and operations while retaining control of intent, approvals, and production change.
 
 Each session has a browser-native terminal, an optional Browser VS Code workspace, the selected agent, and the team's engineering context already loaded. The container is disposable. Work that should survive moves through Git or the user's R2-backed storage; idle compute stops.
 
@@ -39,7 +38,7 @@ Enterprise Codeflare runs as a single-tenant deployment in the customer's Cloudf
 
 ## One operating model from intent to production
 
-Every run begins with an approved contract. Codeflare carries its requirements, acceptance criteria, tests, review evidence, and approval state through one execution loop:
+Every run is bootstrapped with Codeflare's spec-driven development framework, which carries requirements, acceptance criteria, tests, review evidence, and approval state through one execution loop:
 
 1. **Define the outcome:** write the requirements, acceptance criteria, and approved scope before implementation starts.
 2. **Give the agent a complete environment:** load the repository, engineering rules, skills, specialist agents, tools, and relevant project history.
@@ -65,7 +64,7 @@ The same governed session can discover, patch, migrate, and verify approved infr
 
 ### Deployed-system verification
 
-Browser Run is one verification tool within that delivery loop. When Cloudflare Browser Rendering is configured, Advanced sessions can read JavaScript-rendered public pages as clean Markdown or drive a deployed flow through Chrome DevTools. This supports responsive checks, screenshots, semantic end-to-end verification, and investigation of behavior that fixed selectors miss. Deterministic assertions remain in CI.
+Browser Run is one verification tool within that delivery loop. When Cloudflare Browser Rendering is configured, sessions can read JavaScript-rendered public pages as clean Markdown or drive a deployed flow through Chrome DevTools. This supports responsive checks, screenshots, semantic end-to-end verification, and investigation of behavior that fixed selectors miss. Deterministic assertions remain in CI.
 
 ## Existing codebases and inference choice
 
@@ -98,7 +97,7 @@ Codeflare makes no independent SLA, compliance-certification, or universal audit
 
 ## Session workspace
 
-An Advanced session arrives with organizational rules, reusable skills, specialist agents, project intelligence, and approved tools. Context loads when needed rather than occupying every prompt, and persistent notes and knowledge graphs carry decisions across disposable runtimes.
+Each session arrives with organizational rules, reusable skills, specialist agents, project intelligence, and approved tools. Context loads when needed rather than occupying every prompt, and persistent notes and knowledge graphs carry decisions across disposable runtimes.
 
 ![Codeflare session preload](assets/documentation/platform-preload.gif)
 
@@ -121,6 +120,17 @@ Default, Onboarding, and SaaS deployments support Claude Code, Codex, GitHub Cop
 
 A Hono Worker authenticates HTTP and WebSocket traffic, serves the application APIs, routes sessions, and applies control-plane policy. One Container Durable Object coordinates each session lifecycle, while one Cloudflare Container provides that session's Linux environment, PTYs, selected agent, and code-server process.
 
+```mermaid
+graph LR
+    E[Engineer] --> A[Cloudflare Access]
+    A --> W[Hono Worker]
+    W --> D[Container Durable Object]
+    D --> C["Session container<br>PTYs · agent · code-server"]
+    W <--> K[(Workers KV)]
+    C <--> R[(Per-user R2)]
+    C -. boundary-intercepted enterprise model traffic .-> G[Customer AI Gateway]
+```
+
 Workers KV holds control-plane records and status, so dashboard polling does not wake a sleeping container. Per-user R2 storage carries selected persistent data between disposable sessions through bounded rclone synchronization.
 
 Enterprise egress interceptors keep supported model and integration credentials or routes at the Worker boundary where their contracts require it. The detailed component model, request paths, lifecycle states, and enterprise routing flows are maintained in [Architecture](documentation/lanes/architecture.md). API contracts are maintained separately in the [API reference](documentation/lanes/api-reference.md).
@@ -142,7 +152,7 @@ Read [Security](documentation/lanes/security.md), [Authentication](documentation
 
 ### Enterprise
 
-Enterprise rollout uses the private environment configuration, not the public two-secret path. Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive Advanced sessions under the deployment's active-agent policy.
+Enterprise rollout uses the private environment configuration, not the public two-secret path. Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy.
 
 Exact enterprise secrets, token scopes, environment layouts, promotion checks, and rollback procedures live in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required). They are intentionally not duplicated in the public repository.
 
@@ -154,6 +164,8 @@ The public path creates a private single-tenant instance in four steps:
 2. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions repository secrets. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator).
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard. It configures the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
+
+Deployment and setup provision everything inside the operator's account: the Worker and its KV control plane, the session container image, dedicated per-user R2 buckets, and the Cloudflare Access application. Session limits and container sizing are maintained in [Configuration](documentation/lanes/configuration.md#container-specs).
 
 For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Without it, Codeflare cannot provide its KV credential-encryption and R2 SSE-C contracts. Users may also need their selected agent's subscription or credentials, and supported GitHub or Cloudflare connection flows require operator-registered OAuth applications.
 
