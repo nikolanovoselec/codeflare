@@ -152,7 +152,10 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
       upstreamRequests.push({ url: req.url, headers: { ...req.headers } });
       res.writeHead(302, {
         Location: '/login?next=%2Fstable%2Fout%2Fmain.js',
-        'Set-Cookie': 'code-server-session=abc; Path=/; HttpOnly',
+        'Set-Cookie': [
+          'code-server-session=abc; Path=/; HttpOnly',
+          'code-server-scope=xyz; Path=/stable/out; HttpOnly',
+        ],
         'Service-Worker-Allowed': '/',
       });
       res.end();
@@ -187,7 +190,10 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
 
     assert.equal(response.status, 302);
     assert.equal(response.headers.location, `/api/vscode/${SID}/login?next=%2Fstable%2Fout%2Fmain.js`);
-    assert.deepEqual(response.headers['set-cookie'], [`code-server-session=abc; Path=/api/vscode/${SID}/; HttpOnly`]);
+    assert.deepEqual(response.headers['set-cookie'], [
+      `code-server-session=abc; Path=/api/vscode/${SID}/; HttpOnly`,
+      `code-server-scope=xyz; Path=/api/vscode/${SID}/stable/out; HttpOnly`,
+    ]);
     assert.equal(response.headers['service-worker-allowed'], `/api/vscode/${SID}/`);
     assert.equal(upstreamRequests.length, 1);
     assert.equal(upstreamRequests[0].url, `/stable/out/main.js${query}`);

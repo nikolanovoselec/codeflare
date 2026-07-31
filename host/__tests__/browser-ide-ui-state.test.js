@@ -96,13 +96,60 @@ test('REQ-IDE-002: captures and restores only allowlisted theme, editor, and Exp
   assert.deepEqual(Object.keys(readRows(restoredRoot)).sort(), Object.keys(captured.workspaceState).sort());
   assert.deepEqual(JSON.parse(readFileSync(join(restoredRoot, 'data', 'User', 'settings.json'), 'utf8')), captured.settings);
   const workspaceUri = new URL(`file://${workspace}`).toString().replace(/\/$/, '');
-  const restoredStorage = join(restoredRoot, 'data', 'User', 'workspaceStorage', vscodeWorkspaceHash(workspaceUri));
-  assert.equal(existsSync(join(restoredStorage, 'state.vscdb')), true, 'restore uses Code OSS single-folder workspace identity');
+  assert.deepEqual(captured.workspaceIdentity, { id: 'fixture', folder: workspaceUri });
+  const restoredStorage = join(restoredRoot, 'data', 'User', 'workspaceStorage', 'fixture');
+  assert.equal(existsSync(join(restoredStorage, 'state.vscdb')), true, 'restore replays the captured workspace storage identity');
   assert.deepEqual(
     readdirSync(restoredStorage).sort(),
     ['state.vscdb', 'workspace.json'],
     'restore never persists a live WAL or shared-memory database companion',
   );
+});
+
+test('REQ-IDE-002: matches and replays the projected vscode-remote workspace identity', () => {
+  const { workspace, dataRoot, snapshot, root } = fixture();
+  const remoteFolder = `vscode-remote://sess.example.com${workspace}`;
+  const remoteId = vscodeWorkspaceHash(remoteFolder);
+  python(String.raw`
+import json, pathlib, sqlite3, sys
+root, folder, storage_id, workspace = sys.argv[1:]
+storage = pathlib.Path(root) / 'data' / 'User' / 'workspaceStorage' / storage_id
+storage.mkdir(parents=True)
+(storage / 'workspace.json').write_text(json.dumps({'folder': folder}))
+db = sqlite3.connect(storage / 'state.vscdb')
+db.execute('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)')
+db.execute('INSERT INTO ItemTable VALUES (?,?)', ('editors.mru', json.dumps([{'resource': (pathlib.Path(workspace) / 'src' / 'app.ts').as_uri()}])))
+db.commit(); db.close()
+`, dataRoot, remoteFolder, remoteId, workspace);
+
+  execFileSync('python3', [SCRIPT, 'capture', '--data-root', dataRoot, '--snapshot', snapshot, '--workspace', workspace]);
+  const captured = JSON.parse(readFileSync(snapshot, 'utf8'));
+  assert.deepEqual(captured.workspaceIdentity, { id: remoteId, folder: remoteFolder });
+  assert.ok(captured.workspaceState['editors.mru'], 'capture reads state through the remote-identity storage dir');
+
+  const restoredRoot = join(root, 'restored');
+  execFileSync('python3', [SCRIPT, 'restore', '--data-root', restoredRoot, '--snapshot', snapshot, '--workspace', workspace]);
+  const storage = join(restoredRoot, 'data', 'User', 'workspaceStorage', remoteId);
+  assert.deepEqual(JSON.parse(readFileSync(join(storage, 'workspace.json'), 'utf8')), { folder: remoteFolder });
+  assert.equal(existsSync(join(storage, 'state.vscdb')), true);
+});
+
+test('REQ-IDE-002: restores identity-less snapshots to the file-URI derived storage identity', () => {
+  const { workspace, dataRoot, snapshot, root } = fixture();
+  seedState(dataRoot, workspace);
+  execFileSync('python3', [SCRIPT, 'capture', '--data-root', dataRoot, '--snapshot', snapshot, '--workspace', workspace]);
+  python(String.raw`
+import json, pathlib, sys
+snapshot = pathlib.Path(sys.argv[1])
+parsed = json.loads(snapshot.read_text())
+parsed.pop('workspaceIdentity', None)
+snapshot.write_text(json.dumps(parsed, separators=(',', ':'), sort_keys=True) + '\n')
+`, snapshot);
+  const restoredRoot = join(root, 'restored');
+  execFileSync('python3', [SCRIPT, 'restore', '--data-root', restoredRoot, '--snapshot', snapshot, '--workspace', workspace]);
+  const workspaceUri = new URL(`file://${workspace}`).toString().replace(/\/$/, '');
+  const storage = join(restoredRoot, 'data', 'User', 'workspaceStorage', vscodeWorkspaceHash(workspaceUri));
+  assert.equal(existsSync(join(storage, 'workspace.json')), true, 'legacy snapshots keep restoring to the derived identity');
 });
 
 test('REQ-IDE-002: excludes allowlisted rows whose file resources escape directly or through a symlink', () => {

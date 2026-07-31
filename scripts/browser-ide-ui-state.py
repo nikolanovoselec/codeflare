@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import sqlite3
 import stat
@@ -50,6 +51,31 @@ def js_workspace_hash(value: str) -> str:
         result = ((result * 31) + ord(character)) & 0xFFFFFFFF
     signed = result if result < 0x80000000 else result - 0x100000000
     return format(signed, "x") if signed >= 0 else f"-{format(-signed, 'x')}"
+
+
+# The browser workbench keys single-folder storage off the folderUri it was
+# booted with, which the trusted host projects as vscode-remote://<authority>,
+# not the container-local file:// form - and the authority is not knowable
+# here. Identity is therefore matched by decoded path and replayed verbatim
+# from capture, never derived from an assumed URI shape.
+WORKSPACE_STORAGE_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def uri_targets_workspace(value: object, workspace: Path) -> bool:
+    if not isinstance(value, str) or "\0" in value or "\\" in value:
+        return False
+    split = urlparse(value)
+    if split.query or split.fragment or split.params:
+        return False
+    if split.scheme == "file":
+        if split.netloc:
+            return False
+    elif split.scheme == "vscode-remote":
+        if not split.netloc:
+            return False
+    else:
+        return False
+    return unquote(split.path) == str(workspace)
 
 
 def safe_workspace_path(value: str, workspace: Path) -> bool:
@@ -146,28 +172,30 @@ def read_theme_settings(settings_path: Path) -> dict[str, object]:
     return result
 
 
-def locate_workspace_database(data_root: Path, workspace: Path) -> Path | None:
+def locate_workspace_database(data_root: Path, workspace: Path) -> tuple[Path, dict[str, str]] | None:
     storage_root = data_root / "data" / "User" / "workspaceStorage"
     try:
         candidates = list(storage_root.iterdir())
     except OSError:
         return None
-    expected = workspace_uri(workspace)
     for candidate in candidates:
         try:
             if candidate.is_symlink() or not candidate.is_dir():
+                continue
+            if not WORKSPACE_STORAGE_ID.fullmatch(candidate.name):
                 continue
             marker = candidate / "workspace.json"
             info = marker.lstat()
             if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_size > 64 * 1024:
                 continue
             metadata = json.loads(marker.read_text(encoding="utf8"))
-            if metadata.get("folder") != expected:
+            folder = metadata.get("folder")
+            if not uri_targets_workspace(folder, workspace):
                 continue
             database = candidate / "state.vscdb"
             db_info = database.lstat()
             if stat.S_ISREG(db_info.st_mode) and not stat.S_ISLNK(db_info.st_mode):
-                return database
+                return database, {"id": candidate.name, "folder": folder}
         except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
             continue
     return None
@@ -232,17 +260,20 @@ def atomic_json_write(path: Path, value: object) -> None:
 
 
 def capture(data_root: Path, snapshot: Path, workspace: Path) -> None:
-    database = locate_workspace_database(data_root, workspace)
+    located = locate_workspace_database(data_root, workspace)
     settings = read_theme_settings(data_root / "data" / "User" / "settings.json")
-    state = read_workspace_state(database, workspace)
-    if database is None and not settings and not state:
+    state = read_workspace_state(located[0] if located else None, workspace)
+    if located is None and not settings and not state:
         return
-    atomic_json_write(snapshot, {
+    payload: dict[str, object] = {
         "version": 1,
         "workspace": workspace_uri(workspace),
         "settings": settings,
         "workspaceState": state,
-    })
+    }
+    if located is not None:
+        payload["workspaceIdentity"] = located[1]
+    atomic_json_write(snapshot, payload)
 
 
 def load_snapshot(path: Path, workspace: Path) -> dict[str, object] | None:
@@ -253,10 +284,22 @@ def load_snapshot(path: Path, workspace: Path) -> dict[str, object] | None:
         parsed = json.loads(path.read_text(encoding="utf8"))
     except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
-    if not isinstance(parsed, dict) or set(parsed) != {"version", "workspace", "settings", "workspaceState"}:
+    if not isinstance(parsed, dict) or set(parsed) - {"workspaceIdentity"} != {"version", "workspace", "settings", "workspaceState"}:
         return None
     if parsed.get("version") != 1 or parsed.get("workspace") != workspace_uri(workspace):
         return None
+    identity = parsed.get("workspaceIdentity")
+    safe_identity: dict[str, str] | None = None
+    if identity is not None:
+        if not isinstance(identity, dict) or set(identity) != {"id", "folder"}:
+            return None
+        storage_id = identity.get("id")
+        folder = identity.get("folder")
+        if not isinstance(storage_id, str) or not WORKSPACE_STORAGE_ID.fullmatch(storage_id):
+            return None
+        if not uri_targets_workspace(folder, workspace):
+            return None
+        safe_identity = {"id": storage_id, "folder": folder}
     settings = parsed.get("settings")
     state_values = parsed.get("workspaceState")
     if not isinstance(settings, dict) or not isinstance(state_values, dict):
@@ -277,7 +320,7 @@ def load_snapshot(path: Path, workspace: Path) -> dict[str, object] | None:
         if safe is None:
             return None
         safe_state[key] = safe
-    return {"settings": safe_settings, "workspaceState": safe_state}
+    return {"settings": safe_settings, "workspaceState": safe_state, "workspaceIdentity": safe_identity}
 
 
 def ensure_data_user_root(data_root: Path) -> Path:
@@ -309,11 +352,14 @@ def restore(data_root: Path, snapshot: Path, workspace: Path) -> None:
         return
     atomic_json_write(settings_path, {**existing, **captured["settings"]})
 
-    storage = user_root / "workspaceStorage" / js_workspace_hash(workspace_uri(workspace))
+    identity = captured["workspaceIdentity"]
+    if not isinstance(identity, dict):
+        identity = {"id": js_workspace_hash(workspace_uri(workspace)), "folder": workspace_uri(workspace)}
+    storage = user_root / "workspaceStorage" / identity["id"]
     storage.mkdir(mode=0o700, parents=True, exist_ok=True)
     if storage.resolve(strict=True) != storage:
         raise ValueError("workspace storage must not be redirected")
-    atomic_json_write(storage / "workspace.json", {"folder": workspace_uri(workspace)})
+    atomic_json_write(storage / "workspace.json", {"folder": identity["folder"]})
     database = storage / "state.vscdb"
     try:
         database_info = database.lstat()

@@ -105,9 +105,10 @@ describe('vscodeUpstreamRequestTarget / REQ-IDE-015 (fixed clean workspace navig
 });
 
 describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed workbench configuration)', () => {
-  const html = (config) => `<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="${JSON.stringify(config).replaceAll('"', '&quot;')}"><title>Code</title>`;
+  const html = (config) => `<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="${JSON.stringify(config).replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"><title>Code</title>`;
   const configuration = (document) => JSON.parse(
-    document.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1].replaceAll('&quot;', '"'),
+    document.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1]
+      .replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&'),
   );
 
   it('projects the fixed remote folder and preserves unrelated pinned-host configuration', () => {
@@ -129,6 +130,21 @@ describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed
       productConfiguration: { nameShort: 'Code' },
       opaqueServerSetting: { nested: ['preserve', { value: 7 }] },
     });
+  });
+
+  it('round-trips entity-bearing and $-pattern configuration values byte-identical', () => {
+    const opaqueServerSetting = {
+      callback: 'https://a.example/cb?x=1&y=<2>&z="q"',
+      dollars: "$& $' $` literal",
+    };
+    const projected = projectVscodeWorkbenchWorkspace(html({
+      remoteAuthority: 'codeflare.example',
+      opaqueServerSetting,
+    }));
+
+    assert.ok(projected);
+    assert.deepEqual(configuration(projected).opaqueServerSetting, opaqueServerSetting);
+    assert.doesNotMatch(projected, /&amp;amp;/, 'no double-encoding of pre-encoded entities');
   });
 
   it('fails closed on missing, duplicate, malformed, invalid-authority, and oversized configuration', () => {

@@ -169,6 +169,26 @@ export function vscodeUpstreamRequestTarget(
  * trusted host must supply the equivalent remote folder in server config.
  * HTML shape drift fails closed instead of silently opening an empty window.
  */
+// Symmetric attribute-entity round-trip: decode releases &amp; last and encode
+// escapes & first, so any entity or literal &/</" inside a configuration value
+// survives projection byte-identical instead of re-emitting double-encoded.
+function decodeWorkbenchAttribute(value: string): string {
+  return value
+    .replaceAll('&quot;', '"')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&#39;', "'")
+    .replaceAll('&amp;', '&');
+}
+
+function encodeWorkbenchAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 export function projectVscodeWorkbenchWorkspace(html: string): string | null {
   if (Buffer.byteLength(html) > OPENVSCODE_WORKBENCH_MAX_BYTES) return null;
   const matches = [...html.matchAll(WORKBENCH_CONFIGURATION_PATTERN)];
@@ -179,7 +199,7 @@ export function projectVscodeWorkbenchWorkspace(html: string): string | null {
 
   let configuration: Record<string, unknown>;
   try {
-    const parsed = JSON.parse(match[1].replaceAll('&quot;', '"')) as unknown;
+    const parsed = JSON.parse(decodeWorkbenchAttribute(match[1])) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     configuration = parsed as Record<string, unknown>;
   } catch {
@@ -206,8 +226,10 @@ export function projectVscodeWorkbenchWorkspace(html: string): string | null {
       path: CODEFLARE_WORKSPACE_ROOT,
     },
   };
-  const encoded = JSON.stringify(projected).replaceAll('"', '&quot;');
-  const projectedMarker = match[0].replace(match[1], encoded);
+  const encoded = encodeWorkbenchAttribute(JSON.stringify(projected));
+  // Replacer function: a literal replacement string would expand $-patterns
+  // ($&, $') that can legitimately appear inside the encoded JSON.
+  const projectedMarker = match[0].replace(match[1], () => encoded);
   return `${html.slice(0, matchStart)}${projectedMarker}${html.slice(matchStart + match[0].length)}`;
 }
 

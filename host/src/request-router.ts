@@ -143,8 +143,8 @@ function rewriteVscodeResponseHeaders(
   const location = singleHeader(headers.location);
   const serviceWorkerAllowed = singleHeader(headers['service-worker-allowed']);
   const rewriteCookie = (cookie: string): string => cookie.replace(
-    /(;\s*path=)\/(;|$)/i,
-    `$1${prefix}/$2`,
+    /(;\s*path=)(\/[^;]*)/i,
+    `$1${prefix}$2`,
   );
   return {
     ...headers,

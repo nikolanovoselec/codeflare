@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const REVIEWED_FINDINGS = [
   {
+    // Reviewed 2026-07-31 (PR #716 code lane): golang.org/x/text advisory in
+    // the vendored lazygit binary; no fixed lazygit release ships x/text
+    // >= 0.39.0 yet. Remove this entry when the pinned lazygit bumps past it —
+    // the gate then fails closed on the stale exception.
     target: 'usr/local/bin/lazygit',
     vulnerabilityId: 'CVE-2026-56852',
     packageName: 'golang.org/x/text',

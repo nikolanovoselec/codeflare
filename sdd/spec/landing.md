@@ -288,8 +288,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Constraints:**
 
-- Reuse the landing's shared Transcript feed, proof observer, `term-type` entrance, 420 ms scroll phase, 58 ms typing cadence, and permanent terminal chrome.
-- Initial rows complete their ordered entrance before `is-rolling` disables entrance keyframes for appended live rows.
+- Reuse the landing's shared Transcript feed, proof observer, entrance animation, 420 ms scroll phase, 58 ms typing cadence, and permanent terminal chrome.
+- Initial rows complete their ordered entrance before appended live rows suppress entrance animation.
 - Completed rows remain in the log and overflow upward only when newer work needs the fixed viewport.
 
 **Priority:** P1
