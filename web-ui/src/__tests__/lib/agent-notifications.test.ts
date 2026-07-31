@@ -35,6 +35,14 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
     });
   });
 
+  it('derives notification identity from the selected agent instead of terminal text', () => {
+    expect(parseAgentNotification('notify;System Update;Ready for input', context)).toEqual({
+      title: 'Pi · Matrix',
+      body: 'Ready for input',
+      sessionUrl: window.location.href,
+    });
+  });
+
   it.each([
     ['unsupported agent', { ...context, agentType: 'bash' as const }, 'notify;Pi;Ready'],
     ['other terminal', { ...context, terminalId: '2' }, 'notify;Pi;Ready'],
@@ -43,6 +51,8 @@ describe('native agent browser notifications / REQ-TERM-023', () => {
     ['unexpected operation', context, 'open;Pi;Ready'],
     ['control-bearing title', context, 'notify;Pi\nspoof;Ready'],
     ['control-bearing body', context, 'notify;Pi;Ready\u001b[31m'],
+    ['format-bearing title', context, 'notify;Pi\u202espoof;Ready'],
+    ['format-bearing body', context, 'notify;Pi;Ready\u2066spoof\u2069'],
     ['oversized title', context, `notify;${'p'.repeat(65)};Ready`],
     ['oversized composed title', { ...context, sessionName: 's'.repeat(60) }, 'notify;Pi;Ready'],
     ['oversized body', context, `notify;Pi;${'é'.repeat(129)}`],

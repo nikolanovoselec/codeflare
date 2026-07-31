@@ -408,6 +408,8 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     const waitingCaret = waitingRow?.querySelector<HTMLElement>('.t-caret');
     expect(waitingRow?.textContent).toBe(fixture.softwareContext.at(-1)?.text);
     expect(waitingCaret).not.toBeNull();
+    expect(waitingCaret?.classList.contains('t-caret--waiting')).toBe(true);
+    expect(getComputedStyle(waitingCaret!).position).toBe('absolute');
     expect(getComputedStyle(waitingCaret!).animation).toContain('caret');
     expect(getComputedStyle(waitingCaret!).animation).toContain('infinite');
     expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
@@ -425,6 +427,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     const live = typingRow.querySelector<HTMLElement>('[data-feed-live]')!;
     expect(typingRow.classList.contains('t-cmd')).toBe(false);
     expect(typingRow.classList.contains('t-feed-command')).toBe(true);
+    expect(typingRow.querySelector('.t-caret--waiting')).toBeNull();
     for (const layer of [reserve, live]) {
       const prompt = layer.querySelector<HTMLElement>('.t-feed-prompt')!;
       expect(prompt.textContent).toBe('❯ ');
@@ -451,6 +454,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.softwareList.dataset.feedState).toBe('complete');
     const finalCaret = fixture.softwareList.lastElementChild?.querySelector<HTMLElement>('.t-caret');
     expect(finalCaret).not.toBeNull();
+    expect(finalCaret?.classList.contains('t-caret--waiting')).toBe(false);
     expect(fixture.softwareList.children).toHaveLength(
       fixture.softwareContext.length + fixture.softwareEvents.length,
     );

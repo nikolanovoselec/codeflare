@@ -129,6 +129,32 @@ db.commit(); db.close()
   assert.ok(captured.workspaceState['workbench.explorer.treeViewState']);
 });
 
+test('REQ-IDE-002: excludes unknown fields and opaque strings from allowlisted state rows', () => {
+  const { workspace, dataRoot, snapshot } = fixture();
+  seedState(dataRoot, workspace);
+  python(String.raw`
+import glob, json, pathlib, sqlite3, sys
+root, workspace = sys.argv[1:]
+resource = (pathlib.Path(workspace) / 'src' / 'app.ts').as_uri()
+path = glob.glob(root + '/data/User/workspaceStorage/*/state.vscdb')[0]
+db = sqlite3.connect(path)
+rows = {
+  'memento/workbench.parts.editor': {'editorpart.state': {'resource': resource, 'label': 'secret-token'}},
+  'editors.mru': [{'resource': resource, 'credential': 'secret-token'}],
+  'workbench.explorer.treeViewState': {'expanded': [resource], 'opaque': 'secret-token'},
+}
+for key, value in rows.items():
+  db.execute('UPDATE ItemTable SET value=? WHERE key=?', (json.dumps(value), key))
+db.commit(); db.close()
+`, dataRoot, workspace);
+
+  execFileSync('python3', [SCRIPT, 'capture', '--data-root', dataRoot, '--snapshot', snapshot, '--workspace', workspace]);
+  const capturedText = readFileSync(snapshot, 'utf8');
+  const captured = JSON.parse(capturedText);
+  assert.deepEqual(captured.workspaceState, {});
+  assert.doesNotMatch(capturedText, /secret-token|credential|opaque/);
+});
+
 test('REQ-IDE-002: ignores malformed and oversized snapshots instead of importing attacker-controlled state', () => {
   for (const body of ['{not-json', JSON.stringify({ version: 1, settings: { 'workbench.colorTheme': 'x'.repeat(1_100_000) }, workspaceState: {} })]) {
     const { workspace, dataRoot, snapshot } = fixture();

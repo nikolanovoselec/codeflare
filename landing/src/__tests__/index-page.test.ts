@@ -561,7 +561,7 @@ describe('execution overview reel (REQ-LANDING-010)', () => {
 
   it('keeps every authored continuation non-empty', () => {
     const runs = [
-      { run: EXECUTION.software, continuationCount: 10 },
+      { run: EXECUTION.software, continuationCount: 9 },
       { run: EXECUTION.infrastructure, continuationCount: 8 },
     ];
     for (const { run, continuationCount } of runs) {
