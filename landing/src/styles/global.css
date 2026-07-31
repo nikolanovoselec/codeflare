@@ -769,7 +769,7 @@ svg {
 
 /* Under normal-motion enhancement on mobile and tablet, proof.ts replaces the
    intrinsic `auto` value with the rendered Hero terminal height. Both Execution
-   frames therefore retain the same outer height as each other and the Hero reel.
+   frames therefore retain the same outer height as each other and the Hero terminal.
    No-JS and reduced motion keep or restore `auto` intrinsic sizing. */
 @media (max-width: 1023.98px) {
   .execution-terminal {
