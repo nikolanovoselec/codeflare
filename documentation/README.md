@@ -39,7 +39,6 @@ When their public workflows or consumers change, update the private README in th
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [Architecture](lanes/architecture.md) | System overview, components, data flow, design rationale | Developers |
-| [README Media Acceptance](lanes/readme-media-acceptance.md) | Canonical capture provenance and manual media acceptance evidence | Developers |
 | [Architecture Internals](lanes/architecture-internals.md) | Backend library reference, code structure, CF-NNN index | Developers |
 | [API Reference](lanes/api-reference.md) | All API endpoints, request/response formats | Developers |
 | [Authentication & Billing](lanes/authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers, Security |

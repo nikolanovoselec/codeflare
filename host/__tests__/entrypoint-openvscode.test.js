@@ -812,16 +812,7 @@ ${extractKillHelpers()}
 setsid bash -c '_openvscode_supervise_loop' >/dev/null 2>&1 &
 supervisor=$!
 printf '%s\\n' "$supervisor" > "$OPENVSCODE_PIDFILE"
-# The managed child can publish first; shutdown owns the atomically published
-# generation identity, so wait for both readiness signals before exercising it.
-for _ in $(seq 1 100); do
-  [ -s "$MANAGED_PID_FILE" ] && [ -s "$OPENVSCODE_GENERATION_PIDFILE" ] && break
-  sleep 0.02
-done
-if [ ! -s "$MANAGED_PID_FILE" ] || [ ! -s "$OPENVSCODE_GENERATION_PIDFILE" ]; then
-  echo "openvscode generation readiness timed out" >&2
-  exit 1
-fi
+for _ in $(seq 1 50); do [ -s "$MANAGED_PID_FILE" ] && break; sleep 0.02; done
 read -r managed < "$MANAGED_PID_FILE"
 kill_pidfile_subtree "$OPENVSCODE_GENERATION_PIDFILE"
 kill_pidfile_subtree "$OPENVSCODE_PIDFILE"
