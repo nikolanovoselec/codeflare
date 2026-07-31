@@ -358,6 +358,12 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     await fontsReady;
     expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('400px');
 
+    vi.stubGlobal('innerWidth', 390);
+    heroHeight = 405;
+    window.dispatchEvent(new Event('resize'));
+    vi.advanceTimersByTime(0);
+    expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('405px');
+
     observer.intersect(fixture.infrastructure, 'prearm');
     const exposedFirstRow = fixture.infrastructureList.firstElementChild;
     heroHeight = 410;
