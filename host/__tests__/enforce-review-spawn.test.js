@@ -1264,7 +1264,11 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('consumes the triage file on the no-lanes auto-ack short-circuit', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const git = (...args) => spawnSync('git', args, { cwd, encoding: 'utf-8' }).stdout.trim();
+    const git = (...args) => {
+      const r = spawnSync('git', args, { cwd, encoding: 'utf-8' });
+      assert.equal(r.status, 0, `git ${args[0]} failed: ${r.stderr}`);
+      return r.stdout.trim();
+    };
     const baseSha = git('rev-parse', 'HEAD');
     mkdirSync(join(cwd, 'graphify-out'), { recursive: true });
     writeFileSync(join(cwd, 'graphify-out/graph.json'), '{}\n');
