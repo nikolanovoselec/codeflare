@@ -44,7 +44,7 @@ function addFeed(
   const context: FeedLine[] = run.context.map((line) => ({ ...line }));
   const events: FeedLine[] = run.events.map((line) => ({ ...line }));
   const face = document.createElement('section');
-  face.className = 'terminal';
+  face.className = `terminal execution-terminal execution-terminal--${name}`;
   face.dataset.proof = '';
   face.dataset.executionFace = name;
   const list = document.createElement('div');
@@ -65,6 +65,7 @@ function addFeed(
 
 function buildFixture(): FeedFixture {
   const root = document.createElement('div');
+  root.className = 'execution-reel';
   root.dataset.executionReel = '';
   const software = addFeed(root, 'software');
   const infrastructure = addFeed(root, 'infrastructure');
@@ -250,55 +251,135 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     style.remove();
   });
 
-  it('matches the Hero frame and types context that cannot fit instead of hiding it', async () => {
+  it('matches the Hero frame and queues fractionally clipped context without visible resets', async () => {
     const fixture = buildFixture();
     const hero = document.createElement('div');
     hero.className = 'hero-terminal';
     const heroFrame = document.createElement('div');
     heroFrame.className = 'terminal';
-    heroFrame.getBoundingClientRect = vi.fn().mockReturnValue({
-      height: 390,
+    let heroHeight = 390;
+    heroFrame.getBoundingClientRect = vi.fn(() => ({
+      height: heroHeight,
       width: 350,
       top: 0,
       left: 0,
       right: 350,
-      bottom: 390,
+      bottom: heroHeight,
       x: 0,
       y: 0,
       toJSON: () => ({}),
-    });
+    }));
     hero.appendChild(heroFrame);
     document.body.prepend(hero);
     vi.stubGlobal('innerWidth', 900);
-    for (const list of [fixture.softwareList, fixture.infrastructureList]) {
+
+    const measuredLists = [fixture.softwareList, fixture.infrastructureList];
+    const defaultRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = vi.fn(function measuredRect(this: Element) {
+      if (measuredLists.includes(this as HTMLElement)) {
+        return {
+          height: 240,
+          width: 350,
+          top: 0,
+          left: 0,
+          right: 350,
+          bottom: 240,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        };
+      }
+      const parent = this.parentElement as HTMLElement | null;
+      if (parent && measuredLists.includes(parent) && this.classList.contains('t-line')) {
+        const index = Array.from(parent.children).indexOf(this);
+        const bottom = (index + 1) * 60 + 0.25;
+        return {
+          height: 60,
+          width: 350,
+          top: index * 60,
+          left: 0,
+          right: 350,
+          bottom,
+          x: 0,
+          y: index * 60,
+          toJSON: () => ({}),
+        };
+      }
+      return defaultRect.call(this);
+    });
+    for (const list of measuredLists) {
       Object.defineProperties(list, {
         clientHeight: { configurable: true, value: 240 },
-        scrollHeight: {
-          configurable: true,
-          get: () => list.children.length * 60,
-        },
+        scrollHeight: { configurable: true, value: 240 },
       });
     }
+
+    let resizeCallback: ResizeObserverCallback = () => undefined;
+    const observe = vi.fn();
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe = observe;
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+    });
+    let resolveFonts = () => undefined;
+    const fontsReady = new Promise<void>((resolve) => { resolveFonts = resolve; });
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { ready: fontsReady },
+    });
     mockMatchMedia(false);
     const observer = installIntersectionObserver();
+    const style = installGlobalStyles();
 
     await import('../scripts/proof');
 
+    const responsiveRule = Array.from(style.sheet!.cssRules)
+      .filter((rule): rule is CSSMediaRule => 'conditionText' in rule)
+      .flatMap((rule) => Array.from(rule.cssRules))
+      .find((rule): rule is CSSStyleRule =>
+        'selectorText' in rule && rule.selectorText === '.execution-terminal');
+    expect(responsiveRule?.style.getPropertyValue('height'))
+      .toBe('var(--execution-frame-height, auto)');
+    expect(fixture.software.classList.contains('execution-terminal')).toBe(true);
+    expect(fixture.infrastructure.classList.contains('execution-terminal')).toBe(true);
+    expect(observe).toHaveBeenCalledWith(heroFrame);
     expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('390px');
-    expect(fixture.softwareList.dataset.feedOpeningCount).toBe('4');
-    expect(fixture.infrastructureList.dataset.feedOpeningCount).toBe('4');
+    expect(fixture.softwareList.dataset.feedOpeningCount).toBe('3');
+    expect(fixture.infrastructureList.dataset.feedOpeningCount).toBe('3');
     expect(visibleLines(fixture.infrastructureList)).toEqual(
-      fixture.infrastructureContext.slice(0, 4).map((line) => line.text),
+      fixture.infrastructureContext.slice(0, 3).map((line) => line.text),
     );
+
+    heroHeight = 400;
+    resolveFonts();
+    await fontsReady;
+    expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('400px');
+
+    observer.intersect(fixture.infrastructure, 'prearm');
+    const exposedFirstRow = fixture.infrastructureList.firstElementChild;
+    heroHeight = 410;
+    resizeCallback([], {} as ResizeObserver);
+    expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('410px');
+    expect(fixture.infrastructureList.firstElementChild).toBe(exposedFirstRow);
+
+    vi.stubGlobal('innerWidth', 1200);
+    window.dispatchEvent(new Event('resize'));
+    vi.advanceTimersByTime(0);
+    expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('');
+    expect(fixture.infrastructureList.firstElementChild).toBe(exposedFirstRow);
 
     observer.intersect(fixture.infrastructure, 'feed');
     vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS);
     expect(visibleLines(fixture.infrastructureList).at(-1)).toBe(
-      fixture.infrastructureContext[4].text.slice(0, 1),
+      fixture.infrastructureContext[3].text.slice(0, 1),
     );
     expect(visibleLines(fixture.infrastructureList)[0]).toBe(
       fixture.infrastructureContext[0].text,
     );
+    style.remove();
   });
 
   it('types the simulation to completion in a fixed scrolling log with final cursor', async () => {
@@ -535,8 +616,15 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     expect(fixture.infrastructureList.lastElementChild?.querySelector('.t-caret')).not.toBeNull();
   });
 
-  it('keeps the complete resolved event viewports under reduced motion', async () => {
+  it('keeps intrinsic complete resolved event viewports under reduced motion', async () => {
     const fixture = buildFixture();
+    const hero = document.createElement('div');
+    hero.className = 'hero-terminal';
+    const heroFrame = document.createElement('div');
+    heroFrame.className = 'terminal';
+    hero.appendChild(heroFrame);
+    document.body.prepend(hero);
+    vi.stubGlobal('innerWidth', 900);
     const softwareResolved = visibleLines(fixture.softwareList);
     const infrastructureResolved = visibleLines(fixture.infrastructureList);
     mockMatchMedia(true);
@@ -546,6 +634,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     vi.advanceTimersByTime(60_000);
 
     expect(observer.observe).not.toHaveBeenCalled();
+    expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('');
     expect(visibleLines(fixture.softwareList)).toEqual(softwareResolved);
     expect(visibleLines(fixture.infrastructureList)).toEqual(infrastructureResolved);
     expect(fixture.softwareList.dataset.feedState).toBe('resolved');
