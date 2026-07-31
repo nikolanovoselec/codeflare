@@ -151,6 +151,34 @@ function feedRow(line: FeedLine, index: number): HTMLElement {
   return row;
 }
 
+function feedPrompt(): HTMLElement {
+  const prompt = document.createElement('span');
+  prompt.className = 't-feed-prompt';
+  prompt.setAttribute('aria-hidden', 'true');
+  prompt.textContent = '❯ ';
+  return prompt;
+}
+
+function feedCaret(): HTMLElement {
+  const caret = document.createElement('span');
+  caret.className = 't-caret';
+  caret.setAttribute('aria-hidden', 'true');
+  return caret;
+}
+
+function pendingFeedRow(line: FeedLine, index: number): HTMLElement {
+  const row = feedRow(line, index);
+  row.className = `t-line ${line.tone === 'cmd' ? 't-feed-command' : `t-${line.tone}`}`;
+  const live = document.createElement('span');
+  live.dataset.feedLive = '';
+  const text = document.createElement('span');
+  text.dataset.feedText = '';
+  if (line.tone === 'cmd') live.appendChild(feedPrompt());
+  live.append(text, feedCaret());
+  row.replaceChildren(live);
+  return row;
+}
+
 /** Normal motion restores the complete context on desktop. A synchronized
  *  mobile/tablet frame reveals only its largest fully fitting prefix; the
  *  remaining context stays queued for typed append before authored events.
@@ -164,17 +192,20 @@ function prepareFeed(list: HTMLElement): void {
   list.closest<HTMLElement>('.terminal-body')?.classList.add('is-feed-prepared');
 
   // Synchronized mobile/tablet frames can be shorter than the eight-row authored
-  // context at narrow half widths. Keep only the largest prefix that is wholly
-  // visible; startFeed queues the rest before the authored events.
+  // context at narrow half widths. Keep only the largest prefix that leaves one
+  // fully visible empty row for the pending caret; startFeed queues the rest.
   const frameIsSynchronized = executionReel?.style
     .getPropertyValue('--execution-frame-height').length;
   const viewport = list.getBoundingClientRect();
   if (frameIsSynchronized && viewport.height > 0) {
-    while (list.children.length > 1) {
-      const finalRow = list.lastElementChild?.getBoundingClientRect();
-      if (!finalRow || finalRow.bottom <= viewport.bottom) break;
-      list.lastElementChild?.remove();
+    const pending = pendingFeedRow(events[0], context.length);
+    list.appendChild(pending);
+    while (list.children.length > 2) {
+      const pendingRect = pending.getBoundingClientRect();
+      if (pendingRect.bottom <= viewport.bottom) break;
+      pending.previousElementSibling?.remove();
     }
+    pending.remove();
   }
   list.dataset.feedOpeningCount = String(list.children.length);
   list.dataset.feedState = 'ready';
@@ -217,17 +248,9 @@ function typeFeedRow(
   live.dataset.feedLive = '';
   const text = document.createElement('span');
   text.dataset.feedText = '';
-  const caret = document.createElement('span');
-  caret.className = 't-caret';
-  caret.setAttribute('aria-hidden', 'true');
+  const caret = feedCaret();
   if (line.tone === 'cmd') {
-    for (const layer of [reserve, live]) {
-      const prompt = document.createElement('span');
-      prompt.className = 't-feed-prompt';
-      prompt.setAttribute('aria-hidden', 'true');
-      prompt.textContent = '❯ ';
-      layer.appendChild(prompt);
-    }
+    for (const layer of [reserve, live]) layer.appendChild(feedPrompt());
   }
   reserve.appendChild(reserveText);
   live.append(text, caret);
@@ -250,12 +273,9 @@ function typeFeedRow(
   window.setTimeout(tick, startDelay);
 }
 
-function placeFeedCaret(list: HTMLElement, waiting = false): void {
+function placeFeedCaret(list: HTMLElement): void {
   list.querySelector('.t-caret')?.remove();
-  const caret = document.createElement('span');
-  caret.className = waiting ? 't-caret t-caret--waiting' : 't-caret';
-  caret.setAttribute('aria-hidden', 'true');
-  list.lastElementChild?.appendChild(caret);
+  list.lastElementChild?.appendChild(feedCaret());
 }
 
 function settleFeed(list: HTMLElement): void {
@@ -280,7 +300,9 @@ function startFeed(list: HTMLElement): void {
   const events = [...context.slice(openingCount), ...authoredEvents];
   list.dataset.feedStarted = 'true';
   list.dataset.feedState = 'running';
-  placeFeedCaret(list, true);
+  const pendingRow = pendingFeedRow(events[0], list.children.length);
+  list.appendChild(pendingRow);
+  scrollFeedToEnd(list, 'smooth');
   let index = 0;
 
   const advance = () => {
@@ -289,9 +311,8 @@ function startFeed(list: HTMLElement): void {
       return;
     }
     list.closest<HTMLElement>('[data-proof]')?.classList.add('is-rolling');
-    list.querySelector('.t-caret')?.remove();
-    const row = feedRow(events[index], list.children.length);
-    list.appendChild(row);
+    const row = index === 0 ? pendingRow : feedRow(events[index], list.children.length);
+    if (index > 0) list.appendChild(row);
     typeFeedRow(row, events[index], () => {
       index += 1;
       if (index >= events.length) {
