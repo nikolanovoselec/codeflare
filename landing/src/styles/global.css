@@ -792,8 +792,10 @@ svg {
 .execution-terminal .terminal-body {
   position: relative;
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
-  overflow-x: hidden;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .execution-terminal .transcript-feed,
