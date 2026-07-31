@@ -342,10 +342,10 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
       .toBe('var(--execution-frame-height)');
     expect(observe).not.toHaveBeenCalled();
     expect(fixture.root.style.getPropertyValue('--execution-frame-height')).toBe('390px');
-    expect(fixture.softwareList.dataset.feedOpeningCount).toBe('3');
-    expect(fixture.infrastructureList.dataset.feedOpeningCount).toBe('3');
+    expect(fixture.softwareList.dataset.feedOpeningCount).toBe('2');
+    expect(fixture.infrastructureList.dataset.feedOpeningCount).toBe('2');
     expect(visibleLines(fixture.infrastructureList)).toEqual(
-      fixture.infrastructureContext.slice(0, 3).map((line) => line.text),
+      fixture.infrastructureContext.slice(0, 2).map((line) => line.text),
     );
 
     heroHeight = 400;
@@ -376,7 +376,7 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
     observer.intersect(fixture.infrastructure, 'feed');
     vi.advanceTimersByTime(ROLL_FIRST_MS + PHASE_MS + TYPE_MS);
     expect(visibleLines(fixture.infrastructureList).at(-1)).toBe(
-      fixture.infrastructureContext[3].text.slice(0, 1),
+      fixture.infrastructureContext[2].text.slice(0, 1),
     );
     expect(visibleLines(fixture.infrastructureList)[0]).toBe(
       fixture.infrastructureContext[0].text,
@@ -404,25 +404,33 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
 
     observer.intersect(fixture.software, 'feed');
     expect(fixture.software.classList.contains('is-rolling')).toBe(false);
-    const waitingRow = fixture.softwareList.lastElementChild;
-    const waitingCaret = waitingRow?.querySelector<HTMLElement>('.t-caret');
-    expect(waitingRow?.textContent).toBe(fixture.softwareContext.at(-1)?.text);
+    const waitingRow = fixture.softwareList.lastElementChild as HTMLElement;
+    const waitingText = waitingRow.querySelector<HTMLElement>('[data-feed-live] [data-feed-text]');
+    const waitingCaret = waitingRow.querySelector<HTMLElement>('.t-caret');
+    const waitingPrompt = waitingRow.querySelector<HTMLElement>('.t-feed-prompt');
+    expect(visibleLines(fixture.softwareList).at(-1)).toBe('');
+    expect(waitingRow.previousElementSibling?.textContent).toBe(fixture.softwareContext.at(-1)?.text);
+    expect(waitingRow.classList.contains('t-feed-command')).toBe(true);
+    expect(waitingPrompt?.textContent).toBe('❯ ');
+    expect(waitingPrompt?.nextElementSibling).toBe(waitingText);
+    expect(waitingText?.nextElementSibling).toBe(waitingCaret);
     expect(waitingCaret).not.toBeNull();
-    expect(waitingCaret?.classList.contains('t-caret--waiting')).toBe(true);
-    expect(getComputedStyle(waitingCaret!).position).toBe('absolute');
+    expect(waitingCaret?.classList.contains('t-caret--waiting')).toBe(false);
     expect(getComputedStyle(waitingCaret!).animation).toContain('caret');
     expect(getComputedStyle(waitingCaret!).animation).toContain('infinite');
-    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
+    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS + 1);
     vi.advanceTimersByTime(ROLL_FIRST_MS - 1);
     expect(fixture.software.classList.contains('is-rolling')).toBe(false);
     expect(fixture.softwareList.lastElementChild).toBe(waitingRow);
-    expect(waitingRow?.querySelector('.t-caret')).toBe(waitingCaret);
+    expect(waitingRow.querySelector('.t-caret')).toBe(waitingCaret);
     vi.advanceTimersByTime(1 + PHASE_MS + TYPE_MS - 1);
     expect(fixture.software.classList.contains('is-rolling')).toBe(true);
+    expect(fixture.softwareList.lastElementChild).toBe(waitingRow);
     expect(visibleLines(fixture.softwareList).at(-1)).toBe('');
     vi.advanceTimersByTime(1);
     expect(visibleLines(fixture.softwareList).at(-1)).toBe(fixture.softwareEvents[0].text.slice(0, 1));
     const typingRow = fixture.softwareList.lastElementChild as HTMLElement;
+    expect(typingRow).toBe(waitingRow);
     const reserve = typingRow.querySelector<HTMLElement>('[data-feed-reserve]')!;
     const live = typingRow.querySelector<HTMLElement>('[data-feed-live]')!;
     expect(typingRow.classList.contains('t-cmd')).toBe(false);
