@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-31
+
+- **Execution signals the initial hold and uses the approved inference-path wording** ([REQ-LANDING-010](landing.md#req-landing-010-execution-overview-reel) and [REQ-LANDING-011](landing.md#req-landing-011-execution-reel-progressive-motion) remain Implemented). Once a normal-motion terminal enters the viewport, a blinking caret rests on its final prefilled row throughout the existing three-second hold without adding a row or advancing hidden history; the caret then moves into the appended row before typing begins. The software path evidence is now the owner-approved two-line `AI Gateway →> Inference Router → cf1:network Mesh -> Zero Trust Client → private node` and `stream complete · reservation released · audit event recorded` receipt.
+
 ## 2026-07-30
 
 - **Manual deployment retains every permission required by inline PR Checks** ([REQ-OPS-029](operations.md#req-ops-029-automatic-manual-deploy-verification-reuse) remains Implemented). The shared registry-cache permission must not replace the Actions read permission needed by exact-tree image-evidence resolution; omitting it causes workflow startup failure before any verification or deployment job can run.

@@ -404,8 +404,17 @@ describe('shared transcript feed (REQ-LANDING-011/REQ-LANDING-012)', () => {
 
     observer.intersect(fixture.software, 'feed');
     expect(fixture.software.classList.contains('is-rolling')).toBe(false);
+    const waitingRow = fixture.softwareList.lastElementChild;
+    const waitingCaret = waitingRow?.querySelector<HTMLElement>('.t-caret');
+    expect(waitingRow?.textContent).toBe(fixture.softwareContext.at(-1)?.text);
+    expect(waitingCaret).not.toBeNull();
+    expect(getComputedStyle(waitingCaret!).animation).toContain('caret');
+    expect(getComputedStyle(waitingCaret!).animation).toContain('infinite');
+    expect(fixture.softwareList.children).toHaveLength(VIEWPORT_ROWS);
     vi.advanceTimersByTime(ROLL_FIRST_MS - 1);
     expect(fixture.software.classList.contains('is-rolling')).toBe(false);
+    expect(fixture.softwareList.lastElementChild).toBe(waitingRow);
+    expect(waitingRow?.querySelector('.t-caret')).toBe(waitingCaret);
     vi.advanceTimersByTime(1 + PHASE_MS + TYPE_MS - 1);
     expect(fixture.software.classList.contains('is-rolling')).toBe(true);
     expect(visibleLines(fixture.softwareList).at(-1)).toBe('');
