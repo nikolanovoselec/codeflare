@@ -4,24 +4,18 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
+import {
+  README_MEDIA,
+  README_MEDIA_BUDGETS,
+  RETIRED_README_PICTURES,
+} from '../../scripts/ci/readme-media-contract.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const README = readFileSync(join(ROOT, 'README.md'), 'utf8');
-const MEDIA = [
-  'execution',
-  'browser-vscode',
-  'browser-e2e',
-  'review-governance',
-  'deployment',
-  'inference-mesh',
-];
-const ONE_SHOT_MEDIA = new Set(['execution', 'browser-e2e', 'deployment']);
-const RETIRED_PICTURES = [
-  'mobile-foldable.jpg',
-  'mobile-phone.jpg',
-  'hero-ide-fullscreen.png',
-  'guided-setup.png',
-];
+const MEDIA = README_MEDIA.map(({ name }) => name);
+const ONE_SHOT_MEDIA = new Set(
+  README_MEDIA.filter(({ playback }) => playback === 'once').map(({ name }) => name),
+);
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, value) => {
   let crc = value;
@@ -378,7 +372,7 @@ describe('README canonical landing media (REQ-LANDING-013/016/017)', () => {
       assert.ok((block.image.get('alt') ?? '').trim().length > 0, `${name} needs non-empty alt text`);
       assert.equal(block.image.get('width'), '1200');
     }
-    for (const retired of RETIRED_PICTURES) {
+    for (const retired of RETIRED_README_PICTURES) {
       assert.equal(html.includes(retired), false, `${retired} remains in active README content`);
       assert.equal(existsSync(join(ROOT, 'assets', 'documentation', retired)), false, `${retired} still exists`);
     }
@@ -399,8 +393,11 @@ describe('README canonical landing media (REQ-LANDING-013/016/017)', () => {
       assert.ok(gif.width > gif.height, `${name} must use a wide README composition`);
       assert.ok(gif.frames >= 3, `${name} must contain real animation`);
       assert.equal(gif.loopCount, ONE_SHOT_MEDIA.has(name) ? undefined : 0, `${name} loop policy drifted`);
-      assert.ok(gifSize <= 10 * 1024 * 1024, `${name}.gif exceeds the 10 MiB budget`);
+      assert.ok(gifSize <= README_MEDIA_BUDGETS.gifBytes, `${name}.gif exceeds the 10 MiB budget`);
     }
-    assert.ok(aggregateBytes <= 30 * 1024 * 1024, 'README media exceeds the 30 MiB aggregate budget');
+    assert.ok(
+      aggregateBytes <= README_MEDIA_BUDGETS.aggregateBytes,
+      'README media exceeds the 30 MiB aggregate budget',
+    );
   });
 });

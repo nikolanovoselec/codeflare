@@ -337,11 +337,11 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Acceptance Criteria:**
 
 1. The resolved Execution reel is self-contained at a wide aspect suitable for README capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
-2. The six animations derive from the deployed Execution, Browser VS Code, Browser E2E, review, deployment, and Inference Mesh components and approved content. <!-- @impl: README.md::readme-media-execution --> <!-- @impl: README.md::readme-media-browser-vscode --> <!-- @impl: README.md::readme-media-browser-e2e --> <!-- @impl: README.md::readme-media-review-governance --> <!-- @impl: README.md::readme-media-deployment --> <!-- @impl: README.md::readme-media-inference-mesh --> <!-- @manual -->
-3. Each GIF contains at least three decodable frames. <!-- @impl: README.md::readme-media-execution --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-4. Execution, Browser E2E, and deployment omit a loop extension. <!-- @impl: README.md::readme-media-execution --> <!-- @impl: README.md::readme-media-browser-e2e --> <!-- @impl: README.md::readme-media-deployment --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-5. Execution, Browser E2E, and deployment end on their resolved static frame. <!-- @impl: README.md::readme-media-execution --> <!-- @impl: README.md::readme-media-browser-e2e --> <!-- @impl: README.md::readme-media-deployment --> <!-- @manual -->
-6. Browser VS Code, review, and Inference Mesh use an infinite loop extension. <!-- @impl: README.md::readme-media-browser-vscode --> <!-- @impl: README.md::readme-media-review-governance --> <!-- @impl: README.md::readme-media-inference-mesh --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+2. The six animations derive from the deployed Execution, Browser VS Code, Browser E2E, review, deployment, and Inference Mesh components and approved content. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @manual -->
+3. Each GIF contains at least three decodable frames. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+4. Execution, Browser E2E, and deployment omit a loop extension. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+5. Execution, Browser E2E, and deployment end on their resolved static frame. <!-- @manual -->
+6. Browser VS Code, review, and Inference Mesh use an infinite loop extension. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 
 **Constraints:** Media capture starts only after its landing source is reviewed, CI-green, deployed, and visually approved; it adds no capture-only product route.
 
@@ -357,19 +357,17 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ### REQ-LANDING-016: README media accessibility and composition
 
-**Intent:** Repository media remains readable and motion-safe without retaining superseded product pictures.
+**Intent:** Repository media remains readable and motion-safe.
 
 **Applies To:** Visitor
 
 **Acceptance Criteria:**
 
-1. Every GIF has a decodable PNG fallback. <!-- @impl: README.md::readme-media-execution --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-2. Each PNG fallback has exactly the dimensions of its GIF. <!-- @impl: README.md::readme-media-inference-mesh --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+1. Every GIF has a decodable PNG fallback. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+2. Each PNG fallback has exactly the dimensions of its GIF. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 3. Each active picture block selects its PNG when `prefers-reduced-motion: reduce` matches. <!-- @impl: README.md::readme-media-browser-e2e --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 4. Each picture has alt text that describes the depicted product behavior. <!-- @impl: README.md::readme-media-review-governance --> <!-- @manual -->
 5. Each animated image declares a 1,200-pixel README presentation width. <!-- @impl: README.md::readme-media-browser-vscode --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-6. The foldable, phone, IDE, and setup pictures are absent from active README content and repository media. <!-- @impl: README.md::readme-media-execution --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-7. The Architecture section retains its Mermaid topology instead of a duplicate product screenshot. <!-- @impl: README.md::mermaid --> <!-- @manual -->
 
 **Constraints:** The six GIF/PNG pairs are repository-hosted and share their deployed landing composition.
 
@@ -377,35 +375,81 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-013](#req-landing-013-canonical-readme-media-capture)
 
-**Verification:** Automated picture, decoding, dimension, width, and retirement checks; alt and Architecture assessment verified manually
+**Verification:** Automated picture, decoding, dimension, and width checks; alt assessment verified manually
 
 **Status:** Partial
 
 ---
 
-### REQ-LANDING-017: README media publishing acceptance
+### REQ-LANDING-017: README media repository budgets
 
-**Intent:** Canonical README media stays within repository budgets and renders correctly on GitHub.
+**Intent:** Canonical README media remains bounded in the repository.
 
 **Applies To:** Maintainer
 
 **Acceptance Criteria:**
 
-1. Each GIF is at most 10 MiB. <!-- @impl: README.md::readme-media-execution --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-2. The twelve GIF/PNG assets total at most 30 MiB. <!-- @impl: README.md::readme-media-inference-mesh --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
-3. GitHub renders all six picture blocks legibly at repository content width. <!-- @impl: README.md::readme-media-browser-vscode --> <!-- @manual -->
-4. Each GIF path resolves and plays on GitHub. <!-- @impl: README.md::readme-media-deployment --> <!-- @manual -->
-5. GitHub playback does not clip any animation frame. <!-- @impl: README.md::readme-media-execution --> <!-- @manual -->
-6. Each PNG path resolves when reduced motion is requested. <!-- @impl: README.md::readme-media-browser-e2e --> <!-- @manual -->
-7. GitHub does not clip any static fallback. <!-- @impl: README.md::readme-media-inference-mesh --> <!-- @manual -->
+1. Each GIF is at most 10 MiB. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA_BUDGETS --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+2. The twelve GIF/PNG assets total at most 30 MiB. <!-- @impl: scripts/ci/readme-media-contract.mjs::README_MEDIA_BUDGETS --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
 
-**Constraints:** Publishing acceptance uses the committed assets rather than an alternate capture or rendering path.
+**Constraints:** Budgets cover the six committed GIF/PNG pairs.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-LANDING-013](#req-landing-013-canonical-readme-media-capture), [REQ-LANDING-016](#req-landing-016-readme-media-accessibility-and-composition)
 
-**Verification:** Automated repository budgets; final GitHub rendering verified manually
+**Verification:** Automated repository budget checks
+
+**Status:** Partial
+
+---
+
+### REQ-LANDING-018: README media retirement
+
+**Intent:** Canonical media replaces superseded product pictures without removing the Architecture explanation.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. The foldable, phone, IDE, and setup picture names are absent from active README content. <!-- @impl: scripts/ci/readme-media-contract.mjs::RETIRED_README_PICTURES --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+2. The foldable, phone, IDE, and setup picture files are absent from repository media. <!-- @impl: scripts/ci/readme-media-contract.mjs::RETIRED_README_PICTURES --> <!-- @test: host/__tests__/readme-media.test.js (README canonical landing media) -->
+3. The Architecture section retains its Mermaid topology instead of a duplicate product screenshot. <!-- @impl: README.md::mermaid --> <!-- @manual -->
+
+**Constraints:** Retirement removes only the four superseded files and references.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-016](#req-landing-016-readme-media-accessibility-and-composition)
+
+**Verification:** Automated README and repository retirement checks; Architecture assessed manually
+
+**Status:** Partial
+
+---
+
+### REQ-LANDING-019: README media GitHub acceptance
+
+**Intent:** Canonical README media renders correctly for GitHub visitors.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. GitHub renders all six picture blocks legibly at repository content width. <!-- @manual -->
+2. Each GIF path resolves on GitHub. <!-- @manual -->
+3. Each resolved GIF plays on GitHub. <!-- @manual -->
+4. GitHub playback does not clip any animation frame. <!-- @manual -->
+5. Each PNG path resolves when reduced motion is requested. <!-- @manual -->
+6. GitHub does not clip any static fallback. <!-- @manual -->
+
+**Constraints:** Publishing acceptance uses the committed assets rather than an alternate capture or rendering path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-016](#req-landing-016-readme-media-accessibility-and-composition), [REQ-LANDING-017](#req-landing-017-readme-media-repository-budgets), [REQ-LANDING-018](#req-landing-018-readme-media-retirement)
+
+**Verification:** Manual GitHub rendering check
 
 **Status:** Partial
 
