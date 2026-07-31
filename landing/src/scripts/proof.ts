@@ -321,13 +321,17 @@ function syncFramesAndReadyFeeds(): void {
   prepareReadyFeeds();
 }
 
+let syncedFrameWidth = window.innerWidth;
 let feedResizePending = false;
 window.addEventListener('resize', () => {
   if (feedResizePending) return;
   feedResizePending = true;
   window.setTimeout(() => {
     feedResizePending = false;
-    syncFramesAndReadyFeeds();
+    if (window.innerWidth !== syncedFrameWidth) {
+      syncedFrameWidth = window.innerWidth;
+      syncFramesAndReadyFeeds();
+    }
     const feeds = document.querySelectorAll<HTMLElement>(
       '[data-feed-state="running"], [data-feed-state="complete"]',
     );
@@ -373,11 +377,12 @@ function startWithoutIntersectionObserver(): void {
 
 syncExecutionFrames();
 
-if (!reduced && typeof ResizeObserver === 'function' && heroTerminal) {
-  const frameObserver = new ResizeObserver(() => syncFramesAndReadyFeeds());
-  frameObserver.observe(heroTerminal);
+if (!reduced) {
+  void document.fonts?.ready.then(() => {
+    const exposedFrame = executionReel?.querySelector('.execution-terminal.is-live');
+    if (!exposedFrame) syncFramesAndReadyFeeds();
+  });
 }
-if (!reduced) void document.fonts?.ready.then(() => syncFramesAndReadyFeeds());
 
 if (reduced) {
   // Static markup is already the resolved artifact; no motion to arm.
