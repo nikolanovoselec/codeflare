@@ -250,12 +250,16 @@ function typeFeedRow(
   window.setTimeout(tick, startDelay);
 }
 
-function settleFeed(list: HTMLElement): void {
+function placeFeedCaret(list: HTMLElement): void {
   list.querySelector('.t-caret')?.remove();
   const caret = document.createElement('span');
   caret.className = 't-caret';
   caret.setAttribute('aria-hidden', 'true');
   list.lastElementChild?.appendChild(caret);
+}
+
+function settleFeed(list: HTMLElement): void {
+  placeFeedCaret(list);
   list.dataset.feedState = 'complete';
 }
 
@@ -276,6 +280,7 @@ function startFeed(list: HTMLElement): void {
   const events = [...context.slice(openingCount), ...authoredEvents];
   list.dataset.feedStarted = 'true';
   list.dataset.feedState = 'running';
+  placeFeedCaret(list);
   let index = 0;
 
   const advance = () => {

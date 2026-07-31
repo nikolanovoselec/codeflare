@@ -371,7 +371,7 @@ export const EXECUTION = {
       },
       {
         tone: 'agent',
-        text: 'AI Gateway → Worker router → scheduler reservation\ncf1:network → Cloudflare Mesh/WARP → private node\nstream complete · reservation released · audit event recorded',
+        text: 'AI Gateway →> Inference Router → cf1:network Mesh -> Zero Trust Client → private node\nstream complete · reservation released · audit event recorded',
       },
       {
         tone: 'cmd',
