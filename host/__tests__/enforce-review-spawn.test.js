@@ -435,11 +435,14 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     assert.equal(writeCall.status, 2, 'the Write exemption must cover exactly one path');
   });
 
-  it('accepts the triage-file Write when TMPDIR carries a trailing slash', () => {
+  it('accepts the triage-file Write when TMPDIR carries trailing slashes', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
-    const writeCall = triageWrite(cwd, t, triageFile(cwd, t), `${cwd}/`);
-    assert.equal(writeCall.status, 0, 'path compare must normalise the trailing slash');
+    for (const tmpDir of [`${cwd}/`, `${cwd}//`]) {
+      const writeCall = triageWrite(cwd, t, triageFile(cwd, t), tmpDir);
+      assert.equal(writeCall.status, 0,
+        `path compare must normalise TMPDIR ${JSON.stringify(tmpDir)}`);
+    }
   });
 
   it('ignores a triage file stamped with a stale round', () => {
@@ -1239,6 +1242,36 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'a stale-stamped file must not satisfy the verdict, so only the giveup can acknowledge');
     assert.equal(existsSync(triageFile(cwd, t)), false,
       'the giveup ack must consume the file');
+  });
+
+  // The third round-closing path: a graphify-out/-only diff requires no lanes
+  // and auto-acks. It closes a round like the verdict and giveup acks, so it
+  // must consume the triage file the same way.
+  it('consumes the triage file on the no-lanes auto-ack short-circuit', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const git = (...args) => spawnSync('git', args, { cwd, encoding: 'utf-8' }).stdout.trim();
+    const baseSha = git('rev-parse', 'HEAD');
+    mkdirSync(join(cwd, 'graphify-out'), { recursive: true });
+    writeFileSync(join(cwd, 'graphify-out/graph.json'), '{}\n');
+    // Stage ONLY the graphify artifact: the fixture's uncommitted sdd/ and
+    // fake-bin/ files must not leak into the diff, or the shape stops being
+    // graphify-only and lanes are required again.
+    git('add', 'graphify-out/graph.json');
+    git('commit', '-q', '-m', 'graph');
+    const headSha = git('rev-parse', 'HEAD');
+    // Seed the previous round's ack so the classifier diffs base..head and
+    // proves the graphify-out/-only shape that requires no lanes.
+    writeFileSync(join(cwd, git('rev-parse', '--git-common-dir'), 'sdd-last-ack-pr-head'),
+      `${baseSha}\n`);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    writeFileSync(triageFile(cwd, t),
+      `round: 1\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
+    runHook(cwd, { transcriptPath: t, binDir, tmpDir: cwd });
+    assert.equal(ackOf(cwd), headSha, 'a graphify-out-only diff must auto-ack with no lanes');
+    assert.equal(existsSync(triageFile(cwd, t)), false,
+      'the auto-ack closes a round, so it must consume the file');
   });
 
   // REQ-AGENT-104 AC5.

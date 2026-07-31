@@ -90,11 +90,13 @@ esac
 
 # The round-stamped triage file's resolved path: session-keyed by transcript
 # like every other gate state file, so concurrent sessions sharing one /tmp
-# can never clear each other's rounds, and TMPDIR-normalised so a trailing
-# slash cannot make the allowlist compare refuse the path the directive named.
+# can never clear each other's rounds, and TMPDIR-normalised so trailing
+# slashes (however many) cannot make the allowlist compare refuse the path
+# the directive named.
 triage_file_path() {
   local tmp="${TMPDIR:-/tmp}"
-  printf '%s/sdd-review-triage-%s.md' "${tmp%/}" "$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')"
+  while [ "${tmp%/}" != "$tmp" ]; do tmp="${tmp%/}"; done
+  printf '%s/sdd-review-triage-%s.md' "$tmp" "$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')"
 }
 
 # ---------------------------------------------------------------------------
