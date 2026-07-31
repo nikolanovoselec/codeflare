@@ -34,7 +34,7 @@ const heroTerminal = document.querySelector<HTMLElement>('.hero-terminal > .term
  *  A CSS custom property keeps the relationship exact across wrapping widths. */
 function syncExecutionFrames(): boolean {
   if (!executionReel || !heroTerminal) return false;
-  if (window.innerWidth > 1023) {
+  if (reduced || window.innerWidth > 1023) {
     executionReel.style.removeProperty('--execution-frame-height');
     return false;
   }
@@ -151,9 +151,9 @@ function feedRow(line: FeedLine, index: number): HTMLElement {
   return row;
 }
 
-/** Normal motion restores the complete context history. Its first eight rows
- *  establish base sizing; every populated row fitting the stretched opening viewport
- *  reveals in order, while further context remains retained beyond the clipped edge.
+/** Normal motion restores the complete context on desktop. A synchronized
+ *  mobile/tablet frame reveals only its largest fully fitting prefix; the
+ *  remaining context stays queued for typed append before authored events.
  *  The server-rendered final event viewport remains untouched for no-JS and
  *  reduced-motion visitors. */
 function prepareFeed(list: HTMLElement): void {
@@ -168,8 +168,11 @@ function prepareFeed(list: HTMLElement): void {
   // visible; startFeed queues the rest before the authored events.
   const frameIsSynchronized = executionReel?.style
     .getPropertyValue('--execution-frame-height').length;
-  if (frameIsSynchronized && list.clientHeight > 0) {
-    while (list.children.length > 1 && list.scrollHeight > list.clientHeight) {
+  const viewport = list.getBoundingClientRect();
+  if (frameIsSynchronized && viewport.height > 0) {
+    while (list.children.length > 1) {
+      const finalRow = list.lastElementChild?.getBoundingClientRect();
+      if (!finalRow || finalRow.bottom <= viewport.bottom) break;
       list.lastElementChild?.remove();
     }
   }
@@ -307,7 +310,10 @@ function startFeeds(el: HTMLElement): void {
 
 function prepareReadyFeeds(): void {
   document.querySelectorAll<HTMLElement>('[data-feed-state="ready"]')
-    .forEach((feed) => prepareFeed(feed));
+    .forEach((feed) => {
+      const terminal = feed.closest<HTMLElement>('[data-proof]');
+      if (!terminal?.classList.contains('is-live')) prepareFeed(feed);
+    });
 }
 
 function syncFramesAndReadyFeeds(): void {
@@ -367,11 +373,11 @@ function startWithoutIntersectionObserver(): void {
 
 syncExecutionFrames();
 
-if (typeof ResizeObserver === 'function' && heroTerminal) {
+if (!reduced && typeof ResizeObserver === 'function' && heroTerminal) {
   const frameObserver = new ResizeObserver(() => syncFramesAndReadyFeeds());
   frameObserver.observe(heroTerminal);
 }
-void document.fonts?.ready.then(() => syncFramesAndReadyFeeds());
+if (!reduced) void document.fonts?.ready.then(() => syncFramesAndReadyFeeds());
 
 if (reduced) {
   // Static markup is already the resolved artifact; no motion to arm.

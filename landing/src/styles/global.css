@@ -731,8 +731,9 @@ svg {
 /* --------------------------------------------------------------------------
    Execution overview (REQ-LANDING-010)
 
-   Both Hero-scale terminals render full resolved viewports for no-JS visitors.
-   At mobile/tablet widths, the enhanced frames share the rendered Hero height
+   Both Hero-scale terminals render full resolved viewports for no-JS and
+   reduced-motion visitors. At mobile/tablet widths, normal-motion enhanced frames
+   share the rendered Hero height
    and reveal only the context prefix that wholly fits before live events append.
    -------------------------------------------------------------------------- */
 #execution .section-head {
@@ -781,8 +782,8 @@ svg {
 
 /* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
    Long real command output wraps within each frame instead of scrolling sideways.
-   The hidden sizing layer provides intrinsic desktop and no-JS sizing; enhanced
-   mobile/tablet frames use the rendered Hero height written by proof.ts. */
+   The hidden sizing layer provides intrinsic desktop, no-JS, and reduced-motion
+   sizing; normal-motion mobile/tablet frames use the Hero height written by proof.ts. */
 .execution-terminal .terminal-body {
   position: relative;
   display: grid;
@@ -809,8 +810,8 @@ svg {
   min-height: 0;
 }
 
-/* The resolved state sizes no-JS markup. On desktop, the first eight context rows
-   establish the motion base; mobile/tablet enhancement uses the synchronized Hero
+/* The resolved state sizes no-JS and reduced-motion markup. On desktop, the first
+   eight context rows establish the motion base; mobile/tablet enhancement uses the Hero
    height and moves any context that cannot fit into the typed queue. */
 .execution-terminal .transcript-feed-size-window:last-child,
 .execution-terminal .terminal-body.is-feed-prepared .transcript-feed-size-window:first-child {
