@@ -71,7 +71,7 @@ User clicks "Sign in with GitHub" on /login
   -> On state verification failure: redirect to /?error=session-expired
 ```
 
-- Login requests the `user:email` and `gist` scopes; its exchanged token remains callback-local and is never persisted
+- Login requests the `user:email` and `gist` scopes; its exchanged token remains callback-local and is never persisted ([REQ-AUTH-023](../../sdd/spec/authentication.md#req-auth-023-direct-github-login-requests-gist-access))
 - Only `primary: true, verified: true` emails accepted from GitHub API
 - Callback rate-limited (10/min per IP)
 - Missing `OAUTH_JWT_SECRET` throws `AuthError` (fail-loud - never silently falls through to CF Access)
