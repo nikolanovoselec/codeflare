@@ -153,7 +153,7 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     }
   }
   return verbatim
-    .replace(ANCHOR_VARY, ";var y;" + CF_RECOVER_HELPER + CF_IDB_RECORDER + "setInterval(")
+    .replace(ANCHOR_VARY, ";var v;" + CF_RECOVER_HELPER + CF_IDB_RECORDER + "setInterval(")
     // Neuter the proactive 5s key flush: keep the no-client log, drop the `v=void 0`
     // wipe so the key survives the bootstrap-hop -> editor transition (REQ-VAULT-024 AC4).
     .replace(

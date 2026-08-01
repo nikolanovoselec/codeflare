@@ -375,12 +375,12 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       // defined, the config auth-gate calls it before posting auth-error (the
       // path that actually fires the .auth bounce), and get-encryption-key calls
       // it before replying. The verbatim worker has none of these.
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(';var v;async function __cfRecover()');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('codeflare-vault-idb-open');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
-        'if(t.enableClientEncryption&&!y){await __cfRecover()}if(t.enableClientEncryption&&!y){console.error("Supposed',
+        'if(t.enableClientEncryption&&!v){await __cfRecover()}if(t.enableClientEncryption&&!v){console.error("Supposed',
       );
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('case"get-encryption-key":{if(y===void 0)await __cfRecover()');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('case"get-encryption-key":{if(v===void 0)await __cfRecover()');
       expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('__cfRecover');
     });
 
