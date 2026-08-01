@@ -41,7 +41,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Constraints:**
 
-- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo read:org workflow`; see [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
+- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise — EMU managed users cannot authorize third-party apps.
 - Every per-user surface uses OAuth without manual token paste ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)); enterprise hides the per-user accordion and uses the panel plus admin-global Cloudflare token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 - The deploy-keys PAT backend remains unchanged.
@@ -370,6 +370,32 @@ None.
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states)
 
 **Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-013: Connected GitHub tokens grant gist access
+
+**Intent:** Every OAuth App connection grants the `gist` capability required by GitHub CLI and agent workflows, independent of the selected connection tier.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The OAuth App authorization redirect includes `gist` as a discrete scope for the minimal, recommended, and advanced connection tiers. <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-013: requests gist access for every OAuth-App connection tier) -->
+
+**Constraints:**
+
+- The existing tier-specific repository, organization, workflow, hook, and user scopes remain unchanged.
+- GitHub App permissions remain fixed at registration and do not receive an OAuth `scope` parameter.
+- Direct GitHub login remains an identity-only flow and does not own connection capabilities.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
+
+**Verification:** Automated test ([Connect route test](../../src/__tests__/routes/github.test.ts))
 
 **Status:** Implemented
 

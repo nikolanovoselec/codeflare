@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-01
 
-- **Direct GitHub login now requests gist access** (new [REQ-AUTH-023](authentication.md#req-auth-023-direct-github-login-requests-gist-access), Implemented). The authorization redirect requests `user:email` and `gist` as discrete scopes. The login callback still uses the exchanged token only to resolve the user's verified identity and never persists it; the separate tiered Connect GitHub scope catalog is unchanged.
+- **Connected GitHub tokens now request gist access at the correct OAuth boundary** (new [REQ-GITHUB-013](github.md#req-github-013-connected-github-tokens-grant-gist-access), Implemented). Every OAuth App Connect GitHub tier adds `gist` without changing its existing repository, organization, workflow, hook, or user scopes. Direct GitHub login returns to the identity-only `user:email` scope; GitHub App permissions remain fixed at registration.
 
 - **rpiv-todo 2.1.0 preserves the reviewed session-isolation contract** ([REQ-AGENT-081](agents.md#req-agent-081-rpiv-todo-session-isolation) remains Implemented). Upstream's 2.1 release retains the session-keyed store and foreground-slot rendering introduced in 2.0 with no return of Codeflare's retired override machinery. The package pin, generated seed, lockfile, runtime install list, and dedicated behavioral pin assertion move together; the prior bump PR updated the shared required-package assertion but missed the REQ-specific 2.0 literal, which is corrected here.
 

@@ -18,9 +18,9 @@ export function normalizeScopeTier(tier: string | null | undefined): ScopeTier {
  * the scope param entirely.
  */
 const GITHUB_OAUTH_SCOPES: Record<ScopeTier, string> = {
-  minimal: 'repo',
-  recommended: 'repo read:org workflow',
-  advanced: 'repo read:org workflow admin:repo_hook read:user',
+  minimal: 'repo gist',
+  recommended: 'repo gist read:org workflow',
+  advanced: 'repo gist read:org workflow admin:repo_hook read:user',
 };
 
 export function githubScopeForTier(tier: string | null | undefined): string {

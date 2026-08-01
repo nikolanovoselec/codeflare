@@ -50,7 +50,7 @@ Codeflare supports two fundamentally different authentication flows:
 3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) - all other modes. RS256 JWT verified against CF Access JWKS endpoint.
 4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) - trusted only before setup completes.
 
-### Direct GitHub OAuth Flow
+### Direct GitHub OAuth Flow ([REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow))
 
 When `SAAS_MODE=active` or `ONBOARDING_LANDING_PAGE=active`, and `OAUTH_CLIENT_ID` is configured, the Worker handles the entire OAuth flow:
 
@@ -58,7 +58,7 @@ When `SAAS_MODE=active` or `ONBOARDING_LANDING_PAGE=active`, and `OAUTH_CLIENT_I
 User clicks "Sign in with GitHub" on /login
   -> GET /auth/github/login
   -> Generate HMAC-signed state token (nonce.iat.sig, signed with OAUTH_JWT_SECRET, 30-min iat window)
-  -> 302 to github.com/login/oauth/authorize?client_id=...&scope=user%3Aemail+gist&state=<signed>
+  -> 302 to github.com/login/oauth/authorize?client_id=...&scope=user%3Aemail&state=<signed>
   -> User authorizes on GitHub
   -> GitHub redirects to /auth/github/callback?code=...&state=...
   -> Worker verifies HMAC signature on state and checks iat is within window
@@ -67,15 +67,17 @@ User clicks "Sign in with GitHub" on /login
   -> Worker fetches verified email from /user + /user/emails
   -> Worker signs HMAC-SHA256 JWT with OAUTH_JWT_SECRET
   -> Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, Max-Age=3600)
-  -> Redirect to /app/ (active user) or /app/subscribe (pending user)
+  -> Redirect active user to /app/
+  -> Redirect pending SaaS user to /app/subscribe
+  -> Redirect pending onboarding user to /login?status=requested
   -> On state verification failure: redirect to /?error=session-expired
 ```
 
-- Login requests the `user:email` and `gist` scopes; its exchanged token remains callback-local and is never persisted ([REQ-AUTH-023](../../sdd/spec/authentication.md#req-auth-023-direct-github-login-requests-gist-access))
+- Login requests only the `user:email` identity scope; its exchanged token remains callback-local and is never persisted <!-- @impl: src/routes/github-auth.ts::app -->
 - Only `primary: true, verified: true` emails accepted from GitHub API
 - Callback rate-limited (10/min per IP)
 - Missing `OAUTH_JWT_SECRET` throws `AuthError` (fail-loud - never silently falls through to CF Access)
-- Cookie auto-refreshed by middleware when < 15 min remaining
+- Cookie auto-refreshed by middleware when < 15 min remaining <!-- @impl: src/index.ts::app -->
 
 ### Connect GitHub (link mode)
 
@@ -114,7 +116,7 @@ A configured GitHub App takes precedence. With neither configured, Connect is un
 
 **Connect is decoupled from the repo panel.** `GET /api/github/connect` + callback + `POST /api/github/disconnect` are `authMiddleware`-only (any authenticated user), reachable from Guided Setup + the Settings accordion even when the advanced-gated panel is hidden; only `status`/`repos`/`clone` follow the panel gate ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The same shared `OAuthConnectCard` drives connect on all three surfaces. **Cloudflare** has a parallel per-user OAuth connect in non-enterprise modes ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)); enterprise has none (`getCloudflareProvider` returns null).
 
-**Scopes / permissions:** the OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The enterprise GitHub App's registration permissions and internal-app requirement are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
+**Scopes / permissions:** every OAuth App connection tier includes `gist`; the remaining `scope` values are derived from the selected tier (default `repo gist read:org workflow`; [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-GITHUB-013](../../sdd/spec/github.md#req-github-013-connected-github-tokens-grant-gist-access)). Connections authorized before this scope was added must be disconnected and connected again to grant it. The enterprise GitHub App's registration permissions and internal-app requirement are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
 **At rest:** the token is encrypted (kv-crypto) and never returned to the browser. Disconnect/offboarding revokes it ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). For the enterprise egress-injection security model and at-rest detail, see [Security](security.md) rather than duplicating it here.
 

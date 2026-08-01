@@ -74,7 +74,7 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
   // ─── Login ─────────────────────────────────────────────────────
 
   describe('GET /login', () => {
-    it('REQ-AUTH-023: requests verified-email and gist access in the GitHub login redirect', async () => {
+    it('requests verified-email access in the GitHub login redirect', async () => {
       mockKV._set('setup:custom_domain', 'codeflare.example.com');
       const app = createApp();
       const res = await app.request('/login');
@@ -84,7 +84,7 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
       expect(location.origin).toBe('https://github.com');
       expect(location.pathname).toBe('/login/oauth/authorize');
       expect(location.searchParams.get('client_id')).toBe('test-client-id');
-      expect(location.searchParams.get('scope')?.split(' ')).toEqual(['user:email', 'gist']);
+      expect(location.searchParams.get('scope')?.split(' ')).toEqual(['user:email']);
       expect(location.searchParams.get('state')).toBeTruthy();
       expect(location.searchParams.get('redirect_uri')).toBeTruthy();
     });
