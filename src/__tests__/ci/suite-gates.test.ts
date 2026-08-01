@@ -635,20 +635,59 @@ describe('Cloudflare test transport capacity', () => {
   });
 });
 
-describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
-  it('routes the binary, checksum, and native worker through one updater', () => {
+describe('REQ-OPS-032: SilverBullet coupled-pin automation', () => {
+  it('resolves the authoritative release digest through the workflow command boundary', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
-    const job = workflow.jobs.silverbullet;
-    const resolveStep = job.steps?.find((step) => step.name === 'Resolve the latest release and authoritative digest');
-    const applyStep = job.steps?.find((step) => step.name === 'Apply coupled SilverBullet bump');
+    const resolveStep = workflow.jobs.silverbullet.steps?.find(
+      (step) => step.name === 'Resolve the latest release and authoritative digest',
+    );
+    const fixture = join(work, 'silverbullet-resolve');
+    const fakeBin = join(fixture, 'bin');
+    const output = join(fixture, 'github-output');
+    mkdirSync(join(fixture, 'src/routes/vault'), { recursive: true });
+    mkdirSync(fakeBin);
+    writeFileSync(join(fixture, 'Dockerfile'), 'SILVERBULLET_VERSION="2.9.0"');
+    writeFileSync(
+      join(fixture, 'src/routes/vault/native-sw.ts'),
+      '/** SilverBullet 2.9.0 native service worker. */',
+    );
+    writeFileSync(join(fakeBin, 'gh'), '#!/bin/sh\nprintf \'%s\n\' "$FAKE_RELEASE"\n');
+    chmodSync(join(fakeBin, 'gh'), 0o755);
+    const digest = `sha256:${'a'.repeat(64)}`;
+    const asset = {
+      name: 'silverbullet-server-linux-x86_64.zip',
+      digest,
+      browser_download_url: 'https://example.invalid/silverbullet.zip',
+    };
+    const execute = (release: unknown, outputPath: string) => spawnSync(
+      'bash',
+      ['-c', resolveStep?.run ?? ''],
+      {
+        cwd: fixture,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          GITHUB_OUTPUT: outputPath,
+          FAKE_RELEASE: JSON.stringify(release),
+        },
+      },
+    );
+    const result = execute({ tag_name: 'v2.10.0', assets: [asset] }, output);
 
-    expect(resolveStep?.run).toContain('.digest');
-    expect(applyStep?.run).toContain('scripts/ci/update-silverbullet-pins.mjs');
-    expect(applyStep?.run).toContain('service_worker.js');
-    expect(applyStep?.run).toContain('X-Server-Version');
-    expect(applyStep?.run).toContain('SERVER_VERSION');
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(output, 'utf8').trim().split('\n')).toEqual([
+      'current=2.9.0',
+      'latest=2.10.0',
+      `sha256=${'a'.repeat(64)}`,
+      'url=https://example.invalid/silverbullet.zip',
+    ]);
+    expect(execute(
+      { tag_name: 'v2.10.0', assets: [{ ...asset, digest: undefined }] },
+      join(fixture, 'missing-digest-output'),
+    ).status).toBe(1);
   });
 
   it('updates the Docker pin and vendored worker atomically', () => {
@@ -727,7 +766,7 @@ describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
 });
 
 describe('REQ-OPS-027: code-server coupled-pin automation', () => {
-  it('routes code-server bumps through one dedicated fail-closed updater', () => {
+  it('derives and cross-checks packaged provenance through the workflow command boundary', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
@@ -735,14 +774,87 @@ describe('REQ-OPS-027: code-server coupled-pin automation', () => {
     const deriveStep = job.steps?.find(
       (step) => step.name === 'Derive code-server pins from the immutable artifact and release tag',
     );
-    const applyStep = job.steps?.find((step) => step.name === 'Apply bump and invalidate the release checksum');
-
     expect(job).toBeDefined();
     expect(workflow.jobs['openvscode-server']).toBeUndefined();
-    expect(deriveStep?.run).toContain('gh release download "$TAG"');
-    expect(deriveStep?.run).toContain('CODE_SERVER_COMMIT=$(jq -r .commit <<<"$PACKAGE_JSON")');
-    expect(deriveStep?.run).toContain('[ "$PRODUCT_COMMIT" = "$CODE_SERVER_COMMIT" ]');
-    expect(applyStep).toBeDefined();
+
+    const fixture = join(work, 'code-server-resolve');
+    const fakeBin = join(fixture, 'bin');
+    const archiveRoot = join(fixture, 'archive', 'code-server-4.2.0-linux-amd64');
+    const output = join(fixture, 'github-output');
+    mkdirSync(join(archiveRoot, 'lib/vscode'), { recursive: true });
+    mkdirSync(fakeBin);
+    writeFileSync(join(fixture, 'Dockerfile'), [
+      'CODE_SERVER_VERSION="4.1.0"',
+      'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
+      'CODE_SERVER_CODE_VERSION="1.1.0"',
+      'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+    ].join('\n'));
+    const packageCommit = '3'.repeat(40);
+    const tagCommit = '4'.repeat(40);
+    const treeSha = '5'.repeat(40);
+    const vscodeCommit = '6'.repeat(40);
+    writeFileSync(join(archiveRoot, 'package.json'), JSON.stringify({ version: '4.2.0', commit: packageCommit }));
+    writeFileSync(join(archiveRoot, 'lib/vscode/package.json'), JSON.stringify({ version: '1.2.0' }));
+    writeFileSync(join(archiveRoot, 'lib/vscode/product.json'), JSON.stringify({
+      version: '1.2.0',
+      commit: packageCommit,
+      codeServerVersion: '4.2.0',
+    }));
+    const archive = join(fixture, 'code-server-4.2.0-linux-amd64.tar.gz');
+    const packArchive = () => spawnSync(
+      'tar',
+      ['-czf', archive, '-C', join(fixture, 'archive'), 'code-server-4.2.0-linux-amd64'],
+      { encoding: 'utf8' },
+    );
+    const tar = packArchive();
+    expect(tar.status, tar.stderr).toBe(0);
+    writeFileSync(join(fakeBin, 'gh'), `#!/bin/bash
+set -euo pipefail
+if [ "$1" = "release" ]; then cp "$FAKE_ARCHIVE" "/tmp/$7"; exit 0; fi
+case "$2|\${4:-}" in
+  'repos/coder/code-server/releases/latest|.tag_name') echo v4.2.0 ;;
+  'repos/coder/code-server/git/ref/tags/v4.2.0|.object.type') echo commit ;;
+  'repos/coder/code-server/git/ref/tags/v4.2.0|.object.sha') echo "$FAKE_TAG_COMMIT" ;;
+  "repos/coder/code-server/git/commits/$FAKE_TAG_COMMIT|.tree.sha") echo "$FAKE_TREE_SHA" ;;
+  "repos/coder/code-server/git/trees/$FAKE_TREE_SHA?recursive=1|"*) echo "$FAKE_VSCODE_COMMIT" ;;
+  "repos/microsoft/vscode/contents/package.json?ref=$FAKE_VSCODE_COMMIT|.content") echo "$FAKE_CODE_CONTENT" ;;
+  *) echo "unexpected gh call: $*" >&2; exit 1 ;;
+esac
+`);
+    chmodSync(join(fakeBin, 'gh'), 0o755);
+    const execute = (outputPath: string) => spawnSync('bash', ['-c', deriveStep?.run ?? ''], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        GITHUB_OUTPUT: outputPath,
+        FAKE_ARCHIVE: archive,
+        FAKE_TAG_COMMIT: tagCommit,
+        FAKE_TREE_SHA: treeSha,
+        FAKE_VSCODE_COMMIT: vscodeCommit,
+        FAKE_CODE_CONTENT: Buffer.from(JSON.stringify({ version: '1.2.0' })).toString('base64'),
+      },
+    });
+    const result = execute(output);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(output, 'utf8').trim().split('\n')).toEqual([
+      'current=4.1.0',
+      'latest=4.2.0',
+      `commit=${packageCommit}`,
+      'code_version=1.2.0',
+      `vscode_commit=${vscodeCommit}`,
+    ]);
+
+    writeFileSync(join(archiveRoot, 'lib/vscode/product.json'), JSON.stringify({
+      version: '1.2.0',
+      commit: '7'.repeat(40),
+      codeServerVersion: '4.2.0',
+    }));
+    const mismatchedTar = packArchive();
+    expect(mismatchedTar.status, mismatchedTar.stderr).toBe(0);
+    expect(execute(join(fixture, 'mismatch-output')).status).toBe(1);
   });
 
   it('executes the configured workflow step through the updater boundary', () => {

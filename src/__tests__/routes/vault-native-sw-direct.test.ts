@@ -23,9 +23,51 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
   });
 
-  it('REQ-VAULT-017 AC3: precaching bypasses stale browser HTTP cache entries', () => {
-    expect(VAULT_NATIVE_SW_VERBATIM).toContain('cache:"reload"');
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('cache:"reload"');
+  async function runInstallPrecache(sw: string) {
+    const marker = 'self.addEventListener("install",a=>{';
+    const start = sw.indexOf(marker);
+    const end = sw.indexOf('});self.addEventListener("activate"', start);
+    if (start < 0 || end < 0) throw new Error('install precache handler not found');
+    const body = sw.slice(start + marker.length, end);
+    const requests: Array<{ url: string; cache?: string }> = [];
+    let install: Promise<void> | undefined;
+    class CapturedRequest {
+      url: string;
+      cache?: string;
+
+      constructor(url: string, options?: { cache?: string }) {
+        this.url = url;
+        this.cache = options?.cache;
+      }
+    }
+    const listener = new Function(
+      'self',
+      'caches',
+      'ce',
+      'Ce',
+      'Request',
+      'console',
+      `return (a)=>{${body}};`,
+    )(
+      { skipWaiting: async () => {} },
+      { open: async () => ({ addAll: async (values: Array<{ url: string; cache?: string }>) => requests.push(...values) }) },
+      'cache-v1',
+      { shell: '/', app: '/app.js' },
+      CapturedRequest,
+      { log: () => {} },
+    ) as (event: { waitUntil(promise: Promise<void>): void }) => void;
+    listener({ waitUntil(promise) { install = promise; } });
+    if (!install) throw new Error('install handler did not register async work');
+    await install;
+    return requests;
+  }
+
+  it('REQ-VAULT-017 AC4: install precaching constructs cache-reload requests', async () => {
+    const requests = await runInstallPrecache(VAULT_NATIVE_SERVICE_WORKER_JS);
+    expect(requests).toEqual([
+      { url: '/', cache: 'reload' },
+      { url: '/app.js', cache: 'reload' },
+    ]);
   });
 
   it('the graft calls __cfRecover before the get-encryption-key reply', () => {
