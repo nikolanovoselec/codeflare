@@ -252,10 +252,6 @@ jobs:
           [ "$failed" -eq 0 ] && echo "Parsed ${#SCRIPTS[@]} shell script(s), all valid."
           exit $failed
 
-      - name: Refresh consolidated Pi package lock
-        working-directory: preseed/agents/pi
-        run: npm install --package-lock-only --ignore-scripts
-
       - name: Agent seed generator drift guard
         # The committed src/lib/agent-seed.generated.ts must equal a fresh generation
         # from preseed/. `pretest` regenerates it during `npm test`, so a stale committed
@@ -266,16 +262,6 @@ jobs:
           node scripts/generate-agent-seed.mjs
           git diff --exit-code src/lib/agent-seed.generated.ts \
             || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
-
-      - name: Capture consolidated Pi lock and seed
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: consolidated-pi-generated
-          path: |
-            preseed/agents/pi/package-lock.json
-            src/lib/agent-seed.generated.ts
-          if-no-files-found: error
 
       - uses: ./.github/actions/install-deps
         with:
