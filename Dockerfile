@@ -302,7 +302,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gh \
 # up a bad version within 7 days. Trivy detects CVEs, not malicious publishes.
 # Still auto-updates weekly, but through a reviewable bump PR: see the
 # `agent-clis` job in .github/workflows/bump-shadow-pins.yml.
-ARG CLAUDE_CODE_VERSION=2.1.219
+ARG CLAUDE_CODE_VERSION=2.1.220
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
