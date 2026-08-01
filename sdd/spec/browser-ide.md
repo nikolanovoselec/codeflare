@@ -327,7 +327,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-OPS-027](operations.md#req-ops-027-code-server-coupled-pin-automation)
 
-**Verification:** Complete-image smoke in `.github/workflows/test.yml` (executed for the current tracked image inputs or reused only through [REQ-OPS-030](operations.md#req-ops-030-browser-ide-complete-image-verification-reuse)) plus packaged inventory tests
+**Verification:** Automated test (complete-image smoke in `.github/workflows/test.yml`, executed for the current tracked image inputs or reused only through [REQ-OPS-030](operations.md#req-ops-030-browser-ide-complete-image-verification-reuse), plus packaged inventory tests)
 
 **Status:** Implemented
 
@@ -384,7 +384,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy)
 
-**Verification:** Automated Worker and host HTTP/WebSocket tests plus deployed selector-rejection verification on three fresh sessions
+**Verification:** Automated test (Worker and host HTTP/WebSocket tests); deployed selector-rejection verification on three fresh sessions
 
 **Status:** Implemented
 
@@ -410,7 +410,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](#req-ide-011-file-review-with-codeflare), [REQ-IDE-014](#req-ide-014-active-editor-review-with-codeflare)
 
-**Verification:** Automated activation and packaged-image tests plus deployed menu verification
+**Verification:** Automated test (activation and packaged-image tests); deployed menu verification
 
 **Status:** Implemented
 
@@ -438,7 +438,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](#req-ide-011-file-review-with-codeflare)
 
-**Verification:** Automated activation and packaging tests
+**Verification:** Automated test (activation and packaging tests)
 
 **Status:** Implemented
 
@@ -471,7 +471,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-012](#req-ide-012-fixed-clean-browser-ide-workspace-selection)
 
-**Verification:** Automated host proxy tests, complete-image smoke, and deployed clean-URL verification on three fresh sessions
+**Verification:** Automated test (host proxy tests and complete-image smoke); deployed clean-URL verification on three fresh sessions
 
 **Status:** Implemented
 
@@ -497,7 +497,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability)
 
-**Verification:** Automated editor lifecycle and settings-preparation tests
+**Verification:** Automated test (editor lifecycle and settings-preparation tests)
 
 **Status:** Implemented
 
@@ -552,7 +552,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-TERM-023](terminal.md#req-term-023-native-agent-browser-notification-delivery)
 
-**Verification:** Automated managed-settings and fixed-inventory tests; deployed Pi native Chat and Claude panel verification.
+**Verification:** Automated test (managed-settings and fixed-inventory tests); deployed Pi native Chat and Claude panel verification.
 
 **Status:** Partial
 

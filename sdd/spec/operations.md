@@ -617,7 +617,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated — `src/__tests__/ci/suite-gates.test.ts` exercises coverage evidence failures and the bounded backend crash exception.
+**Verification:** Automated test ([suite-gates](../../src/__tests__/ci/suite-gates.test.ts)); exercises coverage evidence failures and the bounded backend crash exception.
 
 **Status:** Implemented
 
@@ -773,7 +773,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate)
 
-**Verification:** Automated host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates.
+**Verification:** Automated test (host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates).
 
 **Status:** Implemented
 
@@ -803,7 +803,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-029](#req-ops-029-automatic-manual-deploy-verification-reuse)
 
-**Verification:** Automated host tests exercise fingerprint selection, evidence validation, the fake-GitHub CLI boundary, and the aggregate truth table; workflow-structure tests bind those decisions into the required status and exact-tree receipt.
+**Verification:** Automated test (host tests exercise fingerprint selection, evidence validation, the fake-GitHub CLI boundary, and the aggregate truth table; workflow-structure tests bind those decisions into the required status and exact-tree receipt).
 
 **Status:** Implemented
 
@@ -832,7 +832,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-030](#req-ops-030-browser-ide-complete-image-verification-reuse)
 
-**Verification:** Automated workflow-structure and fake-Docker tests execute cache-enabled and cache-unavailable build paths and assert the exact import/export arguments and permissions.
+**Verification:** Automated test (workflow-structure and fake-Docker tests execute cache-enabled and cache-unavailable build paths and assert the exact import/export arguments and permissions).
 
 **Status:** Implemented
 

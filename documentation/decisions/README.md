@@ -1340,7 +1340,8 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 **Consequences:**
 - Default session mode users CAN reach for graphify by name (CLI on PATH, MCP tools exposed) but do not get nudged toward it. No triage on clone and no rule in `~/.claude/rules/`.
-- Advanced session mode users get the full discipline: the agent prompts on clone, prefers focused MCP queries over Grep for architecture questions, and gets a PreToolUse soft-nudge when reaching for Grep/Glob (or the context-mode grep-equivalents `ctx_search`/`ctx_batch_execute`) in a repo that has a graph.
+- Advanced session mode users get the full discipline: the agent prompts on clone and prefers focused MCP queries over Grep for architecture questions.
+- Advanced mode also adds a PreToolUse soft-nudge when reaching for Grep/Glob (or the context-mode grep-equivalents `ctx_search`/`ctx_batch_execute`) in a repo that has a graph.
 - Image cost (~220 MB for Python + tree-sitter wheels) is paid by every container regardless of mode, justified by one-time build cost vs. universal capability.
 - Coexists cleanly with context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) without depending on it.
 

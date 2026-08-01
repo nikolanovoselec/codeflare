@@ -662,7 +662,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-SEC-015](security.md#req-sec-015-http-security-headers)
 
-**Verification:** Automated frontend and service-worker behavior tests; deployed desktop and mobile browser verification.
+**Verification:** Automated test (frontend and service-worker behavior tests); deployed desktop and mobile browser verification.
 
 **Status:** Partial
 
@@ -692,7 +692,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-TERM-023](#req-term-023-native-agent-browser-notification-delivery)
 
-**Verification:** Automated preseed-extension and entrypoint-settings behavior tests; deployed Pi and Claude terminal verification.
+**Verification:** Automated test (preseed-extension and entrypoint-settings behavior tests); deployed Pi and Claude terminal verification.
 
 **Status:** Implemented
 
