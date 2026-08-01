@@ -173,6 +173,17 @@ describe('GET /api/github/connect', () => {
     );
     expect(minimal.searchParams.get('scope')).not.toContain('admin:repo_hook');
   });
+
+  it('REQ-GITHUB-012: requests gist access for every OAuth-App connection tier', async () => {
+    const env = { OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec', OAUTH_JWT_SECRET: 'state-secret' };
+
+    for (const tier of ['minimal', 'recommended', 'advanced']) {
+      const location = new URL(
+        (await createTestApp(env).request(`/api/github/connect?tier=${tier}`)).headers.get('location')!,
+      );
+      expect(location.searchParams.get('scope')?.split(' ')).toContain('gist');
+    }
+  });
 });
 
 // ─── POST /disconnect (REQ-GITHUB-005) ──────────────────────────────────────

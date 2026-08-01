@@ -374,3 +374,29 @@ None.
 **Status:** Implemented
 
 ---
+
+### REQ-GITHUB-012: Connected GitHub tokens grant gist access
+
+**Intent:** Every OAuth App connection grants the `gist` capability required by GitHub CLI and agent workflows, independent of the selected connection tier.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The OAuth App authorization redirect includes `gist` as a discrete scope for the minimal, recommended, and advanced connection tiers. <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-012: requests gist access for every OAuth-App connection tier) -->
+
+**Constraints:**
+
+- The existing tier-specific repository, organization, workflow, hook, and user scopes remain unchanged.
+- GitHub App permissions remain fixed at registration and do not receive an OAuth `scope` parameter.
+- Direct GitHub login remains an identity-only flow and does not own connection capabilities.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
+
+**Verification:** Automated test ([Connect route test](../../src/__tests__/routes/github.test.ts))
+
+**Status:** Partial
+
+---
