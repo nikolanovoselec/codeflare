@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash, getFips } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 
@@ -16,6 +16,12 @@ export function resolveJitiCachePath(sourcePath, cacheDirectory) {
   const algorithm = getFips?.() ? 'sha256' : 'md5';
   const pathHash = createHash(algorithm).update(realSourcePath).digest('hex').slice(0, 8);
   return join(cacheDirectory, `${stem}.${pathHash}.mjs`);
+}
+
+export function verifyJitiCacheArtifact(sourcePath, cacheDirectory) {
+  const artifactPath = resolveJitiCachePath(sourcePath, cacheDirectory);
+  if (!existsSync(artifactPath)) throw new Error(`jiti cache artifact is missing at ${artifactPath}`);
+  return artifactPath;
 }
 
 export function verifyPiLockstep(runtimeManifestPath, prewarmManifestPath, installedPackagePath) {
@@ -36,12 +42,15 @@ export function verifyPiLockstep(runtimeManifestPath, prewarmManifestPath, insta
 
 try {
   const args = process.argv.slice(2);
-  if (args[0] === '--jiti-cache-path') {
-    const [, sourcePath, cacheDirectory] = args;
+  if (args[0] === '--jiti-cache-path' || args[0] === '--verify-jiti-cache') {
+    const [command, sourcePath, cacheDirectory] = args;
     if (!sourcePath || !cacheDirectory) {
-      throw new Error('usage: verify-pi-lockstep.mjs --jiti-cache-path <source> <cache-directory>');
+      throw new Error(`usage: verify-pi-lockstep.mjs ${command} <source> <cache-directory>`);
     }
-    process.stdout.write(`${resolveJitiCachePath(sourcePath, cacheDirectory)}\n`);
+    const artifactPath = command === '--verify-jiti-cache'
+      ? verifyJitiCacheArtifact(sourcePath, cacheDirectory)
+      : resolveJitiCachePath(sourcePath, cacheDirectory);
+    process.stdout.write(`${artifactPath}\n`);
   } else {
     const [runtimeManifestPath, prewarmManifestPath, installedPackagePath] = args;
     if (!runtimeManifestPath || !prewarmManifestPath) {

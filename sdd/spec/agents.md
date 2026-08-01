@@ -70,7 +70,7 @@ Multi-agent support, preseed system, and session modes.
 
 1. Pi's required package set includes one exact-pinned, integrity-locked Goal package. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
 2. The image warm-up loads package extensions through the same installed path used by runtime sessions. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
-3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::resolveJitiCachePath --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache uses the runtime-resolved path) -->
+3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) -->
 
 **Constraints:** Goal upgrades remain exact-pinned and pass normal review, lock regeneration, and complete-image verification.
 

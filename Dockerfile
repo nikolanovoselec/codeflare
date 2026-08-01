@@ -605,8 +605,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
         else echo "ERROR: Pi extension '$base' has no jiti warm-cache entry — it would cold-transpile every session; failing build" >&2; exit 1; fi; \
     done && \
     goal_source="/opt/codeflare/pi-agent/npm/node_modules/pi-goal-list-loop-audit/extensions/loops/goal.ts" && \
-    goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --jiti-cache-path "$goal_source" /opt/codeflare/jiti-cache)" && \
-    [ -f "$goal_hit" ] || { echo "ERROR: preseeded Goal package has no path-correct jiti cache entry at $goal_hit" >&2; exit 1; } && \
+    goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
     echo "[Dockerfile] jiti warm cache verified: local extensions and Goal are baked"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.

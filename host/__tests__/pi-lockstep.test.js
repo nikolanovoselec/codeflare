@@ -13,8 +13,8 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-describe('REQ-AGENT-111 AC3: Goal jiti cache uses the runtime-resolved path', () => {
-  it('derives jiti\'s exact async cache filename through the runtime symlink', () => {
+describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification', () => {
+  it('rejects a missing runtime-path artifact and accepts the expected artifact', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-goal-cache-'));
     try {
       const installedRoot = join(directory, 'installed');
@@ -27,14 +27,30 @@ describe('REQ-AGENT-111 AC3: Goal jiti cache uses the runtime-resolved path', ()
       writeFileSync(installedSource, 'export default function goal() {}\n');
       symlinkSync(installedSource, runtimeSource);
 
-      const result = spawnSync(process.execPath, [script, '--jiti-cache-path', runtimeSource, '/cache'], {
+      const cacheDirectory = join(directory, 'cache');
+      const pathResult = spawnSync(process.execPath, [script, '--jiti-cache-path', runtimeSource, cacheDirectory], {
         encoding: 'utf8',
       });
-      assert.equal(result.status, 0, result.stderr);
+      assert.equal(pathResult.status, 0, pathResult.stderr);
       const realSource = realpathSync(runtimeSource);
       const algorithm = getFips?.() ? 'sha256' : 'md5';
       const hash = createHash(algorithm).update(realSource).digest('hex').slice(0, 8);
-      assert.equal(result.stdout, `/cache/loops-goal.${hash}.mjs\n`);
+      const expectedArtifact = join(cacheDirectory, `loops-goal.${hash}.mjs`);
+      assert.equal(pathResult.stdout, `${expectedArtifact}\n`);
+
+      const missing = spawnSync(process.execPath, [script, '--verify-jiti-cache', runtimeSource, cacheDirectory], {
+        encoding: 'utf8',
+      });
+      assert.notEqual(missing.status, 0);
+      assert.equal(missing.stderr, `jiti cache artifact is missing at ${expectedArtifact}\n`);
+
+      mkdirSync(cacheDirectory);
+      writeFileSync(expectedArtifact, 'compiled cache\n');
+      const present = spawnSync(process.execPath, [script, '--verify-jiti-cache', runtimeSource, cacheDirectory], {
+        encoding: 'utf8',
+      });
+      assert.equal(present.status, 0, present.stderr);
+      assert.equal(present.stdout, `${expectedArtifact}\n`);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
