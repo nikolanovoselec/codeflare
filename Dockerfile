@@ -583,17 +583,20 @@ RUN pi --version 2>&1 || true
 #   came out empty, so a pi CLI change that breaks the warm-up is caught at
 #   build, not as a silent startup regression in production.
 # - Fail-closed completeness check: the build asserts that every local Pi extension
-#   produced an extensions-<base>.<hash>.mjs entry, then derives and requires Goal's
-#   exact regular-file artifact from its runtime-resolved package source. A future
-#   extension that is added, modified into a non-loading state, or skipped by a
-#   pi-loader change therefore fails the build instead of silently cold-transpiling
-#   every session in production.
+#   produced an extensions-<base>.<hash>.mjs entry. A dedicated explicit extension
+#   load transpiles Goal's installed entrypoint even when another package reports a
+#   non-fatal startup error; the build then derives and requires Goal's exact regular-
+#   file artifact. A future extension that is added, modified into a non-loading state,
+#   or skipped by a pi-loader change therefore fails the build instead of silently
+#   cold-transpiling every production session.
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
     PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>`npm:${n}@${v}`)}))')" && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
+    goal_source="/opt/codeflare/pi-agent/npm/node_modules/pi-goal-list-loop-audit/extensions/loops/goal.ts" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 pi -p "warm" || true) && \
+    (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 pi --no-extensions --extension "$goal_source" -p "warm" || true) && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
@@ -604,7 +607,6 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
         if [ -n "$hit" ]; then echo "[Dockerfile]   jiti-cached: $base -> $(basename "$hit")"; \
         else echo "ERROR: Pi extension '$base' has no jiti warm-cache entry — it would cold-transpile every session; failing build" >&2; exit 1; fi; \
     done && \
-    goal_source="/opt/codeflare/pi-agent/npm/node_modules/pi-goal-list-loop-audit/extensions/loops/goal.ts" && \
     goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
     echo "[Dockerfile] jiti warm cache verified: local extensions and Goal are baked"
 
