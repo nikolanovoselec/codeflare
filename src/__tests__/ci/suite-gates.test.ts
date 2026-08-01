@@ -500,7 +500,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       sharedCacheLogin(imageJob.steps),
     ]) {
       expect(step).toMatchObject({
-        uses: 'docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0',
+        uses: 'docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7',
         with: {
           registry: 'ghcr.io',
           username: '${{ github.actor }}',
