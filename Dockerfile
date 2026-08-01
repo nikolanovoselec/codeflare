@@ -200,11 +200,11 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns every literal in this block.
-RUN CODE_SERVER_VERSION="4.130.0" && \
-    CODE_SERVER_SHA256="3de23052e34fa705b3817efa66201cbc8d8ba6615b4cd03120c39bfc0ae1b7ab" && \
-    CODE_SERVER_COMMIT="197ef3e8da8ee99ed6ca8f1a630157527e6d448f" && \
-    CODE_SERVER_CODE_VERSION="1.130.0" && \
-    CODE_SERVER_VSCODE_COMMIT="1b6a188127eeaf9194f945eb6eb89a657e93c54c" && \
+RUN CODE_SERVER_VERSION="4.131.0" && \
+    CODE_SERVER_SHA256="f6316f0b14ef5c12ed6e67e0154dd02ccf5e66112064687d7e93c51763105361" && \
+    CODE_SERVER_COMMIT="a3fc2899bd0fcd388253c0e79ce33b8acd48c688" && \
+    CODE_SERVER_CODE_VERSION="1.131.0" && \
+    CODE_SERVER_VSCODE_COMMIT="3a03d6f72d628a7741c29f456b4ddbb5ae68502c" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
       "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/code-server.tar.gz && \
