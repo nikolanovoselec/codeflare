@@ -2774,7 +2774,7 @@ None.
 **Constraints:**
 
 - The verdict is recognised by its stacked table header, divider, and data row in assistant text, even when tool calls share the message; quoting the header inline is not a verdict.
-- The round-stamped triage file the directive names is an equivalent verdict channel, gated on matching the completion line, so a stale round's file never clears a newer round.
+- The verdict is published as a tool-free message that ends the turn, the shape the transcript always persists; the acknowledgement's fix directive drives the following turn.
 - The verdict demand is counted and rate-limited on its own, never on the counter that limits lane demands.
 - Both runtimes recognise the same table shape, so a verdict is portable between them.
 - The mid-turn refusal never writes acknowledgement or counter state, reads the bypass sentinel without consuming it, and releases after five refused calls; a lane still in flight or ended without success never triggers it.

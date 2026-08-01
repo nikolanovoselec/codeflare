@@ -209,15 +209,6 @@ const TRIAGE_LINE = () =>
     },
   });
 
-// The round-stamped triage file: session-keyed by transcript-path cksum,
-// exactly like the clear/strike state files, so sessions sharing one TMPDIR
-// never acknowledge each other's rounds. Tests run the hook with TMPDIR=cwd.
-const triageFile = (cwd, t) => {
-  const key = spawnSync('bash', ['-c', 'printf %s "$1" | cksum', '_', t], { encoding: 'utf-8' })
-    .stdout.trim().split(' ')[0];
-  return join(cwd, `sdd-review-triage-${key}.md`);
-};
-
 // A background call that exits non-zero. Same envelope, terminal status
 // `failed`: the lane ENDED, but produced nothing the gate may credit.
 const FAILED_LINE = (toolUseId) => STATUS_LINE(toolUseId, 'failed');
@@ -395,88 +386,6 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       assert.equal(pretool(cwd, t, 'Edit').status, 2,
         `entry ${JSON.stringify(entry)} must not be honoured as a cleared round`);
     }
-  });
-
-  const triageWrite = (cwd, t, filePath, tmpDir = cwd) => spawnSync('bash', [HOOK], {
-    cwd,
-    input: JSON.stringify({
-      hook_event_name: 'PreToolUse',
-      transcript_path: t,
-      tool_name: 'Write',
-      tool_input: { file_path: filePath },
-    }),
-    encoding: 'utf-8',
-    env: { ...process.env, TMPDIR: tmpDir, REVIEW_BYPASS_FILE: join(cwd, 'absent-bypass') },
-  });
-
-  it('permits the round-stamped triage-file Write while blocked, and honours the file', () => {
-    const cwd = makeFixture();
-    const t = writeTranscript(cwd, completedRound());
-    const blocked = pretool(cwd, t, 'Edit');
-    assert.equal(blocked.status, 2);
-    const stamp = blocked.stderr.match(/round: (\d+)/)?.[1];
-    assert.ok(stamp, 'the directive names the completion line the file must be stamped with');
-    assert.ok(blocked.stderr.includes(triageFile(cwd, t)),
-      'the directive names the session-keyed file path');
-
-    // The Write to the named path is the one mutation allowed while blocked.
-    const writeCall = triageWrite(cwd, t, triageFile(cwd, t));
-    assert.equal(writeCall.status, 0, 'the triage-file Write must pass the gate');
-
-    writeFileSync(triageFile(cwd, t),
-      `round: ${stamp}\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0, 'a current round-stamped file clears the gate');
-  });
-
-  it('refuses a Write to any path other than the triage file while blocked', () => {
-    const cwd = makeFixture();
-    const t = writeTranscript(cwd, completedRound());
-    const writeCall = triageWrite(cwd, t, join(cwd, 'src/anything.ts'));
-    assert.equal(writeCall.status, 2, 'the Write exemption must cover exactly one path');
-  });
-
-  it('accepts the triage-file Write when TMPDIR carries trailing slashes', () => {
-    const cwd = makeFixture();
-    const t = writeTranscript(cwd, completedRound());
-    for (const tmpDir of [`${cwd}/`, `${cwd}//`]) {
-      const writeCall = triageWrite(cwd, t, triageFile(cwd, t), tmpDir);
-      assert.equal(writeCall.status, 0,
-        `path compare must normalise TMPDIR ${JSON.stringify(tmpDir)}`);
-    }
-  });
-
-  it('ignores a triage file stamped with a stale round', () => {
-    const cwd = makeFixture();
-    const t = writeTranscript(cwd, completedRound());
-    writeFileSync(triageFile(cwd, t),
-      `round: 1\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2,
-      'a previous round\'s file must never clear a newer round');
-  });
-
-  it('ignores triage files keyed to another session or to the legacy un-keyed name', () => {
-    const cwd = makeFixture();
-    const t = writeTranscript(cwd, completedRound());
-    const stamp = pretool(cwd, t, 'Edit').stderr.match(/round: (\d+)/)?.[1];
-    assert.ok(stamp);
-    const table = `round: ${stamp}\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`;
-    // Correctly stamped tables under a foreign session's key and the legacy
-    // fixed name: neither may clear THIS session's gate.
-    writeFileSync(triageFile(cwd, join(cwd, 'other-transcript.jsonl')), table);
-    writeFileSync(join(cwd, 'sdd-review-triage.md'), table);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2,
-      'only the file keyed to this transcript may clear the gate');
-  });
-
-  it('ignores a triage file whose current stamp lacks the stacked shape', () => {
-    const cwd = makeFixture();
-    const t = writeTranscript(cwd, completedRound());
-    const stamp = pretool(cwd, t, 'Edit').stderr.match(/round: (\d+)/)?.[1];
-    assert.ok(stamp);
-    writeFileSync(triageFile(cwd, t),
-      `round: ${stamp}\n${TRIAGE_HEADER} mentioned inline\n`);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2,
-      'a current stamp without header/divider/data-row must not clear the gate');
   });
 
   it('rejects a table that appears only inside a tool_use envelope', () => {
@@ -1095,33 +1004,6 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'the ack alone does not apply anything; the fix phase must be driven, not remembered');
   });
 
-  // The file stamp is a bare transcript line number, which a compaction
-  // rewrite can re-issue for a different round - so the ack that closes the
-  // round must consume the file, not leave it to clear a colliding future one.
-  it('acks from the triage file and consumes it when the round closes', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'filechannelsha'));
-    const t = writeTranscript(cwd, [
-      PUSH_LINE('2026-05-03T12:00:00.000Z'),
-      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
-      LANE_BASH_DONE_LINE('toolu_b1'),
-      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
-      LANE_BASH_DONE_LINE('toolu_b2'),
-      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
-      LANE_BASH_DONE_LINE('toolu_b3'),
-    ]);
-    // The stamp is the transcript line of the last completion, which is the
-    // fixture's final line - derived, so fixture growth cannot break it.
-    const stamp = readFileSync(t, 'utf-8').trim().split('\n').length;
-    writeFileSync(triageFile(cwd, t),
-      `round: ${stamp}\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
-    runHook(cwd, { transcriptPath: t, binDir, tmpDir: cwd });
-    assert.equal(ackOf(cwd), 'filechannelsha', 'the file channel must back the Stop-side ack');
-    assert.equal(existsSync(triageFile(cwd, t)), false,
-      'closing the round must consume the file');
-  });
-
   // A table from the PREVIOUS round sits earlier in the transcript. Accepting it
   // would acknowledge this head on the strength of a verdict about another one.
   it('ignores a verdict published before the lanes returned', () => {
@@ -1229,39 +1111,9 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'repeated unanswered demands must acknowledge; a permanently wedged checkpoint is the failure being removed');
   });
 
-  // The giveup ack must also consume the triage file: a stale file surviving
-  // the 5-strike escape is exactly what could clear a colliding future round
-  // after a compaction rewrite re-issues its line number.
-  it('consumes a stale triage file when the giveup ack closes the round', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'giveupsha'));
-    const t = writeTranscript(cwd, [
-      PUSH_LINE('2026-05-03T12:00:00.000Z'),
-      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
-      LANE_BASH_DONE_LINE('toolu_b1'),
-      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
-      LANE_BASH_DONE_LINE('toolu_b2'),
-      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
-      LANE_BASH_DONE_LINE('toolu_b3'),
-    ]);
-    writeFileSync(triageFile(cwd, t),
-      `round: 1\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
-    let acked = false;
-    for (let i = 0; i < 7 && !acked; i += 1) {
-      runHook(cwd, { transcriptPath: t, binDir, tmpDir: cwd });
-      acked = ackOf(cwd) === 'giveupsha';
-    }
-    assert.equal(acked, true,
-      'a stale-stamped file must not satisfy the verdict, so only the giveup can acknowledge');
-    assert.equal(existsSync(triageFile(cwd, t)), false,
-      'the giveup ack must consume the file');
-  });
-
-  // The third round-closing path: a graphify-out/-only diff requires no lanes
-  // and auto-acks. It closes a round like the verdict and giveup acks, so it
-  // must consume the triage file the same way.
-  it('consumes the triage file on the no-lanes auto-ack short-circuit', () => {
+  // The third round-closing path: a graphify-out/-only diff requires no lanes,
+  // so the checkpoint auto-acks without any spawn or verdict demand.
+  it('auto-acks a graphify-out-only diff that requires no lanes', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const git = (...args) => {
@@ -1284,12 +1136,8 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       `${baseSha}\n`);
     const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const t = writeTranscript(cwd, [PUSH_LINE()]);
-    writeFileSync(triageFile(cwd, t),
-      `round: 1\n${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |\n`);
     runHook(cwd, { transcriptPath: t, binDir, tmpDir: cwd });
     assert.equal(ackOf(cwd), headSha, 'a graphify-out-only diff must auto-ack with no lanes');
-    assert.equal(existsSync(triageFile(cwd, t)), false,
-      'the auto-ack closes a round, so it must consume the file');
   });
 
   // REQ-AGENT-104 AC5.

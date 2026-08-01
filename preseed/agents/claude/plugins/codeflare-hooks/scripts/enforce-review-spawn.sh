@@ -88,17 +88,6 @@ case "$HOOK_EVENT" in
 esac
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
 
-# The round-stamped triage file's resolved path: session-keyed by transcript
-# like every other gate state file, so concurrent sessions sharing one /tmp
-# can never clear each other's rounds, and TMPDIR-normalised so trailing
-# slashes (however many) cannot make the allowlist compare refuse the path
-# the directive named.
-triage_file_path() {
-  local tmp="${TMPDIR:-/tmp}"
-  while [ "${tmp%/}" != "$tmp" ]; do tmp="${tmp%/}"; done
-  printf '%s/sdd-review-triage-%s.md' "$tmp" "$(printf '%s' "$TRANSCRIPT" | cksum | awk '{print $1}')"
-}
-
 # ---------------------------------------------------------------------------
 # PreToolUse triage gate - prefilters. The full check lives after the shared
 # transcript helpers it reuses (search "PreToolUse triage gate - full check").
@@ -110,11 +99,11 @@ triage_file_path() {
 # window the round discipline forbids. This branch closes it: once every lane
 # spawned in the transcript has a completed notification and no triage table
 # follows the last of them, every tool outside the read-only set is refused
-# (exit 2) until the verdict exists in either channel: the stacked table in
-# assistant text, or the round-stamped triage file the directive names - the
-# one Write permitted while blocked, because a message whose tool call this
-# gate rejects is never persisted, so chat text alone cannot be relied on to
-# escape the refusal.
+# (exit 2) with a one-line reminder. The contract mirrors Pi's: the verdict
+# is published as a TOOL-FREE message that ends the turn (a tool-free message
+# is always persisted to the transcript, unlike one whose tool call this gate
+# rejects), the Stop hook acknowledges it, and its fix directive drives the
+# following turn.
 #
 # This branch never writes acks or round counters - those stay Stop-owned. It
 # reads the bypass sentinel without consuming it (one-shot deletion is the
@@ -127,15 +116,6 @@ if [ -n "$PRETOOL_MODE" ]; then
   case "$TOOL_NAME" in
     Read|TaskOutput|TaskGet|TaskList|AskUserQuestion) exit 0 ;;
   esac
-  # The one Write the gate permits while blocked: the round-stamped triage
-  # file. The harness does not persist an assistant message whose tool call
-  # this gate rejects, so a table published only as chat text can be invisible
-  # to every later scan - the file is the harness-independent checkpoint the
-  # directive demands alongside the visible table.
-  if [ "$TOOL_NAME" = "Write" ]; then
-    PRETOOL_WRITE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
-    [ "$PRETOOL_WRITE_PATH" = "$(triage_file_path)" ] && exit 0
-  fi
   [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0
   # Fingerprint cache: the gate's answer can only flip to "block" when a new
   # completed notification lands (a spawn alone cannot, and a published table
@@ -759,12 +739,13 @@ spawn_completion_line() {
 # be its own line, the divider the line immediately after it, and at least one
 # data row must follow: that shape is a published table and nothing else is.
 #
-# Tool calls in the same message do NOT disqualify it. A tool-free assistant
-# message ends the turn, so requiring one forced a stall after every table and
-# made the fix phase depend on the Stop event that the stall was waiting for.
-# The table text is still published before the tools run - the checkpoint
-# stays visible - and only text blocks are extracted below, so nothing inside
-# a tool_use envelope can fake the shape.
+# The canonical flow is Pi's: the table is a TOOL-FREE message that ends the
+# turn, which the harness always persists; the Stop hook then acknowledges it
+# and its fix directive drives the following turn. Recognition here stays
+# permissive - a table that arrived sharing a message with tool calls still
+# counts when it persisted, because refusing it could only wedge the session.
+# Only text blocks are extracted below, so nothing inside a tool_use envelope
+# can fake the shape.
 # The canonical stacked shape on stdin: header, divider, and a data row on
 # consecutive lines. Shared by the transcript scan and the file check so the
 # two channels can never drift apart on what counts as a table.
@@ -786,21 +767,6 @@ triage_published_after_line() {
   ' "$TRANSCRIPT" \
     | jq -R -r 'fromjson? | [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]' 2>/dev/null \
     | stacked_table_in_stream
-}
-
-# The round-stamped triage file: the harness-independent verdict channel. A
-# message rejected by the PreToolUse gate is not persisted to the transcript,
-# so a table published only as chat text can be invisible to every scan. The
-# file must open with "round: <line>" naming the completion line the caller is
-# gating on - a stale round's file can never clear a newer round - followed by
-# the same stacked table shape the transcript check requires.
-triage_file_current() {
-  local expect="$1"
-  local file
-  file=$(triage_file_path)
-  [ -f "$file" ] || return 1
-  [ "$(head -1 "$file" 2>/dev/null)" = "round: $expect" ] || return 1
-  stacked_table_in_stream < "$file"
 }
 
 # ---------------------------------------------------------------------------
@@ -829,8 +795,7 @@ if [ -n "$PRETOOL_MODE" ]; then
       && PRETOOL_LAST_COMPLETION=$PRETOOL_DONE
   done
   [ "$PRETOOL_LAST_COMPLETION" -gt 0 ] 2>/dev/null || pretool_allow
-  if triage_published_after_line "$PRETOOL_LAST_COMPLETION" \
-     || triage_file_current "$PRETOOL_LAST_COMPLETION"; then
+  if triage_published_after_line "$PRETOOL_LAST_COMPLETION"; then
     pretool_allow
   fi
   # 5-strike breaker keyed on the completion line, mirroring the Stop-side
@@ -855,7 +820,7 @@ if [ -n "$PRETOOL_MODE" ]; then
     echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
     pretool_allow
   fi
-  echo "REVIEW TRIAGE REQUIRED: every review lane spawned in this session has returned, and no triage verdict has been published since the last one completed. Do BOTH of the following, then continue with your fixes. (1) Publish ONE triage table in your visible text, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding across all lanes (a fully clean round gets one row per lane stating the runner's clean verdict). (2) Write the SAME table to $(triage_file_path) whose exact first line is 'round: $PRETOOL_LAST_COMPLETION' - that Write is permitted while blocked and is the machine-readable checkpoint (your chat text alone may never reach the transcript this gate scans). Judge each finding separately from its proposed fix: VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. Fixes, commits, and pushes come only after both exist. Read and TaskOutput are permitted for reading lane reports." >&2
+  echo "Review triage required: publish the triage table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) as a TOOL-FREE message ending this turn - the fix directive follows next turn. Read/TaskOutput remain available for lane reports." >&2
   exit 2
 fi
 
@@ -1156,11 +1121,6 @@ reack_on_repeated_demand() {
   if [ "$strikes" = "GIVEUP" ] || { [ "$strikes" -ge 5 ] 2>/dev/null; }; then
     echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
-    # The triage file's stamp is a bare transcript line number, and a
-    # compaction rewrite can re-issue line numbers - so closing the round
-    # consumes the file, leaving nothing a colliding future round could be
-    # cleared by.
-    rm -f "$(triage_file_path)" 2>/dev/null || true
     clear_counter
     echo "enforce-review-spawn: ${CURRENT_PR_HEAD:0:7} acknowledged after repeated unanswered verdict demands; its findings were never triaged" >&2
     return 0
@@ -1236,12 +1196,9 @@ fi
 
 # No lanes required -> already-clean PR HEAD for this diff shape. Ack
 # the checkpoint and exit silently so the next Stop event short-circuits
-# on the cheap path. This closes a round like the two verdict-side acks,
-# so it consumes the triage file the same way - a leftover file could
-# clear a colliding future round after a compaction rewrite.
+# on the cheap path.
 if [ -z "$REQUIRED_LANES" ]; then
   echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
-  rm -f "$(triage_file_path)" 2>/dev/null || true
   clear_counter
   exit 0
 fi
@@ -1485,14 +1442,9 @@ fi
 # never relaunches review or CI for that head.
 if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
-  if [ -n "$ROUND_COMPLETE_LINE" ] && { triage_published_after_line "$ROUND_COMPLETE_LINE" || triage_file_current "$ROUND_COMPLETE_LINE"; }; then
+  if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
     echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
-    # The triage file's stamp is a bare transcript line number, and a
-    # compaction rewrite can re-issue line numbers - so closing the round
-    # consumes the file, leaving nothing a colliding future round could be
-    # cleared by.
-    rm -f "$(triage_file_path)" 2>/dev/null || true
     clear_counter
     emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane returned and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION from that table and nothing else — a rejected row stays rejected, and a row you accepted is not deferred. State what you fixed and anything you deliberately left."
   fi
@@ -1504,7 +1456,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned, but no triage verdict was published for them. Publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' - in your visible text AND written to $(triage_file_path) with exact first line 'round: $ROUND_COMPLETE_LINE' (the file is the machine checkpoint; chat text alone may never reach the transcript this gate scans). Judge each finding separately from its proposed fix; a rejected row states its cause in VALIDITY and is never a deferral. The head stays unacknowledged until that table exists, because a review nobody read is not a review."
+  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned with no triage verdict published. First verify every finding against the reviewers' evidence - finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then, in a TOOL-FREE response (no tool calls - end the turn immediately, make no file or Git changes), publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' (a fully clean round gets one row per lane stating the runner's clean verdict). VALIDITY records whether the finding is real (a rejected row states its cause there - never a deferral), PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. The fix directive follows in the next turn once this head is acknowledged."
 fi
 
 exit 0
