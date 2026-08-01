@@ -1,9 +1,9 @@
-// Real behavioral tests for the OpenVSCode supervisor in entrypoint.sh
+// Real behavioral tests for the Browser IDE supervisor in entrypoint.sh
 // (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003, REQ-IDE-005, REQ-IDE-008).
 //
 // Per tdd-discipline / engineering-constitution mandate 2 we do NOT match
 // source text: we EXTRACT the real shell functions, RUN them with a stubbed
-// openvscode-server binary + temp flag/trigger files, and assert on observable
+// code-server binary + temp flag/trigger files, and assert on observable
 // side effects (exit codes, captured launch args, whether/how many times the
 // stub was invoked, whether a pidfile-tracked process is killed). Mirrors the
 // extract-and-run harness in entrypoint-vault-boot.test.js.
@@ -60,14 +60,14 @@ function mkTmp(prefix) {
 
 // Write an executable stub that records each invocation's args, then exits.
 function writeStub(dir, argsFile) {
-  const stub = join(dir, 'openvscode-server');
+  const stub = join(dir, 'code-server');
   writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" >> "${argsFile}"\nprintf -- '---\\n' >> "${argsFile}"\nexit 0\n`);
   chmodSync(stub, 0o755);
   return stub;
 }
 
 function writeSelectionStub(dir, argsFile) {
-  const stub = join(dir, 'openvscode-server');
+  const stub = join(dir, 'code-server');
   writeFileSync(stub, `#!/usr/bin/env bash\nprintf 'agent=%s\\n' "\${CODEFLARE_SIDEBAR_AGENT-<unset>}" > "${argsFile}"\nprintf '%s\\n' "$@" >> "${argsFile}"\nexit 0\n`);
   chmodSync(stub, 0o755);
   return stub;
@@ -77,16 +77,19 @@ function runBash(script, env = {}) {
   return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, ...env } });
 }
 
-function openvscodeLaunchScript({ stubAgentPreparation = true } = {}) {
+function openvscodeLaunchScript({ stubAgentPreparation = true, stubUiState = true } = {}) {
   const production = [
     extractOptionalFn('_openvscode_agent_kind'),
     extractOptionalFn('_openvscode_extensions_dir'),
     extractOptionalFn('_openvscode_prepare_agent'),
+    extractOptionalFn('_openvscode_restore_ui_state'),
     extractFn('_openvscode_launch_once'),
   ].filter(Boolean).join('\n');
-  return stubAgentPreparation
-    ? `${production}\n_openvscode_prepare_agent() { :; }`
-    : production;
+  return [
+    production,
+    stubAgentPreparation ? '_openvscode_prepare_agent() { :; }' : '',
+    stubUiState ? '_openvscode_restore_ui_state() { :; }' : '',
+  ].filter(Boolean).join('\n');
 }
 
 function openvscodeSupervisorScript() {
@@ -96,9 +99,11 @@ function openvscodeSupervisorScript() {
     extractKillHelpers(),
     extractFn('_openvscode_should_launch'),
     openvscodeLaunchScript(),
+    extractOptionalFn('_openvscode_capture_ui_state'),
+    '_openvscode_capture_ui_state() { :; }',
     extractFn('_openvscode_supervise_loop'),
     'export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
-    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_launch_once _openvscode_supervise_loop',
+    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_launch_once _openvscode_supervise_loop',
   ].join('\n');
 }
 
@@ -170,7 +175,7 @@ describe('_openvscode_should_launch / REQ-IDE-003 AC1 (lazy-start gate)', () => 
   });
 });
 
-describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated launch command)', () => {
+describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated code-server launch command)', () => {
   let dir, argsFile, workspace;
   beforeEach(() => {
     dir = mkTmp('ovsc-launch-');
@@ -180,39 +185,76 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('passes --server-base-path=/api/vscode/<SESSION_ID>, the ephemeral /tmp data dir, the workspace, and no connection token', () => {
+  it('REQ-IDE-001 + REQ-IDE-002: launches code-server with the exact production flags and ephemeral settings layout', () => {
     const stub = writeStub(dir, argsFile);
-    // OPENVSCODE_DATA_DIR is intentionally NOT set, so the real default applies.
+    // OPENVSCODE_DATA_DIR is intentionally unset so the retained private
+    // namespace's production default is exercised.
     const r = runBash(`${openvscodeLaunchScript()}\n_openvscode_launch_once`, {
       OPENVSCODE_BIN: stub,
+      OPENVSCODE_HOST: '0.0.0.0',
       SESSION_ID: 'abcd1234',
       OPENVSCODE_WORKSPACE: workspace,
     });
+
     assert.equal(r.status, 0);
-    const args = readFileSync(argsFile, 'utf8').split('\n');
-    // Session isolation: the base path carries the session id (REQ-IDE-002).
-    assert.ok(args.includes('--server-base-path'), 'has --server-base-path flag');
-    assert.ok(args.includes('/api/vscode/abcd1234'), 'base path is /api/vscode/<sid>');
-    // Ephemeral, never-synced data dir under /tmp -- the real default (REQ-IDE-002/003 AC6).
-    assert.ok(args.includes('--server-data-dir'), 'has --server-data-dir flag');
-    assert.ok(args.includes('/tmp/openvscode-data'), 'data dir defaults to the ephemeral /tmp path (never R2-synced)');
-    // Worker is the auth boundary -> no connection token.
-    assert.ok(args.includes('--without-connection-token'), 'runs without a connection token');
-    // Opens the session workspace.
-    assert.ok(args.includes('--default-folder'), 'has --default-folder flag');
-    assert.ok(args.includes(workspace), 'opens the workspace folder');
-    // Bound to localhost only.
-    assert.ok(args.includes('127.0.0.1'), 'binds localhost');
+    assert.deepEqual(readFileSync(argsFile, 'utf8').trim().split('\n'), [
+      '--bind-addr',
+      '127.0.0.1:13337',
+      '--auth',
+      'none',
+      '--disable-telemetry',
+      '--disable-update-check',
+      '--disable-proxy',
+      '--disable-getting-started-override',
+      '--disable-workspace-trust',
+      '--user-data-dir',
+      '/tmp/openvscode-data/data',
+      '--extensions-dir',
+      '/opt/codeflare/openvscode/extensions/claude',
+      workspace,
+      '---',
+    ]);
   });
 
-  it('REQ-IDE-005 AC1 + REQ-IDE-009: every agent kind prepares IDE settings before OpenVSCode launches', () => {
+  it('REQ-IDE-002 AC2: separate session launches use independent workspace and editor-state roots', () => {
+    const observed = [];
+    for (const sessionId of ['session-a', 'session-b']) {
+      const sessionDir = join(dir, sessionId);
+      const sessionWorkspace = join(sessionDir, 'workspace');
+      const sessionData = join(sessionDir, 'editor-data');
+      const sessionArgs = join(sessionDir, 'args.log');
+      mkdirSync(sessionWorkspace, { recursive: true });
+      const stub = writeStub(sessionDir, sessionArgs);
+
+      const r = runBash(`${openvscodeLaunchScript()}\n_openvscode_launch_once`, {
+        OPENVSCODE_BIN: stub,
+        OPENVSCODE_WORKSPACE: sessionWorkspace,
+        OPENVSCODE_DATA_DIR: sessionData,
+        SESSION_ID: sessionId,
+      });
+
+      assert.equal(r.status, 0);
+      observed.push(readFileSync(sessionArgs, 'utf8').trim().split('\n'));
+    }
+
+    const userDataRoots = observed.map((args) => args[args.indexOf('--user-data-dir') + 1]);
+    assert.deepEqual(userDataRoots, [
+      join(dir, 'session-a', 'editor-data', 'data'),
+      join(dir, 'session-b', 'editor-data', 'data'),
+    ]);
+    assert.ok(observed[0].includes(join(dir, 'session-a', 'workspace')));
+    assert.ok(observed[1].includes(join(dir, 'session-b', 'workspace')));
+  });
+
+  it('REQ-IDE-005 AC1 + REQ-IDE-009: every agent kind prepares IDE settings before code-server launches', () => {
     const cases = [
       { label: 'claude (legacy default)', config: undefined, kind: 'claude' },
       { label: 'pi', config: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]), kind: 'pi' },
       { label: 'none (unsupported)', config: JSON.stringify([{ id: '1', command: 'codex', label: 'Terminal 1' }]), kind: 'none' },
     ];
     for (const { label, config, kind } of cases) {
-      const stub = writeStub(dir, join(dir, `args-${kind}.log`));
+      const launchArgsFile = join(dir, `args-${kind}.log`);
+      const stub = writeStub(dir, launchArgsFile);
       const prepared = join(dir, `prepared-${kind}.log`);
       const dataDir = join(dir, `openvscode-data-${kind}`);
       const script = `${openvscodeLaunchScript({ stubAgentPreparation: false })}
@@ -232,11 +274,40 @@ _openvscode_launch_once`;
       assert.equal(r.status, 0, `${label} should launch`);
       // The seed runs for the selected kind (kind|dataDir), proving pi and none
       // are seeded too, not just claude.
-      assert.equal(readFileSync(prepared, 'utf8'), `${kind}|${dataDir}\n`, `${label} seeds settings for kind=${kind}`);
+      assert.equal(readFileSync(prepared, 'utf8'), `${kind}|${dataDir}\n`, `${label} seeds settings at the Browser IDE data root`);
+      const args = readFileSync(launchArgsFile, 'utf8').trim().split('\n');
+      const userDataFlag = args.indexOf('--user-data-dir');
+      assert.notEqual(userDataFlag, -1, `${label} passes code-server's --user-data-dir`);
+      assert.equal(args[userDataFlag + 1], join(dataDir, 'data'), `${label} launches against the settings directory prepared under <root>/data/User`);
     }
   });
 
-  it('REQ-IDE-009: IDE settings preparation failure prevents OpenVSCode launch', () => {
+  it('REQ-IDE-016 AC2: restores safe UI state before managed settings and code-server launch', () => {
+    const stub = writeStub(dir, argsFile);
+    const events = join(dir, 'events.log');
+    const dataDir = join(dir, 'openvscode-data');
+    const script = `${openvscodeLaunchScript({ stubAgentPreparation: false, stubUiState: false })}
+_openvscode_restore_ui_state() { printf 'restore:%s\n' "$1" >> "$EVENTS"; }
+_openvscode_prepare_agent() { printf 'prepare:%s:%s\n' "$1" "$2" >> "$EVENTS"; }
+_openvscode_launch_once`;
+
+    const r = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: workspace,
+      OPENVSCODE_DATA_DIR: dataDir,
+      EVENTS: events,
+      SESSION_ID: 'abcd1234',
+    });
+
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(readFileSync(events, 'utf8').trim().split('\n'), [
+      `restore:${dataDir}`,
+      `prepare:claude:${dataDir}`,
+    ]);
+    assert.equal(existsSync(argsFile), true);
+  });
+
+  it('REQ-IDE-009: IDE settings preparation failure prevents code-server launch', () => {
     const stub = writeStub(dir, argsFile);
     const script = `${openvscodeLaunchScript({ stubAgentPreparation: false })}
 _openvscode_prepare_agent() { return 37; }
@@ -355,6 +426,33 @@ describe('OpenVSCode launch generations / REQ-IDE-008 AC4', () => {
     writeFileSync(trigger, '');
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('REQ-IDE-016 AC1: captures UI state only after the code-server generation exits', () => {
+    const events = join(dir, 'state-events.log');
+    const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
+printf 'server-start:%s\\n' "$$" >> "$EVENTS"
+trap 'printf "server-exit:%s\\n" "$$" >> "$EVENTS"' EXIT
+exit 17
+`);
+    const script = `${openvscodeSupervisorScript()}
+_openvscode_capture_ui_state() { printf 'capture:%s\n' "$1" >> "$EVENTS"; }
+export -f _openvscode_capture_ui_state
+timeout 1 bash -c '_openvscode_supervise_loop' || true`;
+
+    const result = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_DATA_DIR: join(dir, 'data'),
+      OPENVSCODE_REQUEST_TRIGGER: trigger,
+      CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234',
+      EVENTS: events,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const firstGeneration = readFileSync(events, 'utf8').trim().split('\n').slice(0, 3).map((line) => line.split(':')[0]);
+    assert.deepEqual(firstGeneration, ['server-start', 'server-exit', 'capture']);
+  });
 
   it('REQ-IDE-003 AC4 + REQ-IDE-008 AC4: each restart creates one separately identifiable launch generation', () => {
     const launchesFile = join(dir, 'launches.log');
@@ -718,9 +816,18 @@ for _ in $(seq 1 50); do [ -s "$MANAGED_PID_FILE" ] && break; sleep 0.02; done
 read -r managed < "$MANAGED_PID_FILE"
 kill_pidfile_subtree "$OPENVSCODE_GENERATION_PIDFILE"
 kill_pidfile_subtree "$OPENVSCODE_PIDFILE"
-sleep 0.3
-if kill -0 "$supervisor" 2>/dev/null; then supervisor_state=alive; else supervisor_state=dead; fi
-if kill -0 "$managed" 2>/dev/null; then managed_state=alive; else managed_state=dead; fi
+# kill -0 also succeeds for a terminated process that briefly remains a zombie
+# while CI's init process catches up. Assert that neither process is runnable.
+is_running() {
+  [ -r "/proc/$1/stat" ] || return 1
+  [ "$(awk '{print $3}' "/proc/$1/stat")" != Z ]
+}
+for _ in $(seq 1 50); do
+  if ! is_running "$supervisor" && ! is_running "$managed"; then break; fi
+  sleep 0.02
+done
+if is_running "$supervisor"; then supervisor_state=alive; else supervisor_state=dead; fi
+if is_running "$managed"; then managed_state=alive; else managed_state=dead; fi
 printf 'supervisor=%s managed=%s\\n' "$supervisor_state" "$managed_state"
 pkill -KILL -P "$managed" 2>/dev/null || true
 kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
@@ -744,41 +851,14 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
   });
 });
 
-// The sidebar extension is compiled against the API surface its own runtime
-// exposes. openvscode-server ships well behind upstream VS Code (1.109.5 is the
-// newest gitpod release), so npm always offers a newer @types/vscode than any
-// server we can run. Taking it types the extension against APIs the runtime
-// lacks and moves the failure from build time to activation time.
-//
-// The two pins are guarded to different depths, because they drift for
-// different reasons. @types/vscode tracks a VS Code release exactly, so it is
-// held to the server's minor. @types/node is published on DefinitelyTyped's own
-// cadence and its minor moves independently of any Node release, so only the
-// major is an invariant worth asserting -- holding it to engines.node's minor
-// would fail on bumps that carry no risk.
+// @types/node is published on DefinitelyTyped's own cadence, so only its major
+// is required to match the pinned builder Node. The extension API floor is
+// checked against the installed Code runtime by the complete-image smoke.
 const sidebarPkg = () =>
   JSON.parse(readFileSync(resolve(__dirname, '../../openvscode/agent-sidebar/package.json'), 'utf8'));
-const versionMinor = (version) => version.replace(/^[^\d]*/, '').split('.').slice(0, 2).join('.');
 const versionMajor = (version) => version.replace(/^[^\d]*/, '').split('.')[0];
 
 describe('agent-sidebar type pins track the runtime they describe', () => {
-  it('pins @types/vscode to the openvscode-server release baked into the image', () => {
-    const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
-    const pkg = sidebarPkg();
-    const server = dockerfile.match(/OPENVSCODE_VERSION="([\d.]+)"/);
-    assert.ok(server, 'Dockerfile must pin an explicit OPENVSCODE_VERSION');
-    assert.equal(
-      versionMinor(pkg.devDependencies['@types/vscode']),
-      versionMinor(server[1]),
-      '@types/vscode minor must match the Dockerfile OPENVSCODE_VERSION'
-    );
-    assert.equal(
-      versionMinor(pkg.engines.vscode),
-      versionMinor(server[1]),
-      'engines.vscode minor must match the Dockerfile OPENVSCODE_VERSION'
-    );
-  });
-
   it('pins @types/node to the Node the image builds the extension with', () => {
     const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
     const pkg = sidebarPkg();

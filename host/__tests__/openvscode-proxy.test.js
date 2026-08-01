@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { createActivityTracker } from '../dist/activity-tracker.js';
-import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, VSCODE_WARMING_GIVE_UP_MS, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
+import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, projectVscodeWorkbenchWorkspace, rewriteVscodeLocation, vscodeUpstreamPath, vscodeUpstreamRequestTarget, requestOpenvscodeStart, VSCODE_WARMING_GIVE_UP_MS, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
 
 describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () => {
   it('matches the bare /api/vscode surface and everything below it', () => {
@@ -36,23 +36,146 @@ describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () =
   });
 });
 
-describe('vscodeUpstreamPath / REQ-IDE-001 (forward UNCHANGED, no strip)', () => {
-  it('returns the path verbatim -- OpenVSCode is base-path native', () => {
-    assert.equal(vscodeUpstreamPath('/api/vscode/abcd1234/stable/out/main.js'), '/api/vscode/abcd1234/stable/out/main.js');
-    assert.equal(vscodeUpstreamPath('/api/vscode/abcd1234/'), '/api/vscode/abcd1234/');
-    assert.equal(vscodeUpstreamPath('/api/vscode'), '/api/vscode');
+describe('vscodeUpstreamPath / REQ-IDE-001 AC7 (exact session prefix strip)', () => {
+  const SID = 'abcd1234';
+
+  it('REQ-IDE-001 AC7: strips exactly /api/vscode/<expected-session> for code-server', () => {
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/stable/out/main.js`, SID), '/stable/out/main.js');
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/`, SID), '/');
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}`, SID), '/');
   });
 
-  it('does NOT strip the prefix (the load-bearing contrast with the vault)', () => {
-    // A vault-style strip would return '/abcd1234/x'; the IDE MUST keep the
-    // full path so OpenVSCode's --server-base-path=/api/vscode/<sid> matches.
-    assert.notEqual(vscodeUpstreamPath('/api/vscode/abcd1234/x'), '/abcd1234/x');
-    assert.equal(vscodeUpstreamPath('/api/vscode/abcd1234/x'), '/api/vscode/abcd1234/x');
+  it('REQ-IDE-001 AC7: rejects missing, mismatched, and lookalike session prefixes', () => {
+    const rejected = [
+      null,
+      undefined,
+      '/api/vscode',
+      '/api/vscode/',
+      '/api/vscode/other-session/x',
+      `/api/vscode/${SID}x/x`,
+      `/api/vscodex/${SID}/x`,
+      `/api/vscode/${SID}%2Fx`,
+    ];
+    assert.deepEqual(rejected.map((pathname) => vscodeUpstreamPath(pathname, SID)), rejected.map(() => null));
   });
 
-  it('falls back to /api/vscode/ for a missing pathname', () => {
-    assert.equal(vscodeUpstreamPath(null), '/api/vscode/');
-    assert.equal(vscodeUpstreamPath(undefined), '/api/vscode/');
+  it('REQ-IDE-001 AC3: transforms only the pathname so query bytes remain caller-owned', () => {
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/x`, SID), '/x');
+    assert.equal(vscodeUpstreamPath(`/api/vscode/${SID}/x?token=a%2Fb&token=two+words`, SID), null);
+  });
+});
+
+describe('vscodeUpstreamRequestTarget / REQ-IDE-015 (fixed clean workspace navigation)', () => {
+  it('injects the fixed workspace only into the loopback root request while preserving unrelated query bytes', () => {
+    assert.equal(
+      vscodeUpstreamRequestTarget('/api/vscode/sid/?resource=a%2Fb&empty=&bare', '/'),
+      '/?resource=a%2Fb&empty=&bare&folder=%2Fhome%2Fuser%2Fworkspace',
+    );
+    assert.equal(
+      vscodeUpstreamRequestTarget('/api/vscode/sid/stable.js?resource=a%2Fb&empty=&bare', '/stable.js'),
+      '/stable.js?resource=a%2Fb&empty=&bare',
+    );
+  });
+
+  it('rejects every public folder, workspace, and empty-window selector, including encoded and repeated keys', () => {
+    const rejected = [
+      '?folder=/etc',
+      '?folder=/home/user/workspace',
+      '?workspace=/tmp/escape.code-workspace',
+      '?ew=true',
+      '?%66older=/etc',
+      '?safe=1&folder=/etc&folder=/home/user/workspace',
+    ];
+    assert.deepEqual(
+      rejected.map((query) => vscodeUpstreamRequestTarget(`/api/vscode/sid/${query}`, '/')),
+      rejected.map(() => null),
+    );
+  });
+
+  it('removes upstream workspace selectors from the browser-visible redirect', () => {
+    assert.equal(
+      rewriteVscodeLocation('/?folder=%2Fhome%2Fuser%2Fworkspace', 'sid'),
+      '/api/vscode/sid/',
+    );
+    assert.equal(
+      rewriteVscodeLocation('/login?next=%2Fstable.js', 'sid'),
+      '/api/vscode/sid/login?next=%2Fstable.js',
+    );
+  });
+});
+
+describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed workbench configuration)', () => {
+  const html = (config) => `<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="${JSON.stringify(config).replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"><title>Code</title>`;
+  const configuration = (document) => JSON.parse(
+    document.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1]
+      .replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&'),
+  );
+
+  it('projects the fixed remote folder and preserves unrelated pinned-host configuration', () => {
+    const projected = projectVscodeWorkbenchWorkspace(html({
+      remoteAuthority: 'codeflare.example',
+      folderUri: { scheme: 'vscode-remote', authority: 'codeflare.example', path: '/tmp/old' },
+      productConfiguration: { nameShort: 'Code' },
+      opaqueServerSetting: { nested: ['preserve', { value: 7 }] },
+    }));
+
+    assert.ok(projected);
+    assert.deepEqual(configuration(projected), {
+      remoteAuthority: 'codeflare.example',
+      folderUri: {
+        scheme: 'vscode-remote',
+        authority: 'codeflare.example',
+        path: '/home/user/workspace',
+      },
+      productConfiguration: { nameShort: 'Code' },
+      opaqueServerSetting: { nested: ['preserve', { value: 7 }] },
+    });
+  });
+
+  it('round-trips entity-bearing and $-pattern configuration values byte-identical', () => {
+    const opaqueServerSetting = {
+      callback: 'https://a.example/cb?x=1&y=<2>&z="q"',
+      dollars: "$& $' $` literal",
+    };
+    const projected = projectVscodeWorkbenchWorkspace(html({
+      remoteAuthority: 'codeflare.example',
+      opaqueServerSetting,
+    }));
+
+    assert.ok(projected);
+    assert.deepEqual(configuration(projected).opaqueServerSetting, opaqueServerSetting);
+    assert.doesNotMatch(projected, /&amp;amp;/, 'no double-encoding of pre-encoded entities');
+  });
+
+  it('emits exact expected attribute bytes, independent of the decoder helpers', () => {
+    // Fixed-literal oracle: the configuration() helper mirrors the production
+    // decoder, so a shared ordering bug would cancel out in round-trip
+    // assertions. This expected string is authored by hand from the entity
+    // contract, not derived from the implementation.
+    const projected = projectVscodeWorkbenchWorkspace(html({
+      remoteAuthority: 'codeflare.example',
+      x: 'a&b',
+    }));
+    assert.ok(projected);
+    assert.ok(projected.includes(
+      'data-settings="{&quot;remoteAuthority&quot;:&quot;codeflare.example&quot;,'
+      + '&quot;x&quot;:&quot;a&amp;b&quot;,'
+      + '&quot;folderUri&quot;:{&quot;scheme&quot;:&quot;vscode-remote&quot;,'
+      + '&quot;authority&quot;:&quot;codeflare.example&quot;,'
+      + '&quot;path&quot;:&quot;/home/user/workspace&quot;}}"',
+    ), 'projected attribute must match the hand-authored encoded form');
+  });
+
+  it('fails closed on missing, duplicate, malformed, invalid-authority, and oversized configuration', () => {
+    const marker = html({ remoteAuthority: 'codeflare.example' });
+    const cases = [
+      '<!doctype html><title>missing</title>',
+      `${marker}${marker}`,
+      '<meta id="vscode-workbench-web-configuration" data-settings="{not-json}">',
+      html({ remoteAuthority: '' }),
+      `${marker}${'x'.repeat(2 * 1024 * 1024)}`,
+    ];
+    assert.deepEqual(cases.map(projectVscodeWorkbenchWorkspace), cases.map(() => null));
   });
 });
 

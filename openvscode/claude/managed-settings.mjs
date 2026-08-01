@@ -13,6 +13,38 @@ export function buildBaseOpenVscodeSettings() {
   };
 }
 
+export function buildPiOpenVscodeSettings() {
+  return {
+    ...buildBaseOpenVscodeSettings(),
+    "chat.notifyWindowOnResponseReceived": "windowNotFocused",
+    "chat.notifyWindowOnConfirmation": "windowNotFocused",
+  };
+}
+
+export function buildUnsupportedOpenVscodeSettings() {
+  return {
+    ...buildBaseOpenVscodeSettings(),
+    "chat.disableAIFeatures": true,
+  };
+}
+
+export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
+  "security.workspace.trust.enabled",
+  "extensions.ignoreRecommendations",
+  "chat.disableAIFeatures",
+  "chat.notifyWindowOnResponseReceived",
+  "chat.notifyWindowOnConfirmation",
+  "claudeCode.environmentVariables",
+  "claudeCode.useTerminal",
+  "claudeCode.initialPermissionMode",
+  "claudeCode.disableLoginPrompt",
+  "claudeCode.allowDangerouslySkipPermissions",
+  "claudeCode.autosave",
+  "claudeCode.preferredLocation",
+  "claudeCode.hideOnboarding",
+  "claudeCode.usePythonEnvironment",
+]);
+
 export function buildOpenVscodeSettings(claudeConfigDirectory) {
   if (typeof claudeConfigDirectory !== "string" || !isAbsolute(claudeConfigDirectory) || claudeConfigDirectory.includes("\0")) {
     throw new TypeError("Claude config directory must be absolute");

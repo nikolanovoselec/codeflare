@@ -1,0 +1,42 @@
+---
+/**
+ * One Hero-scale Execution terminal using the shared Terminal, Transcript feed,
+ * and proof.ts entrance/typing machinery used by the landing's established reels.
+ */
+import type { ExecutionRun } from '../content/site';
+import Terminal from './Terminal.astro';
+import Transcript from './Transcript.astro';
+
+interface Props {
+  name: 'software' | 'infrastructure';
+  run: ExecutionRun;
+}
+
+const { name, run } = Astro.props;
+const accessibleLabel = name === 'software' ? 'Software execution' : 'Infrastructure execution';
+---
+
+<section
+  class:list={['execution-face', `execution-face--${name}`]}
+  data-execution-face={name}
+  aria-label={accessibleLabel}
+>
+  <Terminal variant={`execution-terminal execution-terminal--${name}`} reveal={false}>
+    <Fragment slot="bar">
+      <span class="execution-terminal-title">{run.title}</span>
+    </Fragment>
+
+    <Transcript
+      lines={run.context}
+      animate="feed"
+      feed={run.events}
+      label={`${accessibleLabel} transcript`}
+    />
+
+    <Fragment slot="foot">
+      <div class="terminal-foot execution-status">
+        {run.foot.map((segment) => <span class="tf-seg">{segment}</span>)}
+      </div>
+    </Fragment>
+  </Terminal>
+</section>

@@ -1,0 +1,22 @@
+---
+/**
+ * Canonical Execution reel. Two Hero-scale shared terminals sit side by side on
+ * desktop/tablet and stack on mobile. Each reveals a full initial viewport, then
+ * types the remaining real session to a full final state.
+ */
+import { EXECUTION } from '../content/site';
+import ExecutionRun from './ExecutionRun.astro';
+---
+
+<div
+  class="execution-reel"
+  data-execution-reel
+  data-readme-reel="execution"
+>
+  <div class="execution-stage">
+    <div class="execution-card">
+      <ExecutionRun name="software" run={EXECUTION.software} />
+      <ExecutionRun name="infrastructure" run={EXECUTION.infrastructure} />
+    </div>
+  </div>
+</div>

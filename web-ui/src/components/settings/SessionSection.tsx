@@ -1,6 +1,7 @@
 import { Component, Accessor, Show } from 'solid-js';
 import {
   mdiFastForward,
+  mdiBellOutline,
   mdiCloudSyncOutline,
   mdiContentPaste,
   mdiFileDocumentRefreshOutline,
@@ -9,7 +10,8 @@ import {
 } from '@mdi/js';
 import Icon from '../Icon';
 import type { Settings } from '../../lib/settings';
-import { isTouchDevice } from '../../lib/mobile';
+import type { AgentNotificationEnablement } from '../../lib/agent-notifications';
+import { isTouchDevice, needsHomeScreenInstallForNotifications } from '../../lib/mobile';
 import AdminActionButton from './AdminActionButton';
 
 interface SessionSectionProps {
@@ -20,6 +22,7 @@ interface SessionSectionProps {
   fastStartEnabled: Accessor<boolean>;
   workspaceSyncEnabled: Accessor<boolean>;
   clipboardAccess: Accessor<boolean>;
+  notificationPermission: Accessor<AgentNotificationEnablement>;
   sleepAfter: Accessor<string>;
   canChangeSleepAfter: Accessor<boolean>;
   isFreeUser: Accessor<boolean>;
@@ -32,6 +35,7 @@ interface SessionSectionProps {
   onSessionModeChange: (mode: 'default' | 'advanced') => void;
   onFastStartToggle: () => void;
   onWorkspaceSyncToggle: () => void;
+  onEnableAgentNotifications: () => void;
   onSleepAfterChange: (value: string) => void;
   onRecreateDocs: () => void;
   onRecreateAgentConfigs: () => void;
@@ -121,6 +125,40 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
         <div class="setting-row setting-row--column-gap">
           <span class="settings-hint type-hint" data-testid="settings-fast-start-hint">
             Launch pre-installed CLI versions for instant startup. Turn off to allow tools to auto-update on launch (slower startup, latest features).
+          </span>
+        </div>
+      </section>
+
+      {/* Native agent notifications */}
+      <section class="settings-section">
+        <div class="settings-section-header">
+          <Icon path={mdiBellOutline} size={16} />
+          <h3 class="settings-section-title type-section-header">Agent Notifications</h3>
+        </div>
+        <div class="settings-admin-actions">
+          <AdminActionButton
+            tone="--color-action-agents"
+            icon={mdiBellOutline}
+            label={props.notificationPermission() === 'granted' ? 'Enabled' : 'Enable browser notifications'}
+            onClick={props.onEnableAgentNotifications}
+            disabled={props.notificationPermission() === 'granted'}
+            testId="settings-agent-notifications"
+          />
+          <span
+            class="settings-hint type-hint"
+            data-testid="settings-agent-notifications-status"
+            data-guidance={props.notificationPermission() === 'unavailable'
+              && needsHomeScreenInstallForNotifications() ? 'ios-install' : undefined}
+          >
+            {props.notificationPermission() === 'granted'
+              ? 'Enabled'
+              : props.notificationPermission() === 'denied'
+                ? 'Blocked in browser site settings'
+                : props.notificationPermission() === 'unavailable'
+                  ? (needsHomeScreenInstallForNotifications()
+                    ? 'On iOS, add Codeflare to your Home Screen (Share → Add to Home Screen), then enable notifications here.'
+                    : 'Unavailable in this browser')
+                  : 'Notify when Pi or Claude is ready for input in terminal tab 1.'}
           </span>
         </div>
       </section>

@@ -31,6 +31,7 @@ import ReviewBoard from '../components/ReviewBoard.astro';
 import OrchTree from '../components/OrchTree.astro';
 import Hero from '../components/Hero.astro';
 import InferenceMeshHero from '../components/InferenceMeshHero.astro';
+import ExecutionReel from '../components/ExecutionReel.astro';
 import FeatureTerminals from '../components/FeatureTerminals.astro';
 import CodeEditor from '../components/CodeEditor.astro';
 import ContactForm from '../components/ContactForm.astro';
@@ -43,6 +44,7 @@ import {
   LEGACY,
   SECURITY,
   EGRESS,
+  EXECUTION,
   OPERATIONS,
   BROWSER,
   PLATFORM,
@@ -121,6 +123,14 @@ const mcpRows = MCP.portal.rows.map((row) => ({
   <main id="top">
     <Hero />
     <InferenceMeshHero />
+
+    <!-- Execution overview: two Hero-scale shared terminal simulations of
+         software delivery and infrastructure work performed in Codeflare. The
+         existing detailed sections below remain the evidence for each part. -->
+    <Section id={EXECUTION.id}>
+      <SectionHead kicker={SECTION_KICKERS.execution} title={EXECUTION.title} lead={EXECUTION.lead} />
+      <ExecutionReel />
+    </Section>
 
     <!-- The shift: the assistant-to-engine leap shown the way the page trades,
          as terminals. Four short feature terminals (gateway, session, review,

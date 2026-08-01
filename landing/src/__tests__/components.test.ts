@@ -18,6 +18,7 @@ import MicroCta from '../components/MicroCta.astro';
 import Header from '../components/Header.astro';
 import { dom } from './_helpers/dom';
 import { HERO, NAV_LINKS, LOGIN, HEADER_SIGN_IN, type TranscriptLine } from '../content/site';
+import { EXECUTION_PR_URL, approvedExecutionLinkStart } from '../lib/execution-link';
 import { APP_LINKS } from '../config';
 
 let container: AstroContainer;
@@ -49,6 +50,31 @@ describe('HeroKicker', () => {
     const measure = kicker.querySelector('[data-hero-kicker-measure]');
     expect(measure).not.toBeNull();
     expect(measure?.parentElement?.classList.contains('hero-kicker-reel')).toBe(true);
+  });
+});
+
+describe('Execution transcript link boundary', () => {
+  it('accepts exactly one approved PR URL as the final standalone transcript line', () => {
+    const validText = `PR opened\n${EXECUTION_PR_URL}`;
+    expect(approvedExecutionLinkStart(validText, EXECUTION_PR_URL)).toBe(
+      validText.length - EXECUTION_PR_URL.length,
+    );
+    for (const href of [
+      'http://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      'https://user@github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      'https://github.com:444/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/2',
+      `${EXECUTION_PR_URL}?view=files`,
+      `${EXECUTION_PR_URL}#discussion`,
+    ]) {
+      expect(approvedExecutionLinkStart(`PR opened\n${href}`, href)).toBeNull();
+    }
+    expect(approvedExecutionLinkStart(
+      `prefix ${EXECUTION_PR_URL} suffix\n${EXECUTION_PR_URL}`,
+      EXECUTION_PR_URL,
+    )).toBeNull();
+    expect(approvedExecutionLinkStart(`prefix ${EXECUTION_PR_URL} suffix`, EXECUTION_PR_URL))
+      .toBeNull();
   });
 });
 
@@ -99,6 +125,80 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     expect(pinned[1].textContent).toContain(LINES[LINES.length - 1].text);
     expect(body.querySelector('.t-caret')).toBeNull();
     expect(body.querySelector('[data-typeline]')).toBeNull();
+  });
+
+  it("animate='feed' sizes from the first eight context rows while retaining complete semantic content", async () => {
+    const context: TranscriptLine[] = Array.from(
+      { length: 12 },
+      (_, index): TranscriptLine => ({
+        tone: index % 2 === 0 ? 'cmd' : 'dim',
+        text: `context-${index}`,
+      }),
+    );
+    const linkHref = EXECUTION_PR_URL;
+    const feed: TranscriptLine[] = Array.from(
+      { length: 10 },
+      (_, index): TranscriptLine => ({
+        tone: index % 2 === 0 ? 'ok' : 'agent',
+        text: index === 2 ? `event-${index}\n${linkHref}` : `event-${index}`,
+        ...(index === 2 ? { href: linkHref } : {}),
+      }),
+    );
+    const rendered = dom(await container.renderToString(Transcript, {
+      props: { lines: context, animate: 'feed', feed, label: 'Software execution' },
+    }));
+    const body = rendered.querySelector('.terminal-body')!;
+    const roll = body.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
+    expect(roll).not.toBeNull();
+    expect(roll.querySelectorAll(':scope > .t-line')).toHaveLength(8);
+    expect(Array.from(roll.children).map((line) => line.textContent)).toEqual(
+      feed.slice(-8).map((line) => line.text),
+    );
+    expect(JSON.parse(roll.dataset.feedContext!)).toEqual(context);
+    expect(JSON.parse(roll.dataset.feedEvents!)).toEqual(feed);
+    const sizeReserve = body.querySelector<HTMLElement>('[data-feed-size-reserve]')!;
+    const sizeWindows = Array.from(
+      sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]'),
+    );
+    expect(sizeReserve.getAttribute('aria-hidden')).toBe('true');
+    expect(sizeWindows).toHaveLength(2);
+    const expectedWindows = [context.slice(0, 8), feed.slice(-8)];
+    expect(sizeWindows.map((window) =>
+      Array.from(
+        window.children,
+        (line) => line.querySelector('[data-feed-size-text]')?.textContent,
+      ),
+    )).toEqual(expectedWindows.map((window) => window.map((line) => line.text)));
+    expect(sizeWindows.every((window) => window.children.length === 8)).toBe(true);
+    sizeWindows.forEach((window, windowIndex) => {
+      Array.from(window.children).forEach((row, rowIndex) => {
+        const prompt = row.querySelector<HTMLElement>('.t-feed-prompt');
+        if (expectedWindows[windowIndex][rowIndex].tone === 'cmd') {
+          expect(row.classList.contains('t-feed-command')).toBe(true);
+          expect(prompt?.textContent).toBe('❯ ');
+          expect(prompt?.getAttribute('aria-hidden')).toBe('true');
+          expect(row.firstElementChild).toBe(prompt);
+        } else {
+          expect(prompt).toBeNull();
+        }
+      });
+    });
+    expect(Array.from(
+      rendered.querySelectorAll('[data-feed-accessible-line]'),
+      (line) => line.textContent,
+    )).toEqual([...context, ...feed].map((line) => line.text));
+    const visualLink = roll.querySelector<HTMLAnchorElement>('.terminal-inline-link');
+    expect(visualLink?.textContent).toBe(linkHref);
+    expect(visualLink?.href).toBe(linkHref);
+    expect(visualLink?.target).toBe('_blank');
+    expect(visualLink?.rel).toContain('noopener');
+    expect(visualLink?.tabIndex).toBe(-1);
+    const semanticLink = rendered.querySelector<HTMLAnchorElement>(
+      '[data-feed-accessible-line] .terminal-inline-link',
+    );
+    expect(semanticLink?.href).toBe(linkHref);
+    expect(semanticLink?.tabIndex).toBe(0);
+    expect(body.querySelector('.t-caret')).toBeNull();
   });
 
   it("default animate='static' renders plain lines with no caret, roll, or typed line", async () => {

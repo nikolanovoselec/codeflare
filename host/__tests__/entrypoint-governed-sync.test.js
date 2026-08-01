@@ -57,7 +57,7 @@ const compareFlagFragment = () =>
 const relayFn = () =>
   extractBetween(
     'relay_managed_pi_extensions() {',
-    '    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) from image source over post-sync tree" | tee -a /tmp/sync.log\n}',
+    '    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /tmp/sync.log\n}',
     'relay_managed_pi_extensions',
   );
 
@@ -168,11 +168,19 @@ describe('REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh la
   });
 });
 
-function runRelay({ warmFiles, destFiles, warmPresent = true, destPresent = true, warmFileMtimeMs } = {}) {
+function runRelay({ warmFiles, destFiles, bakeFiles, sessionMode, warmPresent = true, destPresent = true, warmFileMtimeMs } = {}) {
   const warm = warmFiles ?? { 'codeflare-pi.ts': '// IMAGE codeflare-pi\n' };
   const dest = destFiles ?? { 'codeflare-pi.ts': '// STALE from R2\n', 'my-custom.ts': '// USER addition\n' };
   const home = mkdtempSync(join(tmpdir(), 'relay-home-'));
   const warmRoot = mkdtempSync(join(tmpdir(), 'relay-warm-'));
+  // Mode-filtered bake — the backfill source for managed extensions that are
+  // new in this image and therefore absent from a returning user's runtime.
+  const bakeRoot = mkdtempSync(join(tmpdir(), 'relay-bake-'));
+  if (bakeFiles) {
+    const bakeExt = join(bakeRoot, sessionMode ?? 'default', '.pi/agent/extensions');
+    mkdirSync(bakeExt, { recursive: true });
+    for (const [name, content] of Object.entries(bakeFiles)) writeFileSync(join(bakeExt, name), content);
+  }
   // Image warm source — the EXACT unfiltered dir the jiti cache is baked from.
   const warmSrc = join(warmRoot, 'extensions');
   if (warmPresent) {
@@ -196,6 +204,8 @@ function runRelay({ warmFiles, destFiles, warmPresent = true, destPresent = true
     'set -euo pipefail',
     `USER_HOME='${home}'`,
     `PI_WARM_EXTENSIONS_DIR='${warmSrc}'`,
+    ...(bakeFiles ? [`AGENT_SEED_BAKE_DIR='${bakeRoot}'`] : []),
+    ...(sessionMode ? [`SESSION_MODE='${sessionMode}'`] : []),
     relayFn(),
     'relay_managed_pi_extensions',
   ].join('\n');
@@ -261,6 +271,36 @@ describe('REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.
     assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
     assert.equal(readFileSync(join(destExt, 'codeflare-pi.ts'), 'utf8'), '// IMAGE\n', 'present managed file not fixed');
     assert.ok(!existsSync(join(destExt, 'advanced-only.ts')), 'relay added an extension that was not loaded (mode gating broken)');
+  });
+
+  it('backfills a managed extension missing from the runtime from the mode-filtered bake', () => {
+    const { code, stderr, destExt } = runRelay({
+      warmFiles: { 'codeflare-pi.ts': '// IMAGE\n', 'native-notifications.ts': '// IMAGE notify\n' },
+      destFiles: { 'codeflare-pi.ts': '// STALE\n', 'my-custom.ts': '// USER addition\n' },
+      bakeFiles: { 'native-notifications.ts': '// BAKE notify\n' },
+    });
+    assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
+    assert.equal(
+      readFileSync(join(destExt, 'native-notifications.ts'), 'utf8'),
+      '// BAKE notify\n',
+      'a managed extension new to this image never reaches a returning user (overwrite-if-present alone)',
+    );
+    assert.equal(readFileSync(join(destExt, 'my-custom.ts'), 'utf8'), '// USER addition\n');
+  });
+
+  it('bake backfill adds only files absent from the runtime and never sources the unfiltered warm tree', () => {
+    const { code, stderr, destExt } = runRelay({
+      warmFiles: { 'codeflare-pi.ts': '// IMAGE\n', 'advanced-only.ts': '// IMAGE adv\n' },
+      destFiles: { 'codeflare-pi.ts': '// STALE\n' },
+      bakeFiles: { 'codeflare-pi.ts': '// BAKE default copy\n' },
+    });
+    assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
+    assert.equal(
+      readFileSync(join(destExt, 'codeflare-pi.ts'), 'utf8'),
+      '// IMAGE\n',
+      'a runtime-present managed file must keep the warm overwrite, not the bake copy',
+    );
+    assert.ok(!existsSync(join(destExt, 'advanced-only.ts')), 'relay added an extension outside the session mode bake');
   });
 
   it('gives the relaid file a fresh mtime (cp, not cp -p) so the --resync baseline treats local as truth', () => {

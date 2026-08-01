@@ -10,6 +10,12 @@
       "advanced"
     ]
   },
+  "extensions/native-notifications.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "rules/git-workflow.md": {
     "modes": [
       "default",
@@ -344,60 +350,6 @@
       "advanced"
     ]
   },
-  "npm/rpiv-todo-session-isolation/install.d.mts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/install.mjs": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/index.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/todo.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/todo-overlay.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/state/lifecycle.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/state/store.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/state/state.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "npm/rpiv-todo-session-isolation/tool/types.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
   "skills/frontend-components/SKILL.md": {
     "modes": [
       "advanced"
@@ -514,6 +466,11 @@
     ]
   },
   "skills/impeccable/reference/layout.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/live-setup.md": {
     "modes": [
       "advanced"
     ]
@@ -718,6 +675,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/embed-prompt.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/generate-image.mjs": {
     "modes": [
       "advanced"
@@ -779,6 +741,11 @@
     ]
   },
   "skills/impeccable/scripts/lib/provider.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/roll-selection.mjs": {
     "modes": [
       "advanced"
     ]
@@ -908,6 +875,16 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/live/accept-css.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/accept-verify.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/live/browser-script-parts.mjs": {
     "modes": [
       "advanced"
@@ -923,12 +900,77 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/live/frameworks/astro.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/detect-utils.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/index.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/journal.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/nextjs.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/nuxt.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/script-src.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/static-html.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/sveltekit.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/tag-strategy.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/tanstack-start.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/frameworks/vite-generic.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/live/generation-preflight.mjs": {
     "modes": [
       "advanced"
     ]
   },
   "skills/impeccable/scripts/live/insert-ui.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/instructions.mjs": {
     "modes": [
       "advanced"
     ]
@@ -953,6 +995,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/live/roots.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/live/session-store.mjs": {
     "modes": [
       "advanced"
@@ -964,6 +1011,11 @@
     ]
   },
   "skills/impeccable/scripts/live/source-search.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/svelte-ast.mjs": {
     "modes": [
       "advanced"
     ]

@@ -181,8 +181,8 @@ RUN LAZYGIT_VERSION="0.63.1" && \
 #
 # SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
 # `silverbullet-server-...` (the actual server). We want the server.
-RUN SILVERBULLET_VERSION="2.9.0" && \
-    SILVERBULLET_SHA256="fe2b27651d11833727cd1b989a666d1000bd16e805130c6c461cda4c6dc1c69d" && \
+RUN SILVERBULLET_VERSION="2.10.0" && \
+    SILVERBULLET_SHA256="ca33f7de3bae2f2e7d95cdd2cca1a023e51267388c9dbc8ff5acc33b1cbd5a7d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
     echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
     unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
@@ -190,26 +190,48 @@ RUN SILVERBULLET_VERSION="2.9.0" && \
     chmod +x /usr/local/bin/silverbullet && \
     rm -rf /tmp/silverbullet /tmp/silverbullet.zip
 
-# Install OpenVSCode Server -- the upstream VS Code web server (Gitpod build),
-# run per session inside the container and reached from the codeflare UI through
-# the Worker proxy at /api/vscode/:sid/ (REQ-IDE-001). Launched lazily on first
-# use and bound to localhost:13337 by the supervisor loop in entrypoint.sh.
+# Install coder/code-server as the Browser IDE runtime. It runs per session
+# behind the authenticated /api/vscode/:sid/ proxy, lazy-started on loopback by
+# entrypoint.sh (REQ-IDE-001, AD119). The retained `openvscode` source and
+# inventory names below are private migration identifiers, not runtime binaries.
 #
-# Pinned + SHA-verified like the other vendored binaries; the version literal is
-# shadow-pinned by the `openvscode-server` job in bump-shadow-pins.yml because
-# Dependabot cannot see it. Unlike the SilverBullet block above, this asserts the
-# binary is executable and runs a same-layer --version smoke so a bad download or
-# an incompatible bundled Node surfaces at build time, not first launch.
-RUN OPENVSCODE_VERSION="1.109.5" && \
-    OPENVSCODE_SHA256="b433bf4f0227321a7014d8460d10a8f958adc0f45aa79bd889e84e65e8f88363" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/gitpod-io/openvscode-server/releases/download/openvscode-server-v${OPENVSCODE_VERSION}/openvscode-server-v${OPENVSCODE_VERSION}-linux-x64.tar.gz" -o /tmp/openvscode.tar.gz && \
-    echo "${OPENVSCODE_SHA256}  /tmp/openvscode.tar.gz" | sha256sum -c - && \
-    mkdir -p /opt/openvscode-server && \
-    tar -xzf /tmp/openvscode.tar.gz -C /opt/openvscode-server --strip-components=1 && \
-    ln -sf /opt/openvscode-server/bin/openvscode-server /usr/local/bin/openvscode-server && \
-    test -x /opt/openvscode-server/bin/openvscode-server && \
-    /usr/local/bin/openvscode-server --version && \
-    rm -rf /tmp/openvscode.tar.gz
+# The release archive, code-server commit, embedded Code package version, and
+# immutable upstream VS Code gitlink are all pinned. The artifact embeds the
+# code-server commit in package.json and product.json; the build verifies both
+# plus the real lib/vscode package version. Shadow Pins derives the gitlink from
+# the immutable release tag and owns every literal in this block.
+RUN CODE_SERVER_VERSION="4.130.0" && \
+    CODE_SERVER_SHA256="3de23052e34fa705b3817efa66201cbc8d8ba6615b4cd03120c39bfc0ae1b7ab" && \
+    CODE_SERVER_COMMIT="197ef3e8da8ee99ed6ca8f1a630157527e6d448f" && \
+    CODE_SERVER_CODE_VERSION="1.130.0" && \
+    CODE_SERVER_VSCODE_COMMIT="1b6a188127eeaf9194f945eb6eb89a657e93c54c" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
+      "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
+      -o /tmp/code-server.tar.gz && \
+    echo "${CODE_SERVER_SHA256}  /tmp/code-server.tar.gz" | sha256sum -c - && \
+    mkdir -p /opt/code-server && \
+    tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
+    ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
+    test -x /opt/code-server/bin/code-server && \
+    test "$(jq -r .version /opt/code-server/package.json)" = "$CODE_SERVER_VERSION" && \
+    test "$(jq -r .commit /opt/code-server/package.json)" = "$CODE_SERVER_COMMIT" && \
+    test "$(jq -r .version /opt/code-server/lib/vscode/package.json)" = "$CODE_SERVER_CODE_VERSION" && \
+    test "$(jq -r .codeServerVersion /opt/code-server/lib/vscode/product.json)" = "$CODE_SERVER_VERSION" && \
+    test "$(jq -r .commit /opt/code-server/lib/vscode/product.json)" = "$CODE_SERVER_COMMIT" && \
+    jq -n \
+      --arg codeServerVersion "$CODE_SERVER_VERSION" \
+      --arg codeServerCommit "$CODE_SERVER_COMMIT" \
+      --arg codeVersion "$CODE_SERVER_CODE_VERSION" \
+      --arg vscodeCommit "$CODE_SERVER_VSCODE_COMMIT" \
+      '{codeServerVersion:$codeServerVersion,codeServerCommit:$codeServerCommit,codeVersion:$codeVersion,vscodeCommit:$vscodeCommit}' \
+      > /opt/code-server/codeflare-provenance.json && \
+    test -d /opt/code-server/lib/vscode/extensions/copilot && \
+    rm -rf /opt/code-server/lib/vscode/extensions/copilot && \
+    test ! -e /opt/code-server/lib/vscode/extensions/copilot && \
+    /usr/local/bin/code-server --version && \
+    test ! -e /usr/local/bin/openvscode-server && \
+    test ! -e /opt/openvscode-server && \
+    rm -f /tmp/code-server.tar.gz
 
 # Fixed immutable inventories: Codeflare's native Pi participant, Anthropic's
 # exact official Claude extension, and an empty unsupported-agent inventory.
@@ -234,7 +256,9 @@ RUN mkdir -p /etc/codeflare/claude-sidebar && \
     cmp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json
 
 COPY scripts/ci/smoke-openvscode-sidebar-image.mjs /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
-RUN chmod 0444 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
+COPY scripts/browser-ide-ui-state.py /opt/codeflare/openvscode/browser-ide-ui-state.py
+RUN chmod 0444 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs && \
+    chmod 0555 /opt/codeflare/openvscode/browser-ide-ui-state.py
 
 # REQ-STOR-017 / AD90: bake the agent-config seed tree into the image so a Governed Mode
 # (R2 SSE-C disabled) container can lay it down locally BEFORE the initial R2 sync — the
@@ -383,7 +407,6 @@ RUN AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/nul
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY preseed/agents/pi/npm/ /opt/codeflare/pi-agent/npm/
 # Local Pi extensions, used by the jiti warm-up layer below (they reach user
 # containers via the R2 agent seed, verbatim — same content, so the
 # content-addressed cache entries baked from these files hit at runtime).

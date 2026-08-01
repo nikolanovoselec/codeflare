@@ -2,18 +2,18 @@
  * Browser IDE proxy path helpers (REQ-IDE-001, REQ-IDE-003).
  *
  * The in-container terminal server proxies `/api/vscode/*` requests to the
- * localhost OpenVSCode Server. Unlike the vault (which strips its `/vault`
- * prefix before forwarding), the IDE forwards the path UNCHANGED because
- * OpenVSCode runs with `--server-base-path=/api/vscode/<sessionId>` and expects
- * to receive its own path. These pure helpers live here (not in server.ts,
- * which boots a listening server on import) so they are unit-testable -- the
- * same reason stripVaultPrefix was extracted into vault-proxy.ts.
+ * loopback code-server runtime. The browser keeps the session-scoped public
+ * location, while this trusted host strips only the exact current-session
+ * prefix before forwarding root-relative HTTP and WebSocket paths. These pure
+ * helpers live here so the security transformation is unit-testable.
  */
 import fs from 'node:fs';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 
-/** Default lazy-start trigger path the OpenVSCode supervisor waits on. */
+/** Default lazy-start trigger path the Browser IDE supervisor waits on. */
 export const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
+export const CODEFLARE_WORKSPACE_ROOT = '/home/user/workspace';
+const WORKSPACE_SELECTOR_KEYS = Object.freeze(['folder', 'workspace', 'ew']);
 
 // VS Code's remote protocol uses messages around 256 KiB. The terminal's
 // defensive 64 KiB cap therefore cannot be reused here: `ws` rejects an
@@ -22,8 +22,10 @@ export const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
 // message, so no legitimate frame is ever rejected.
 const OPENVSCODE_WS_MAX_PAYLOAD = 32 * 1024 * 1024;
 const OPENVSCODE_PREOPEN_MAX_BYTES = 8 * 1024 * 1024;
+export const OPENVSCODE_WORKBENCH_MAX_BYTES = 2 * 1024 * 1024;
+const WORKBENCH_CONFIGURATION_PATTERN = /<meta\s+id="vscode-workbench-web-configuration"\s+data-settings="([^"]*)"\s*\/?>/g;
 
-/** Create the no-server WebSocket endpoint used by the OpenVSCode bridge. */
+/** Create the no-server WebSocket endpoint used by the Browser IDE bridge. */
 export function createVscodeWebSocketServer(): WebSocketServer {
   return new WebSocketServer({ noServer: true, maxPayload: OPENVSCODE_WS_MAX_PAYLOAD });
 }
@@ -112,28 +114,141 @@ export function bridgeVscodeClientMessages(
   upstream.on('error', cleanup);
 }
 
-/** True for the base-path-native IDE proxy surface `/api/vscode` and below. */
+/** True for the public IDE proxy surface `/api/vscode` and below. */
 export function isVscodePath(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
   return pathname === '/api/vscode' || pathname.startsWith('/api/vscode/');
 }
 
 /**
- * The upstream path OpenVSCode should receive. The IDE forwards the path
- * UNCHANGED (no prefix strip): OpenVSCode's --server-base-path is
- * `/api/vscode/<sessionId>`, so it expects the full path. A missing pathname
- * falls back to `/api/vscode/`.
- *
- *   /api/vscode              -> /api/vscode
- *   /api/vscode/<sid>/       -> /api/vscode/<sid>/
- *   /api/vscode/<sid>/x/y    -> /api/vscode/<sid>/x/y
+ * Strip only `/api/vscode/<expectedSessionId>` for code-server. Query strings
+ * are intentionally rejected here and remain caller-owned for the separate
+ * selector validation/request-target step. Any missing, mismatched, encoded, or
+ * lookalike prefix fails closed before an upstream request is created.
  */
-export function vscodeUpstreamPath(pathname: string | null | undefined): string {
-  return pathname ?? '/api/vscode/';
+export function vscodeUpstreamPath(
+  pathname: string | null | undefined,
+  expectedSessionId: string | null | undefined,
+): string | null {
+  if (!pathname || !expectedSessionId || pathname.includes('?')) return null;
+  const prefix = `/api/vscode/${expectedSessionId}`;
+  if (pathname === prefix) return '/';
+  if (!pathname.startsWith(`${prefix}/`)) return null;
+  return pathname.slice(prefix.length);
 }
 
 /**
- * REQ-IDE-003 AC2: lazy-start trigger. The OpenVSCode supervisor waits for this
+ * Build the exact loopback request target without exposing a workspace path in
+ * the browser. Public workspace selectors are never trusted, even when they name
+ * the fixed root. Only the root document receives the internal fixed selector;
+ * asset and protocol query bytes remain unchanged.
+ */
+export function vscodeUpstreamRequestTarget(
+  rawUrl: string | null | undefined,
+  upstreamPath: string,
+): string | null {
+  if (!rawUrl) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl, 'http://codeflare.invalid');
+  } catch {
+    return null;
+  }
+  if (WORKSPACE_SELECTOR_KEYS.some((key) => parsed.searchParams.has(key))) return null;
+  const queryIndex = rawUrl.indexOf('?');
+  const search = queryIndex === -1 ? '' : rawUrl.slice(queryIndex);
+  if (upstreamPath !== '/') return `${upstreamPath}${search}`;
+  const separator = search ? '&' : '?';
+  return `/${search}${separator}folder=${encodeURIComponent(CODEFLARE_WORKSPACE_ROOT)}`;
+}
+
+/**
+ * Project the fixed workspace into Code OSS's pinned workbench bootstrap while
+ * the public browser URL remains selector-free. Code OSS reads folder queries
+ * from document.location, not code-server's private upstream URL, so the
+ * trusted host must supply the equivalent remote folder in server config.
+ * HTML shape drift fails closed instead of silently opening an empty window.
+ */
+// Symmetric attribute-entity round-trip: decode releases &amp; last and encode
+// escapes & first, so any entity or literal &/</" inside a configuration value
+// survives projection semantically identical instead of re-emitting
+// double-encoded (a decoded &#39; re-emits as a bare apostrophe, which is
+// equivalent inside the double-quoted attribute).
+function decodeWorkbenchAttribute(value: string): string {
+  return value
+    .replaceAll('&quot;', '"')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&#39;', "'")
+    .replaceAll('&amp;', '&');
+}
+
+function encodeWorkbenchAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+export function projectVscodeWorkbenchWorkspace(html: string): string | null {
+  if (Buffer.byteLength(html) > OPENVSCODE_WORKBENCH_MAX_BYTES) return null;
+  const matches = [...html.matchAll(WORKBENCH_CONFIGURATION_PATTERN)];
+  if (matches.length !== 1) return null;
+  const match = matches[0];
+  const matchStart = match.index;
+  if (matchStart === undefined) return null;
+
+  let configuration: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(decodeWorkbenchAttribute(match[1])) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    configuration = parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const remoteAuthority = configuration.remoteAuthority;
+  if (typeof remoteAuthority !== 'string' || remoteAuthority.length === 0 || remoteAuthority.length > 255) {
+    return null;
+  }
+  try {
+    const authority = new URL(`https://${remoteAuthority}`);
+    if (!authority.host || authority.pathname !== '/'
+      || authority.search || authority.hash || authority.username || authority.password) return null;
+  } catch {
+    return null;
+  }
+
+  const projected = {
+    ...configuration,
+    folderUri: {
+      scheme: 'vscode-remote',
+      authority: remoteAuthority,
+      path: CODEFLARE_WORKSPACE_ROOT,
+    },
+  };
+  const encoded = encodeWorkbenchAttribute(JSON.stringify(projected));
+  // Replacer function: a literal replacement string would expand $-patterns
+  // ($&, $') that can legitimately appear inside the encoded JSON.
+  const projectedMarker = match[0].replace(match[1], () => encoded);
+  return `${html.slice(0, matchStart)}${projectedMarker}${html.slice(matchStart + match[0].length)}`;
+}
+
+/** Rewrite a root-relative code-server redirect beneath the public session path. */
+export function rewriteVscodeLocation(location: string, sessionId: string): string {
+  if (!location.startsWith('/') || location.startsWith('//')) return location;
+  try {
+    const parsed = new URL(location, 'http://codeflare.invalid');
+    for (const key of WORKSPACE_SELECTOR_KEYS) parsed.searchParams.delete(key);
+    return `/api/vscode/${sessionId}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return `/api/vscode/${sessionId}/`;
+  }
+}
+
+/**
+ * REQ-IDE-003 AC2: lazy-start trigger. The Browser IDE supervisor waits for this
  * file before launching the server; the host writes it (idempotently) on the
  * first `/api/vscode` request so sessions that never open the IDE never pay for
  * it. Returns true when it created the file, false if it already existed or the
@@ -158,7 +273,7 @@ export interface VscodeHostResponse {
 }
 
 /**
- * REQ-IDE-003 (advanced-mode only): the OpenVSCode supervisor is armed only in
+ * REQ-IDE-003 (advanced-mode only): the Browser IDE supervisor is armed only in
  * advanced session mode. `mode` is the container's `SESSION_MODE`. Fail-open
  * when it is unset/empty so behaviour is unchanged; block only a session that is
  * explicitly a non-advanced mode -- otherwise such a session would sit on the
@@ -177,7 +292,7 @@ export const VSCODE_WARMING_GIVE_UP_MS = 120_000;
 
 /**
  * The lazy-start warming page (REQ-IDE-003 AC3). The first `/api/vscode` request
- * triggers the supervisor, and the connect to `:13337` fails until OpenVSCode
+ * triggers the supervisor, and the connect to `:13337` fails until code-server
  * binds (a few seconds). Rather than dumping raw JSON into a plain `_blank`
  * browser tab, serve a tiny HTML page that auto-refreshes so the tab lands on
  * the real editor once it is up. 503 = not-ready; browsers still render the body

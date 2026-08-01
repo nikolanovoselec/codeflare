@@ -634,3 +634,66 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Status:** Implemented
 
 ---
+
+### REQ-TERM-023: Native agent browser notification delivery
+
+**Intent:** A user can receive bounded native agent signals from a live terminal through the browser without Codeflare operating a notification event service.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A valid OSC 777 signal from terminal tab 1 of a selected Pi or Claude session produces one bounded plain-text browser notification whose agent identity comes from the selected session and whose session identity comes from the current page. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023) --> <!-- @manual: On deployed integration, verify Pi and Claude terminal-1 notifications on desktop and mobile-class browsers and confirm each notification remains bound to its originating session. -->
+2. Unsupported agents, non-primary tabs, malformed operations, empty fields, C0/C1 or Unicode-format controls, composed titles over 64 UTF-8 bytes, and bodies over 256 UTF-8 bytes produce no browser notification. <!-- @impl: web-ui/src/lib/agent-notifications.ts::parseAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
+3. The Settings action is the only Codeflare path that requests browser-notification permission. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::enableAgentNotifications --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-023) --> <!-- @manual: On deployed integration, confirm initial default, explicit grant, denial, and unavailable-browser states on desktop and mobile-class browsers without an initialization-time permission prompt. -->
+4. Denied/default permission or unavailable browser setup fails quietly without reporting notifications as enabled. <!-- @impl: web-ui/src/lib/agent-notifications.ts::enableAgentNotifications --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
+5. A notification click focuses the existing same-origin Codeflare client at the notification's target origin and path when one is open, or opens that same URL in a new client when none is open. <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (agent notification service worker / REQ-TERM-023) --> <!-- @manual: On deployed integration with two live sessions, click each notification and confirm only its originating tab receives focus, and that a closed session opens a new tab at the correct URL. -->
+6. Notifications create no history, push subscription, backend route, container wake, retry, poll, cross-session relay, or credential-bearing persistence; delivery ends with the live page. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
+7. A new notification for a session that already has an unclosed notification replaces it instead of stacking, while notifications for other sessions remain independent. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showAgentNotification --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (native agent browser notifications / REQ-TERM-023) -->
+
+**Constraints:**
+
+- Browser permission is per origin and browser profile; Codeflare does not persist a duplicate permission setting.
+- Terminal control bytes are hostile input and do not prove cryptographic agent provenance; the selected session agent determines the displayed Pi or Claude Code identity, never the payload title.
+- The same-origin service worker supports desktop and mobile-class display and has no fetch, cache, push, sync, or network behavior.
+- A notification click never focuses, opens, or substitutes any client at any other origin, path, or URL.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-SEC-015](security.md#req-sec-015-http-security-headers)
+
+**Verification:** Automated test (frontend and service-worker behavior tests); deployed desktop and mobile browser verification.
+
+**Status:** Partial
+
+---
+
+### REQ-TERM-024: Native agent terminal notification producers
+
+**Intent:** Live Pi and Claude terminal agents emit only the bounded native signals that Codeflare's browser bridge accepts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi emits one fixed input-needed signal when the agent requires a user response. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (Pi native terminal notifications / REQ-TERM-024) -->
+2. Pi emits one fixed completion signal only after the response settles. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (Pi native terminal notifications / REQ-TERM-024) -->
+3. Pi emits no stale completion after cancellation or abort. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (Pi native terminal notifications / REQ-TERM-024) -->
+4. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (Pi native terminal notifications / REQ-TERM-024) -->
+5. Both Claude session modes apply Claude's native Ghostty-compatible notification channel. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-024: both Claude session modes apply the native channel without managed notification hooks) -->
+6. Codeflare adds no managed Claude Notification or notification-producing Stop hook. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-024: both Claude session modes apply the native channel without managed notification hooks) -->
+
+**Constraints:**
+
+- Pi payloads contain fixed inert text, never question, model, tool, session, or credential content.
+- The official Claude IDE extension remains checksum-pinned and unmodified; its panel retains upstream in-product notifications.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-TERM-023](#req-term-023-native-agent-browser-notification-delivery)
+
+**Verification:** Automated test (preseed-extension and entrypoint-settings behavior tests); deployed Pi and Claude terminal verification.
+
+**Status:** Implemented
+
+---

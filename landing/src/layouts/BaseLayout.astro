@@ -156,10 +156,9 @@ const structuredData = {
           import '../scripts/splash';
         </script>
         <script>
-          // Proof artifacts (enforcement loop, review board, boundary path, ledger):
-          // plays each one's CSS sequence once when it scrolls into view. Content is
-          // fully legible without it (static final state); reduced-motion shows the
-          // final state instantly.
+          // Proof artifacts: shared one-shot row entrances plus rolling lists where
+          // explicitly authored. Content is fully legible without motion; reduced
+          // motion keeps the complete server-rendered state.
           import '../scripts/proof';
         </script>
         <script>

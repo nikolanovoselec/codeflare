@@ -25,7 +25,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-001: Deploy workflow trigger and pre-deploy pipeline
 
-**Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback. Deploys are gated on a green PR Checks run for the exact SHA; the pipeline itself runs as staged jobs and does not re-run the test suite.
+**Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback. Deploys are gated on a green PR Checks run for the exact SHA; the staged pipeline reuses exact-tree evidence when available instead of repeating the test suite.
 
 **Applies To:** User
 
@@ -33,17 +33,18 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-3. The deploy pipeline runs as staged jobs: verify gates a manual dispatch on an inline PR Checks run, prepare resolves the target, worker assets and the container image build in parallel, deploy applies config and secrets, and outcome fails a run that deployed nothing. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-4. Dependencies are cached between runs for faster pipeline execution. <!-- @manual -->
-5. Frontend and landing assets are built once and handed to the deploy job as an artifact; no deployment step runs unless the gating PR Checks run for the same SHA ended green (tests are not re-run in-deploy). <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
-6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
+3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, and deployment. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+4. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+5. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 
 **Constraints:**
 
 - Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration.
+- Manual-dispatch verification reuse and fallback are owned by [REQ-OPS-029](#req-ops-029-automatic-manual-deploy-verification-reuse).
 - The CI runner label is configurable to support self-hosted runners.
 - Concurrent dispatches are kept legible and independent by [REQ-OPS-026](#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified).
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
+- Successful-path gating and no-op outcome failure live in [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate).
 
 **Priority:** P0
 
@@ -63,16 +64,19 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The container image is built in the CI runner whenever its inputs (Dockerfile COPY sources, weekly salt, cache-bust) produce a tag not yet present in the target registry; otherwise the existing image is reused without rebuild or rescan. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
-2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
-3. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @manual -->
-4. If the scan finds unexcepted vulnerabilities, the pipeline fails before push. <!-- @manual -->
-5. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+1. The container image is built in the CI runner whenever its hashed inputs and weekly salt produce a tag not yet present in the target registry; otherwise the existing image is reused without rebuild or rescan. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) --> <!-- @manual -->
+2. A cache-bust forces an image rebuild without changing the content-addressed tag. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+3. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
+4. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
+5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, path, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
+6. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 
 **Constraints:**
 
 - The container-binding and scaling steps rebuild the registry URI from the image tag this REQ produces — the URI itself is never a workflow output, since it would embed a masked secret and be silently dropped; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
-- The input hash covers every Dockerfile COPY source; a coverage guard disables reuse (forcing a fresh build) if a COPY source falls outside the hashed path set.
+- The hash covers copied production paths, Dockerfile, ignore and scan policy, and the weekly salt.
+- Cache-bust disables reuse without changing the content-addressed tag.
+- A COPY coverage gap disables reuse.
 - The weekly hash salt bounds reuse: an unchanged image is rebuilt and rescanned at least once per ISO week.
 
 **Priority:** P0
@@ -97,9 +101,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
 3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml::runs --> <!-- @manual -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
-5. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @manual -->
+5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
-7. A Browser IDE image change cannot pass the required PR status unless a non-publishing complete-image smoke succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status) -->
+7. A Browser IDE image change cannot pass the required PR status unless its tracked image inputs are covered by a successful non-publishing complete-image smoke, executed for the current run or reused through the direct-evidence contract in REQ-OPS-030. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status) --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image aggregate gate) -->
 
 **Constraints:**
 
@@ -108,7 +112,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
 - All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
 - The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the report and reconciliation gates in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) — not serialization — are what keep the result trustworthy.
-- Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
+- Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence); backend and frontend coverage run only when their path filter is affected or the workflow is a full run.
 
 **Priority:** P0
 
@@ -517,14 +521,15 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Zoxide, yazi, lazygit, and SilverBullet each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @manual -->
 2. Actionlint and Antigravity each have a dedicated release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
-3. OpenVSCode, the official Claude Open VSX extension, and supported agent CLI pins each have a dedicated bump job whose PR runs Browser IDE compatibility smoke; the owned extension's npm dependencies remain Dependabot-owned. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::openvscode-server --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
-4. A Dockerfile bump invalidates its SHA256 until an operator verifies it; actionlint instead resolves the release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
-5. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
-6. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, and browser-run-mcp each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @manual -->
+3. The official Claude extension and supported agent CLIs each have a dedicated bump job whose compatibility PR runs the owned verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
+4. A binary bump without an authoritative upstream checksum invalidates its pinned artifact checksum for operator verification. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
+5. Actionlint resolves its release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
+6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
+7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, and browser-run-mcp each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @manual -->
 
 **Notes:** Workflow execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md).
 
-**Constraints:** None.
+**Constraints:** The owned Browser IDE extension's npm dependencies remain Dependabot-owned.
 
 **Priority:** P2
 
@@ -598,10 +603,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The lane asserts the coverage reporter produced its summary table before evaluating anything else, so a run that died before emitting coverage fails instead of passing on the absence of a failure string. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
-2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
-3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
-4. The known teardown-crash fingerprint is tolerated only after the table, test-failure, and threshold checks have all passed. <!-- @impl: .github/workflows/test.yml::coverage --> <!-- @manual -->
+1. The shared coverage action asserts the reporter produced its summary table before evaluating anything else, so a run that died before emitting coverage fails instead of passing on the absence of a failure string. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 
 **Constraints:**
 
@@ -612,7 +617,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Manual check
+**Verification:** Automated test ([suite-gates](../../src/__tests__/ci/suite-gates.test.ts)); exercises coverage evidence failures and the bounded backend crash exception.
 
 **Status:** Implemented
 
@@ -695,6 +700,139 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
 **Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-027: code-server coupled-pin automation
+
+**Intent:** A code-server release update preserves the immutable relationship between its artifact, embedded Code source, and compatibility evidence.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. code-server has a dedicated bump job whose compatibility PR runs the Browser IDE verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (routes code-server bumps through one dedicated fail-closed updater) -->
+2. The bump derives the embedded Code version and source commit from the immutable release gitlink. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (updates every coupled runtime pin and invalidates the checksum atomically) -->
+3. Updating the coupled pins invalidates the code-server artifact checksum for operator review. <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (updates every coupled runtime pin and invalidates the checksum atomically) -->
+
+**Constraints:**
+
+- Release metadata is validated before it enters a write-enabled shell step.
+- A checksum placeholder cannot pass the container build.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** Automated test ([suite gates](../../src/__tests__/ci/suite-gates.test.ts)); complete-image Browser IDE lane
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-028: Deploy verification and outcome gate
+
+**Intent:** A deployment proceeds only after one authoritative verification path succeeds, and a run that deploys nothing cannot appear successful.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The deploy job runs only after exactly one authoritative verification path succeeds. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (allows exactly one authoritative verification path to reach deploy) -->
+2. After an authoritative verification path succeeds, the final outcome job fails when no deployment occurred in a non-cancelled run. <!-- @impl: scripts/ci/assert-deploy-outcome.mjs::deployOutcome --> <!-- @impl: .github/workflows/deploy.yml::outcome --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (fails the outcome when no deployment occurred) -->
+
+**Constraints:** Cancelled verification cannot count as successful verification, and workflow cancellation remains cancelled without forcing the outcome job to run.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
+
+**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js)) exercises the authoritative-path truth table, workflow-cancellation stop, and deployed/no-deploy outcomes.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-029: Automatic manual-deploy verification reuse
+
+**Intent:** A manual deployment safely reuses existing exact-tree verification without requiring the operator to identify a workflow run.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Manual dispatch evaluates successful PR Checks runs for the dispatched head in descending creation order and reuses the first run with a valid exact-tree receipt. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::discoverSuccessfulRunIds --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) -->
+2. When no automatically discovered receipt validates, manual deployment runs PR Checks inline. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::resolveReusablePrChecksRun --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-029 AC2: inline deploy verification grants every reusable-workflow permission) -->
+3. An optional explicit run id checks only that run and fails closed instead of falling back. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::resolveReusablePrChecksRun --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
+
+**Constraints:** Reuse requires the expected repository, workflow, head, required summary, receipt identity, and tested tree; status alone is insufficient.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate)
+
+**Verification:** Automated test (host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates).
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-030: Browser IDE complete-image verification reuse
+
+**Intent:** Repeated PR Checks avoid rebuilding an unchanged Browser IDE image without weakening verification of the current head.
+
+**Applies To:** Contributor
+
+**Acceptance Criteria:**
+
+1. Every PR Checks run fingerprints the tracked inputs that assemble or smoke-test the Browser IDE image plus platform and weekly freshness, independently from unrelated landing, dashboard, documentation, and specification files; an uncovered Dockerfile source disables reuse. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::isBrowserIdeImageInput --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::fingerprintEntries --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image input fingerprint) -->
+2. An affected pull-request run may reuse only direct successful complete-image evidence from the same repository, pull request, PR Checks workflow, and unchanged reuse contract when its immutable receipt matches the image fingerprint; invalid evidence falls back to execution. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::validateBrowserIdeImageEvidence --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::resolveReusableBrowserIdeImageRun --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse evidence) --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse CLI boundary) -->
+3. The required `test` status fails when an affected complete-image lane is merely skipped, and accepts only a successful current execution or validated reuse; full runs never reuse this PR-only evidence. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::browserIdeImageGate --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image aggregate gate) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips) -->
+4. The current head's exact-tree receipt records whether complete-image evidence executed, was reused, or was not required, including the evidence source run when present, so exact-tree deployment verification remains authoritative. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::buildPrChecksReceipt --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (current exact-tree receipt with Browser IDE image provenance) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips) -->
+
+**Constraints:**
+
+- Candidate discovery evaluates one bounded page newest-first.
+- Reused evidence never chains through another reused run.
+- Missing, malformed, expired, cross-repository, cross-PR, changed-contract, failed, skipped, truncated, stale-week, or COPY/ADD-uncovered source evidence cannot authorize a skip.
+- Scheduled, manual, called, merge-group, and post-merge full runs execute the complete-image lane when required.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-029](#req-ops-029-automatic-manual-deploy-verification-reuse)
+
+**Verification:** Automated test (host tests exercise fingerprint selection, evidence validation, the fake-GitHub CLI boundary, and the aggregate truth table; workflow-structure tests bind those decisions into the required status and exact-tree receipt).
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-031: Trusted cross-ref container build cache
+
+**Intent:** Browser IDE verification and deployment can reuse container build work across workflow refs without allowing pull requests to publish cache state consumed by deployment.
+
+**Applies To:** Contributor
+
+**Acceptance Criteria:**
+
+1. Same-repository complete-image verification and deployment import one shared GHCR BuildKit cache reference. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC1 + AC2 + AC5: imports one cache, restricts publication, and ignores export errors) -->
+2. Pull-request verification receives read-only cache access, while deployment alone exports updates. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC1 + AC2 + AC5: imports one cache, restricts publication, and ignores export errors) -->
+3. Fork pull requests and Dependabot authenticate to neither read nor write the shared mutable cache. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::shouldAttemptSharedCacheLogin --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC3: excludes forks and Dependabot from shared-cache authentication) -->
+4. Shared-cache login unavailability does not fail complete-image verification or deployment image builds. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::sharedCacheEnabled --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC4: cache login unavailability cannot block complete-image or deploy builds) -->
+5. Deployment cache-export unavailability does not fail the image build. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC1 + AC2 + AC5: imports one cache, restricts publication, and ignores export errors) -->
+
+**Constraints:**
+
+- Pull-request jobs receive no Cloudflare or Docker Hub deployment credentials.
+- Shared cache use is optional and never replaces the complete-image smoke, vulnerability scan, SBOM, digest, provenance, or attestation gates.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-030](#req-ops-030-browser-ide-complete-image-verification-reuse)
+
+**Verification:** Automated test (workflow-structure and fake-Docker tests execute cache-enabled and cache-unavailable build paths and assert the exact import/export arguments and permissions).
 
 **Status:** Implemented
 

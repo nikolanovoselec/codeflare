@@ -210,11 +210,11 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Acceptance Criteria:**
 
-1. The landing renders a dedicated `#inference-mesh` hero band as a `<header>` directly after the primary hero and before the `#shift` section, reusing the existing section rhythm and tint and creating no second `h1`. <!-- @impl: landing/src/components/InferenceMeshHero.astro::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
+1. The landing presents Inference Mesh as a distinct family hero directly after the primary hero and before the Execution overview and detailed sections, reusing the existing section rhythm and tint while preserving one top-level page heading. <!-- @impl: landing/src/components/InferenceMeshHero.astro::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 2. `Inference Mesh` is a plain white, unscrambled section heading with a shared `~/inference` kicker; both align right on desktop, and Codeflare is not repeated. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 3. Copy presents Inference Mesh as optional private, low-cost capacity from owned idle machines with warm sessions and boundary-local sensitive work; any hosted provider remains a first-class default or fallback. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 4. The band includes one external CTA labelled `See it on GitHub` linking to the public Inference Mesh repository, rendered with the shared compact text-link treatment (the same treatment as the dogfood CTA), with no secondary CTA and no dedicated detail route. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
-5. The band uses the existing Terminal and Transcript proof system as a concrete inference-call artifact carrying the shared `proof-terminal` chrome, with its bottom command line driven by the shared typed reel (`data-ft-loop`) cycling the content-model beats, introducing no new animation system or terminal chrome. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the shared typed reel on the terminal command line, looping over the beats) -->
+5. The band shows a concrete inference-call terminal whose bottom command cycles through the configured inference beats under normal motion. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the shared typed reel on the terminal command line, looping over the beats) -->
 6. Desktop places the right-aligned kicker, heading, description, and sole micro-CTA opposite the proof terminal; mobile left-aligns them. No subtitle or repeated Codeflare wordmark appears. <!-- @impl: landing/src/content/site.ts::INFERENCE_MESH --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh family hero (REQ-LANDING-005)) -->
 
 **Constraints:**
@@ -230,6 +230,184 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
 **Verification:** Automated test ([Landing render tests](../../landing/src/__tests__/index-page.test.ts), [Scramble behavior tests](../../landing/src/__tests__/scramble.script.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-010: Execution overview reel
+
+**Intent:** Immediately after the Hero family, the landing shows Codeflare as the place where software delivery and infrastructure operations play out in two truthful Hero-scale terminal simulations.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. Visitors encounter the primary Hero, then Inference Mesh, then the Execution overview before the detailed sections. <!-- @impl: landing/src/pages/index.astro::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (orders Hero -> Inference Mesh -> Execution -> detailed sections) -->
+2. The dedicated Operations presentation remains present exactly once in its detailed role. <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (retains the detailed Operations presentation exactly once) -->
+3. The overview presents one software terminal and one infrastructure terminal side by side at the Hero terminal's half-width scale on desktop and tablet, stacking them only on mobile. <!-- @impl: landing/src/components/ExecutionReel.astro::execution-reel --> <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @impl: landing/src/styles/global.css::execution-card --> <!-- @test: landing/src/__tests__/index-page.test.ts (composes two shared Transcript simulations with full eight-row viewports) --> <!-- @manual -->
+4. Each terminal preserves explicit engineer requests and approvals while agent progress continues autonomously only within approved gates. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (keeps every owner-approved row in both coherent execution timelines) -->
+5. Both server-rendered terminals expose the complete semantic session and a full eight-row resolved viewport without JavaScript. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/index-page.test.ts (composes two shared Transcript simulations with full eight-row viewports) -->
+6. The Execution and Operations presentations render without product-status preview badges. <!-- @impl: landing/src/components/ExecutionRun.astro::execution-face --> <!-- @impl: landing/src/pages/index.astro::OPERATIONS --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders execution and operations without preview badges) -->
+
+**Constraints:**
+
+- Reuse the shared terminal visual and motion system.
+- The software transcript shows `t.anderson@metacortex.ai` once in its opening request and follows production clone, planning, SDD/TDD execution, named review outcomes, real Inference Mesh PR #1, integration deployment and private-path verification, merge approval, squash merge, and `develop` realignment.
+- The infrastructure transcript shows `t.anderson@metacortex.ai` once in its opening request and follows CMDB and parallel-SSH discovery for CVE-2024-6387, canary-first Ansible planning, human approval, autonomous gated fleet remediation, full-fleet rescan, and published incident evidence.
+- Later engineer requests stay minimal; agent outcomes carry named evidence.
+- No actor-label narration or invented product commands; diagnostic evidence uses cyan.
+- Infrastructure copy exposes no private addresses, credentials, or roadmap details.
+- Execution remains an overview; detailed sections retain their existing ownership.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-005](#req-landing-005-inference-mesh-family-hero)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-011: Execution reel progressive motion
+
+**Intent:** Under normal motion, each Execution terminal first fills from top to bottom with complete initial rows, then types the rest of its real session through the full viewport and settles with a blinking cursor.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. Each terminal starts independently once when that terminal enters the viewport and does not restart on later intersections. <!-- @impl: landing/src/scripts/proof.ts::startFeeds --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (completes both authored simulations independently and never restarts them) -->
+2. Before live activity starts, each terminal reveals its populated opening viewport from top to bottom: complete context on desktop and the largest fully fitting prefix in a synchronized mobile/tablet frame. <!-- @impl: landing/src/scripts/proof.ts::prepareFeed --> <!-- @impl: landing/src/styles/global.css::term-type --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (prepares populated opening rows and retains complete context histories) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (matches the Hero frame and queues fractionally clipped context without visible resets) -->
+3. After the initial entrance finishes, the newest row remains bottom-aligned within the unchanged clipped frame as each remaining event stages or appends and types and as the viewport resizes. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @impl: landing/src/scripts/proof.ts::scrollFeedToEnd --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion in a fixed scrolling log with final cursor) -->
+4. Throughout the hold before the first queued line types, one continuously blinking caret sits on that line's empty staged row at its exact text-start column—after the prompt for a command—and the same row becomes the first typing row. <!-- @impl: landing/src/scripts/proof.ts::pendingFeedRow --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @impl: landing/src/styles/global.css::t-caret --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion in a fixed scrolling log with final cursor) -->
+5. Both simulations settle after their authored final event with a continuously blinking cursor on the last row. <!-- @impl: landing/src/scripts/proof.ts::settleFeed --> <!-- @impl: landing/src/styles/global.css::t-caret --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion in a fixed scrolling log with final cursor) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (completes both authored simulations independently and never restarts them) -->
+6. When intersection observation is unavailable, both full resolved event viewports remain static. <!-- @impl: landing/src/scripts/proof.ts::startWithoutIntersectionObserver --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (leaves resolved feed viewports static when intersection observation is unavailable) -->
+7. While a command event types, the shared prompt remains directly beside the live text without occupying an extra row. <!-- @impl: landing/src/scripts/proof.ts::typeFeedRow --> <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion in a fixed scrolling log with final cursor) -->
+
+**Constraints:**
+
+- Reuse the landing's shared Transcript feed, proof observer, entrance animation, 420 ms scroll phase, 58 ms typing cadence, and permanent terminal chrome.
+- Initial rows complete their ordered entrance before appended live rows suppress entrance animation.
+- Completed rows remain in the log and overflow upward only when newer work needs the fixed viewport.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-012: Execution reel reduced-motion accessibility
+
+**Intent:** Visitors who request reduced motion receive the complete Execution overview without animated presentation.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. The reel presents no animation under reduced motion. <!-- @impl: landing/src/scripts/proof.ts::reduced --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps intrinsic complete resolved event viewports under reduced motion) --> <!-- @manual -->
+2. Under reduced motion, both populated resolved event viewports remain visible and readable. <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps intrinsic complete resolved event viewports under reduced motion) --> <!-- @manual -->
+
+**Constraints:**
+
+- Screen readers consume the complete semantic sessions rather than character-by-character visual updates.
+- Reduced-motion visitors retain both complete Hero-scale terminal viewports.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
+
+**Verification:** Manual check
+
+**Status:** Partial
+
+---
+
+### REQ-LANDING-013: Execution reel capture readiness
+
+**Intent:** The deployed Execution reel can serve as the canonical source for deterministic GitHub README media without a capture-only duplicate.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. The resolved reel is self-contained at a wide aspect suitable for GitHub GIF capture. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @manual -->
+2. The reel provides meaningful first, transition, and final capture states. <!-- @impl: landing/src/components/ExecutionReel.astro::data-readme-reel --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @manual -->
+3. Reel content, entrance order, and typed activity sequencing are deterministic. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @manual -->
+
+**Constraints:**
+
+- README GIF encoding and asset replacement begin only after the landing implementation is reviewed, CI-green, deployed to integration, and visually approved.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
+
+**Verification:** Manual check
+
+**Status:** Partial
+
+---
+
+### REQ-LANDING-014: Execution reel responsive layout stability
+
+**Intent:** The Execution reel remains contained and does not disturb surrounding content across supported viewport sizes.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. The side-by-side Hero-scale terminals remain readable and contained without horizontal page overflow at tablet and desktop widths, then stack cleanly on mobile. <!-- @impl: landing/src/styles/global.css::execution-reel --> <!-- @impl: landing/src/styles/global.css::execution-card --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @manual -->
+2. With normal-motion JavaScript enhancement at mobile and tablet widths, the rendered Hero and both Execution terminals retain equal outer heights through their typing animations and responsive viewport-width changes. <!-- @impl: landing/src/scripts/feature-terminals.ts::reserveHeroFrame --> <!-- @impl: landing/src/scripts/proof.ts::syncExecutionFrames --> <!-- @impl: landing/src/styles/global.css::execution-terminal --> <!-- @test: landing/src/__tests__/feature-terminals.script.test.ts (REQ-LANDING-014: reserves the Hero frame at its tallest command across typing) --> <!-- @test: landing/src/__tests__/feature-terminals.script.test.ts (REQ-LANDING-014: keeps shuffled non-Hero terminals intrinsically sized) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (matches the Hero frame and queues fractionally clipped context without visible resets) --> <!-- @manual -->
+3. Each independently progressing transcript retains prior rows in a clipped scrolling log with the same contiguous line rhythm as the other landing-page terminals, never distributing spare body height between rows. <!-- @impl: landing/src/scripts/proof.ts::scrollFeedToEnd --> <!-- @impl: landing/src/styles/global.css::execution-terminal .transcript-feed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion in a fixed scrolling log with final cursor) --> <!-- @manual -->
+4. Each appended event scrolls the newest work into view, and the completed active row—including a command prompt when applicable—reserves its wrapped height throughout typing without shifting the terminal or page. <!-- @impl: landing/src/scripts/proof.ts::typeFeedRow --> <!-- @impl: landing/src/styles/global.css::is-feed-typing --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (keeps wrapped row geometry reserved inside the fixed scrolling viewport) --> <!-- @manual -->
+5. At mobile and tablet widths, normal motion reveals the largest approved context prefix that fits fully inside the synchronized frame together with one empty staged row for the first queued line. <!-- @impl: landing/src/scripts/proof.ts::prepareFeed --> <!-- @impl: landing/src/scripts/proof.ts::pendingFeedRow --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (matches the Hero frame and queues fractionally clipped context without visible resets) --> <!-- @manual -->
+6. Every context row outside that opening prefix types in original order before the authored events, so the first append never skips hidden pre-event history. <!-- @impl: landing/src/scripts/proof.ts::startFeed --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (matches the Hero frame and queues fractionally clipped context without visible resets) --> <!-- @manual -->
+7. All 40 owner-approved reel rows remain exact, including continuation evidence. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @test: landing/src/__tests__/index-page.test.ts (keeps every owner-approved row in both coherent execution timelines) --> <!-- @manual -->
+
+**Constraints:**
+
+- Responsive behavior reuses the landing's existing breakpoints and spacing tokens.
+- No-JavaScript and reduced-motion rendering keeps intrinsic frame sizing and the complete resolved viewport.
+- The terminal body clips overflow and is not user-scrollable; only the scripted feed progression changes the log position. <!-- @impl: landing/src/styles/global.css::execution-terminal .terminal-body --> <!-- @impl: landing/src/scripts/proof.ts::scrollFeedToEnd --> <!-- @test: landing/src/__tests__/index-page.test.ts (sizes fixed scrolling logs from resolved then initial states without row gaps) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (types the simulation to completion in a fixed scrolling log with final cursor) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
+
+**Verification:** Manual check
+
+**Status:** Partial
+
+---
+
+### REQ-LANDING-015: Execution reel merged-PR link
+
+**Intent:** The software Execution transcript exposes its real merged Inference Mesh pull request as a safe, accessible terminal link.
+
+**Applies To:** Visitor
+
+**Acceptance Criteria:**
+
+1. Only the exact approved PR #1 URL, appearing once as the final standalone line of its row, becomes interactive. <!-- @impl: landing/src/lib/execution-link.ts::approvedExecutionLinkStart --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/scripts/proof.ts::parseFeed --> <!-- @test: landing/src/__tests__/components.test.ts (accepts exactly one approved PR URL as the final standalone transcript line) --> <!-- @test: landing/src/__tests__/execution-reel.script.test.ts (rejects a feed link other than the exact approved pull request) -->
+2. The approved URL opens externally by pointer or keyboard, and keyboard focus remains visible inside the terminal. <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/scripts/proof.ts::renderFeedRowText --> <!-- @impl: landing/src/styles/global.css::transcript-feed-semantic --> <!-- @test: landing/src/__tests__/components.test.ts (animate='feed' sizes from the first eight context rows while retaining complete semantic content) --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
+3. The link inherits terminal color and removes conventional link decoration. <!-- @impl: landing/src/styles/global.css::terminal-inline-link --> <!-- @test: landing/src/__tests__/index-page.test.ts (renders the real merged PR as a terminal-styled external link) -->
+
+**Constraints:**
+
+- The visual animation copy stays out of the keyboard tab order; the complete semantic transcript owns keyboard activation.
+- Parsed transcript data never supplies a URL to an HTML or DOM link sink.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
+
+**Verification:** Automated test
 
 **Status:** Implemented
 

@@ -1,7 +1,7 @@
 {
   "name": "codeflare-agent-sidebar",
-  "displayName": "Codeflare Pi Chat",
-  "description": "Codeflare-owned native Pi Chat participant for OpenVSCode Server",
+  "displayName": "Codeflare",
+  "description": "Codeflare native Chat participant for the Browser IDE",
   "version": "0.0.0",
   "publisher": "codeflare",
   "private": true,
@@ -15,7 +15,9 @@
     "workspace"
   ],
   "activationEvents": [
-    "onChatParticipant:codeflare.pi"
+    "onStartupFinished",
+    "onChatParticipant:codeflare.pi",
+    "onCommand:codeflare.pi.reviewFile"
   ],
   "enabledApiProposals": [
     "chatProvider",
@@ -29,16 +31,16 @@
   "contributes": {
     "languageModelChatProviders": [
       {
-        "vendor": "codeflare-pi-rpc",
-        "displayName": "Codeflare Pi (Local RPC)"
+        "vendor": "copilot",
+        "displayName": "Codeflare"
       }
     ],
     "chatParticipants": [
       {
         "id": "codeflare.pi",
         "name": "codeflare",
-        "fullName": "Codeflare Pi",
-        "description": "Codeflare Pi agent with workspace and editor context.",
+        "fullName": "Codeflare",
+        "description": "Codeflare agent with workspace and editor context.",
         "isDefault": true,
         "isSticky": true,
         "modes": [
@@ -47,7 +49,29 @@
           "agent"
         ]
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "codeflare.pi.reviewFile",
+        "title": "Review with Codeflare"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "codeflare.pi.reviewFile",
+          "group": "1_chat@1",
+          "when": "resourceScheme == 'file' && !explorerResourceIsFolder"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "codeflare.pi.reviewFile",
+          "group": "1_chat@6",
+          "when": "resourceScheme == 'file'"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node ./esbuild.mjs",
@@ -57,7 +81,7 @@
     "test:report": "vitest run --config ./vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --reporter=json --outputFile=agent-sidebar/browser-ide-report.json"
   },
   "devDependencies": {
-    "@types/node": "22.18.12",
+    "@types/node": "22.20.1",
     "@types/vscode": "1.109.0",
     "@vitest/coverage-v8": "4.1.10",
     "esbuild": "0.28.1",

@@ -45,7 +45,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 | [Operations](spec/operations.md) | CI/CD, testing, deployment, cost | P1 | Active |
 | [Memory](spec/memory.md) | Vault-based cross-session memory, automatic capture, hook delivery | P2 | Active |
 | [Vault](spec/vault.md) | Persistent obsidian-style notes, unified graphify graph, SilverBullet editor | P2 | Active |
-| [Browser IDE](spec/browser-ide.md) | Per-session OpenVSCode editor, session-isolated, Worker-proxied | P2 | Active |
+| [Browser IDE](spec/browser-ide.md) | Per-session code-server editor, session-isolated, Worker-proxied | P2 | Active |
 
 ## Support files
 

@@ -22,7 +22,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### Browser IDE Repeatedly Disconnects with WebSocket Code 1009
 
-**Symptom:** OpenVSCode connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
+**Symptom:** The Browser IDE connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
 
 **Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC6).
 
@@ -30,29 +30,47 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
 
-### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent))
+### Browser IDE URL exposes or accepts a workspace selector ([REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-fixed-workspace-projection-and-clean-browser-ide-url))
 
-**Symptom:** A Pi session shows Copilot setup instead of Codeflare in the main Chat, a Claude session has no Anthropic Spark panel, or an unsupported agent unexpectedly has an agent extension.
+**Symptom:** The browser lands on `?folder=/home/user/workspace`, a public `folder`, `workspace`, or `ew` query changes the opened workspace, or the clean URL opens an empty window whose manual folder selection is rejected.
 
-**Cause:** The session may be non-advanced, tab 1 may not contain an exact supported command, the wrong immutable inventory may be selected, Pi's extension-qualified proposal may be absent, or the official Claude package may have failed identity/host validation.
+**Cause:** The deployment predates clean fixed-workspace routing, only one defense-in-depth check was updated, or the pinned Code OSS workbench meta-element drifted. A private upstream query alone is insufficient because Code OSS reads the browser location or server-provided `folderUri`.
 
-**Fix:** Inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, and `/opt/codeflare/openvscode/extensions/{pi,claude,none}`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports both host-discovered extension IDs, `DEFAULT_NATIVE_PI_OK`, and `OFFICIAL_CLAUDE_OK`.
+**Fix:** Use a fresh session on an image where Worker and host reject decoded selector keys, the private root hop injects the fixed folder, and the host projects its equivalent `folderUri` into the root workbench configuration. The normal public location is `/api/vscode/<sessionId>/`. A projection mismatch returns `VSCODE_WORKBENCH_CONFIGURATION_INVALID`; complete-image smoke must validate the packaged root HTML before deployment. This is not an OS sandbox; terminals, trusted extensions, and agents retain container filesystem access.
+
+### Browser IDE theme, Explorer state, or open files do not persist ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering))
+
+**Symptom:** A fresh session returns to default UI state, or unexpected IDE databases appear in persistent storage.
+
+**Cause:** code-server may not have been reaped before final sync, `~/.codeflare/ide-ui-state.json` may be absent or invalid, or the snapshot/filter allowlist may have drifted.
+
+**Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only that exact path survives the `~/.codeflare/**` R2 filter. Never sync `/tmp/openvscode-data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Allowlisted workspace rows must match their key-specific canonical-resource schemas; unknown fields and opaque strings are invalid. Managed inventory settings must be reapplied after restore.
+
+### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](../../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [REQ-IDE-013](../../sdd/spec/browser-ide.md#req-ide-013-account-backed-code-review-suppression), [REQ-IDE-014](../../sdd/spec/browser-ide.md#req-ide-014-active-editor-review-with-codeflare))
+
+**Symptom:** A Pi session shows Copilot setup instead of Codeflare in the main Chat, an editor right-click shows upstream **Code Review** but not **Review with Codeflare**, a Claude session has no Anthropic Spark panel, or an unsupported agent unexpectedly has an agent extension.
+
+**Cause:** The session may be non-advanced, tab 1 may not contain an exact supported command, the wrong immutable inventory may be selected, Pi's extension-qualified proposal may be absent, or the official Claude package may have failed identity/host validation. A container already running during image deployment keeps its old filesystem and menu contributions until that session restarts.
+
+**Fix:** Reproduce in a fresh or restarted session, then inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, `/opt/codeflare/openvscode/extensions/{pi,claude,none}`, and `/opt/code-server/lib/vscode/extensions/copilot`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; the bundled Copilot directory must be absent; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports `host_discovery` for Pi and Claude, an empty inventory, `DEFAULT_NATIVE_PI_OK`, `OFFICIAL_CLAUDE_OK`, cold readiness, process count, and RSS.
 
 ### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
 
-**Symptom:** Codeflare Pi reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
+**Symptom:** Codeflare reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
 
-**Cause:** `Language model unavailable` means OpenVSCode rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
+**Cause:** `Language model unavailable` means the pinned Code OSS host rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
 
-**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes vendor `codeflare-pi-rpc`, and complete-image smoke confirms a hidden default model whose generation path rejects. Do not sign into Copilot. For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
+**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes the host-reserved fallback vendor `copilot`, and complete-image smoke confirms a hidden default model whose generation path rejects. Code OSS 1.130 considers only that vendor when resolving an implicit participant model; the identifier does not invoke GitHub Copilot, request authorization, or change Pi's local RPC inference. Do not sign into Copilot.
+
+For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
 
 ### Official Claude panel fails ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
 
-**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, cannot connect to editor context, or OpenVSCode's native Chat/Copilot setup appears in a Claude session.
+**Symptom:** Anthropic's Spark panel is absent, asks for a second login, reports an unsupported platform, cannot connect to editor context, or code-server's unrelated native Chat/Copilot setup appears in a Claude session.
 
 **Cause:** The exact official extension or bundled linux-x64 binary may be missing, the temporary config/settings preparation may have failed, approved credentials/routing may be unavailable, or Anthropic's loopback IDE MCP lock directory may have been rejected. Anthropic's package contributes a separate Claude Code webview rather than a native Chat participant, so a visible native Chat setup means the managed `chat.disableAIFeatures` setting was not restored before launch.
 
-**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, OpenVSCode settings contain `chat.disableAIFeatures: true`, the isolated `CLAUDE_CONFIG_DIR`, unrestricted `bypassPermissions` mode, dangerous permission skipping, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Use the Claude Code panel with a selection or an `@` reference. Generic Accounts authentication is outside the Claude integration; Codeflare adds no credential bridge. Never enable bypass permissions or expose the MCP port.
+**Fix:** Verify `extensions/claude/anthropic.claude-code/package.json` is the pinned publisher/name/version and its bundled binary is executable. Confirm `/tmp/codeflare-sidebar/claude/config/settings.json` resolves to `/etc/codeflare/claude-sidebar/settings.json`, code-server User settings contain `chat.disableAIFeatures: true`, the isolated `CLAUDE_CONFIG_DIR`, unrestricted `bypassPermissions` mode, dangerous permission skipping, and `disableLoginPrompt`, and `$CLAUDE_CONFIG_DIR/ide` remains private. Use the Claude Code panel with a selection or an `@` reference. Generic Accounts authentication is outside the Claude integration; Codeflare adds no credential bridge. Keep the approved `bypassPermissions` configuration internal to the isolated session, and never expose the MCP port.
 
 ### Browser IDE agent leaves a duplicate or orphaned process ([REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle))
 
@@ -60,9 +78,9 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** Request or launch-generation cleanup did not converge before replacement.
 
-**Fix:** Do not delete pidfiles first. Stop or restart OpenVSCode and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
+**Fix:** Do not delete pidfiles first. Stop or restart the Browser IDE and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
 
-See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
+See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
@@ -201,6 +219,18 @@ Every scroll route is buffer-authoritative — touch gestures, mouse wheel (capt
 
 **Verify:** Enter `/tui fullscreen` on mobile and swipe vertically with the keyboard closed, then use both floating arrow controls. Conversation history should move in each direction while horizontal swipes still navigate the prompt; with the keyboard open, vertical swipes send arrow keys rather than scrolling. CI's `touch-gestures.test.ts` verifies keyboard-closed wheel routing and the keyboard-open arrow-key lock, and `FloatingTerminalButtons.test.tsx` verifies PageUp/PageDown input replaces normal-buffer scrolling only in the alternate screen.
 
+### Agent Browser Notifications Never Appear
+
+**Symptom:** Enabling notifications in Settings shows no browser permission prompt (mobile), or Pi/Claude terminal activity produces no notification even after the permission is granted ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notification-delivery), [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers)).
+
+**Cause:** Split by surface. (1) iOS exposes the Notification API only inside an installed Home Screen web app, never in a Safari tab, so a tab can neither prompt nor display. (2) On builds before the event-time session fix, a terminal that mounted before the sessions store populated never registered its OSC 777 handler, so no notification could fire for that terminal's lifetime. (3) Right after enabling, a still-installing service worker rejects `showNotification`, dropping the first notifications.
+
+(4) A returning user's first session after a deploy could restore an extension tree that predates `native-notifications.ts`, because the relay only overwrote files already present and the Worker-side R2 seed of missing keys races the boot sync. (5) Claude sends its native notification only for task-complete and permission-prompt events, and suppresses it while the terminal has focus.
+
+**Fix:** On iOS, add Codeflare to the Home Screen (Share → Add to Home Screen), open it from there, and enable notifications in Settings — the hint marks this state. The web UI registers the OSC 777 handler unconditionally and resolves the session at event time; the enable/display paths wait for the activated worker; the entrypoint relay backfills missing managed extensions from the mode-filtered bake ([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake) AC4). Start a fresh session after deploying so the container runs the current image.
+
+**Verify:** With permission granted and the terminal unfocused, a settled Pi turn or completed Claude task in terminal tab 1 produces one notification titled with the agent and session name. `useTerminal.test.ts` covers the late-store registration, `agent-notifications.test.ts` covers the activated-worker path, and `entrypoint-governed-sync.test.js` covers the bake backfill.
+
 ### Container Stuck at "Waiting for Services"
 
 The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.
@@ -270,9 +300,9 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Symptom:** The foreground `/todos` list resets to `No tasks` after a background reviewer or other child session starts, compacts, changes tree, or shuts down, even though an earlier valid todo snapshot remains in the foreground transcript.
 
-**Cause:** Images with unpatched `@juicesharp/rpiv-todo` 1.20.0 use one module-level task cell for every Pi session. A child lifecycle replay can overwrite the foreground cell with the child's empty list ([AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix)).
+**Cause:** Images built before the `@juicesharp/rpiv-todo` 2.0.0 pin carry 1.20.0, which uses one module-level task cell for every Pi session unless the retired [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override patched it. A child lifecycle replay can overwrite the foreground cell with the child's empty list.
 
-**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation). The image applies the version-gated session-isolation override during npm prewarm. If the build fails with `expected @juicesharp/rpiv-todo 1.20.0`, review the newer upstream package and remove or update the temporary override rather than bypassing the version guard.
+**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0 pin, which ships session-keyed task state upstream with no source override.
 
 ### Pi Web Search Crashed the Session
 

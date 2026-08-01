@@ -350,6 +350,12 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .bashrc"
     --filter "- .bash_profile"
 
+    # Browser IDE continuity: one bounded, credential-free snapshot captured only
+    # after code-server is reaped. Everything else under ~/.codeflare is excluded.
+    --filter "+ .codeflare/"
+    --filter "+ .codeflare/ide-ui-state.json"
+    --filter "- .codeflare/**"
+
     # Package manager caches — regenerated on npm/bun install
     --filter "- .npm/**"
     --filter "- .bun/**"
@@ -723,11 +729,35 @@ relay_managed_pi_extensions() {
         [ -e "$f" ] || continue
         base="$(basename "$f")"
         if [ -f "$dest/$base" ]; then
-            cp "$f" "$dest/$base"
-            relaid=$((relaid + 1))
+            if cp "$f" "$dest/$base"; then
+                relaid=$((relaid + 1))
+            else
+                echo "[entrypoint] WARNING: managed-extension relay failed for ${base}" | tee -a /tmp/sync.log
+            fi
         fi
     done
-    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) from image source over post-sync tree" | tee -a /tmp/sync.log
+    # A managed extension that is NEW in this image exists in no returning
+    # user's restored tree, so overwrite-if-present alone never delivers it
+    # (the Worker-side R2 seed of missing keys races this boot's initial sync).
+    # Backfill missing ones from the MODE-FILTERED bake — the unfiltered warm
+    # tree above would leak advanced-only extensions into default sessions.
+    local added=0 bake_ext="${AGENT_SEED_BAKE_DIR:-/opt/codeflare/agent-seed-bake}/${SESSION_MODE:-default}/.pi/agent/extensions"
+    if [ -d "$bake_ext" ]; then
+        for f in "$bake_ext"/*.ts; do
+            [ -e "$f" ] || continue
+            base="$(basename "$f")"
+            if [ ! -f "$dest/$base" ]; then
+                if cp "$f" "$dest/$base"; then
+                    added=$((added + 1))
+                else
+                    echo "[entrypoint] WARNING: mode-bake backfill failed for ${base}" | tee -a /tmp/sync.log
+                fi
+            fi
+        done
+    else
+        echo "[entrypoint] WARNING: mode-filtered bake missing at ${bake_ext}; skipping managed-extension backfill" | tee -a /tmp/sync.log
+    fi
+    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /tmp/sync.log
 }
 
 # Step 2: Establish bisync baseline (after data is restored)
@@ -1262,26 +1292,26 @@ start_silverbullet_supervisor() {
 }
 
 # ============================================================================
-# OpenVSCode Server supervisor (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003)
+# Browser IDE supervisor (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003)
 #
-# Runs the browser IDE (OpenVSCode Server) on 127.0.0.1:13337 against the
-# session's ~/workspace, reached from the codeflare UI through the Worker proxy
-# at /api/vscode/:sid/. Localhost-only -- the Worker is the auth boundary.
+# Runs code-server on 127.0.0.1:13337 against the session's ~/workspace, reached
+# from the Codeflare UI through the Worker proxy at /api/vscode/:sid/. It stays
+# loopback-only; the Worker and container bearer chain are the auth boundary.
 #
 # LAZY START: the server is NOT launched at boot. The supervisor waits until
 # init is complete AND the host has recorded a first /api/vscode request (the
 # trigger file host/src/vscode-proxy.ts writes), so sessions that never open the
 # IDE never pay for it. Supervised by a restart loop like SilverBullet.
 #
-# SESSION ISOLATION: --server-base-path=/api/vscode/<SESSION_ID> makes OpenVSCode
-# build its own asset + service-worker URLs under the per-session path, so each
-# session's editor is isolated (the deliberate opposite of the bucket-stable
-# vault). --server-data-dir is ephemeral under /tmp (never R2-synced), so no
-# server state leaks across sessions.
+# SESSION ISOLATION: the browser retains /api/vscode/<SESSION_ID>, while the host
+# strips only that exact prefix before code-server. --user-data-dir and the fixed
+# extension inventory are ephemeral under /tmp and /opt respectively. Only the
+# bounded post-reap UI snapshot below crosses sessions; private openvscode function and
+# environment names remain intentionally during this bounded migration.
 # ============================================================================
 
 # Process-tree cleanup helpers are top-level so both PID 1's shutdown path and
-# each lazy OpenVSCode supervisor generation use exactly the same TERM/wait/KILL
+# each lazy Browser IDE supervisor generation use exactly the same TERM/wait/KILL
 # behavior. Optional identity arguments prevent a stale pidfile from signaling a
 # reused PID; a generation token also reaches detached Pi and Claude children.
 walk_kill() {
@@ -1396,9 +1426,9 @@ kill_pidfile_subtree() {
     _wait_then_kill_pid "$pid"
 }
 
-# Gate: may the IDE launch yet? Requires a resolved session id (so the base path
-# is correct), a completed init, and a first-request trigger. Fail-safe: with no
-# session id, never launch (a base-path mismatch would 404 anyway).
+# Gate: may the IDE launch yet? Requires a resolved session id (so the host can
+# strip the exact public prefix), a completed init, and a first-request trigger.
+# Fail-safe: with no session id, never launch.
 # REQ-IDE-003 AC1, REQ-IDE-002.
 _openvscode_should_launch() {
     [ -n "${SESSION_ID:-}" ] \
@@ -1445,25 +1475,41 @@ _openvscode_extensions_dir() {
     esac
 }
 
-# Seed OpenVSCode User settings for EVERY agent kind before launch: the base
-# workspace settings (auto-trust + no extension recommendations) for pi/none,
-# and the full official-Claude config projection (which also carries the base
-# settings) for claude. A preparation failure fails closed at the call site and
-# refuses the launch. REQ-IDE-005 AC1, REQ-IDE-009.
+# Seed Browser IDE User settings for EVERY agent kind before launch. The
+# preparation helper retains its private OpenVSCode name and writes settings at
+# <data-root>/data/User; code-server receives <data-root>/data as its exact
+# --user-data-dir. A preparation failure fails closed. REQ-IDE-005, REQ-IDE-009.
 _openvscode_prepare_agent() {
     /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh "$2" "$1"
 }
 
-# Launch OpenVSCode Server once in the foreground (the supervisor loop wraps this
-# in a restart loop). Session-isolated base path, workspace folder, ephemeral
-# per-container data dir; no connection token (the Worker is the auth boundary).
-# REQ-IDE-001, REQ-IDE-002, REQ-IDE-005 AC1+AC2.
+_openvscode_restore_ui_state() {
+    python3 /opt/codeflare/openvscode/browser-ide-ui-state.py restore \
+        --data-root "$1" \
+        --snapshot "${OPENVSCODE_UI_STATE_PATH:-$HOME/.codeflare/ide-ui-state.json}" \
+        --workspace "${OPENVSCODE_WORKSPACE:-$HOME/workspace}"
+}
+
+_openvscode_capture_ui_state() {
+    python3 /opt/codeflare/openvscode/browser-ide-ui-state.py capture \
+        --data-root "$1" \
+        --snapshot "${OPENVSCODE_UI_STATE_PATH:-$HOME/.codeflare/ide-ui-state.json}" \
+        --workspace "${OPENVSCODE_WORKSPACE:-$HOME/workspace}"
+}
+
+# Launch code-server once in the foreground (the retained private supervisor
+# wraps this in a restart loop). The host strips the exact public session prefix,
+# so code-server serves root paths on loopback. Its own auth is disabled only
+# because the Worker + container bearer boundary already authenticated the
+# request. Live editor state remains ephemeral under /tmp; only the post-reap
+# REQ-IDE-002 UI allowlist persists. REQ-IDE-001/002/005/009/012.
 _openvscode_launch_once() {
     local sidebar_agent extensions_dir data_dir
     local -a proposed_api_args=()
     sidebar_agent="$(_openvscode_agent_kind)"
     extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
     data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
+    _openvscode_restore_ui_state "$data_dir"
     if ! _openvscode_prepare_agent "$sidebar_agent" "$data_dir"; then
         echo "[openvscode] IDE settings preparation failed; refusing launch" >&2
         return 1
@@ -1473,17 +1519,18 @@ _openvscode_launch_once() {
     fi
 
     CODEFLARE_SIDEBAR_AGENT="$sidebar_agent" \
-    exec "${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}" \
-        --host "${OPENVSCODE_HOST:-127.0.0.1}" \
-        --port "${OPENVSCODE_PORT:-13337}" \
-        --server-base-path "/api/vscode/${SESSION_ID}" \
-        --without-connection-token \
-        --default-folder "${OPENVSCODE_WORKSPACE:-$HOME/workspace}" \
-        --server-data-dir "$data_dir" \
+    exec "${OPENVSCODE_BIN:-/usr/local/bin/code-server}" \
+        --bind-addr "127.0.0.1:${OPENVSCODE_PORT:-13337}" \
+        --auth none \
+        --disable-telemetry \
+        --disable-update-check \
+        --disable-proxy \
+        --disable-getting-started-override \
+        --disable-workspace-trust \
+        --user-data-dir "$data_dir/data" \
         --extensions-dir "$extensions_dir" \
         "${proposed_api_args[@]}" \
-        --telemetry-level off \
-        --accept-server-license-terms
+        "${OPENVSCODE_WORKSPACE:-$HOME/workspace}"
 }
 
 # Supervisor loop: wait for the gate, launch each restart in a fresh process
@@ -1492,6 +1539,7 @@ _openvscode_launch_once() {
 # terminal state. REQ-IDE-003 AC4, REQ-IDE-008 AC4.
 _openvscode_supervise_loop() {
     local generation_pidfile current_pid="" current_start="" current_generation="" current_pgid="" exit_code
+    local data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
     generation_pidfile="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation-${BASHPID}.pid}"
 
     _openvscode_cleanup_current_generation() {
@@ -1507,6 +1555,7 @@ _openvscode_supervise_loop() {
                 return 1
             fi
         fi
+        _openvscode_capture_ui_state "$data_dir"
         rm -f "$generation_pidfile" "${generation_pidfile}.tmp"
         current_pid=""
         current_start=""
@@ -1544,14 +1593,14 @@ _openvscode_supervise_loop() {
 }
 
 start_openvscode_supervisor() {
-    local OVSC_BIN="${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}"
+    local OVSC_BIN="${OPENVSCODE_BIN:-/usr/local/bin/code-server}"
 
     if [ ! -x "$OVSC_BIN" ]; then
-        echo "[entrypoint] WARNING: openvscode-server not found at $OVSC_BIN; browser IDE unavailable" >&2
+        echo "[entrypoint] WARNING: code-server not found at $OVSC_BIN; browser IDE unavailable" >&2
         return 0
     fi
 
-    echo "[entrypoint] Arming OpenVSCode supervisor (lazy-start on first /api/vscode request)..."
+    echo "[entrypoint] Arming Browser IDE supervisor (code-server, lazy-start on first /api/vscode request)..."
 
     # setsid creates a new session + process group so the shutdown handler can
     # kill the supervisor AND its openvscode child in one kill_pidfile_subtree
@@ -1559,13 +1608,13 @@ start_openvscode_supervisor() {
     # helpers available inside the fresh non-interactive setsid bash.
     export OPENVSCODE_GENERATION_PIDFILE="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
     export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree
-    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_launch_once _openvscode_supervise_loop
+    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_launch_once _openvscode_supervise_loop
     setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
         >> /tmp/openvscode.log 2>&1 &
 
     OPENVSCODE_SUPERVISOR_PID=$!
     echo "$OPENVSCODE_SUPERVISOR_PID" > /tmp/openvscode.pid
-    echo "[entrypoint] OpenVSCode supervisor armed with PID $OPENVSCODE_SUPERVISOR_PID"
+    echo "[entrypoint] Browser IDE supervisor armed with PID $OPENVSCODE_SUPERVISOR_PID"
 }
 
 # ============================================================================
@@ -1575,7 +1624,7 @@ shutdown_handler() {
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
 
-    # Kill background daemons via identity-aware PID files. OpenVSCode's
+    # Kill background daemons via identity-aware PID files. The Browser IDE's
     # current generation goes first so its detached Pi/Claude children are
     # reaped before the supervisor itself is stopped.
     # Kill the background init subshell FIRST. It wraps establish_bisync_baseline
@@ -2277,12 +2326,12 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@18.0.3',
+  'npm:@gotgenes/pi-subagents@18.1.1',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
-  'npm:@juicesharp/rpiv-advisor@1.20.0',
-  'npm:@juicesharp/rpiv-ask-user-question@1.20.0',
-  'npm:@juicesharp/rpiv-todo@1.20.0',
+  'npm:@juicesharp/rpiv-advisor@2.0.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.0.0',
+  'npm:@juicesharp/rpiv-todo@2.0.0',
   'npm:pi-web-access@0.13.0',
   'npm:pi-mcp-adapter@2.11.0',
 ];
@@ -3177,7 +3226,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # setting on and watching background subagents spawn and complete. The
     # capture hooks depend on that half, and it fails silently if it breaks,
     # so re-check it when the pinned CLI version moves.
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture-block.sh"}]},{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"SessionStart":[{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"preferredNotifChannel":"ghostty","hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture-block.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]},{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"SessionStart":[{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
     # context-mode hooks (Custom tier only, gated on plugin manifest presence).
     # Implements REQ-AGENT-005. Same four hooks the upstream context-mode
     # plugin would self-register via hooks.json — we wire them through
@@ -3264,7 +3313,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
 else
     # disableAgentView: see the rationale above the advanced-mode literal —
     # agent view's full-screen switcher is unusable on mobile.
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true}'
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"preferredNotifChannel":"ghostty"}'
     echo "[entrypoint] Default mode: configuring settings.json without hooks"
 fi
 
@@ -3477,7 +3526,7 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
         # Each daemon has its own retry + recovery; a dead daemon means
         # zero sync (or zero vault ingestion) for the entire session.
         start_sync_daemon
-        # Vault monitor, SilverBullet, and OpenVSCode supervisors are
+        # Vault monitor, SilverBullet, and Browser IDE supervisors are
         # advanced-mode-only (REQ-MEM-006 AC1, REQ-AGENT-005 AC2, REQ-IDE-003).
         # The workspace sync daemon above always runs; only these are gated.
         if [ "${SESSION_MODE:-default}" = "advanced" ]; then

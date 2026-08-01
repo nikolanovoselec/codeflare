@@ -130,6 +130,20 @@ svg {
   border-radius: 3px;
 }
 
+/* Reusable visually-hidden content: remains available to assistive technology
+   without participating in the visual composition. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* --------------------------------------------------------------------------
    Layout primitives
    -------------------------------------------------------------------------- */
@@ -715,6 +729,136 @@ svg {
 }
 
 /* --------------------------------------------------------------------------
+   Execution overview (REQ-LANDING-010)
+
+   Both Hero-scale terminals render full resolved viewports for no-JS and
+   reduced-motion visitors. At mobile/tablet widths, normal-motion enhanced frames
+   share the rendered Hero height
+   and reveal only the context prefix that wholly fits before live events append.
+   -------------------------------------------------------------------------- */
+#execution .section-head {
+  max-width: 52rem;
+}
+
+.execution-reel,
+.execution-stage,
+.execution-card,
+.execution-face {
+  min-width: 0;
+}
+
+.execution-reel {
+  --execution-frame-height: auto;
+}
+
+.execution-card {
+  display: grid;
+  gap: clamp(2rem, 4vw, 3.5rem);
+  align-items: stretch;
+}
+
+.execution-face {
+  display: flex;
+}
+
+.execution-terminal {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* Under normal-motion enhancement on mobile and tablet, proof.ts replaces the
+   intrinsic `auto` value with the rendered Hero terminal height. Both Execution
+   frames therefore retain the same outer height as each other and the Hero terminal.
+   No-JS and reduced motion keep or restore `auto` intrinsic sizing. */
+@media (max-width: 1023.98px) {
+  .execution-terminal {
+    height: var(--execution-frame-height);
+  }
+}
+
+.execution-terminal-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+/* Execution uses the shared Hero/proof terminal scale in paired half-width cards.
+   Long real command output wraps within each frame instead of scrolling sideways.
+   The hidden sizing layer provides intrinsic desktop, no-JS, and reduced-motion
+   sizing; normal-motion mobile/tablet frames use the Hero height written by proof.ts. */
+.execution-terminal .terminal-body {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.execution-terminal .transcript-feed,
+.execution-terminal .transcript-feed-size {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.execution-terminal .transcript-feed-size {
+  display: grid;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.execution-terminal .transcript-feed-size-window {
+  display: none;
+  grid-area: 1 / 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The resolved state sizes no-JS and reduced-motion markup. On desktop, the first
+   eight context rows establish the motion base; mobile/tablet enhancement uses the Hero
+   height and moves any context that cannot fit into the typed queue. */
+.execution-terminal .transcript-feed-size-window:last-child,
+.execution-terminal .terminal-body.is-feed-prepared .transcript-feed-size-window:first-child {
+  display: flex;
+}
+
+.execution-terminal .terminal-body.is-feed-prepared .transcript-feed-size-window:last-child:not(:first-child) {
+  display: none;
+}
+
+/* The live log stretches to the sizing track but cannot contribute to it.
+   Appended history scrolls inside the clipped viewport with ordinary contiguous
+   terminal line rhythm, so wrapping never grows the outer frame or creates gaps. */
+.execution-terminal .transcript-feed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  contain: size;
+  scroll-behavior: smooth;
+}
+
+.execution-terminal .transcript-feed > .t-line {
+  flex-shrink: 0;
+}
+
+.execution-terminal .t-line {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+
+@media (min-width: 681px) {
+  .execution-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* --------------------------------------------------------------------------
    Terminal demo (the one mono moment)
    -------------------------------------------------------------------------- */
 .terminal {
@@ -791,6 +935,43 @@ svg {
   white-space: pre;
 }
 
+.terminal-inline-link,
+.terminal-inline-link:visited,
+.terminal-inline-link:hover,
+.terminal-inline-link:active {
+  color: inherit;
+  text-decoration: none;
+}
+
+.terminal-inline-link:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* The complete semantic transcript stays visually hidden until its external PR
+   link receives keyboard focus. Reveal only that row inside the terminal so the
+   focus target is visible without duplicating the animated transcript. */
+.execution-terminal .transcript-feed-semantic:focus-within {
+  z-index: 3;
+  top: 1.15rem;
+  right: 1.25rem;
+  left: 1.25rem;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: pre-wrap;
+  list-style: none;
+  background: var(--bg-terminal);
+}
+
+.transcript-feed-semantic:focus-within > li:not(:focus-within) {
+  display: none;
+}
+
 /* Phone: the transcript wraps instead of scrolling sideways (the old overflow).
    A hanging indent keeps a wrapped continuation aligned under the line's text,
    past the leading glyph, and a slightly smaller mono fits more per line.
@@ -830,7 +1011,8 @@ svg {
   color: var(--text-primary);
 }
 
-.t-cmd {
+.t-cmd,
+.t-feed-command {
   color: var(--text-primary);
 }
 
@@ -839,7 +1021,8 @@ svg {
   color: var(--accent);
 }
 
-.t-agent {
+.t-agent,
+.t-info {
   color: var(--term-cyan);
 }
 
@@ -1780,9 +1963,9 @@ svg {
   }
 }
 
-/* Line-roll loop (proof.ts): the top row of a [data-roll] list slides out and
-   re-enters at the bottom. The rolled child transitions; the list height is
-   frozen by JS during a cycle so nothing jumps. */
+/* Ordinary proof-row loop (proof.ts): the top row of a non-feed [data-roll]
+   list slides out and re-enters at the bottom. The rolled child transitions;
+   JS freezes that list's height during the cycle so nothing jumps. */
 [data-roll] > .roll-anim {
   overflow: hidden;
   transition:
@@ -1799,15 +1982,40 @@ svg {
   transform: translateY(8px);
 }
 
-/* Scroll-anchoring opt-out. The roll loop moves the top row of the list to the
-   bottom every few seconds. On a phone, when the terminal fills the viewport and
-   the reader is scrolled into it, the browser would otherwise pick a rolling row
-   as its scroll anchor and chase it as it moves, walking the whole page downward
-   on every cycle. Excluding the list's subtree from anchoring keeps the viewport
-   still; the list height is already frozen by JS during a cycle, so nothing below
-   the terminal shifts. */
+/* Scroll-anchoring opt-out. Ordinary proof lists reorder rows; Transcript feeds
+   scroll appended history inside a size-contained viewport. On a phone, the
+   browser could otherwise pick either moving subtree as its scroll anchor and
+   walk the whole page downward. Ordinary lists freeze their height during a
+   cycle, while feeds cannot resize their sizing track. */
 [data-roll] {
   overflow-anchor: none;
+}
+
+/* A feed's completed line reserves its final wrapped height while the live copy
+   types in the same grid cell. This keeps narrow terminal and page geometry
+   stable without reserving empty rows. */
+.transcript-feed .is-feed-typing {
+  display: grid;
+}
+
+.transcript-feed .is-feed-typing > [data-feed-reserve],
+.transcript-feed .is-feed-typing > [data-feed-live] {
+  grid-area: 1 / 1;
+}
+
+/* A command row normally owns its prompt through .t-cmd::before. While the row
+   becomes an overlay grid, that pseudo-element would become a third grid item:
+   the prompt drops onto its own line, briefly enlarging the viewport and leaving
+   the typed command detached above it. The feed therefore renders the same prompt
+   as the first inline child of both overlaid layers; the row uses
+   .t-feed-command instead of .t-cmd until typing settles, so the ordinary
+   pseudo-prompt is never generated during this state. */
+.transcript-feed .t-feed-prompt {
+  color: var(--accent);
+}
+
+.transcript-feed [data-feed-reserve] {
+  visibility: hidden;
 }
 
 /* Once an artifact is rolling, its one-shot entrance keyframes must not replay

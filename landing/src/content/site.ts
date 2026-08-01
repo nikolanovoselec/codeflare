@@ -4,6 +4,7 @@
  * are build-time trusted content rendered via set:html.
  */
 import { CONTACT_TOPICS, type ContactTopic } from '../../../src/lib/contact-topics';
+import { EXECUTION_PR_URL } from '../lib/execution-link';
 
 export interface NavLink {
   label: string;
@@ -86,8 +87,10 @@ export interface TopicOption {
 
 /** A single static terminal line with its display tone (CSS suffix). */
 export interface TranscriptLine {
-  tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn' | 'deny';
+  tone: 'cmd' | 'agent' | 'info' | 'ok' | 'dim' | 'warn' | 'deny';
   text: string;
+  /** Optional owned GitHub URL rendered as a terminal-styled external link. */
+  href?: string;
 }
 
 /** A coding-agent statusline footer under a terminal: context / model /
@@ -111,6 +114,18 @@ export interface FeatureTerminal {
   /** Short commands the live prompt line types then deletes in a loop
    *  (feature-terminals.ts), staggered so the four are never in sync. */
   loop?: string[];
+}
+
+export interface ExecutionLine extends TranscriptLine {
+  /** Human direction preserved in the initial history and settled viewport. */
+  intent?: 'request' | 'approval';
+}
+
+export interface ExecutionRun {
+  title: string;
+  context: ExecutionLine[];
+  events: ExecutionLine[];
+  foot: string[];
 }
 
 // The nav doubles as the page's lens on the five enterprise concerns for
@@ -147,6 +162,7 @@ export const SECTION_KICKERS: Record<string, string> = {
   shift: 'Velocity',
   method: 'Quality',
   legacy: 'Adoption',
+  execution: 'Execution',
   security: 'Security',
   operations: 'Operations',
   context: 'Context',
@@ -282,6 +298,191 @@ export const TERMINAL = {
 };
 
 /**
+ * Paired Execution overview shown before the detailed proof sections. Both use
+ * the shared eight-row Transcript feed: initial rows reveal top-down, then the
+ * remaining real session types through the full viewport and settles.
+ */
+export const EXECUTION = {
+  id: 'execution',
+  title: 'Where the work gets done.',
+  lead:
+    'Codeflare is a customer-operated execution platform where engineers and AI agents design ' +
+    'and architect systems, build and debug software, operate, patch, and migrate approved ' +
+    'infrastructure, automate end-to-end tests, deploy, verify, and recover live systems together. ' +
+    'Work happens inside authenticated, disposable browser sessions, with organizational rules, ' +
+    'evidence, and human approval built into the workflow instead of bolted onto laptops or ' +
+    'long-lived shared runners.',
+  software: {
+    title: 'codeflare · software delivery',
+    context: [
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 't.anderson@metacortex.ai $ Clone codeflare-inference-mesh from production and switch to develop.',
+      },
+      {
+        tone: 'agent',
+        text: 'clone complete · develop checked out · graph current\nHEAD matches origin/develop · worktree clean',
+      },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Enter planning mode for Inference Mesh routing.',
+      },
+      { tone: 'agent', text: 'planning mode · 6 tasks · SDD requirements linked · TDD principles enforced' },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Execute the plan.\nStop if the approved scope changes.',
+      },
+      {
+        tone: 'ok',
+        text: 'implementation complete · TDD suite green · worktree ready\n6/6 tasks complete · requirement anchors updated',
+      },
+      { tone: 'cmd', intent: 'request', text: 'Trigger review agents.' },
+      { tone: 'warn', text: 'code-reviewer: fallback assertion missing · doc-updater: clean · spec-reviewer: clean' },
+    ],
+    events: [
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Fix it and rerun review.\nShow me the final diff when review is clean.',
+      },
+      { tone: 'ok', text: 'code-reviewer: clean · doc-updater: clean · spec-reviewer: clean' },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Push the reviewed head and open a PR to main.',
+      },
+      {
+        tone: 'ok',
+        text: `PR #1 opened · required checks green · ready to merge\n${EXECUTION_PR_URL}`,
+        href: EXECUTION_PR_URL,
+      },
+      { tone: 'cmd', intent: 'request', text: 'Deploy develop to integration.' },
+      {
+        tone: 'ok',
+        text: 'integration deploy green · dynamic/codeflare-mesh route live · private node path ready',
+      },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Run the end-to-end inference path on integration.',
+      },
+      {
+        tone: 'agent',
+        text: 'AI Gateway → Inference Router → cf1:network Mesh → Zero Trust Client → private node\nstream complete · reservation released · audit event recorded',
+      },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Approve, update the PR body, and squash-merge to main.\nKeep the implementation and verification details in the PR body.',
+      },
+      {
+        tone: 'ok',
+        text: 'PR #1 squash-merged · main updated · PR closed\nmain @ 8ef188a · production deploy queued',
+      },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Reset develop to origin/main and force-push.',
+      },
+      {
+        tone: 'ok',
+        text: 'develop aligned with origin/main · worktree clean\norigin/develop updated with --force-with-lease · 8ef188a',
+      },
+    ],
+    foot: ['PR #1 merged', 'CI green', 'develop synced'],
+  } satisfies ExecutionRun,
+  infrastructure: {
+    title: 'codeflare · infra operations',
+    context: [
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 't.anderson@metacortex.ai $ Trace CVE-2024-6387 across every internet-facing Linux host. Discovery only.',
+      },
+      {
+        tone: 'ok',
+        text: 'CMDB: 2,418 hosts scanned · 186 publicly exposed · 37 running affected OpenSSH versions',
+      },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'SSH to all 37 candidates in parallel. Confirm package version, glibc, and live sshd exposure.',
+      },
+      { tone: 'info', text: '37 checked in 42s · 31 confirmed vulnerable · 6 false positives removed' },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Enter planning mode. Build a canary-first rollout for the 31 vulnerable hosts, with rollback and stop conditions.',
+      },
+      { tone: 'info', text: 'Ubuntu 18 · Debian 8 · RHEL 5 · 3 canaries · 7 rollout batches' },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Show the rollback path and automatic stop conditions.',
+      },
+      {
+        tone: 'info',
+        text: 'rollback role rendered · serial: 5 · max_fail_percentage: 0\nSSH reconnect and sshd health required after every host',
+      },
+    ],
+    events: [
+      { tone: 'cmd', intent: 'request', text: 'List every host in the canary batch.' },
+      {
+        tone: 'info',
+        text: 'ansible-playbook openssh-cve-2024-6387.yml --limit cve-2024-6387-canary --list-hosts\n  hosts (3): aws-fra-edge-03 · azure-fra-edge-02 · azure-zrh-bastion-01',
+      },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Show me the batch timeline before I approve.',
+      },
+      {
+        tone: 'info',
+        text: 'canary 45s · 6 rollout batches × 30s · final rescan 45s\nestimated 4m 30s · rolling sshd restart · no host reboot',
+      },
+      {
+        tone: 'cmd',
+        intent: 'approval',
+        text: 'Execute the approved rollout.\nStop before fleet batches unless all three canaries pass.',
+      },
+      {
+        tone: 'ok',
+        text: 'canaries 3/3 patched · fixed OpenSSH packages verified\nSSH reconnect 3/3 · sshd healthy 3/3 · fleet gate open',
+      },
+      {
+        tone: 'agent',
+        text: 'batch 1/7 passed · remaining six batches released automatically · 28 hosts remaining',
+      },
+      {
+        tone: 'ok',
+        text: '7 batches completed in 3m 31s · 31/31 patched · failed 0\nSSH reconnect 31/31 · sshd healthy 31/31',
+      },
+      {
+        tone: 'agent',
+        text: '31 hosts healthy · rescanning all 2,418 CMDB assets for CVE-2024-6387 exposure',
+      },
+      {
+        tone: 'info',
+        text: '2,418 hosts rescanned · vulnerable hosts 0 · public exposure 0\n31 fixed versions verified · rollback used 0',
+      },
+      {
+        tone: 'cmd',
+        intent: 'request',
+        text: 'Publish the discovery, rollout, and rescan evidence, then close SEC-4821.',
+      },
+      {
+        tone: 'ok',
+        text: 'SEC-4821 closed · CMDB inventory, host evidence, package diffs, and rollout logs attached\nelapsed 4m 18s · 31 hosts remediated · remaining exposure 0',
+      },
+    ],
+    foot: ['SEC-4821 closed', '4m 18s', 'fleet verified'],
+  } satisfies ExecutionRun,
+};
+
+/**
  * Feature terminals: four short, real moments from inside the boundary, each
  * one codeflare capability shown as a command and its output. They replace the
  * old big-number stat band and the old checkmark comparison with the proof
@@ -340,10 +541,9 @@ export const SHIFT = {
   id: 'shift',
   title: 'The bottleneck was never typing speed.',
   lead:
-    'A faster autocomplete just gets you to the next decision sooner. Codeflare moves the whole ' +
-    'job into one controlled run: you write the requirement, agents prepare the change, and your ' +
-    'team reviews the evidence before it executes. The four below are snapshots of a governed run: ' +
-    'egress, isolation, review, and spec.',
+    'The execution above is the operating model: one engineer sets intent while agents move through ' +
+    'code, tests, deployment, and operations. The four proofs below show what keeps that speed ' +
+    'controlled: egress, isolation, review, and spec.',
 };
 
 export const METHOD = {

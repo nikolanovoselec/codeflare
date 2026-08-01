@@ -9,8 +9,9 @@ import {
   prepareBaseOpenVscodeSettings,
   prepareOfficialClaudeIde,
   prepareSidebarConfig,
+  prepareUnsupportedOpenVscodeSettings,
 } from "../prepare-sidebar-config.mjs";
-import { buildBaseOpenVscodeSettings, buildOpenVscodeSettings } from "../managed-settings.mjs";
+import { buildOpenVscodeSettings, buildPiOpenVscodeSettings, buildUnsupportedOpenVscodeSettings } from "../managed-settings.mjs";
 
 const EXPECTED_LINK_ALLOWLIST = Object.freeze([
   ".credentials.json",
@@ -169,7 +170,57 @@ test("REQ-IDE-006 AC1+AC2: projection replaces source settings with the fixed ma
   assert.equal(MANAGED_SETTINGS_PATH, "/etc/codeflare/claude-sidebar/settings.json");
 });
 
-test("REQ-IDE-009: base settings seed writes only the workspace-trust and recommendation keys", async () => {
+test("REQ-IDE-002 AC3 + REQ-IDE-016 AC2: settings preparation preserves theme but replaces stale managed inventory settings", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+  const settingsDirectory = join(serverDataRoot, "data", "User");
+  await mkdir(settingsDirectory, { recursive: true });
+  await writeFile(join(settingsDirectory, "settings.json"), JSON.stringify({
+    "workbench.colorTheme": "Default Light Modern",
+    "chat.disableAIFeatures": true,
+    "chat.notifyWindowOnResponseReceived": "off",
+    "claudeCode.disableLoginPrompt": false,
+  }));
+
+  await prepareBaseOpenVscodeSettings(serverDataRoot);
+
+  assert.deepEqual(JSON.parse(await readFile(join(settingsDirectory, "settings.json"), "utf8")), {
+    "workbench.colorTheme": "Default Light Modern",
+    "security.workspace.trust.enabled": false,
+    "extensions.ignoreRecommendations": true,
+    "chat.notifyWindowOnResponseReceived": "windowNotFocused",
+    "chat.notifyWindowOnConfirmation": "windowNotFocused",
+  });
+});
+
+test("REQ-IDE-005: unsupported inventory disables generic Chat after restoring preferences", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+
+  await prepareUnsupportedOpenVscodeSettings(serverDataRoot);
+
+  assert.deepEqual(
+    JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8")),
+    buildUnsupportedOpenVscodeSettings(),
+  );
+});
+
+test("REQ-IDE-002: malformed restored settings cannot prevent managed settings recovery", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+  const settingsDirectory = join(serverDataRoot, "data", "User");
+  await mkdir(settingsDirectory, { recursive: true });
+  await writeFile(join(settingsDirectory, "settings.json"), "{malformed");
+
+  await prepareBaseOpenVscodeSettings(serverDataRoot);
+
+  assert.deepEqual(
+    JSON.parse(await readFile(join(settingsDirectory, "settings.json"), "utf8")),
+    buildPiOpenVscodeSettings(),
+  );
+});
+
+test("REQ-IDE-009 + REQ-IDE-018: Pi settings seed writes workspace and native notification keys", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
 
@@ -177,7 +228,7 @@ test("REQ-IDE-009: base settings seed writes only the workspace-trust and recomm
 
   const settingsPath = join(serverDataRoot, "data", "User", "settings.json");
   const written = JSON.parse(await readFile(settingsPath, "utf8"));
-  assert.deepEqual(written, buildBaseOpenVscodeSettings());
+  assert.deepEqual(written, buildPiOpenVscodeSettings());
   assert.equal(Object.keys(written).some((key) => key.startsWith("claudeCode.")), false);
   assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
 });

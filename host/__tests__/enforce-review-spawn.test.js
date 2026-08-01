@@ -11,7 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,17 +106,20 @@ function writeTranscript(cwd, lines) {
   return path;
 }
 
-function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile }) {
+function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
   // Per-test sentinel path keeps tests hermetic from production /tmp/review-bypass.
   if (bypassFile) env.REVIEW_BYPASS_FILE = bypassFile;
+  // Per-test TMPDIR keeps the PreToolUse gate's strike/clear state hermetic.
+  if (tmpDir) env.TMPDIR = tmpDir;
   // Prevent the hook from finding a real gh in PATH if we want it absent
   return spawnSync('bash', [HOOK], {
     cwd,
     input: JSON.stringify({
       hook_event_name: event,
       transcript_path: transcriptPath,
+      ...(toolName ? { tool_name: toolName } : {}),
     }),
     encoding: 'utf-8',
     env,
@@ -188,7 +191,8 @@ const LANE_BASH_LINE = (lane, ts, toolUseId = 'toolu_b') =>
 // backgrounded Agent uses, so one completion contract covers both transports.
 const LANE_BASH_DONE_LINE = (toolUseId) => DONE_LINE(toolUseId);
 
-// The triage verdict: an assistant message carrying the table and NO tool call.
+// The triage verdict: an assistant message whose text carries the table
+// (tool calls may share the message - the text is the checkpoint).
 // The header/divider are contract values the gate matches on, the same two
 // constants Pi pins -- not prose, and not assertable copy.
 const TRIAGE_HEADER = '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |';
@@ -232,13 +236,214 @@ describe('enforce-review-spawn.sh — vibe-coding gate', () => {
 });
 
 describe('enforce-review-spawn.sh — event scoping', () => {
-  it('exits 0 silently on SubagentStop (only Stop is enforced)', () => {
+  it('exits 0 silently on SubagentStop (only Stop and PreToolUse are enforced)', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { event: 'SubagentStop', transcriptPath: t });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+});
+
+// REQ-AGENT-104 AC7: mid-turn triage gate. Once every spawned lane completed
+// and no canonical table follows the last completion, every tool outside the
+// read-only set is refused (exit 2 + stderr directive) until the table exists.
+describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
+  const completedRound = () => [
+    AGENT_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_cr1'),
+    DONE_LINE('toolu_cr1'),
+    AGENT_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_sr1'),
+    DONE_LINE('toolu_sr1'),
+    AGENT_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_du1'),
+    DONE_LINE('toolu_du1'),
+  ];
+  const pretool = (cwd, t, toolName) =>
+    runHook(cwd, {
+      event: 'PreToolUse',
+      transcriptPath: t,
+      toolName,
+      tmpDir: cwd,
+      bypassFile: join(cwd, 'absent-bypass'),
+    });
+
+  it('refuses a mutating tool once every spawned lane completed with no triage table after', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const r = pretool(cwd, t, 'Edit');
+    assert.equal(r.status, 2);
+    assert.ok(r.stderr.includes(TRIAGE_HEADER), 'directive carries the canonical header contract');
+    assert.equal(r.stdout, '');
+    assert.equal(pretool(cwd, t, 'Write').status, 2,
+      'Write carries no exemption while blocked');
+  });
+
+  it('allows read-only tools during the blocked window', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    for (const tool of ['Read', 'TaskOutput']) {
+      assert.equal(pretool(cwd, t, tool).status, 0, tool);
+    }
+  });
+
+  it('allows once the triage table is published after the last completion', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [...completedRound(), TRIAGE_LINE()]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('allows while any lane is still in flight', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound().slice(0, 5));
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('does not treat a failed lane as a completed round', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [...completedRound().slice(0, 5), FAILED_LINE('toolu_du1')]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('demands a fresh table when a lane re-runs after the previous round was triaged', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [
+      ...completedRound(),
+      TRIAGE_LINE(),
+      AGENT_LINE('spec-reviewer', '2026-05-03T12:10:00.000Z', 'toolu_sr2'),
+      DONE_LINE('toolu_sr2'),
+    ]);
+    assert.equal(pretool(cwd, t, 'Bash').status, 2);
+  });
+
+  it('re-blocks after a cleared round when a new completion lands', () => {
+    const cwd = makeFixture();
+    const cleared = [...completedRound(), TRIAGE_LINE()];
+    const t = writeTranscript(cwd, cleared);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    writeTranscript(cwd, [
+      ...cleared,
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:20:00.000Z', 'toolu_b9'),
+      LANE_BASH_DONE_LINE('toolu_b9'),
+    ]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+  });
+
+  it('covers the headless Bash lane transport', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+    ]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+  });
+
+  it('exits 0 for a transcript with no review lanes', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('honors the bypass sentinel without consuming it', () => {
+    const cwd = makeFixture();
+    const bypassFile = join(cwd, 'bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, completedRound());
+    const r = runHook(cwd, {
+      event: 'PreToolUse', transcriptPath: t, toolName: 'Edit', tmpDir: cwd, bypassFile,
+    });
+    assert.equal(r.status, 0);
+    assert.equal(existsSync(bypassFile), true, 'PreToolUse never consumes the one-shot sentinel');
+  });
+
+  it('re-blocks a rewritten transcript whose size still covers the cached offset', () => {
+    const cwd = makeFixture();
+    const filler = (ch) => JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: ch.repeat(5000) }] },
+    });
+    const junk = JSON.stringify({
+      type: 'user',
+      message: { content: [{ type: 'text', text: 'z'.repeat(2500) }] },
+    });
+    const t = writeTranscript(cwd, [filler('a'), ...completedRound(), TRIAGE_LINE()]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    // History rewrite: different prefix, completions end BEFORE the cached
+    // offset, trailing junk keeps the file at least as large - the appended-
+    // bytes count alone would see nothing new and fail open.
+    writeTranscript(cwd, [filler('b'), ...completedRound(), junk]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2,
+      'prefix fingerprint mismatch must force the full pass');
+  });
+
+  it('treats a legacy or malformed cache entry as no cache', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const key = spawnSync('bash', ['-c', 'printf %s "$1" | cksum', '_', t], { encoding: 'utf-8' })
+      .stdout.trim().split(' ')[0];
+    // Two-field legacy entry whose offset sits at EOF: honouring it would see
+    // nothing appended and allow, so only the strict three-field guard blocks.
+    // The one-field malformed shape keeps its own coverage alongside.
+    for (const entry of ['3\n', `1:${statSync(t).size}\n`]) {
+      writeFileSync(join(cwd, `sdd-pretool-triage-clear-${key}`), entry);
+      assert.equal(pretool(cwd, t, 'Edit').status, 2,
+        `entry ${JSON.stringify(entry)} must not be honoured as a cleared round`);
+    }
+  });
+
+  it('rejects a table that appears only inside a tool_use envelope', () => {
+    const cwd = makeFixture();
+    const toolOnlyTable = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'Edit',
+            id: 'toolu_fake1',
+            input: {
+              new_string: `${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a | v | f | p | fix |`,
+            },
+          },
+        ],
+      },
+    });
+    const t = writeTranscript(cwd, [...completedRound(), toolOnlyTable]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 2,
+      'table text inside a tool_use input must not clear the checkpoint');
+  });
+
+  it('accepts a table sharing its message with the first fix tool call', () => {
+    const cwd = makeFixture();
+    const tableWithTool = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: `${TRIAGE_HEADER}\n|---|---|---|---|---|\n| a finding | valid | a fix | proportionate | fix |`,
+          },
+          { type: 'tool_use', name: 'Edit', id: 'toolu_fix1', input: {} },
+        ],
+      },
+    });
+    const t = writeTranscript(cwd, [...completedRound(), tableWithTool]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0,
+      'a tool-free message ends the turn, so the table must count alongside fixes');
+  });
+
+  it('gives up after five refused calls for the same round, then stays released', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const statuses = [];
+    for (let index = 0; index < 7; index += 1) statuses.push(pretool(cwd, t, 'Edit').status);
+    assert.deepEqual(statuses, [2, 2, 2, 2, 2, 0, 0]);
+  });
+
+  it('never writes the Stop-side acknowledgement from a PreToolUse pass', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [...completedRound(), TRIAGE_LINE()]);
+    pretool(cwd, t, 'Edit');
+    assert.equal(existsSync(join(cwd, '.git/sdd-last-ack-pr-head')), false);
   });
 });
 
@@ -906,6 +1111,35 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     }
     assert.equal(acked, true,
       'repeated unanswered demands must acknowledge; a permanently wedged checkpoint is the failure being removed');
+  });
+
+  // The third round-closing path: a graphify-out/-only diff requires no lanes,
+  // so the checkpoint auto-acks without any spawn or verdict demand.
+  it('auto-acks a graphify-out-only diff that requires no lanes', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const git = (...args) => {
+      const r = spawnSync('git', args, { cwd, encoding: 'utf-8' });
+      assert.equal(r.status, 0, `git ${args[0]} failed: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    const baseSha = git('rev-parse', 'HEAD');
+    mkdirSync(join(cwd, 'graphify-out'), { recursive: true });
+    writeFileSync(join(cwd, 'graphify-out/graph.json'), '{}\n');
+    // Stage ONLY the graphify artifact: the fixture's uncommitted sdd/ and
+    // fake-bin/ files must not leak into the diff, or the shape stops being
+    // graphify-only and lanes are required again.
+    git('add', 'graphify-out/graph.json');
+    git('commit', '-q', '-m', 'graph');
+    const headSha = git('rev-parse', 'HEAD');
+    // Seed the previous round's ack so the classifier diffs base..head and
+    // proves the graphify-out/-only shape that requires no lanes.
+    writeFileSync(join(cwd, git('rev-parse', '--git-common-dir'), 'sdd-last-ack-pr-head'),
+      `${baseSha}\n`);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    runHook(cwd, { transcriptPath: t, binDir, tmpDir: cwd });
+    assert.equal(ackOf(cwd), headSha, 'a graphify-out-only diff must auto-ack with no lanes');
   });
 
   // REQ-AGENT-104 AC5.

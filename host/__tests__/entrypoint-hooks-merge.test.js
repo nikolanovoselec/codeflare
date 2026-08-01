@@ -59,6 +59,16 @@ function settingsMergeBlock() {
   return entrypoint.slice(start, end + '\nfi\n'.length);
 }
 
+function sessionModeSettingsBlock() {
+  const assignment = entrypoint.indexOf('SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"');
+  const start = entrypoint.lastIndexOf(
+    'if [ "${SESSION_MODE:-default}" = "advanced" ]; then',
+    assignment,
+  );
+  assert.notEqual(start, -1, 'entrypoint.sh no longer selects Claude settings by session mode');
+  return entrypoint.slice(start, assignment);
+}
+
 // Runs that block for real against a throwaway settings.json. `existing` seeds
 // the file (omit it to exercise the no-file branch) and may be an object or a
 // raw string; `config` is the managed SETTINGS_CONFIG. Executing the shell is
@@ -87,6 +97,35 @@ function runSettingsMerge({ existing, config }) {
     settings = null;
   }
   return { settings, raw, stdout: result.stdout };
+}
+
+function runSessionModeSettings(mode) {
+  const userDirectory = mkdtempSync(join(tmpdir(), `settings-${mode}-`));
+  const file = join(userDirectory, 'settings.json');
+  writeFileSync(file, JSON.stringify({
+    theme: 'dark',
+    hooks: { Notification: [{ matcher: 'custom', hooks: [{ type: 'command', command: '/user/hook.sh' }] }] },
+  }));
+
+  const script = [
+    'set -euo pipefail',
+    sessionModeSettingsBlock(),
+    'SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"',
+    settingsMergeBlock(),
+  ].join('\n');
+  const result = spawnSync('bash', ['-c', script], {
+    env: {
+      ...process.env,
+      SESSION_MODE: mode,
+      USER_CLAUDE_DIR: userDirectory,
+      PLUGIN_DIR: '/plugins',
+      CONTEXT_MODE_MANIFEST: '/missing/context-mode.json',
+      GRAPHIFY_MANIFEST: '/missing/graphify.json',
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, `${mode} settings path exited ${result.status}: ${result.stderr}`);
+  return JSON.parse(readFileSync(file, 'utf8'));
 }
 
 // Every hook entry registered for one event type, flattened across matchers.
@@ -166,6 +205,21 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     }
   });
 
+  it('REQ-TERM-024: both Claude session modes apply the native channel without managed notification hooks', () => {
+    for (const mode of ['advanced', 'default']) {
+      const settings = runSessionModeSettings(mode);
+      assert.equal(settings.preferredNotifChannel, 'ghostty');
+      assert.deepEqual(settings.hooks.Notification, [
+        { matcher: 'custom', hooks: [{ type: 'command', command: '/user/hook.sh' }] },
+      ]);
+      assert.equal(
+        hookEntries(settings, 'Stop').filter((hook) => (hook.command ?? '').includes('notification')).length,
+        0,
+      );
+      assert.equal(settings.theme, 'dark');
+    }
+  });
+
   // REQ-MEM-011 AC1: hooks (PreToolUse and UserPromptSubmit) are merged into
   // settings.json ONLY in advanced mode. Default mode gets only
   // skipDangerousModePermissionPrompt -- no hook registrations.
@@ -191,7 +245,7 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     // default-mode literal fails here rather than shipping to Standard sessions.
     assert.deepEqual(
       Object.keys(standard).sort(),
-      ['disableAgentView', 'skipDangerousModePermissionPrompt']
+      ['disableAgentView', 'preferredNotifChannel', 'skipDangerousModePermissionPrompt']
     );
   });
 

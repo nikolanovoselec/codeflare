@@ -1,7 +1,7 @@
 ---
 /**
  * Transcript: the "last line + scrolling cursor" terminal styler (styler 1).
- * Renders a .terminal-body of .t-line rows from typed content, in four modes
+ * Renders a .terminal-body of .t-line rows from typed content, in five modes
  * that share one component so the cursor / typing behaviour is defined once:
  *
  *   - 'cursor'      the LAST line is wrapped in [data-typeline] and carries a
@@ -16,26 +16,116 @@
  *                   four feature terminals.
  *   - 'roll-middle' first and last line pinned; the middle lines sit in a
  *                   [data-roll] list that proof.ts rolls (the dogfood proof).
+ *   - 'feed'        the server-rendered fallback shows the final resolved `feed`
+ *                   rows. Under normal motion, the first eight context `lines`
+ *                   establish base sizing; proof.ts restores full context, reveals
+ *                   every row fitting the stretched opening viewport in order,
+ *                   retains clipped overflow, then rolls in `feed` events.
  *   - 'static'      plain lines, no caret, no roll.
  *
  * Default markup is the resolved state, fully legible with no JS and under
  * reduced motion (the scripts only animate from this resting state).
  */
 import type { TranscriptLine } from '../content/site';
+import { EXECUTION_PR_URL, approvedExecutionLinkStart } from '../lib/execution-link';
 
 interface Props {
   lines: TranscriptLine[];
-  animate?: 'cursor' | 'typed' | 'roll-middle' | 'static';
+  animate?: 'cursor' | 'typed' | 'roll-middle' | 'feed' | 'static';
   /** animate='typed' only: the initial text of the typed command line. */
   typed?: string;
+  /** animate='feed' only: lines that replace the initial viewport in order. */
+  feed?: TranscriptLine[];
+  /** Accessible name for the complete initial + feed transcript. */
+  label?: string;
 }
-const { lines, animate = 'static', typed = '' } = Astro.props;
+const { lines, animate = 'static', typed = '', feed = [], label = 'Terminal transcript' } = Astro.props;
 const lastIndex = lines.length - 1;
+const viewportRows = Math.min(8, lines.length);
+const resolvedFeed = feed.slice(-viewportRows);
+const feedWindows = [
+  lines.slice(0, viewportRows),
+  resolvedFeed,
+];
+const linkParts = (line: TranscriptLine): [string, string, string] | null => {
+  const start = approvedExecutionLinkStart(line.text, line.href);
+  if (start === null) return null;
+  return [
+    line.text.slice(0, start),
+    EXECUTION_PR_URL,
+    line.text.slice(start + EXECUTION_PR_URL.length),
+  ];
+};
 ---
 
 <div class="terminal-body">
   {
-    animate === 'roll-middle' ? (
+    animate === 'feed' ? (
+      <Fragment>
+        <ol class="sr-only transcript-feed-semantic" aria-label={label}>
+          {[...lines, ...feed].map((line) => {
+            const parts = linkParts(line);
+            return (
+              <li data-feed-accessible-line>
+                {parts ? (
+                  <Fragment>
+                    {parts[0]}<a
+                      class="terminal-inline-link"
+                      href={EXECUTION_PR_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >{parts[1]}</a>{parts[2]}
+                  </Fragment>
+                ) : line.text}
+              </li>
+            );
+          })}
+        </ol>
+        <div
+          class="transcript-feed-size"
+          data-feed-size-reserve
+          aria-hidden="true"
+        >
+          {feedWindows.map((window) => (
+            <div class="transcript-feed-size-window" data-feed-size-window>
+              {window.map((line) => (
+                <span class={`t-line ${line.tone === 'cmd' ? 't-feed-command' : `t-${line.tone}`}`}>
+                  {line.tone === 'cmd' && <span class="t-feed-prompt" aria-hidden="true">❯ </span>}
+                  <span data-feed-size-text>{line.text}</span>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div
+          class="transcript-feed"
+          data-roll
+          data-feed-context={JSON.stringify(lines)}
+          data-feed-events={JSON.stringify(feed)}
+          data-feed-state="resolved"
+          aria-hidden="true"
+        >
+          {resolvedFeed.map((line, i) => {
+            const parts = linkParts(line);
+            return (
+              <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>
+                {parts ? (
+                  <Fragment>
+                    {parts[0]}<a
+                      class="terminal-inline-link"
+                      href={EXECUTION_PR_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      tabindex="-1"
+                    >{parts[1]}</a>{parts[2]}
+                  </Fragment>
+                ) : line.text}
+              </span>
+            );
+          })}
+        </div>
+      </Fragment>
+    ) : animate === 'roll-middle' ? (
       <Fragment>
         <span class={`t-line t-${lines[0].tone}`} style="--i:0">{lines[0].text}</span>
         <div data-roll>

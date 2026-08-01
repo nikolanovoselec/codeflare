@@ -29,6 +29,17 @@ const WORKSPACE_ROOT = '/home/user/workspace';
 const MAX_COLLECTED_DOCUMENTS = 32;
 const MAX_COLLECTED_DIAGNOSTICS = 256;
 
+export async function canonicalWorkspaceFilePath(
+  uri: Uri,
+  workspaceRoot: string = WORKSPACE_ROOT,
+): Promise<string | undefined> {
+  try {
+    return await canonicalWorkspacePath(uri, await realpath(workspaceRoot));
+  } catch {
+    return undefined;
+  }
+}
+
 export async function collectNativePiPromptInput(
   request: ChatRequest,
   context: ChatContext,

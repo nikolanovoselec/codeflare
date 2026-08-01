@@ -7,7 +7,7 @@ import { loadSettings, saveSettings, defaultSettings } from '../../lib/settings'
 import type { Settings } from '../../lib/settings';
 import * as storageApi from '../../api/storage';
 
-const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false }));
+const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false, iosInstall: false }));
 
 const sessionStoreState = vi.hoisted(() => ({
   preferences: { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined } as { workspaceSyncEnabled: boolean | undefined; fastStartEnabled: boolean | undefined; sessionMode?: string | undefined },
@@ -20,12 +20,17 @@ const sessionStoreState = vi.hoisted(() => ({
 vi.mock('../../lib/mobile', () => ({
   isTouchDevice: () => mobileState.mobile,
   get isSamsungBrowser() { return mobileState.samsung; },
+  needsHomeScreenInstallForNotifications: () => mobileState.iosInstall,
 }));
 
 const mockGetLlmKeys = vi.hoisted(() => vi.fn());
 const mockUpdateLlmKeys = vi.hoisted(() => vi.fn());
 const mockGetDeployKeys = vi.hoisted(() => vi.fn());
 const mockUpdateDeployKeys = vi.hoisted(() => vi.fn());
+const mockAgentNotificationPermission = vi.hoisted(() => vi.fn<() => NotificationPermission | 'unavailable'>(() => 'default'));
+const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(
+  async (): Promise<'granted' | 'unavailable'> => 'granted',
+));
 
 // Defaults
 mockGetLlmKeys.mockResolvedValue({});
@@ -49,6 +54,11 @@ vi.mock('../../api/storage', () => ({
     written: ['Getting-Started.md', 'Documentation/README.md'],
     skipped: [],
   })),
+}));
+
+vi.mock('../../lib/agent-notifications', () => ({
+  agentNotificationPermission: mockAgentNotificationPermission,
+  enableAgentNotifications: mockEnableAgentNotifications,
 }));
 
 vi.mock('../../stores/session', () => ({
@@ -103,6 +113,8 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
     mockGetLlmKeys.mockResolvedValue({});
     mockUpdateLlmKeys.mockResolvedValue({});
+    mockAgentNotificationPermission.mockReturnValue('default');
+    mockEnableAgentNotifications.mockResolvedValue('granted');
   });
 
   afterEach(() => {
@@ -236,6 +248,49 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const error = await screen.findByTestId('settings-recreate-docs-error');
       expect(error.textContent).toContain('Seed failed');
+    });
+  });
+
+  describe('Agent notifications / REQ-TERM-023', () => {
+    it('requests browser permission only after the user clicks the session-settings action', async () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(mockEnableAgentNotifications).not.toHaveBeenCalled();
+      await fireEvent.click(screen.getByTestId('settings-agent-notifications'));
+
+      expect(mockEnableAgentNotifications).toHaveBeenCalledOnce();
+      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent('Enabled');
+    });
+
+    it('reports unavailable browser setup before and after the enable action', async () => {
+      mockAgentNotificationPermission.mockReturnValueOnce('unavailable');
+      mockEnableAgentNotifications.mockResolvedValueOnce('unavailable');
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent(
+        'Unavailable in this browser',
+      );
+      await fireEvent.click(screen.getByTestId('settings-agent-notifications'));
+      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent(
+        'Unavailable in this browser',
+      );
+      expect(screen.getByTestId('settings-agent-notifications-status')).not.toHaveAttribute('data-guidance');
+    });
+
+    it('marks the unavailable state with Home Screen install guidance on iOS browser tabs', () => {
+      mobileState.iosInstall = true;
+      try {
+        mockAgentNotificationPermission.mockReturnValueOnce('unavailable');
+        render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+        fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+        expect(screen.getByTestId('settings-agent-notifications-status'))
+          .toHaveAttribute('data-guidance', 'ios-install');
+      } finally {
+        mobileState.iosInstall = false;
+      }
     });
   });
 

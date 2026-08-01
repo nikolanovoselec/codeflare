@@ -9,11 +9,10 @@
  * scrolls into view, which is the only thing that arms the CSS keyframes. The
  * sequence plays once, then the element is unobserved.
  *
- * Some lower artifacts additionally carry a [data-roll] list: once armed, the
- * top row slides out and re-enters at the bottom on a slow loop, so the artifact
- * reads as a live feed. The loop pauses when its artifact is off-screen or the
- * tab is hidden. Pinned chrome (titlebars, verdict, totals) never moves, so the
- * resolved claim stays on screen.
+ * Some artifacts carry a [data-roll] list. Ordinary proof lists move the top
+ * row to the bottom on a slow loop. Transcript simulations reveal their populated
+ * opening rows while retaining full context, then append typed events into a clipped,
+ * fixed-height log using the established cadence. Pinned terminal chrome never moves.
  *
  * Reduced motion: do nothing. The default (no `.is-live`) markup is already the
  * resolved state, so leaving it untouched is the correct motionless result.
@@ -21,21 +20,50 @@
  * animation's duration but not its delay or `backwards` fill, so an armed row
  * would render invisible during its delay window and then snap in (a flash).
  *
- * No IntersectionObserver (old browser, not reduced): arm everything at once.
+ * No IntersectionObserver (old browser, not reduced): arm ordinary proofs at
+ * once and leave bounded Transcript feeds in their resolved static state.
  */
+import { EXECUTION_PR_URL, approvedExecutionLinkStart } from '../lib/execution-link';
+
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const artifacts = Array.from(document.querySelectorAll<HTMLElement>('[data-proof]'));
+const executionReel = document.querySelector<HTMLElement>('[data-execution-reel]');
+const heroTerminal = document.querySelector<HTMLElement>('.hero-terminal > .terminal');
+
+/** Mobile and tablet Execution frames share the rendered Hero terminal height.
+ *  A CSS custom property keeps the relationship exact across wrapping widths. */
+function syncExecutionFrames(): boolean {
+  if (!executionReel || !heroTerminal) return false;
+  if (reduced || window.innerWidth > 1023) {
+    executionReel.style.removeProperty('--execution-frame-height');
+    return false;
+  }
+  const height = heroTerminal.getBoundingClientRect().height;
+  if (!Number.isFinite(height) || height <= 0) return false;
+  executionReel.style.setProperty('--execution-frame-height', `${height}px`);
+  return true;
+}
 
 const ROLL_FIRST_MS = 3000;
 const ROLL_EVERY_MS = 2600;
 const PHASE_MS = 420;
+const TYPE_MS = 58;
+const FEED_HOLD_MS = 1700;
+
+const FEED_TONES = new Set(['cmd', 'agent', 'info', 'ok', 'dim', 'warn', 'deny']);
+
+interface FeedLine {
+  tone: 'cmd' | 'agent' | 'info' | 'ok' | 'dim' | 'warn' | 'deny';
+  text: string;
+  href?: string;
+}
 
 /** Track which rolling artifacts are currently on-screen, so ticks pause off-screen. */
 const visible = new WeakSet<HTMLElement>();
 
 /** One slow line-roll cycle on a [data-roll] list: the top child slides out and
  *  re-enters at the bottom, with the list height frozen so nothing jumps. */
-function rollOnce(list: HTMLElement): void {
+function rollOnce(list: HTMLElement, onReordered?: (row: HTMLElement) => void): void {
   const children = Array.from(list.children) as HTMLElement[];
   if (children.length < 3) return;
   // Re-entrancy guard: one cycle spans two PHASE_MS timeouts, so skip a tick
@@ -55,9 +83,14 @@ function rollOnce(list: HTMLElement): void {
     list.appendChild(first);
     first.classList.remove('roll-up');
     first.classList.add('roll-down');
+    onReordered?.(first);
     // Force a reflow so the roll-down transition runs from its start state.
     void first.getBoundingClientRect();
     first.classList.remove('roll-down');
+    // Measure the replacement at its natural wrapped height, not through the
+    // stale inline constraint captured before the top row moved. Both style
+    // writes occur in one task, so only the correctly reserved height paints.
+    list.style.height = '';
     const endHeight = list.getBoundingClientRect().height;
     list.style.height = `${endHeight}px`;
     window.setTimeout(() => {
@@ -68,18 +101,282 @@ function rollOnce(list: HTMLElement): void {
   }, PHASE_MS);
 }
 
-/** Begin the slow roll loop on an armed artifact's [data-roll] lists. */
-function startRoll(el: HTMLElement): void {
-  const lists = Array.from(el.querySelectorAll<HTMLElement>('[data-roll]')).filter(
-    (list) => list.children.length >= 3
+/** Parse a Transcript feed data attribute. DOM attributes are an external
+ *  boundary even though Astro authored them, so malformed lines fail closed. */
+function parseFeed(list: HTMLElement, key: 'feedContext' | 'feedEvents'): FeedLine[] {
+  try {
+    const value: unknown = JSON.parse(list.dataset[key] ?? '[]');
+    if (!Array.isArray(value)) return [];
+    const valid = value.every((line) => {
+      if (!line || typeof line !== 'object') return false;
+      const candidate = line as { tone?: unknown; text?: unknown; href?: unknown };
+      if (typeof candidate.tone !== 'string'
+        || !FEED_TONES.has(candidate.tone)
+        || typeof candidate.text !== 'string'
+        || candidate.text.length === 0) return false;
+      return candidate.href === undefined
+        || approvedExecutionLinkStart(candidate.text, candidate.href) !== null;
+    });
+    return valid ? value as FeedLine[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function renderFeedRowText(row: HTMLElement, line: FeedLine): void {
+  const hrefStart = approvedExecutionLinkStart(line.text, line.href);
+  if (hrefStart === null) {
+    row.textContent = line.text;
+    return;
+  }
+  const link = document.createElement('a');
+  link.className = 'terminal-inline-link';
+  link.href = EXECUTION_PR_URL;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.tabIndex = -1;
+  link.textContent = EXECUTION_PR_URL;
+  row.replaceChildren(
+    line.text.slice(0, hrefStart),
+    link,
+    line.text.slice(hrefStart + EXECUTION_PR_URL.length),
   );
-  if (lists.length === 0) return;
+}
+
+function feedRow(line: FeedLine, index: number): HTMLElement {
+  const row = document.createElement('span');
+  row.className = `t-line t-${line.tone}`;
+  row.style.setProperty('--i', String(index));
+  renderFeedRowText(row, line);
+  return row;
+}
+
+function feedPrompt(): HTMLElement {
+  const prompt = document.createElement('span');
+  prompt.className = 't-feed-prompt';
+  prompt.setAttribute('aria-hidden', 'true');
+  prompt.textContent = '❯ ';
+  return prompt;
+}
+
+function feedCaret(): HTMLElement {
+  const caret = document.createElement('span');
+  caret.className = 't-caret';
+  caret.setAttribute('aria-hidden', 'true');
+  return caret;
+}
+
+function pendingFeedRow(line: FeedLine, index: number): HTMLElement {
+  const row = feedRow(line, index);
+  row.className = `t-line ${line.tone === 'cmd' ? 't-feed-command' : `t-${line.tone}`}`;
+  const live = document.createElement('span');
+  live.dataset.feedLive = '';
+  const text = document.createElement('span');
+  text.dataset.feedText = '';
+  if (line.tone === 'cmd') live.appendChild(feedPrompt());
+  live.append(text, feedCaret());
+  row.replaceChildren(live);
+  return row;
+}
+
+/** Normal motion restores the complete context on desktop. A synchronized
+ *  mobile/tablet frame reveals only its largest fully fitting prefix; the
+ *  remaining context stays queued for typed append before authored events.
+ *  The server-rendered final event viewport remains untouched for no-JS and
+ *  reduced-motion visitors. */
+function prepareFeed(list: HTMLElement): void {
+  const context = parseFeed(list, 'feedContext');
+  const events = parseFeed(list, 'feedEvents');
+  if (context.length < 8 || events.length < 8) return;
+  list.replaceChildren(...context.map(feedRow));
+  list.closest<HTMLElement>('.terminal-body')?.classList.add('is-feed-prepared');
+
+  // Synchronized mobile/tablet frames can be shorter than the eight-row authored
+  // context at narrow half widths. Keep only the largest prefix that leaves one
+  // fully visible empty row for the pending caret; startFeed queues the rest.
+  const frameIsSynchronized = executionReel?.style
+    .getPropertyValue('--execution-frame-height').length;
+  const viewport = list.getBoundingClientRect();
+  if (frameIsSynchronized && viewport.height > 0) {
+    const pending = pendingFeedRow(events[0], context.length);
+    list.appendChild(pending);
+    while (list.children.length > 2) {
+      const pendingRect = pending.getBoundingClientRect();
+      if (pendingRect.bottom <= viewport.bottom) break;
+      pending.previousElementSibling?.remove();
+    }
+    pending.remove();
+  }
+  list.dataset.feedOpeningCount = String(list.children.length);
+  list.dataset.feedState = 'ready';
+}
+
+function scrollFeedToEnd(list: HTMLElement, behavior: ScrollBehavior = 'auto'): void {
+  const top = Math.max(0, list.scrollHeight - list.clientHeight);
+  if (typeof list.scrollTo === 'function') {
+    try {
+      list.scrollTo({ top, behavior });
+      return;
+    } catch {
+      // Older or partial browser implementations can expose scrollTo while
+      // rejecting the options object. Direct assignment is the safe fallback.
+    }
+  }
+  list.scrollTop = top;
+}
+
+function typeFeedRow(
+  row: HTMLElement,
+  line: FeedLine,
+  onComplete: () => void,
+  startDelay = TYPE_MS,
+): void {
+  for (const tone of FEED_TONES) row.classList.remove(`t-${tone}`);
+  row.classList.remove('t-feed-command');
+  row.classList.add(line.tone === 'cmd' ? 't-feed-command' : `t-${line.tone}`, 'is-feed-typing');
+
+  // Keep the completed line in flow but invisible while the live copy types over
+  // it. On narrow screens this reserves the final wrapped height from character
+  // one, so neither the terminal nor the surrounding page grows mid-line.
+  const reserve = document.createElement('span');
+  reserve.dataset.feedReserve = '';
+  reserve.setAttribute('aria-hidden', 'true');
+  const reserveText = document.createElement('span');
+  reserveText.dataset.feedText = '';
+  reserveText.textContent = line.text;
+  const live = document.createElement('span');
+  live.dataset.feedLive = '';
+  const text = document.createElement('span');
+  text.dataset.feedText = '';
+  const caret = feedCaret();
+  if (line.tone === 'cmd') {
+    for (const layer of [reserve, live]) layer.appendChild(feedPrompt());
+  }
+  reserve.appendChild(reserveText);
+  live.append(text, caret);
+  row.replaceChildren(reserve, live);
+
+  let offset = 0;
+  const tick = () => {
+    offset += 1;
+    text.textContent = line.text.slice(0, offset);
+    if (row.parentElement) scrollFeedToEnd(row.parentElement);
+    if (offset < line.text.length) {
+      window.setTimeout(tick, TYPE_MS);
+      return;
+    }
+    row.classList.remove('is-feed-typing', 't-feed-command');
+    row.classList.add(`t-${line.tone}`);
+    renderFeedRowText(row, line);
+    onComplete();
+  };
+  window.setTimeout(tick, startDelay);
+}
+
+function placeFeedCaret(list: HTMLElement): void {
+  list.querySelector('.t-caret')?.remove();
+  list.lastElementChild?.appendChild(feedCaret());
+}
+
+function settleFeed(list: HTMLElement): void {
+  placeFeedCaret(list);
+  list.dataset.feedState = 'complete';
+}
+
+/** One bounded Transcript feed: each typed event is appended to a fixed-height,
+ *  clipped terminal log. Native scrolling keeps the newest work in view without
+ *  deleting history, stretching row gaps, or changing the outer frame. */
+function startFeed(list: HTMLElement): void {
+  if (list.dataset.feedStarted === 'true' || list.dataset.feedState !== 'ready') return;
+  const context = parseFeed(list, 'feedContext');
+  const authoredEvents = parseFeed(list, 'feedEvents');
+  const openingCount = Number(list.dataset.feedOpeningCount);
+  if (context.length < 8
+    || authoredEvents.length < 8
+    || !Number.isInteger(openingCount)
+    || openingCount < 1
+    || openingCount > context.length
+    || list.children.length !== openingCount) return;
+  const events = [...context.slice(openingCount), ...authoredEvents];
+  list.dataset.feedStarted = 'true';
+  list.dataset.feedState = 'running';
+  const pendingRow = pendingFeedRow(events[0], list.children.length);
+  list.appendChild(pendingRow);
+  scrollFeedToEnd(list, 'smooth');
+  let index = 0;
+
+  const advance = () => {
+    if (index >= events.length) {
+      settleFeed(list);
+      return;
+    }
+    list.closest<HTMLElement>('[data-proof]')?.classList.add('is-rolling');
+    const row = index === 0 ? pendingRow : feedRow(events[index], list.children.length);
+    if (index > 0) list.appendChild(row);
+    typeFeedRow(row, events[index], () => {
+      index += 1;
+      if (index >= events.length) {
+        settleFeed(list);
+        return;
+      }
+      window.setTimeout(advance, FEED_HOLD_MS);
+    }, PHASE_MS + TYPE_MS);
+    scrollFeedToEnd(list, 'smooth');
+  };
+
+  window.setTimeout(advance, ROLL_FIRST_MS);
+}
+
+/** Start bounded Transcript feeds only after their terminal actually intersects. */
+function startFeeds(el: HTMLElement): void {
+  const feeds = Array.from(el.querySelectorAll<HTMLElement>('[data-feed-events]'));
+  if (feeds.length === 0) return;
+  for (const feed of feeds) startFeed(feed);
+}
+
+function prepareReadyFeeds(): void {
+  document.querySelectorAll<HTMLElement>('[data-feed-state="ready"]')
+    .forEach((feed) => {
+      const terminal = feed.closest<HTMLElement>('[data-proof]');
+      if (!terminal?.classList.contains('is-live')) prepareFeed(feed);
+    });
+}
+
+function syncFramesAndReadyFeeds(): void {
+  syncExecutionFrames();
+  prepareReadyFeeds();
+}
+
+let syncedFrameWidth = window.innerWidth;
+let feedResizePending = false;
+window.addEventListener('resize', () => {
+  if (feedResizePending) return;
+  feedResizePending = true;
+  window.setTimeout(() => {
+    feedResizePending = false;
+    if (window.innerWidth !== syncedFrameWidth) {
+      syncedFrameWidth = window.innerWidth;
+      syncFramesAndReadyFeeds();
+    }
+    const feeds = document.querySelectorAll<HTMLElement>(
+      '[data-feed-state="running"], [data-feed-state="complete"]',
+    );
+    feeds.forEach((feed) => scrollFeedToEnd(feed));
+  }, 0);
+});
+
+/** Begin the shared slow loop for ordinary proof-row lists on an armed artifact. */
+function startRoll(el: HTMLElement): void {
+  const loops = Array.from(el.querySelectorAll<HTMLElement>('[data-roll]')).filter(
+    (list) => list.children.length >= 3 && !list.hasAttribute('data-feed-events')
+  );
+  if (loops.length === 0) return;
 
   el.classList.add('is-rolling');
 
   const tick = () => {
     if (document.hidden || !visible.has(el)) return;
-    for (const list of lists) rollOnce(list);
+    for (const list of loops) rollOnce(list);
   };
 
   window.setTimeout(() => {
@@ -93,15 +390,35 @@ function startRoll(el: HTMLElement): void {
  *  only be exercised by calling rollOnce directly. Not used at runtime. */
 export const __rollTest = { rollOnce };
 
-if (reduced) {
-  // Static markup is already the resolved artifact; no motion to arm.
-} else if (!('IntersectionObserver' in window)) {
+/** Preserve resolved Transcript feeds while retaining the established immediate
+ *  fallback for ordinary proof artifacts in browsers without observation. */
+function startWithoutIntersectionObserver(): void {
   for (const el of artifacts) {
+    if (el.querySelector('[data-feed-events]')) continue;
     el.classList.add('is-live');
     visible.add(el);
     startRoll(el);
   }
+}
+
+syncExecutionFrames();
+
+if (!reduced) {
+  void document.fonts?.ready.then(() => {
+    const exposedFrame = executionReel?.querySelector('.execution-terminal.is-live');
+    if (!exposedFrame) syncFramesAndReadyFeeds();
+  });
+}
+
+if (reduced) {
+  // Static markup is already the resolved artifact; no motion to arm.
+} else if (!('IntersectionObserver' in window)) {
+  startWithoutIntersectionObserver();
 } else {
+  for (const el of artifacts) {
+    for (const feed of el.querySelectorAll<HTMLElement>('[data-feed-events]')) prepareFeed(feed);
+  }
+
   // Arms the one-shot reveal just BEFORE an artifact scrolls in (positive bottom
   // rootMargin), not after. The row keyframes are backwards-filled: adding
   // .is-live snaps the resolved rows to their hidden 'from' state, then animates
@@ -121,7 +438,20 @@ if (reduced) {
     { rootMargin: '0px 0px 100px 0px' }
   );
 
-  // Tracks on-screen state so the roll loop pauses when the artifact leaves view.
+  // Unlike the generic proof reveal, a Transcript feed must retain its complete
+  // initial viewport until the terminal itself enters the viewport.
+  const feedObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        startFeeds(entry.target as HTMLElement);
+        feedObserver.unobserve(entry.target);
+      }
+    },
+    { threshold: 0.01 }
+  );
+
+  // Tracks on-screen state so the ordinary roll loop pauses when its artifact leaves view.
   const visibleObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) visible.add(entry.target as HTMLElement);
@@ -131,6 +461,7 @@ if (reduced) {
 
   for (const el of artifacts) {
     armObserver.observe(el);
-    if (el.querySelector('[data-roll]')) visibleObserver.observe(el);
+    if (el.querySelector('[data-feed-events]')) feedObserver.observe(el);
+    if (el.querySelector('[data-roll]:not([data-feed-events])')) visibleObserver.observe(el);
   }
 }

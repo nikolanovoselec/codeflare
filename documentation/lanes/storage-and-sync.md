@@ -61,7 +61,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 |------|--------|--------|
 | `~/.claude/` | Yes | Claude credentials, config, projects for terminal sessions |
 | `/tmp/codeflare-sidebar/**` | **NO** | Browser IDE temporary runtime and Claude configuration state. This path is outside the synced home tree and is removed with the container. |
-| `/tmp/openvscode-data/**` | **NO** | Session-isolated editor state and logs. This temporary path is outside the synced home tree, and Codeflare adds no Accounts credential export or sync path ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent)). |
+| `/tmp/openvscode-data/**` | **NO** | Live session-isolated editor databases, workspace/global extension state, SecretStorage, authentication, chat history, logs, WAL, and SHM stay temporary and outside sync. |
+| `~/.codeflare/ide-ui-state.json` | Yes | The only persistent Browser IDE state: an atomic, maximum-1-MiB allowlist of theme values and key-specific canonical Explorer/open-file resources, captured after code-server is reaped; unknown fields and opaque strings are rejected. Every other `~/.codeflare/**` path is excluded ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering)). |
 | `~/.gitconfig` | Yes | Git configuration |
 | `~/workspace/` | Depends on `SYNC_MODE` | Excluded by default (`none`). Synced when `full` or partially with `metadata`. |
 | `~/.npm/`, `~/.bun/`, `~/.cache/**` | **NO** | Package manager caches, regenerated |

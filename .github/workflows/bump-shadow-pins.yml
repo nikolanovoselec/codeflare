@@ -7,7 +7,7 @@ name: Bump Shadow Pins
 # - context-mode npm package (plugin.json + entrypoint.sh + Pi foreground-owner runtime + README.md)
 # - graphify PyPI package graphifyy (plugin.json; Dockerfile reads the pin via jq,
 #   so no Dockerfile literal to bump)
-# - zoxide, yazi, lazygit, silverbullet, openvscode-server (GitHub release binaries pinned in Dockerfile)
+# - zoxide, yazi, lazygit, silverbullet, code-server (GitHub release binaries pinned in Dockerfile; code-server also owns its embedded Code gitlink)
 # - Anthropic's official Claude Code Open VSX package (version + linux-x64 SHA-256 metadata)
 # - bun npm package (pinned `npm install -g` literal in Dockerfile for context-mode speed)
 # - consult-llm-mcp npm package (pinned `npm install -g` literal in Dockerfile)
@@ -800,12 +800,8 @@ jobs:
           EOF
           )"
 
-  openvscode-server:
+  code-server:
     runs-on: ubuntu-latest
-    # Without this every job inherits the 360-minute ceiling. These jobs curl
-    # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
-    # connection burns six runner-hours before GitHub kills it. install-deps
-    # already wraps npm ci in `timeout 600` for exactly this reason.
     timeout-minutes: 20
     permissions:
       contents: write # push the bump branch
@@ -817,27 +813,56 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Compare Dockerfile pin against latest GitHub release
+      - name: Derive code-server and embedded Code pins from the immutable release tag
         id: ver
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP 'OPENVSCODE_VERSION="\K[^"]+' Dockerfile)
-          TAG=$(gh api repos/gitpod-io/openvscode-server/releases/latest --jq .tag_name)
-          LATEST="${TAG#openvscode-server-v}"
+          CURRENT=$(grep -oP 'CODE_SERVER_VERSION="\K[^"]+' Dockerfile)
+          CURRENT_COMMIT=$(grep -oP 'CODE_SERVER_COMMIT="\K[^"]+' Dockerfile)
+          CURRENT_CODE_VERSION=$(grep -oP 'CODE_SERVER_CODE_VERSION="\K[^"]+' Dockerfile)
+          CURRENT_VSCODE_COMMIT=$(grep -oP 'CODE_SERVER_VSCODE_COMMIT="\K[^"]+' Dockerfile)
+          TAG=$(gh api repos/coder/code-server/releases/latest --jq .tag_name)
+          LATEST="${TAG#v}"
           VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
-          if [[ ! "$CURRENT" =~ $VERSION_RE ]] || [[ ! "$LATEST" =~ $VERSION_RE ]]; then
-            echo "Invalid OpenVSCode version: current=$CURRENT latest=$LATEST" >&2
+          if [[ "$TAG" != "v$LATEST" ]] || [[ ! "$CURRENT" =~ $VERSION_RE ]] || [[ ! "$LATEST" =~ $VERSION_RE ]]; then
+            echo "Invalid code-server release metadata: current=$CURRENT tag=$TAG" >&2
             exit 1
           fi
+
+          REF_TYPE=$(gh api "repos/coder/code-server/git/ref/tags/$TAG" --jq .object.type)
+          REF_SHA=$(gh api "repos/coder/code-server/git/ref/tags/$TAG" --jq .object.sha)
+          if [ "$REF_TYPE" = tag ]; then
+            CODE_SERVER_COMMIT=$(gh api "repos/coder/code-server/git/tags/$REF_SHA" --jq .object.sha)
+          elif [ "$REF_TYPE" = commit ]; then
+            CODE_SERVER_COMMIT="$REF_SHA"
+          else
+            echo "Unexpected tag target type: $REF_TYPE" >&2
+            exit 1
+          fi
+          TREE_SHA=$(gh api "repos/coder/code-server/git/commits/$CODE_SERVER_COMMIT" --jq .tree.sha)
+          CODE_SERVER_VSCODE_COMMIT=$(gh api "repos/coder/code-server/git/trees/$TREE_SHA?recursive=1" \
+            --jq '.tree[] | select(.path == "lib/vscode" and .mode == "160000" and .type == "commit") | .sha')
+          CODE_SERVER_CODE_VERSION=$(gh api "repos/microsoft/vscode/contents/package.json?ref=$CODE_SERVER_VSCODE_COMMIT" \
+            --jq .content | base64 -d | jq -r .version)
+          [[ "$CODE_SERVER_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CODE_SERVER_VSCODE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CODE_SERVER_CODE_VERSION" =~ $VERSION_RE ]]
+
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$LATEST" ]; then
+          echo "commit=$CODE_SERVER_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "code_version=$CODE_SERVER_CODE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "vscode_commit=$CODE_SERVER_VSCODE_COMMIT" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ] \
+            && [ "$CURRENT_COMMIT" = "$CODE_SERVER_COMMIT" ] \
+            && [ "$CURRENT_CODE_VERSION" = "$CODE_SERVER_CODE_VERSION" ] \
+            && [ "$CURRENT_VSCODE_COMMIT" = "$CODE_SERVER_VSCODE_COMMIT" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Already on $LATEST, nothing to do."
+            echo "All code-server provenance pins already match $TAG."
           else
-            echo "Bumping $CURRENT -> $LATEST"
+            echo "Bumping code-server $CURRENT -> $LATEST (Code $CODE_SERVER_CODE_VERSION)."
           fi
 
       - name: Skip if a branch for this version already exists
@@ -846,7 +871,7 @@ jobs:
         env:
           LATEST: ${{ steps.ver.outputs.latest }}
         run: |
-          BRANCH="bump/openvscode-server-$LATEST"
+          BRANCH="bump/code-server-$LATEST"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -854,35 +879,29 @@ jobs:
             echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Apply bump
+      - name: Apply bump and invalidate the release checksum
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          CODE_SERVER_VERSION: ${{ steps.ver.outputs.latest }}
+          CODE_SERVER_COMMIT: ${{ steps.ver.outputs.commit }}
+          CODE_SERVER_CODE_VERSION: ${{ steps.ver.outputs.code_version }}
+          CODE_SERVER_VSCODE_COMMIT: ${{ steps.ver.outputs.vscode_commit }}
         run: |
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const lat = process.env.LAT;
-          let content = fs.readFileSync('Dockerfile', 'utf-8');
-          content = content.replace(/OPENVSCODE_VERSION="[^"]+"/, `OPENVSCODE_VERSION="${lat}"`);
-          content = content.replace(/OPENVSCODE_SHA256="[^"]+"/, `OPENVSCODE_SHA256="NEEDS_UPDATE_SEE_PR_BODY"`);
-          fs.writeFileSync('Dockerfile', content);
-          NODE
+          node scripts/ci/update-code-server-pins.mjs Dockerfile
 
           git add Dockerfile
-          if git diff --cached --quiet; then
-            echo "Nothing changed - aborting."
-            exit 1
-          fi
-          git commit -m "chore(deps): bump openvscode-server $CUR -> $LAT"
+          git diff --cached --quiet && { echo "Nothing changed - aborting."; exit 1; }
+          git commit -m "chore(deps): bump code-server $CUR -> $LAT"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ steps.branch.outputs.branch }}
-          CUR: ${{ steps.ver.outputs.current }}
-          LAT: ${{ steps.ver.outputs.latest }}
 
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
@@ -891,26 +910,30 @@ jobs:
           BRANCH: ${{ steps.branch.outputs.branch }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
+          CODE_VERSION: ${{ steps.ver.outputs.code_version }}
+          VSCODE_COMMIT: ${{ steps.ver.outputs.vscode_commit }}
         run: |
           set -euo pipefail
           gh pr create \
             --base develop \
             --head "$BRANCH" \
-            --title "chore(deps): bump openvscode-server $CUR -> $LAT" \
+            --title "chore(deps): bump code-server $CUR -> $LAT" \
             --body "$(cat <<EOF
-          Auto-generated bump of \`openvscode-server\` (the browser IDE, REQ-IDE-001) from \`$CUR\` to \`$LAT\`.
+          Auto-generated Browser IDE runtime bump from \`code-server $CUR\` to \`$LAT\` (embedded Code \`$CODE_VERSION\`, source \`$VSCODE_COMMIT\`).
 
-          The version is pinned in \`Dockerfile\` with a SHA256 checksum - Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+          The runtime, embedded Code version, and source gitlink are derived from the immutable upstream tag. The archive checksum is deliberately invalidated so release-asset verification remains an explicit review step.
 
-          **Action required before merge:** update \`OPENVSCODE_SHA256\` in Dockerfile with the linux-x64 asset digest:
+          **Action required before merge:** set \`CODE_SERVER_SHA256\` from the linux-amd64 release asset:
           \`\`\`bash
-          gh api repos/gitpod-io/openvscode-server/releases/tags/openvscode-server-v${LAT} \\
-            --jq '.assets[] | select(.name | endswith("linux-x64.tar.gz")) | .digest'
+          gh api repos/coder/code-server/releases/tags/v${LAT} \\
+            --jq '.assets[] | select(.name == "code-server-${LAT}-linux-amd64.tar.gz") | .digest'
           \`\`\`
 
           ## Test plan
-          - [ ] Update \`OPENVSCODE_SHA256\` in Dockerfile (strip the \`sha256:\` prefix)
-          - [ ] CI green (Docker build verifies the checksum + --version smoke)
+          - [ ] Replace \`NEEDS_UPDATE_SEE_PR_BODY\` with the digest (without \`sha256:\`)
+          - [ ] Review code-server and Code release notes
+          - [ ] CI complete-image Browser IDE smoke green
+          - [ ] Integration Pi and official Claude pass@3 green
           EOF
           )"
 
@@ -1043,7 +1066,7 @@ jobs:
   # installs and owned atomically by the dedicated `context-mode:` job); the
   # `pi-extensions` matrix then fans out one leg per extension, so each appears
   # separately in the run and bumps in its own PR, and one extension's failure (e.g.
-  # the rpiv-todo session-isolation version guard) never blocks the others.
+  # a registry fetch error) never blocks the others.
   # (Graphify is no longer an npm pin, it ships as the first-party
   # graphify-native.ts extension.)
   pi-extensions-discover:
@@ -1172,8 +1195,8 @@ jobs:
           }
           NODE
 
-          # Regenerate the pi preseed lockfile to match the bumped manifest without
-          # executing its runtime-layout postinstall, then regenerate the agent seed.
+          # Regenerate the pi preseed lockfile to match the bumped manifest, then
+          # regenerate the agent seed.
           node scripts/regenerate-pi-preseed-lock.mjs
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
@@ -1210,7 +1233,6 @@ jobs:
           ## Test plan
           - [ ] CI green
           - [ ] Review the \`$PKG\` CHANGELOG - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
-          - [ ] \`@juicesharp/rpiv-todo\` only: a version change trips the session-isolation \`EXPECTED_VERSION\` guard at image build; re-sync or remove \`preseed/agents/pi/npm/rpiv-todo-session-isolation\` before merge
           - [ ] Smoke test on integration: Pi loads all preseed extensions without error
           EOF
           )

@@ -5,22 +5,30 @@
 // deployed whatever the branch tip was, with no test gate at all, which made
 // manual dispatch a silent bypass of every check in this repository.
 //
-// It is now gated on an inline `verify` job that calls PR Checks as a reusable
-// workflow. This test pins that arrangement, because the failure mode of losing
-// it is invisible: manual deploys keep working, they just stop being verified.
+// It automatically resolves a validated successful exact-head, exact-tree PR
+// Checks run, or falls back to an inline `verify` job that calls PR Checks as a
+// reusable workflow. This test pins both paths, because losing either is invisible:
+// manual deploys keep working, they just stop being verified.
 
+import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
+import { parse as parseYaml } from 'yaml';
 
-const WORKFLOWS = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), '.github', 'workflows');
+const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+const WORKFLOWS = join(ROOT, '.github', 'workflows');
+const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
+const deployWorkflow = parseYaml(deployYml);
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
+const testWorkflow = parseYaml(testYml);
 
 // Jobs that check out a ref, build, or deploy. Every one must be unreachable
-// unless the code was verified. `verify` is excluded because it IS the gate.
+// unless the code was verified. `verify-existing` resolves reuse and `verify` is its inline fallback, so neither is itself gated.
 const GATED_JOBS = ['prepare', 'build-worker', 'container', 'deploy', 'outcome'];
 
 /** Returns the raw YAML block for a top-level job. */
@@ -46,6 +54,15 @@ function condition(name) {
     .trim();
 }
 
+function evaluateCondition(expression, values) {
+  let resolved = expression.replaceAll('cancelled()', JSON.stringify(values.cancelled));
+  for (const reference of Object.keys(values).filter((key) => key !== 'cancelled').sort((a, b) => b.length - a.length)) {
+    resolved = resolved.replaceAll(reference, JSON.stringify(values[reference]));
+  }
+  assert.doesNotMatch(resolved, /\b(?:github|needs|inputs)\./, `unresolved workflow reference in: ${resolved}`);
+  return Boolean(runInNewContext(resolved, Object.create(null), { timeout: 100 }));
+}
+
 describe('manual deploys cannot skip tests', () => {
   it('exposes PR Checks as a reusable workflow', () => {
     assert.match(
@@ -55,40 +72,146 @@ describe('manual deploys cannot skip tests', () => {
     );
   });
 
-  it('runs PR Checks inline on manual dispatch', () => {
-    assert.match(
-      jobBlock('verify'),
-      /uses: \.\/\.github\/workflows\/test\.yml/,
-      "the verify job must call this repository's PR Checks, not a substitute"
-    );
-    assert.match(
-      condition('verify'),
-      /github\.event_name == 'workflow_dispatch'/,
-      'the verify job must run on manual dispatch'
-    );
+  it('runs PR Checks inline only when automatic exact-tree resolution finds no reusable run', () => {
+    const verify = deployWorkflow.jobs.verify;
+    assert.equal(verify.uses, './.github/workflows/test.yml');
+    assert.equal(verify.needs, 'verify-existing');
+    const gate = condition('verify');
+    const base = {
+      cancelled: false,
+      'github.event_name': 'workflow_dispatch',
+      'inputs.verified_run_id': '',
+      'needs.verify-existing.result': 'success',
+      'needs.verify-existing.outputs.verified': 'false',
+    };
+    for (const [name, values, expectedResult] of [
+      ['no reusable run', base, true],
+      ['reusable run found', { ...base, 'needs.verify-existing.outputs.verified': 'true' }, false],
+      ['explicit override', { ...base, 'inputs.verified_run_id': '123456' }, false],
+      ['resolver failed', { ...base, 'needs.verify-existing.result': 'failure' }, false],
+      ['resolver output missing', { ...base, 'needs.verify-existing.outputs.verified': '' }, false],
+      ['cancelled', { ...base, cancelled: true }, false],
+      ['workflow_run', { ...base, 'github.event_name': 'workflow_run' }, false],
+    ]) {
+      assert.equal(evaluateCondition(gate, values), expectedResult, name);
+    }
   });
 
-  for (const name of GATED_JOBS) {
-    it(`gates "${name}" on the verify result`, () => {
-      const gate = condition(name);
-      const needs = jobBlock(name).match(/^ {4}needs: (.*)$/m);
-      assert.ok(needs, `job "${name}" declares no needs, so it cannot see the verify result`);
-      assert.match(needs[1], /\bverify\b/, `job "${name}" must depend on verify`);
+  it('publishes the actual checked-out tree as a reusable verification receipt', () => {
+    const steps = testWorkflow.jobs.summary.steps;
+    const receipt = steps.find((step) => step.name === 'Write exact tested-tree receipt');
+    const upload = steps.find((step) => step.name === 'Upload exact tested-tree receipt');
 
-      assert.match(
-        gate,
-        /needs\.verify\.result == 'success'/,
-        `job "${name}" does not require a green verify — manual dispatch would deploy untested code`
-      );
-      // On workflow_run, verify is skipped by its own if:. Requiring the skip
-      // explicitly means a *failed* verify can never be read as "not applicable".
-      assert.match(
-        gate,
-        /needs\.verify\.result == 'skipped'/,
-        `job "${name}" must require verify to be skipped on the workflow_run path, not merely absent`
-      );
-      // always() would run these jobs through a cancellation.
-      assert.doesNotMatch(gate, /\balways\(\)/, `job "${name}" uses always(), so cancelling a deploy would not stop it`);
+    assert.equal(receipt?.if, undefined);
+    assert.deepEqual(receipt?.env, {
+      REPOSITORY: '${{ github.repository }}',
+      RUN_ID: '${{ github.run_id }}',
+      RUN_ATTEMPT: '${{ github.run_attempt }}',
+      IMAGE_FINGERPRINT: '${{ needs.browser-ide-image-reuse.outputs.fingerprint }}',
+      FULL: "${{ needs.changes.outputs.full || 'false' }}",
+      IDE: "${{ needs.changes.outputs.ide || 'false' }}",
+      IMAGE_REUSE_RESULT: '${{ needs.browser-ide-image-reuse.result }}',
+      IMAGE_REUSED: "${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}",
+      IMAGE_SOURCE_RUN_ID: '${{ needs.browser-ide-image-reuse.outputs.source_run_id }}',
+      IMAGE_RESULT: '${{ needs.browser-ide-image.result }}',
+    });
+    assert.deepEqual(receipt?.run?.split('\n').map((line) => line.trim()).filter(Boolean), [
+      'set -euo pipefail',
+      'tested_commit=$(git rev-parse HEAD)',
+      "tested_tree=$(git rev-parse 'HEAD^{tree}')",
+      'node scripts/ci/browser-ide-image-reuse.mjs receipt \\',
+      '"$REPOSITORY" "$RUN_ID" "$RUN_ATTEMPT" "$tested_commit" "$tested_tree" \\',
+      '"$IMAGE_FINGERPRINT" "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" \\',
+      '"$IMAGE_REUSED" "$IMAGE_SOURCE_RUN_ID" "$IMAGE_RESULT" \\',
+      '> /tmp/pr-checks-receipt.json',
+    ]);
+    assert.deepEqual(upload, {
+      name: 'Upload exact tested-tree receipt',
+      uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+      with: {
+        name: 'pr-checks-receipt-${{ github.run_id }}',
+        path: '/tmp/pr-checks-receipt.json',
+        'retention-days': 7,
+        'if-no-files-found': 'error',
+      },
+    });
+  });
+
+  it('automatically resolves an exact-tree PR Checks run before every manual deploy', () => {
+    const resolver = deployWorkflow.jobs['verify-existing'];
+    assert.equal(resolver.permissions.actions, 'read');
+    assert.equal(resolver.outputs.verified, '${{ steps.resolve.outputs.verified }}');
+    const gate = condition('verify-existing');
+    assert.equal(evaluateCondition(gate, { cancelled: false, 'github.event_name': 'workflow_dispatch' }), true);
+    assert.equal(evaluateCondition(gate, { cancelled: false, 'github.event_name': 'workflow_run' }), false);
+    const resolveStep = resolver.steps.find((step) => step.id === 'resolve');
+    assert.match(resolveStep?.run ?? '', /node scripts\/ci\/validate-pr-checks-run\.mjs resolve/);
+  });
+
+  const successfulPrerequisites = {
+    cancelled: false,
+    'inputs.verified_run_id': '',
+    'needs.prepare.result': 'success',
+    'needs.build-worker.result': 'success',
+    'needs.container.result': 'success',
+  };
+  const reusableDispatch = {
+    ...successfulPrerequisites,
+    'github.event_name': 'workflow_dispatch',
+    'needs.verify.result': 'skipped',
+    'needs.verify-existing.result': 'success',
+    'needs.verify-existing.outputs.verified': 'true',
+    'github.event.workflow_run.conclusion': '',
+    'github.event.workflow_run.event': '',
+    'github.event.workflow_run.head_repository.full_name': '',
+    'github.repository': 'nikolanovoselec/codeflare',
+  };
+  const inlineDispatch = {
+    ...reusableDispatch,
+    'needs.verify.result': 'success',
+    'needs.verify-existing.outputs.verified': 'false',
+  };
+  const successfulWorkflowRun = {
+    ...reusableDispatch,
+    'github.event_name': 'workflow_run',
+    'needs.verify-existing.result': 'skipped',
+    'github.event.workflow_run.conclusion': 'success',
+    'github.event.workflow_run.event': 'push',
+    'github.event.workflow_run.head_repository.full_name': 'nikolanovoselec/codeflare',
+  };
+  const prerequisiteResults = {
+    'build-worker': ['needs.prepare.result'],
+    container: ['needs.prepare.result'],
+    deploy: ['needs.prepare.result', 'needs.build-worker.result', 'needs.container.result'],
+  };
+
+  for (const name of GATED_JOBS) {
+    it(`behaviorally gates "${name}" on an authoritative verification path`, () => {
+      const gate = condition(name);
+      const declaredNeeds = deployWorkflow.jobs[name].needs;
+      const needs = Array.isArray(declaredNeeds) ? declaredNeeds : [declaredNeeds];
+      assert.ok(needs.includes('verify'), `job "${name}" must depend on verify`);
+      assert.ok(needs.includes('verify-existing'), `job "${name}" must depend on exact-head run validation`);
+
+      for (const [scenario, values, expectedResult] of [
+        ['validated reusable run', reusableDispatch, true],
+        ['validated explicit run', { ...reusableDispatch, 'inputs.verified_run_id': '123456' }, true],
+        ['successful inline verification', inlineDispatch, true],
+        ['resolver failure', { ...reusableDispatch, 'needs.verify-existing.result': 'failure' }, false],
+        ['missing resolver output', { ...reusableDispatch, 'needs.verify-existing.outputs.verified': '' }, false],
+        ['failed inline verification', { ...inlineDispatch, 'needs.verify.result': 'failure' }, false],
+        ['workflow cancelled', { ...reusableDispatch, cancelled: true }, false],
+        ['green same-repository push workflow_run', successfulWorkflowRun, true],
+        ['red workflow_run', { ...successfulWorkflowRun, 'github.event.workflow_run.conclusion': 'failure' }, false],
+        ['fork workflow_run', { ...successfulWorkflowRun, 'github.event.workflow_run.head_repository.full_name': 'attacker/fork' }, false],
+      ]) {
+        assert.equal(evaluateCondition(gate, values), expectedResult, `${name}: ${scenario}`);
+      }
+
+      for (const prerequisite of prerequisiteResults[name] ?? []) {
+        const values = { ...reusableDispatch, [prerequisite]: 'failure' };
+        assert.equal(evaluateCondition(gate, values), false, `${name}: failed ${prerequisite}`);
+      }
     });
   }
 
@@ -161,5 +284,66 @@ describe('manual deploys cannot skip tests', () => {
       'prepare falls back to github.ref, which actions/checkout re-resolves at job start — the deployed commit could differ from the tested one'
     );
     assert.match(ref[1], /github\.sha/, 'the dispatch path must pin the SHA that verify tested');
+  });
+
+  it('allows exactly one authoritative verification path to reach deploy', () => {
+    const gate = condition('deploy');
+    const base = {
+      cancelled: false,
+      'github.event_name': 'workflow_dispatch',
+      'github.event.workflow_run.conclusion': '',
+      'github.event.workflow_run.event': '',
+      'github.event.workflow_run.head_repository.full_name': '',
+      'github.repository': 'owner/repo',
+      'needs.verify.result': 'skipped',
+      'needs.verify-existing.result': 'skipped',
+      'needs.verify-existing.outputs.verified': '',
+      'inputs.verified_run_id': '',
+      'needs.prepare.result': 'success',
+      'needs.build-worker.result': 'success',
+      'needs.container.result': 'success',
+    };
+    const fixtures = [
+      ['automatic run reuse', { ...base, 'needs.verify.result': 'skipped', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, true],
+      ['explicit run reuse', { ...base, 'inputs.verified_run_id': '123456', 'needs.verify.result': 'skipped', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, true],
+      ['inline fallback', { ...base, 'needs.verify.result': 'success', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'false' }, true],
+      ['explicit override cannot fall back', { ...base, 'inputs.verified_run_id': '123456', 'needs.verify.result': 'success', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'false' }, false],
+      ['both manual paths', { ...base, 'needs.verify.result': 'success', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'true' }, false],
+      ['missing resolver output', { ...base, 'needs.verify.result': 'skipped', 'needs.verify-existing.result': 'success' }, false],
+      ['no verification', base, false],
+      ['failed inline checks', { ...base, 'needs.verify.result': 'failure', 'needs.verify-existing.result': 'success', 'needs.verify-existing.outputs.verified': 'false' }, false],
+      ['cancelled verification', { ...base, cancelled: true, 'needs.verify.result': 'cancelled' }, false],
+      ['green workflow run', {
+        ...base,
+        'github.event_name': 'workflow_run',
+        'github.event.workflow_run.conclusion': 'success',
+        'github.event.workflow_run.event': 'push',
+        'github.event.workflow_run.head_repository.full_name': 'owner/repo',
+      }, true],
+      ['failed workflow run', {
+        ...base,
+        'github.event_name': 'workflow_run',
+        'github.event.workflow_run.conclusion': 'failure',
+        'github.event.workflow_run.event': 'push',
+        'github.event.workflow_run.head_repository.full_name': 'owner/repo',
+      }, false],
+    ];
+
+    for (const [name, values, expected] of fixtures) {
+      assert.equal(evaluateCondition(gate, values), expected, name);
+    }
+  });
+
+  it('fails the outcome when no deployment occurred', () => {
+    const steps = deployWorkflow.jobs.outcome.steps;
+    const kernelIndex = steps.findIndex((step) => step.run?.includes('node scripts/ci/assert-deploy-outcome.mjs "$DEPLOY"'));
+    assert.ok(kernelIndex > 0, 'the outcome job must execute the behaviorally tested decision kernel after setup');
+    const checkout = steps[kernelIndex - 1];
+    assert.equal(checkout.uses, 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
+    assert.equal(checkout.with?.['persist-credentials'], false);
+    for (const [result, expected] of [['success', 0], ['skipped', 1], ['failure', 1], ['cancelled', 1]]) {
+      const outcome = spawnSync(process.execPath, [OUTCOME_GATE, result], { encoding: 'utf8' });
+      assert.equal(outcome.status, expected, result);
+    }
   });
 });

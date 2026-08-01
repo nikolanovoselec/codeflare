@@ -169,8 +169,17 @@ jobs:
               - 'landing/**'
             ide:
               - *shared
+              - 'host/package.json'
+              - 'host/package-lock.json'
+              - 'host/tsconfig.json'
+              - 'host/src/**'
               - 'openvscode/**'
-              - 'preseed/agents/pi/**'
+              - 'preseed/**'
+              - 'src/lib/agent-seed.generated.ts'
+              - 'scripts/browser-ide-ui-state.py'
+              - 'scripts/materialize-agent-seed.mjs'
+              - 'scripts/patch-context-mode-bundles.mjs'
+              - 'scripts/ci/smoke-openvscode-sidebar-image.mjs'
             host:
               - *shared
               # host/__tests__ asserts on the STRUCTURE of workflows other than
@@ -185,6 +194,7 @@ jobs:
               - '.github/**'
               - 'host/**'
               - 'preseed/**'
+              - 'scripts/browser-ide-ui-state.py'
             workflows:
               - '.github/**'
 
@@ -277,10 +287,10 @@ jobs:
         working-directory: web-ui
 
       - name: Security audit (backend)
-        run: npm audit --audit-level=high --omit=dev
+        run: npm audit --package-lock-only --audit-level=high --omit=dev
 
       - name: Security audit (frontend)
-        run: npm audit --audit-level=high --omit=dev
+        run: npm audit --package-lock-only --audit-level=high --omit=dev
         working-directory: web-ui
 
   typecheck:
@@ -540,130 +550,44 @@ jobs:
       - name: Check against the budget
         run: node scripts/ci/check-bundle-size.mjs /tmp/wrangler-dry-run.log
 
-  coverage:
-    name: Coverage (${{ matrix.slug }})
+  coverage-backend:
+    name: Coverage (backend)
     needs: changes
-    # Coverage is per-process, so a sharded run gives each shard a view of only
-    # its own slice; enforcing thresholds needs the whole suite in one process.
-    # That is why this lane is keyed on event name rather than the `full` flag.
-    #
-    # It DOES run on pull_request. It originally did not, on the theory that the
-    # push-to-main run enforced it before deploy so a regression could not reach
-    # production. True, but it made the failure worse: `coverage` is in
-    # `summary.needs`, so a dip turns `test` red on main AFTER the merge, and
-    # deploy.yml gates on that conclusion — production then silently does not
-    # deploy, with the commit already merged. A gate that can only fire once the
-    # change is unrevertable-in-place is not a gate, it is an outage. Measured
-    # cost of running it here is ~2 min wall clock in parallel with lanes that
-    # already take ~1 min, at roughly one PR a day.
-    #
-    # Still NOT on merge_group: nothing requires it there, and the queue is off.
-    #
-    # Until this existed the thresholds in both vitest configs were decoration:
-    # declared, never executed. Same class as a test that cannot fail.
     if: >-
-      github.event_name == 'pull_request' ||
-      github.event_name == 'push' ||
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch'
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - slug: backend
-            directory: .
-            key-prefix: root
-          - slug: frontend
-            directory: web-ui
-            key-prefix: webui
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/coverage-suite
         with:
-          node-version: '22'
+          working-directory: .
+          key-prefix: root
+          slug: backend
+          tolerate-pool-crash: 'true'
 
-      - uses: ./.github/actions/install-deps
+  coverage-frontend:
+    name: Coverage (frontend)
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.webui == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          directory: ${{ matrix.directory }}
-          key-prefix: ${{ matrix.key-prefix }}
+          persist-credentials: false
 
-      - name: Create assets directory (wrangler.toml requires web-ui/dist)
-        run: mkdir -p web-ui/dist
-
-      - name: Run the suite with coverage
-        # Unsharded and unmerged: vitest applies the thresholds from the suite's
-        # own config, so the enforcement lives with the numbers instead of being
-        # restated here.
-        working-directory: ${{ matrix.directory }}
-        env:
-          NO_COLOR: '1'
-        run: |
-          # GitHub runs steps as `bash -e {0}` — NO pipefail. Without this line
-          # `vitest | tee` reports tee's exit status, so a failed threshold check
-          # passes the step: the first version of this lane reported success while
-          # printing "Coverage for lines (0%) does not meet global threshold (53%)".
-          set -o pipefail
-          status=0
-          npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
-
-          # POSITIVE proof the coverage reporter ran. Every check below this point
-          # decides on the ABSENCE of a failure string, so without this a run that
-          # died before emitting coverage — an istanbul provider error, a config
-          # fault, the teardown crash racing the report — would satisfy all of
-          # them and go green having enforced nothing. That is the exact
-          # "declared, never executed" state this lane was written to end, so it
-          # is asserted rather than assumed. Both matrix entries emit istanbul's
-          # / v8's `text` table, whose first body row starts with "All files". Same
-          # tolerance as render-coverage-summary.mjs uses for the same line.
-          if ! grep -qE '^[[:space:]]*All files[[:space:]]*\|' /tmp/coverage.log; then
-            echo "::error::no coverage table was produced — thresholds were never evaluated"
-            exit 1
-          fi
-
-          # A real test failure is fatal, and must be detected on its own. The
-          # workerd teardown crash fires after EVERY passing backend run
-          # (vitest.config.ts), so its fingerprint is present essentially always
-          # — tolerating a non-zero status merely because the fingerprint is
-          # there would tolerate every failure, which is what the first version
-          # of this block did.
-          if grep -qE '^ *Tests +.*failed' /tmp/coverage.log; then
-            echo "::error::tests failed during the coverage run"
-            exit 1
-          fi
-
-          # A threshold miss is the verdict this lane exists for: always fatal,
-          # never masked by the crash tolerance below. Matched loosely enough to
-          # survive a future per-glob threshold, whose message reads
-          # `does not meet "src/lib/**" threshold` rather than `global`.
-          if grep -qE 'does not meet .*threshold' /tmp/coverage.log; then
-            echo "::error::coverage thresholds not met (see the table above)"
-            exit 1
-          fi
-
-          # Only now is the poisoned exit status safe to forgive: the table was
-          # produced, no test failed, and thresholds were evaluated. Listed in
-          # execution order — the test-failure check runs first because with
-          # reportOnFailure on, failing tests depress coverage, so a threshold
-          # miss reported ahead of them names the symptom instead of the cause.
-          if [ "$status" -ne 0 ]; then
-            if grep -qF '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/coverage.log; then
-              echo "::warning::tolerating the known workerd teardown crash (coverage table and thresholds both verified above)"
-            else
-              echo "::error::coverage run failed with status $status and no known-crash fingerprint"
-              exit "$status"
-            fi
-          fi
-
-      - name: Publish the coverage table
-        if: always()
-        env:
-          SLUG: ${{ matrix.slug }}
-        run: node scripts/ci/render-coverage-summary.mjs /tmp/coverage.log "$SLUG" >> "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/coverage-suite
+        with:
+          working-directory: web-ui
+          key-prefix: webui
+          slug: frontend
 
   frontend-tests:
     name: Frontend tests (${{ matrix.slug }})
@@ -914,23 +838,133 @@ jobs:
           working-directory: openvscode/agent-sidebar
           artifact-name: browser-ide
 
-  browser-ide-image:
-    name: Browser IDE complete image
-    needs: [changes, browser-ide]
-    if: >-
-      (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') &&
-      needs.browser-ide.result == 'success'
+  browser-ide-image-reuse:
+    name: Resolve Browser IDE image evidence
+    needs: changes
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      reused: ${{ steps.resolve.outputs.reused }}
+      source_run_id: ${{ steps.resolve.outputs.source_run_id }}
+      fingerprint: ${{ steps.fingerprint.outputs.image }}
+      contract_fingerprint: ${{ steps.fingerprint.outputs.contract }}
+      reuse_safe: ${{ steps.fingerprint.outputs.reuse_safe }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      - name: Fingerprint complete-image inputs
+        id: fingerprint
+        run: |
+          set -euo pipefail
+          freshness=$(date -u +%G-W%V)
+          result=$(node scripts/ci/browser-ide-image-reuse.mjs fingerprint HEAD "$freshness")
+          image=$(printf '%s' "$result" | jq -r 'if (.image | type) == "string" and (.image | test("^[0-9a-f]{64}$")) then .image else error("invalid image fingerprint") end')
+          contract=$(printf '%s' "$result" | jq -r 'if (.contract | type) == "string" and (.contract | test("^[0-9a-f]{64}$")) then .contract else error("invalid contract fingerprint") end')
+          reuse_safe=$(printf '%s' "$result" | jq -r 'if .reuseSafe == true then "true" elif .reuseSafe == false then "false" else error("invalid reuse safety") end')
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "contract=${contract}" >> "$GITHUB_OUTPUT"
+          echo "reuse_safe=${reuse_safe}" >> "$GITHUB_OUTPUT"
+          if [ "$reuse_safe" != "true" ]; then
+            printf '::warning::Browser IDE image reuse disabled; uncovered Dockerfile sources: %s\n' \
+              "$(printf '%s' "$result" | jq -c '.uncovered')"
+          fi
+
+      - name: Resolve reusable complete-image evidence
+        id: resolve
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.fingerprint.outputs.reuse_safe == 'true' &&
+          (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IMAGE_FINGERPRINT: ${{ steps.fingerprint.outputs.image }}
+          CONTRACT_FINGERPRINT: ${{ steps.fingerprint.outputs.contract }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          result=$(node scripts/ci/browser-ide-image-reuse.mjs resolve \
+            "$GITHUB_REPOSITORY" "$PR_NUMBER" "$IMAGE_FINGERPRINT" \
+            "$CONTRACT_FINGERPRINT" "$CURRENT_RUN_ID")
+          state=$(printf '%s' "$result" | jq -r \
+            'if .reused == true and (.runId | type) == "string" then "true" elif .reused == false and (has("runId") | not) then "false" else "invalid" end')
+          [ "$state" != "invalid" ] || { echo "::error::permitted resolver output not received"; exit 1; }
+          echo "reused=${state}" >> "$GITHUB_OUTPUT"
+          if [ "$state" = "true" ]; then
+            source_run_id=$(printf '%s' "$result" | jq -r '.runId')
+            echo "source_run_id=${source_run_id}" >> "$GITHUB_OUTPUT"
+          fi
+          printf 'permitted resolver output: %s\n' "$result"
+
+  browser-ide-image:
+    name: Browser IDE complete image
+    needs: [changes, browser-ide, browser-ide-image-reuse]
+    if: >-
+      (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') &&
+      needs.browser-ide.result == 'success' &&
+      needs.browser-ide-image-reuse.result == 'success' &&
+      needs.browser-ide-image-reuse.outputs.reused != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read # same-repository checks may consume but never publish the trusted cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve shared cache eligibility
+        id: cache-policy
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          ACTOR: ${{ github.actor }}
+        run: >-
+          node scripts/ci/container-build-cache-policy.mjs eligibility
+          "$EVENT_NAME" "$REPOSITORY" "$HEAD_REPOSITORY" "$ACTOR" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR for shared BuildKit cache
+        id: cache-login
+        if: steps.cache-policy.outputs.login_allowed == 'true'
+        continue-on-error: true
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve shared cache availability
+        id: cache
+        env:
+          LOGIN_OUTCOME: ${{ steps.cache-login.outcome }}
+        run: >-
+          node scripts/ci/container-build-cache-policy.mjs availability
+          "$LOGIN_OUTCOME" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
       - name: Build complete image
         env:
           IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
-        run: docker build --tag "$IMAGE" .
+          CACHE_ENABLED: ${{ steps.cache.outputs.enabled }}
+        run: |
+          set -euo pipefail
+          CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"
+          CACHE_ARGS=()
+          if [ "$CACHE_ENABLED" = "true" ]; then
+            CACHE_ARGS+=(--cache-from "type=registry,ref=${CACHE_REF}")
+          fi
+          docker buildx build --platform linux/amd64 \
+            "${CACHE_ARGS[@]}" \
+            --load \
+            --tag "$IMAGE" .
 
       - name: Verify packaged native Pi Chat and official Claude
         env:
@@ -940,73 +974,96 @@ jobs:
           docker run --rm --entrypoint /usr/local/bin/node "$IMAGE" \
             /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs \
             | tee /tmp/browser-ide-image-evidence.txt
-          docker image inspect "$IMAGE" \
-            --format 'image_bytes={{.Size}} image_id={{.Id}}' \
+          IMAGE_BYTES=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          IMAGE_ID=$(docker image inspect "$IMAGE" --format '{{.Id}}')
+          printf 'image_bytes=%s image_id=%s\n' "$IMAGE_BYTES" "$IMAGE_ID" \
             | tee -a /tmp/browser-ide-image-evidence.txt
+          [ "$IMAGE_BYTES" -le 4500000000 ] || {
+            echo "Complete image exceeds the 4.5 GB Browser IDE migration ceiling." >&2
+            exit 1
+          }
 
-      - name: Measure idle OpenVSCode resources
+      - name: Measure idle code-server resources
         env:
           IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
         run: |
           set -euo pipefail
           claude_extension_version=$(jq -r '.version' openvscode/agent-sidebar/official-claude.json)
-          pi_extensions=$(docker run --rm --entrypoint /usr/local/bin/openvscode-server "$IMAGE" \
+          pi_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
             --extensions-dir /opt/codeflare/openvscode/extensions/pi \
             --list-extensions --show-versions)
-          claude_extensions=$(docker run --rm --entrypoint /usr/local/bin/openvscode-server "$IMAGE" \
+          claude_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
             --extensions-dir /opt/codeflare/openvscode/extensions/claude \
+            --list-extensions --show-versions)
+          none_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
+            --extensions-dir /opt/codeflare/openvscode/extensions/none \
             --list-extensions --show-versions)
           printf '%s\n' "$pi_extensions" | grep -Fxi 'codeflare.codeflare-agent-sidebar@0.0.0'
           printf '%s\n' "$claude_extensions" | grep -Fxi "anthropic.claude-code@${claude_extension_version}"
-          printf 'host_discovery=pi:%s claude:%s\n' \
+          [ -z "$none_extensions" ] || { printf '%s\n' "$none_extensions"; exit 1; }
+          printf 'host_discovery=pi:%s claude:%s none:empty\n' \
             'codeflare.codeflare-agent-sidebar@0.0.0' "anthropic.claude-code@${claude_extension_version}" \
             | tee -a /tmp/browser-ide-image-evidence.txt
 
-          container=$(docker run -d --entrypoint /usr/local/bin/openvscode-server "$IMAGE" \
-            --host 127.0.0.1 --port 13337 \
-            --server-base-path /api/vscode/smoke \
-            --without-connection-token \
-            --default-folder /home/user/workspace \
-            --server-data-dir /tmp/openvscode-smoke-data \
+          started_ms=$(date +%s%3N)
+          container=$(docker run -d --entrypoint /usr/local/bin/code-server "$IMAGE" \
+            --bind-addr 127.0.0.1:13337 \
+            --auth none \
+            --disable-telemetry \
+            --disable-update-check \
+            --disable-proxy \
+            --disable-getting-started-override \
+            --disable-workspace-trust \
+            --user-data-dir /tmp/openvscode-smoke-data/data \
             --extensions-dir /opt/codeflare/openvscode/extensions/pi \
             --enable-proposed-api codeflare.codeflare-agent-sidebar \
-            --telemetry-level off --accept-server-license-terms)
+            /home/user/workspace)
           trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
           ready=0
           for _ in $(seq 1 60); do
-            if docker exec "$container" curl -fsS http://127.0.0.1:13337/api/vscode/smoke/ >/dev/null 2>&1; then ready=1; break; fi
+            if docker exec "$container" curl -fsS http://127.0.0.1:13337/ >/dev/null 2>&1; then ready=1; break; fi
             sleep 1
           done
           [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
+          readiness_ms=$(( $(date +%s%3N) - started_ms ))
+          [ "$readiness_ms" -le 60000 ] || { echo "code-server cold readiness exceeded 60s" >&2; exit 1; }
           STATS=$(docker exec "$container" sh -c \
             'printf "processes=%s rss_kib=%s" "$(ps -e --no-headers | wc -l)" "$(ps -e -o rss= | awk '\''{s+=$1} END {print s+0}'\'')"')
-          printf '%s\n' "$STATS" | tee -a /tmp/browser-ide-image-evidence.txt
+          processes=$(printf '%s\n' "$STATS" | sed -n 's/.*processes=\([0-9][0-9]*\).*/\1/p')
+          rss_kib=$(printf '%s\n' "$STATS" | sed -n 's/.*rss_kib=\([0-9][0-9]*\).*/\1/p')
+          [ -n "$processes" ] && [ "$processes" -le 24 ] || { echo "code-server process ceiling exceeded: $STATS" >&2; exit 1; }
+          [ -n "$rss_kib" ] && [ "$rss_kib" -le 1048576 ] || { echo "code-server RSS ceiling exceeded: $STATS" >&2; exit 1; }
+          printf 'cold_readiness_ms=%s %s\n' "$readiness_ms" "$STATS" \
+            | tee -a /tmp/browser-ide-image-evidence.txt
           if docker exec "$container" pgrep -af '(/usr/local/bin/pi|/usr/local/bin/claude|anthropic\.claude-code/.*/claude)' >/tmp/sidebar-agents.txt; then
             cat /tmp/sidebar-agents.txt
             echo 'Agent process started before native Chat or the Claude panel was used.' >&2
             exit 1
           fi
-          if docker logs "$container" 2>&1 | grep -E 'CANNOT use API proposal|Failed to register participant codeflare\.pi'; then
+          if docker logs "$container" 2>&1 | grep -E 'CANNOT use API proposal|API proposal.*not found|Failed to register participant codeflare\.pi'; then
             docker logs "$container"
-            echo 'Native Pi Chat contribution was rejected by the pinned host.' >&2
+            echo 'Native Pi Chat contribution was rejected by code-server embedded Code.' >&2
             exit 1
           fi
 
           docker rm -f "$container" >/dev/null
           container=$(docker run -d --entrypoint /bin/sh "$IMAGE" -c '
-            /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh /tmp/openvscode-claude-smoke-data &&
-            exec /usr/local/bin/openvscode-server "$@"
+            /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh /tmp/openvscode-claude-smoke-data claude &&
+            exec /usr/local/bin/code-server "$@"
           ' openvscode-claude-smoke \
-            --host 127.0.0.1 --port 13337 \
-            --server-base-path /api/vscode/claude-smoke \
-            --without-connection-token \
-            --default-folder /home/user/workspace \
-            --server-data-dir /tmp/openvscode-claude-smoke-data \
+            --bind-addr 127.0.0.1:13337 \
+            --auth none \
+            --disable-telemetry \
+            --disable-update-check \
+            --disable-proxy \
+            --disable-getting-started-override \
+            --disable-workspace-trust \
+            --user-data-dir /tmp/openvscode-claude-smoke-data/data \
             --extensions-dir /opt/codeflare/openvscode/extensions/claude \
-            --telemetry-level off --accept-server-license-terms)
+            /home/user/workspace)
           ready=0
           for _ in $(seq 1 60); do
-            if docker exec "$container" curl -fsS http://127.0.0.1:13337/api/vscode/claude-smoke/ >/dev/null 2>&1; then ready=1; break; fi
+            if docker exec "$container" curl -fsS http://127.0.0.1:13337/ >/dev/null 2>&1; then ready=1; break; fi
             sleep 1
           done
           [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
@@ -1019,7 +1076,7 @@ jobs:
           sleep 3
           if docker logs "$container" 2>&1 | grep -E 'Unsupported platform|Extension activation failed.*[Aa]nthropic|anthropic\.claude-code.*(error|failed)'; then
             docker logs "$container"
-            echo 'Official Claude extension failed against the pinned OpenVSCode host.' >&2
+            echo 'Official Claude extension failed against code-server embedded Code.' >&2
             exit 1
           fi
           if docker exec "$container" pgrep -af 'anthropic\.claude-code/.*/claude' >/tmp/claude-agent.txt; then
@@ -1027,7 +1084,112 @@ jobs:
             echo 'Official Claude process started before its panel was used.' >&2
             exit 1
           fi
-          printf 'official_claude_host=ready lazy_process=true\n' \
+          printf 'official_claude_host=ready settings_path=/tmp/openvscode-claude-smoke-data/data/User/settings.json lazy_process=true\n' \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+
+      - name: Verify real code-server through the session proxy
+        env:
+          IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          container=$(docker run -d \
+            -e CONTAINER_AUTH_TOKEN=browser-ide-smoke-token \
+            -e SESSION_ID=smoke \
+            -e SESSION_MODE=advanced \
+            --entrypoint /bin/sh "$IMAGE" -c '
+              /usr/local/bin/code-server \
+                --bind-addr 127.0.0.1:13337 --auth none \
+                --disable-telemetry --disable-update-check --disable-proxy \
+                --disable-getting-started-override --disable-workspace-trust \
+                --user-data-dir /tmp/openvscode-proxy-smoke/data \
+                --extensions-dir /opt/codeflare/openvscode/extensions/none \
+                /home/user/workspace >/tmp/code-server-proxy-smoke.log 2>&1 &
+              exec /usr/local/bin/node /app/host/dist/server.js
+            ')
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for _ in $(seq 1 60); do
+            status=$(docker exec "$container" curl -sS -L --max-redirs 5 -o /tmp/prefixed-editor.html \
+              -w '%{http_code}' \
+              -H 'Authorization: Bearer browser-ide-smoke-token' \
+              -H 'Origin: https://codeflare.example' \
+              -H 'X-Forwarded-Host: codeflare.example' \
+              -H 'X-Forwarded-Proto: https' \
+              http://127.0.0.1:8080/api/vscode/smoke/ || true)
+            if [ "$status" = 200 ]; then ready=1; break; fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ] || {
+            docker logs "$container"
+            docker exec "$container" cat /tmp/code-server-proxy-smoke.log || true
+            exit 1
+          }
+          if docker exec "$container" grep -Eq '(src|href)="/' /tmp/prefixed-editor.html; then
+            docker exec "$container" grep -E '(src|href)="/' /tmp/prefixed-editor.html
+            echo 'code-server emitted a root-scoped initial asset URL through the session proxy.' >&2
+            exit 1
+          fi
+
+          docker exec "$container" curl -fsS \
+            -H 'Authorization: Bearer browser-ide-smoke-token' \
+            -H 'Origin: https://codeflare.example' \
+            -H 'X-Forwarded-Host: codeflare.example' \
+            -H 'X-Forwarded-Proto: https' \
+            http://127.0.0.1:8080/api/vscode/smoke/manifest.json \
+            -o /tmp/prefixed-manifest.json
+          asset=$(docker exec "$container" jq -r '.icons[0].src' /tmp/prefixed-manifest.json)
+          case "$asset" in
+            ./*) ;;
+            *) echo "Manifest asset escaped the session-relative path: $asset" >&2; exit 1 ;;
+          esac
+          docker exec "$container" curl -fsS \
+            -H 'Authorization: Bearer browser-ide-smoke-token' \
+            -H 'Origin: https://codeflare.example' \
+            -H 'X-Forwarded-Host: codeflare.example' \
+            -H 'X-Forwarded-Proto: https' \
+            "http://127.0.0.1:8080/api/vscode/smoke/${asset#./}" \
+            -o /dev/null
+
+          docker exec "$container" /usr/local/bin/node -e '
+            const WebSocket = require("/app/host/node_modules/ws");
+            const ws = new WebSocket(
+              "ws://127.0.0.1:8080/api/vscode/smoke/?reconnectionToken=11111111-1111-4111-8111-111111111111&reconnection=false&skipWebSocketFrames=false",
+              { headers: {
+                Authorization: "Bearer browser-ide-smoke-token",
+                Origin: "https://codeflare.example",
+                "X-Forwarded-Host": "codeflare.example",
+                "X-Forwarded-Proto": "https",
+              } },
+            );
+            const timer = setTimeout(() => {
+              process.stderr.write("prefixed code-server WebSocket did not open\n");
+              ws.terminate();
+              process.exit(1);
+            }, 10000);
+            ws.once("open", () => {
+              setTimeout(() => {
+                clearTimeout(timer);
+                if (ws.readyState !== WebSocket.OPEN) {
+                  process.stderr.write("prefixed code-server WebSocket closed during upstream handshake\n");
+                  process.exit(1);
+                }
+                process.stdout.write("prefixed_ws=ready\n");
+                ws.terminate();
+              }, 1000);
+            });
+            ws.once("unexpected-response", (_request, response) => {
+              clearTimeout(timer);
+              process.stderr.write(`prefixed code-server WebSocket returned ${response.statusCode}\n`);
+              response.resume();
+              process.exit(1);
+            });
+            ws.once("error", (error) => {
+              clearTimeout(timer);
+              process.stderr.write(`${error.message}\n`);
+              process.exit(1);
+            });
+          ' | tee -a /tmp/browser-ide-image-evidence.txt
+          printf 'prefixed_http=ready prefixed_asset=ready external_path=/api/vscode/smoke/ origin=https://codeflare.example\n' \
             | tee -a /tmp/browser-ide-image-evidence.txt
 
       - name: Upload image evidence
@@ -1060,18 +1222,25 @@ jobs:
       - typecheck
       - workflow-audit
       - bundle-size
-      - coverage
+      - coverage-backend
+      - coverage-frontend
       - backend-tests
       - frontend-tests
       - landing-tests
       - host-tests
       - browser-ide
+      - browser-ide-image-reuse
       - browser-ide-image
       - dependency-review
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: always()
+        with:
+          persist-credentials: false
+
       - name: Aggregate lane results
         env:
           RESULTS: ${{ toJSON(needs) }}
@@ -1088,10 +1257,10 @@ jobs:
           # decided the lane was unaffected. When it did not run (FULL=true:
           # merge_group, schedule, dispatch) every lane was supposed to execute,
           # so a skip means a gating expression is wrong — and silently passing
-          # it is how a merge queue ends up green having run nothing. The two
-          # lanes below opt out by design.
+          # it is how a merge queue ends up green having run nothing. Dependency
+          # review alone opts out because it is defined only for pull requests.
           if [ "$FULL" = "true" ]; then
-            EXPECTED_SKIPS='coverage dependency-review'
+            EXPECTED_SKIPS='dependency-review'
             SKIPPED=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "skipped") | .key')
             for lane in $SKIPPED; do
               case " $EXPECTED_SKIPS " in
@@ -1103,12 +1272,18 @@ jobs:
               esac
             done
           fi
-          echo "All lanes green (skipped = not affected by this change)"
+          echo "All lanes green (skipped = not affected or backed by validated reusable evidence)"
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: always()
-        with:
-          persist-credentials: false
+      - name: Verify complete-image result
+        env:
+          FULL: ${{ needs.changes.outputs.full || 'false' }}
+          IDE: ${{ needs.changes.outputs.ide || 'false' }}
+          IMAGE_REUSE_RESULT: ${{ needs.browser-ide-image-reuse.result }}
+          IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
+          IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
+        run: >-
+          node scripts/ci/browser-ide-image-reuse.mjs gate
+          "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" "$IMAGE_REUSED" "$IMAGE_RESULT"
 
       - name: Download suite reports
         if: always()
@@ -1132,6 +1307,36 @@ jobs:
              "landing":"${{ needs.landing-tests.result }}",
              "browser-ide":"${{ needs.browser-ide.result }}"}
         run: node scripts/ci/check-suite-completeness.mjs /tmp/test-artifacts "$LANES"
+
+      - name: Write exact tested-tree receipt
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          IMAGE_FINGERPRINT: ${{ needs.browser-ide-image-reuse.outputs.fingerprint }}
+          FULL: ${{ needs.changes.outputs.full || 'false' }}
+          IDE: ${{ needs.changes.outputs.ide || 'false' }}
+          IMAGE_REUSE_RESULT: ${{ needs.browser-ide-image-reuse.result }}
+          IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
+          IMAGE_SOURCE_RUN_ID: ${{ needs.browser-ide-image-reuse.outputs.source_run_id }}
+          IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
+        run: |
+          set -euo pipefail
+          tested_commit=$(git rev-parse HEAD)
+          tested_tree=$(git rev-parse 'HEAD^{tree}')
+          node scripts/ci/browser-ide-image-reuse.mjs receipt \
+            "$REPOSITORY" "$RUN_ID" "$RUN_ATTEMPT" "$tested_commit" "$tested_tree" \
+            "$IMAGE_FINGERPRINT" "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" \
+            "$IMAGE_REUSED" "$IMAGE_SOURCE_RUN_ID" "$IMAGE_RESULT" \
+            > /tmp/pr-checks-receipt.json
+
+      - name: Upload exact tested-tree receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-checks-receipt-${{ github.run_id }}
+          path: /tmp/pr-checks-receipt.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Publish test-result table
         # Reporting only — the aggregate step above already decided the

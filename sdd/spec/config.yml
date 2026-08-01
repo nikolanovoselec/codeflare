@@ -57,27 +57,31 @@ test_globs:
 # .github/workflows) are @impl targets too (e.g. REQ-AGENT-078 AC6 anchors
 # entrypoint.sh; REQ-ENTERPRISE-006 anchors wrangler.toml/.github/workflows;
 # Dockerfile is anchored across many REQs), added 2026-07-05 so their anchors
-# auto-trigger source-anchor re-validation. The larger landing/preseed/scripts
-# backlog is deferred to /sdd clean per its volume.
+# auto-trigger source-anchor re-validation. The landing/preseed/scripts trees
+# were carried as a deferred backlog until 2026-08-01, when the tree-level
+# globs below closed it: 570 anchors across 114 paths were unreachable, so a
+# change under them never re-validated the REQs that cite them.
 src_globs:
   - "src/**"
   - "host/src/**"
-  - "web-ui/src/**"
+  - "web-ui/**"
   - "entrypoint.sh"
   - "Dockerfile"
   - "wrangler.toml"
   - ".github/workflows/*.yml"
+  - ".github/actions/**"
+  - ".github/dependabot.yml"
   - ".trivyignore"
+  - "scripts/**"
+  - "landing/src/**"
   - "openvscode/agent-sidebar/src/**"
   - "openvscode/agent-sidebar/package.json"
   - "openvscode/agent-sidebar/official-claude.json"
   - "openvscode/agent-sidebar/esbuild.mjs"
   - "openvscode/agent-sidebar/scripts/**"
   - "openvscode/claude/**"
-  - "preseed/agents/pi/extensions/sidebar-approval.ts"
-  - "preseed/agents/pi/manifest.json"
+  - "preseed/**"
   - ".dockerignore"
-  - "scripts/ci/**"
 
 # Forbidden content allowlist — which categories are acceptable inside REQs.
 forbidden_content_allowlist:

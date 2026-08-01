@@ -1,0 +1,52 @@
+name: 'Coverage suite (fail-closed)'
+description: 'Runs one complete Vitest suite with global coverage thresholds and the bounded workerd teardown exception.'
+inputs:
+  working-directory:
+    description: 'Package directory containing the Vitest suite.'
+    required: true
+  key-prefix:
+    description: 'Dependency-cache prefix for that package directory.'
+    required: true
+  slug:
+    description: 'Name used in the coverage summary.'
+    required: true
+  tolerate-pool-crash:
+    description: 'Whether the known post-report workerd teardown fingerprint may excuse a non-zero exit.'
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '22'
+
+    - uses: ./.github/actions/install-deps
+      with:
+        directory: ${{ inputs.working-directory }}
+        key-prefix: ${{ inputs.key-prefix }}
+
+    - name: Create assets directory required by wrangler.toml
+      shell: bash
+      run: mkdir -p "$GITHUB_WORKSPACE/web-ui/dist"
+
+    - name: Run suite with coverage
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        NO_COLOR: '1'
+        TOLERATE_POOL_CRASH: ${{ inputs.tolerate-pool-crash }}
+      run: |
+        set -o pipefail
+        status=0
+        npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
+
+        node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" \
+          /tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH"
+
+    - name: Publish coverage table
+      if: always()
+      shell: bash
+      env:
+        SLUG: ${{ inputs.slug }}
+      run: node "$GITHUB_WORKSPACE/scripts/ci/render-coverage-summary.mjs" /tmp/coverage.log "$SLUG" >> "$GITHUB_STEP_SUMMARY"

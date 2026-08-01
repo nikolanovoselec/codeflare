@@ -10,12 +10,14 @@
 import type http from 'node:http';
 import { parse as parseUrl } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
+import { checkContainerAuth } from './auth-check.js';
 import { stripVaultPrefix } from './vault-proxy.js';
 import {
   bridgeVscodeClientMessages,
   createVscodeWebSocketServer,
   isVscodePath,
   vscodeUpstreamPath,
+  vscodeUpstreamRequestTarget,
   requestOpenvscodeStart,
   vscodeModeAllowed,
 } from './vscode-proxy.js';
@@ -38,8 +40,9 @@ export interface UpgradeDispatcher {
   close(): void;
 }
 
-// Forward client headers minus hop-by-hop / handshake / injected
-// container-auth headers (the `ws` client sets those itself).
+// Forward client headers minus hop-by-hop / handshake / injected container
+// auth. For code-server, discard all client forwarding metadata and rebuild one
+// canonical external identity from the Worker's validated headers.
 function filterUpgradeHeaders(headers: http.IncomingHttpHeaders): Record<string, string> {
   return Object.fromEntries(
     Object.entries(headers).filter(([k]) => {
@@ -50,6 +53,46 @@ function filterUpgradeHeaders(headers: http.IncomingHttpHeaders): Record<string,
         && lk !== 'authorization' && lk !== 'host';
     }),
   ) as Record<string, string>;
+}
+
+function singleHeader(value: string | string[] | undefined): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function vscodeUpgradeHeaders(
+  headers: http.IncomingHttpHeaders,
+  target: ProxyTarget,
+): Record<string, string> {
+  const filtered = filterUpgradeHeaders(headers);
+  const output = Object.fromEntries(
+    Object.entries(filtered).filter(([name]) => {
+      const lower = name.toLowerCase();
+      return lower !== 'forwarded' && !lower.startsWith('x-forwarded-') && lower !== 'origin';
+    }),
+  );
+  const suppliedHost = singleHeader(headers['x-forwarded-host']);
+  const suppliedProto = singleHeader(headers['x-forwarded-proto']);
+  let canonicalHost = `${target.host}:${target.port}`;
+  let canonicalProto = 'http';
+  if (suppliedHost && (suppliedProto === 'http' || suppliedProto === 'https')) {
+    try {
+      const external = new URL(`${suppliedProto}://${suppliedHost}`);
+      if (external.pathname === '/' && !external.username && !external.password) {
+        canonicalHost = external.host;
+        canonicalProto = suppliedProto;
+      }
+    } catch {
+      // Direct authenticated host probes use the loopback identity fallback.
+    }
+  }
+  const suppliedOrigin = singleHeader(headers.origin);
+  return {
+    ...output,
+    Host: canonicalHost,
+    'X-Forwarded-Host': canonicalHost,
+    'X-Forwarded-Proto': canonicalProto,
+    ...(suppliedOrigin ? { Origin: suppliedOrigin } : {}),
+  };
 }
 
 export function createUpgradeDispatcher(deps: UpgradeDispatcherDeps): UpgradeDispatcher {
@@ -123,22 +166,28 @@ export function createUpgradeDispatcher(deps: UpgradeDispatcherDeps): UpgradeDis
     });
   }
 
-  // Browser IDE WebSocket bridge -> OpenVSCode Server (the VS Code server
-  // protocol). Mirrors handleVaultUpgrade but forwards the path UNCHANGED
-  // (no strip): OpenVSCode is base-path native at /api/vscode/<sid>.
-  function handleVscodeUpgrade(req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
-    const { pathname } = parseUrl(req.url ?? '');
-    const upstreamPath = vscodeUpstreamPath(pathname);
-    const search = (req.url ?? '').includes('?')
-      ? '?' + (req.url ?? '').split('?').slice(1).join('?')
-      : '';
+  // Browser IDE WebSocket bridge -> code-server's root-relative VS Code
+  // protocol endpoint. The caller validates and strips the exact session prefix
+  // before a downstream or upstream socket is opened.
+  function handleVscodeUpgrade(
+    req: http.IncomingMessage,
+    socket: import('node:stream').Duplex,
+    head: Buffer,
+    upstreamPath: string,
+  ): void {
+    const upstreamTarget = vscodeUpstreamRequestTarget(req.url, upstreamPath);
+    if (upstreamTarget === null) {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      socket.destroy();
+      return;
+    }
 
     vscodeWss.handleUpgrade(req, socket, head, (clientWs) => {
-      const upstreamUrl = `ws://${deps.openvscode.host}:${deps.openvscode.port}${upstreamPath}${search}`;
+      const upstreamUrl = `ws://${deps.openvscode.host}:${deps.openvscode.port}${upstreamTarget}`;
       let upstream: WebSocket;
       try {
         upstream = new WebSocket(upstreamUrl, {
-          headers: filterUpgradeHeaders(req.headers),
+          headers: vscodeUpgradeHeaders(req.headers, deps.openvscode),
         });
       } catch (err) {
         log('warn', 'Vscode WS upstream construct failed', { error: (err as Error).message });
@@ -186,6 +235,17 @@ export function createUpgradeDispatcher(deps: UpgradeDispatcherDeps): UpgradeDis
   // so misrouted clients fail fast.
   function handleUpgrade(req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
     const { pathname } = parseUrl(req.url ?? '');
+    const authOutcome = checkContainerAuth(
+      pathname ?? '',
+      singleHeader(req.headers.authorization),
+      process.env.CONTAINER_AUTH_TOKEN,
+    );
+    if (!authOutcome.allowed) {
+      const reason = authOutcome.status === 401 ? 'Unauthorized' : 'Service Unavailable';
+      socket.write(`HTTP/1.1 ${authOutcome.status} ${reason}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${authOutcome.body}`);
+      socket.destroy();
+      return;
+    }
 
     if (pathname === '/terminal') {
       deps.terminalWss.handleUpgrade(req, socket, head, (ws) => {
@@ -209,8 +269,14 @@ export function createUpgradeDispatcher(deps: UpgradeDispatcherDeps): UpgradeDis
         socket.destroy();
         return;
       }
+      const upstreamPath = vscodeUpstreamPath(pathname, process.env.SESSION_ID);
+      if (upstreamPath === null) {
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        socket.destroy();
+        return;
+      }
       requestOpenvscodeStart();
-      handleVscodeUpgrade(req, socket, head);
+      handleVscodeUpgrade(req, socket, head, upstreamPath);
       return;
     }
 

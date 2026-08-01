@@ -27,6 +27,7 @@ vi.mock('../../lib/mobile', () => ({
   isTouchDevice: () => false,
   getKeyboardHeight: () => 0,
   get isSamsungBrowser() { return false; },
+  needsHomeScreenInstallForNotifications: () => false,
 }));
 
 vi.mock('../../components/SessionSwitcher', () => ({
@@ -185,6 +186,7 @@ describe('REQ-ENTERPRISE-008 AC3: SessionSection mode selector', () => {
     fastStartEnabled: () => true,
     workspaceSyncEnabled: () => false,
     clipboardAccess: () => false,
+    notificationPermission: () => 'default' as const,
     sleepAfter: () => '30m',
     canChangeSleepAfter: () => true,
     isFreeUser: () => false,
@@ -197,6 +199,7 @@ describe('REQ-ENTERPRISE-008 AC3: SessionSection mode selector', () => {
     onSessionModeChange: () => {},
     onFastStartToggle: () => {},
     onWorkspaceSyncToggle: () => {},
+    onEnableAgentNotifications: () => {},
     onSleepAfterChange: () => {},
     onRecreateDocs: () => {},
     onRecreateAgentConfigs: () => {},

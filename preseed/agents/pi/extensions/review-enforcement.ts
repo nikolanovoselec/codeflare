@@ -332,6 +332,18 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "CI is independent of review acknowledgement.",
     ].join("\n"));
   }
+  const lastLaunchSection = sections.length - 1;
+  sections[lastLaunchSection] = [
+    sections[lastLaunchSection],
+    "",
+    "**After the final launch:** End this turn immediately.",
+    "",
+    "Do not run `sleep`, foreground waits, polling, resume an in-flight agent, or retrieve an in-flight result.",
+    "",
+    "Let native task notifications drive subsequent turns.",
+    "",
+    "After a terminal notification, public result retrieval is allowed only when the report is truncated or otherwise unavailable.",
+  ].join("\n");
   if (input.reviewers.length > 0) {
     order.push("TRIAGE + ACK", "FIX");
     sections.push([
@@ -390,6 +402,10 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     prNumber: input.pr.number,
     base: input.pr.baseRefName,
     boundaryToolUseId: input.boundaryToolUseId,
+    launchTurn: {
+      disposition: "stop-after-final-launch",
+      handoff: "native-task-notifications",
+    },
     head: input.pr.headRefOid,
     ackHead: input.ackHead,
     reviewRange: input.range,
@@ -540,11 +556,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!review || !isEnforcedPr(review.pr)) return;
     resumedWithoutBoundary = false;
 
-    const skipReview = bypassSentinelPresent();
-    if (skipReview && !boundary.classification.settled) consumeBypassSentinel();
+    const reviewsEnabled = reviewEnabled(review.repo);
+    const skipReview = reviewsEnabled && bypassSentinelPresent();
+    if (skipReview) {
+      acknowledge(review.repo, review.pr.headRefOid);
+      if (!boundary.classification.settled) consumeBypassSentinel();
+    }
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const requiredLanes = reviewEnabled(review.repo) && !skipReview && ackHead !== review.pr.headRefOid
+    const requiredLanes = reviewsEnabled && !skipReview && ackHead !== review.pr.headRefOid
       ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
       : [];
     const ciEvent = ciBoundaryEvent(boundary.classification.event);
@@ -589,11 +609,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       || pr.headRefName !== preview.reviewBranch
       || pr.headRefOid !== preview.reviewHead) return;
     const review = { ...context, pr };
+    const reviewsEnabled = reviewEnabled(review.repo);
+    const reviewIsOpen = isEnforcedPr(review.pr);
+    const sentinelBypassed = reviewIsOpen && reviewsEnabled && consumeBypassSentinel();
+    const bypassed = reviewIsOpen && reviewsEnabled && (preview.bypassed || sentinelBypassed);
+    if (bypassed) acknowledge(review.repo, review.pr.headRefOid);
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const bypassed = preview.bypassed || consumeBypassSentinel();
-    const shouldReview = isEnforcedPr(review.pr)
-      && reviewEnabled(review.repo)
+    const shouldReview = reviewIsOpen
+      && reviewsEnabled
       && !bypassed
       && ackHead !== review.pr.headRefOid;
     const requiredLanes = shouldReview

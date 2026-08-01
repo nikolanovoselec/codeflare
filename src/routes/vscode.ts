@@ -1,14 +1,12 @@
 /**
- * Browser IDE routes -- proxy from the Worker to the in-container OpenVSCode
- * Server that hosts the full VS Code editor over the session's ~/workspace.
+ * Browser IDE routes -- proxy from the Worker to in-container code-server.
  *
- * Mirrors the Vault proxy plumbing (src/routes/vault/index.ts) but is much simpler:
- * OpenVSCode is launched with --server-base-path=/api/vscode/<sessionId>, so it
- * builds its own asset + service-worker URLs and needs no HTML base-href graft,
- * no bootstrap hop, and no encryption/CSRF machinery of its own. The path is
- * forwarded to the container UNCHANGED (the base-path-native server expects its
- * own path); the in-container host (host/src/server.ts) forwards /api/vscode/*
- * to 127.0.0.1:13337 without stripping.
+ * The browser retains `/api/vscode/<sessionId>/` as its session-scoped location.
+ * After this route authenticates and validates the request, it replaces any
+ * client forwarding metadata with canonical host/protocol identity and sends
+ * the external path unchanged to the container host. That trusted host strips
+ * only the exact current-session prefix before forwarding to loopback
+ * code-server. No second auth system, HTML graft, or public listener is added.
  *
  * Session-keyed only (REQ-IDE-002): the sessionId in the URL is the sole
  * container selector -- the deliberate opposite of the Vault's bucket-stable
@@ -73,6 +71,7 @@ const logger = createLogger('vscode');
  * failure state that the page's own "reload to try again" cannot escape.
  */
 const WARM_PARAM = 'cf_since';
+const WORKSPACE_SELECTOR_KEYS = Object.freeze(['folder', 'workspace', 'ew']);
 const WARM_GIVE_UP_MS = 120_000;
 const WARM_REFRESH_SECONDS = 3;
 
@@ -134,10 +133,7 @@ function warmStartedAt(url: URL): number {
   return Number.isSafeInteger(raw) && raw > 0 && raw <= now ? raw : now;
 }
 
-/**
- * OpenVSCode is base-path-native and receives its own URL unchanged, so the
- * episode start this route added must not survive into the forwarded request.
- */
+/** The Worker-only warming marker must never reach the container host. */
 function stripWarmParam(url: URL): string {
   if (!url.searchParams.has(WARM_PARAM)) return url.toString();
   const clean = new URL(url);
@@ -146,8 +142,8 @@ function stripWarmParam(url: URL): string {
 }
 
 /**
- * Forward a browser-IDE HTTP or WebSocket request to the in-container
- * OpenVSCode Server.
+ * Forward a browser-IDE HTTP or WebSocket request to the in-container host,
+ * which performs the exact session-prefix strip before code-server.
  */
 export async function handleVscodeRequest(
   request: Request,
@@ -170,6 +166,13 @@ export async function handleVscodeRequest(
     return new Response(
       JSON.stringify({ error: 'Invalid routing result', code: 'INVALID_ROUTING' }),
       { status: 500, headers: jsonHeaders },
+    );
+  }
+  const requestUrl = new URL(request.url);
+  if (WORKSPACE_SELECTOR_KEYS.some((key) => requestUrl.searchParams.has(key))) {
+    return new Response(
+      JSON.stringify({ error: 'Browser IDE workspace selectors are not allowed', code: 'VSCODE_WORKSPACE_SELECTOR_FORBIDDEN' }),
+      { status: 400, headers: jsonHeaders },
     );
   }
 
@@ -213,7 +216,6 @@ export async function handleVscodeRequest(
     const { sessionKey } = ownershipResult;
 
     const container = getContainer(env.CONTAINER, containerId);
-    const requestUrl = new URL(request.url);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
     if (!warmProbe.healthy) {
       // A WebSocket upgrade cannot render a page, so it keeps the machine-readable
@@ -263,12 +265,11 @@ export async function handleVscodeRequest(
       }
     })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
 
-    // Forward to the container with the path UNCHANGED. OpenVSCode runs with
-    // --server-base-path=/api/vscode/<sessionId>, so it expects to receive its
-    // own path; the in-container host forwards /api/vscode/* to :13337 without
-    // stripping (unlike the vault, which rewrites to /vault). Forward the
-    // auth-validated body-owning request; WS upgrades flow through this same
-    // line (their Upgrade / Sec-WebSocket-* headers are preserved verbatim).
+    // Preserve the public path/query and body for the container host, but never
+    // trust client-supplied forwarding identity. The request URL has already
+    // passed the route and Origin/auth chain, so its URL is canonical for the
+    // external host/protocol while its allowlisted caller Origin is preserved. WS handshake
+    // headers remain intact; only forwarding metadata is replaced.
     logger.info('Forwarding vscode request to container', {
       email: user.email,
       containerId,
@@ -276,7 +277,20 @@ export async function handleVscodeRequest(
       method: request.method,
       isWebSocket: !!isWebSocket,
     });
-    const response = await container.fetch(new Request(stripWarmParam(requestUrl), requestForAuth));
+    const forwardedRequest = new Request(stripWarmParam(requestUrl), requestForAuth);
+    for (const name of Array.from(forwardedRequest.headers.keys())) {
+      const lower = name.toLowerCase();
+      if (lower === 'forwarded' || lower.startsWith('x-forwarded-')) {
+        forwardedRequest.headers.delete(name);
+      }
+    }
+    forwardedRequest.headers.set('X-Forwarded-Host', requestUrl.host);
+    forwardedRequest.headers.set('X-Forwarded-Proto', requestUrl.protocol.slice(0, -1));
+    // Preserve the caller Origin after the allowlist check above. code-server
+    // independently compares it with the canonical external Host; synthesizing
+    // a same-origin value here would neutralize that defense-in-depth check.
+    if (!request.headers.has('Origin')) forwardedRequest.headers.delete('Origin');
+    const response = await container.fetch(forwardedRequest);
     return response;
   } catch (err) {
     logger.error('vscode proxy failed', toError(err));

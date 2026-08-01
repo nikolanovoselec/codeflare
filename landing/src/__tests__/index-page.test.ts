@@ -9,6 +9,8 @@
  * matching copy strings. They double as the migration oracle: identical
  * structure proves the inline-to-component refactor preserved the page.
  */
+import { readFileSync } from 'node:fs';
+
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import IndexPage from '../pages/index.astro';
@@ -20,6 +22,7 @@ import {
   COST,
   DOGFOOD,
   EGRESS,
+  EXECUTION,
   FAQ_ITEMS,
   FEATURE_TERMINALS,
   HERO,
@@ -36,6 +39,7 @@ import {
 } from '../content/site';
 
 const SECTION_ORDER = [
+  'execution',
   'shift',
   'method',
   'legacy',
@@ -128,9 +132,10 @@ describe('landing page composition (REQ-LANDING-001)', () => {
   });
 
   it('renders the full set of terminals, each armed for the proof reveal', () => {
-    // hero + 4 feature + method gate + legacy + boundary + operations gate + 2 context
-    // + board + orch + ledger + platform seed + ide editor + mcp + dogfood + inference mesh = 19.
-    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(19);
+    // hero + inference mesh + 2 execution faces + 4 feature + method gate + legacy
+    // + operations gate + boundary + 2 context + board + orch + ledger + platform seed
+    // + ide editor + mcp + dogfood = 21.
+    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(21);
   });
 });
 
@@ -351,13 +356,14 @@ describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
 });
 
 describe('inference mesh family hero (REQ-LANDING-005)', () => {
-  it('sits as a <header> directly after the primary hero and before the shift section', () => {
+  it('sits as a <header> directly after the primary hero and before the execution overview', () => {
     const main = body.querySelector('main')!;
     const children = Array.from(main.children);
     expect(children[0].classList.contains('hero')).toBe(true);
     expect(children[1].id).toBe(INFERENCE_MESH.id);
     expect(children[1].tagName).toBe('HEADER');
-    expect(children[2].id).toBe('shift');
+    expect(children[2].id).toBe(EXECUTION.id);
+    expect(children[3].id).toBe('shift');
   });
 
   it('renders the ~/inference chiplet and the plain white Inference Mesh name (no scramble)', () => {
@@ -424,6 +430,239 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     );
     expect(terminal.hasAttribute('data-ft-once')).toBe(false);
     expect(terminal.querySelector('.terminal-foot.tf-static')?.textContent).toContain(INFERENCE_MESH.terminal.foot);
+  });
+});
+
+describe('execution overview reel (REQ-LANDING-010)', () => {
+  it('orders Hero -> Inference Mesh -> Execution -> detailed sections', () => {
+    const children = Array.from(body.querySelector('main')!.children);
+    expect(children[0].classList.contains('hero')).toBe(true);
+    expect(children[1].id).toBe(INFERENCE_MESH.id);
+    expect(children[2].id).toBe(EXECUTION.id);
+    expect(children[3].id).toBe('shift');
+  });
+
+  it('retains the detailed Operations presentation exactly once', () => {
+    expect(body.querySelectorAll('#operations')).toHaveLength(1);
+  });
+
+  it('keeps every owner-approved row in both coherent execution timelines', () => {
+    const softwareTimeline = [...EXECUTION.software.context, ...EXECUTION.software.events];
+    const infrastructureTimeline = [
+      ...EXECUTION.infrastructure.context,
+      ...EXECUTION.infrastructure.events,
+    ];
+
+    expect(EXECUTION.software.context).toHaveLength(8);
+    expect(EXECUTION.software.events).toHaveLength(12);
+    expect(EXECUTION.infrastructure.context).toHaveLength(8);
+    expect(EXECUTION.infrastructure.events).toHaveLength(12);
+    expect(softwareTimeline.map((line) => line.text)).toEqual([
+      't.anderson@metacortex.ai $ Clone codeflare-inference-mesh from production and switch to develop.',
+      'clone complete · develop checked out · graph current\nHEAD matches origin/develop · worktree clean',
+      'Enter planning mode for Inference Mesh routing.',
+      'planning mode · 6 tasks · SDD requirements linked · TDD principles enforced',
+      'Execute the plan.\nStop if the approved scope changes.',
+      'implementation complete · TDD suite green · worktree ready\n6/6 tasks complete · requirement anchors updated',
+      'Trigger review agents.',
+      'code-reviewer: fallback assertion missing · doc-updater: clean · spec-reviewer: clean',
+      'Fix it and rerun review.\nShow me the final diff when review is clean.',
+      'code-reviewer: clean · doc-updater: clean · spec-reviewer: clean',
+      'Push the reviewed head and open a PR to main.',
+      'PR #1 opened · required checks green · ready to merge\nhttps://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+      'Deploy develop to integration.',
+      'integration deploy green · dynamic/codeflare-mesh route live · private node path ready',
+      'Run the end-to-end inference path on integration.',
+      'AI Gateway → Inference Router → cf1:network Mesh → Zero Trust Client → private node\nstream complete · reservation released · audit event recorded',
+      'Approve, update the PR body, and squash-merge to main.\nKeep the implementation and verification details in the PR body.',
+      'PR #1 squash-merged · main updated · PR closed\nmain @ 8ef188a · production deploy queued',
+      'Reset develop to origin/main and force-push.',
+      'develop aligned with origin/main · worktree clean\norigin/develop updated with --force-with-lease · 8ef188a',
+    ]);
+    expect(infrastructureTimeline.map((line) => line.text)).toEqual([
+      't.anderson@metacortex.ai $ Trace CVE-2024-6387 across every internet-facing Linux host. Discovery only.',
+      'CMDB: 2,418 hosts scanned · 186 publicly exposed · 37 running affected OpenSSH versions',
+      'SSH to all 37 candidates in parallel. Confirm package version, glibc, and live sshd exposure.',
+      '37 checked in 42s · 31 confirmed vulnerable · 6 false positives removed',
+      'Enter planning mode. Build a canary-first rollout for the 31 vulnerable hosts, with rollback and stop conditions.',
+      'Ubuntu 18 · Debian 8 · RHEL 5 · 3 canaries · 7 rollout batches',
+      'Show the rollback path and automatic stop conditions.',
+      'rollback role rendered · serial: 5 · max_fail_percentage: 0\nSSH reconnect and sshd health required after every host',
+      'List every host in the canary batch.',
+      'ansible-playbook openssh-cve-2024-6387.yml --limit cve-2024-6387-canary --list-hosts\n  hosts (3): aws-fra-edge-03 · azure-fra-edge-02 · azure-zrh-bastion-01',
+      'Show me the batch timeline before I approve.',
+      'canary 45s · 6 rollout batches × 30s · final rescan 45s\nestimated 4m 30s · rolling sshd restart · no host reboot',
+      'Execute the approved rollout.\nStop before fleet batches unless all three canaries pass.',
+      'canaries 3/3 patched · fixed OpenSSH packages verified\nSSH reconnect 3/3 · sshd healthy 3/3 · fleet gate open',
+      'batch 1/7 passed · remaining six batches released automatically · 28 hosts remaining',
+      '7 batches completed in 3m 31s · 31/31 patched · failed 0\nSSH reconnect 31/31 · sshd healthy 31/31',
+      '31 hosts healthy · rescanning all 2,418 CMDB assets for CVE-2024-6387 exposure',
+      '2,418 hosts rescanned · vulnerable hosts 0 · public exposure 0\n31 fixed versions verified · rollback used 0',
+      'Publish the discovery, rollout, and rescan evidence, then close SEC-4821.',
+      'SEC-4821 closed · CMDB inventory, host evidence, package diffs, and rollout logs attached\nelapsed 4m 18s · 31 hosts remediated · remaining exposure 0',
+    ]);
+    expect(EXECUTION.software.foot).toEqual(['PR #1 merged', 'CI green', 'develop synced']);
+    expect(EXECUTION.infrastructure.foot).toEqual(['SEC-4821 closed', '4m 18s', 'fleet verified']);
+    expect(softwareTimeline).toHaveLength(20);
+    expect(infrastructureTimeline).toHaveLength(20);
+    for (const line of [...softwareTimeline, ...infrastructureTimeline]) {
+      if (line.tone === 'cmd') {
+        expect(line.intent).toMatch(/^(request|approval)$/);
+      } else {
+        expect(line.intent).toBeUndefined();
+      }
+    }
+    expect(softwareTimeline.filter((line) => line.text.includes('t.anderson@metacortex.ai')))
+      .toHaveLength(1);
+    expect(infrastructureTimeline.filter((line) => line.text.includes('t.anderson@metacortex.ai')))
+      .toHaveLength(1);
+    expect(softwareTimeline.find((line) => line.href)?.href).toBe(
+      'https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1',
+    );
+    const firstPushIndex = softwareTimeline.findIndex((line) => /^Push\b/.test(line.text));
+    const cleanReviewIndex = softwareTimeline.findIndex((line) =>
+      /code-reviewer: clean.*doc-updater: clean.*spec-reviewer: clean/.test(line.text),
+    );
+    expect(firstPushIndex).toBeGreaterThan(cleanReviewIndex);
+  });
+
+  it('renders the real merged PR as a terminal-styled external link', () => {
+    const document = documentDom(html);
+    const style = document.createElement('style');
+    style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
+    document.head.append(style);
+    const link = document.querySelector<HTMLAnchorElement>(
+      '#execution a[href="https://github.com/nikolanovoselec/codeflare-inference-mesh/pull/1"]',
+    )!;
+    expect(link).not.toBeNull();
+    expect(link.classList.contains('terminal-inline-link')).toBe(true);
+    expect(link.target).toBe('_blank');
+    expect(link.rel).toContain('noopener');
+    expect(link.closest('.transcript-feed-semantic')).not.toBeNull();
+    const rules = Array.from(style.sheet?.cssRules ?? []).filter(
+      (rule): rule is CSSStyleRule => 'selectorText' in rule,
+    );
+    const linkRule = rules.find((rule) => rule.selectorText.startsWith('.terminal-inline-link,'))!;
+    expect(linkRule.style.getPropertyValue('color')).toBe('inherit');
+    expect(linkRule.style.getPropertyValue('text-decoration')).toBe('none');
+    const focusRule = rules.find(
+      (rule) => rule.selectorText === '.execution-terminal .transcript-feed-semantic:focus-within',
+    )!;
+    expect(focusRule.style.getPropertyValue('width')).toBe('auto');
+    expect(focusRule.style.getPropertyValue('height')).toBe('auto');
+    expect(focusRule.style.getPropertyValue('overflow')).toBe('visible');
+    expect(focusRule.style.getPropertyValue('clip')).toBe('auto');
+    const focusedItemRule = rules.find(
+      (rule) => rule.selectorText
+        === '.transcript-feed-semantic:focus-within > li:not(:focus-within)',
+    )!;
+    expect(focusedItemRule.style.getPropertyValue('display')).toBe('none');
+  });
+
+  it('keeps every authored continuation non-empty', () => {
+    const runs = [
+      { run: EXECUTION.software, continuationCount: 9 },
+      { run: EXECUTION.infrastructure, continuationCount: 8 },
+    ];
+    for (const { run, continuationCount } of runs) {
+      const continuations = [...run.context, ...run.events]
+        .flatMap((line) => line.text.split('\n').slice(1));
+      expect(continuations).toHaveLength(continuationCount);
+      expect(continuations.every((line) => line.trim().length > 0)).toBe(true);
+    }
+  });
+
+  it('sizes fixed scrolling logs from resolved then initial states without row gaps', () => {
+    for (const prepared of [false, true]) {
+      const document = documentDom(html);
+      if (prepared) {
+        document.querySelectorAll('#execution .terminal-body').forEach((terminalBody) => {
+          terminalBody.classList.add('is-feed-prepared');
+        });
+      }
+      const style = document.createElement('style');
+      style.textContent = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');
+      document.head.append(style);
+      const view = document.defaultView!;
+      const card = document.querySelector<HTMLElement>('#execution .execution-card')!;
+      const faces = document.querySelectorAll<HTMLElement>('#execution .execution-face');
+      const standardBody = document.querySelector<HTMLElement>(
+        '.terminal:not(.execution-terminal) .terminal-body',
+      )!;
+      const standardJustification = view.getComputedStyle(standardBody).justifyContent;
+      const expectFirstGridCell = (element: HTMLElement) => {
+        expect(view.getComputedStyle(element).gridArea).toMatch(/^1\s*\/\s*1(?:\s*\/|$)/);
+      };
+      const expectStandardLineRhythm = (element: HTMLElement) => {
+        expect(view.getComputedStyle(element).justifyContent).toBe(standardJustification);
+      };
+
+      expect(view.getComputedStyle(card).alignItems).toBe('stretch');
+      expect(faces).toHaveLength(2);
+      faces.forEach((face) => {
+        const terminal = face.querySelector<HTMLElement>('.execution-terminal')!;
+        const terminalBody = terminal.querySelector<HTMLElement>('.terminal-body')!;
+        const sizeReserve = terminalBody.querySelector<HTMLElement>('[data-feed-size-reserve]')!;
+        const feed = terminalBody.querySelector<HTMLElement>('[data-feed-events]')!;
+        expect(view.getComputedStyle(face).display).toBe('flex');
+        expect(view.getComputedStyle(terminal).display).toBe('flex');
+        expect(view.getComputedStyle(terminal).flexGrow).toBe('1');
+        const terminalBodyStyle = view.getComputedStyle(terminalBody);
+        expect(terminalBodyStyle.display).toBe('grid');
+        expect(terminalBodyStyle.flexGrow).toBe('1');
+        expect(terminalBodyStyle.minHeight).toBe('0');
+        expect(terminalBodyStyle.gridTemplateRows).toBe('minmax(0, 1fr)');
+        expect(terminalBodyStyle.overflow).toBe('hidden');
+        expect(view.getComputedStyle(sizeReserve).display).toBe('grid');
+        expect(view.getComputedStyle(sizeReserve).visibility).toBe('hidden');
+        expectFirstGridCell(sizeReserve);
+        const sizeWindows = Array.from(
+          sizeReserve.querySelectorAll<HTMLElement>('[data-feed-size-window]'),
+        );
+        expect(sizeWindows.length).toBeGreaterThan(1);
+        sizeWindows.forEach((window) => {
+          expectFirstGridCell(window);
+          expectStandardLineRhythm(window);
+        });
+        expect(view.getComputedStyle(sizeWindows[0]).display).toBe(prepared ? 'flex' : 'none');
+        expect(view.getComputedStyle(sizeWindows.at(-1)!).display).toBe(prepared ? 'none' : 'flex');
+        expectFirstGridCell(feed);
+        expectStandardLineRhythm(feed);
+        expect(view.getComputedStyle(feed).contain).toContain('size');
+        expect(view.getComputedStyle(feed).overflow).toBe('hidden');
+        expect(view.getComputedStyle(feed.querySelector<HTMLElement>('.t-line')!).flexShrink).toBe('0');
+      });
+    }
+  });
+
+  it('composes two shared Transcript simulations with full eight-row viewports', () => {
+    const reel = body.querySelector('#execution [data-execution-reel]')!;
+    const faces = reel.querySelectorAll('[data-execution-face]');
+    expect(faces).toHaveLength(2);
+    expect(faces[0].getAttribute('data-execution-face')).toBe('software');
+    expect(faces[1].getAttribute('data-execution-face')).toBe('infrastructure');
+
+    const runs = [EXECUTION.software, EXECUTION.infrastructure];
+    faces.forEach((face, index) => {
+      const terminal = face.querySelector('.terminal.execution-terminal[data-proof]')!;
+      const feed = terminal.querySelector<HTMLElement>('[data-roll][data-feed-events]')!;
+      expect(terminal).not.toBeNull();
+      const expectedVariant = index === 0 ? 'software' : 'infrastructure';
+      expect(terminal.classList.contains(`execution-terminal--${expectedVariant}`)).toBe(true);
+      expect(runs[index].context.length).toBeGreaterThanOrEqual(8);
+      expect(runs[index].events.length).toBeGreaterThan(0);
+      expect(feed.querySelectorAll(':scope > .t-line')).toHaveLength(8);
+      expect(JSON.parse(feed.dataset.feedContext!)).toEqual(runs[index].context);
+      expect(JSON.parse(feed.dataset.feedEvents!)).toEqual(runs[index].events);
+      expect(face.querySelectorAll('[data-feed-accessible-line]')).toHaveLength(
+        runs[index].context.length + runs[index].events.length,
+      );
+    });
+  });
+
+  it('renders execution and operations without preview badges', () => {
+    expect(body.querySelector('#execution [data-private-preview]')).toBeNull();
+    expect(body.querySelector('#operations [data-private-preview]')).toBeNull();
   });
 });
 

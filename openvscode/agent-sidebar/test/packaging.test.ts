@@ -56,8 +56,38 @@ async function stageFixture(source: string, claudeSource: string, target: string
   });
 }
 
+interface TreeEntry {
+  readonly path: string;
+  readonly kind: 'directory' | 'file';
+  readonly content?: string;
+  readonly executable?: number;
+}
+
+async function snapshotTree(root: string, directory = ''): Promise<TreeEntry[]> {
+  const snapshot: TreeEntry[] = [];
+  const entries = await readdir(join(root, directory), { withFileTypes: true });
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      snapshot.push({ path, kind: 'directory' });
+      snapshot.push(...await snapshotTree(root, path));
+    } else {
+      assert.equal(entry.isFile(), true, `unsupported tree entry: ${path}`);
+      const info = await stat(join(root, path));
+      snapshot.push({
+        path,
+        kind: 'file',
+        content: (await readFile(join(root, path))).toString('base64'),
+        executable: info.mode & 0o111,
+      });
+    }
+  }
+  return snapshot;
+}
+
 test('REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories', async () => {
   const { source, claudeSource, target } = await fixture();
+  const claudeSourceSnapshot = await snapshotTree(claudeSource);
   const staged = await stageFixture(source, claudeSource, target);
 
   assert.deepEqual((await readdir(join(target, 'extensions'))).sort(), ['claude', 'none', 'pi']);
@@ -68,6 +98,10 @@ test('REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported 
   );
   assert.deepEqual(await readdir(staged.inventories.pi), ['codeflare-agent-sidebar']);
   assert.deepEqual(await readdir(staged.inventories.claude), ['anthropic.claude-code']);
+  assert.deepEqual(
+    await snapshotTree(join(staged.inventories.claude, 'anthropic.claude-code')),
+    claudeSourceSnapshot,
+  );
   assert.equal(
     JSON.parse(await readFile(join(staged.inventories.pi, 'codeflare-agent-sidebar', 'package.json'), 'utf8')).publisher,
     'codeflare',
@@ -91,35 +125,61 @@ test('staged Pi and Claude extension files are immutable', async () => {
   assert.notEqual((await stat(piFile)).ino, (await stat(claudeFile)).ino);
 });
 
-test('REQ-IDE-005 AC2: contributes Codeflare as the default native Pi Chat participant', async () => {
+test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1: contributes native Pi Chat and file review menus', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+    displayName: string;
     activationEvents: string[];
     enabledApiProposals: string[];
     contributes: {
       chatParticipants: Array<Record<string, unknown>>;
+      commands: Array<Record<string, unknown>>;
       languageModelChatProviders: Array<Record<string, unknown>>;
+      menus: {
+        'editor/context': Array<Record<string, unknown>>;
+        'explorer/context': Array<Record<string, unknown>>;
+      };
       viewsContainers?: unknown;
       views?: unknown;
     };
   };
 
-  assert.deepEqual(manifest.activationEvents, ['onChatParticipant:codeflare.pi']);
+  assert.equal(manifest.displayName, 'Codeflare');
+  assert.deepEqual(manifest.activationEvents, [
+    'onStartupFinished',
+    'onChatParticipant:codeflare.pi',
+    'onCommand:codeflare.pi.reviewFile',
+  ]);
   assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
   assert.deepEqual(manifest.contributes.languageModelChatProviders, [{
-    vendor: 'codeflare-pi-rpc',
-    displayName: 'Codeflare Pi (Local RPC)',
+    vendor: 'copilot',
+    displayName: 'Codeflare',
   }]);
   const [participant] = manifest.contributes.chatParticipants;
   assert.equal(participant?.id, 'codeflare.pi');
   assert.equal(participant?.name, 'codeflare');
+  assert.equal(participant?.fullName, 'Codeflare');
   assert.equal(participant?.isDefault, true);
   assert.equal(participant?.isSticky, true);
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
+  assert.deepEqual(manifest.contributes.commands, [{
+    command: 'codeflare.pi.reviewFile',
+    title: 'Review with Codeflare',
+  }]);
+  assert.deepEqual(manifest.contributes.menus['explorer/context'], [{
+    command: 'codeflare.pi.reviewFile',
+    group: '1_chat@1',
+    when: "resourceScheme == 'file' && !explorerResourceIsFolder",
+  }]);
+  assert.deepEqual(manifest.contributes.menus['editor/context'], [{
+    command: 'codeflare.pi.reviewFile',
+    group: '1_chat@6',
+    when: "resourceScheme == 'file'",
+  }]);
   assert.equal(manifest.contributes.viewsContainers, undefined);
   assert.equal(manifest.contributes.views, undefined);
 });
 
-test('REQ-IDE-005 AC6: refuses retained VSIX and substituted publisher or version metadata', async () => {
+test('REQ-IDE-010 AC3: refuses retained VSIX and substituted publisher or version metadata', async () => {
   for (const forbidden of ['vsix', 'owned-publisher', 'official-publisher', 'official-version']) {
     const { source, claudeSource, target } = await fixture();
     if (forbidden === 'vsix') await writeFile(join(source, 'anthropic.vsix'), 'forbidden\n');

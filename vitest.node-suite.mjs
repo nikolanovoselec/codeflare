@@ -15,6 +15,7 @@ export const NODE_SUITE_FILES = [
   // neither capability exists under the Workers pool.
   'src/__tests__/lib/pi-memory-inject.test.ts',
   'src/__tests__/lib/pi-memory-vault-delivery.test.ts',
+  'src/__tests__/lib/pi-native-notifications.test.ts',
   'src/__tests__/lib/pi-post-compaction-recall.test.ts',
   'src/__tests__/lib/pi-sidebar-approval.test.ts',
   'src/__tests__/lib/review-enforcement.test.ts',

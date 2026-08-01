@@ -101,21 +101,25 @@ The in-container SilverBullet editor is reached through the Worker proxy. Under 
 
 ## Browser IDE
 
-The in-container OpenVSCode Server (full VS Code editor) is reached through the Worker proxy. Unlike the Vault, the IDE is **session-keyed** ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable)): OpenVSCode runs with `--server-base-path=/api/vscode/<sessionId>`, so it is base-path native — the Worker and host forward the path **unchanged** (no `/vault`-style strip, no HTML base-href graft) and its service-worker scope is session-specific. The sessionId in the URL is the sole container selector; there is no bucket-stable path.
+The in-container code-server runtime (full Code OSS editor) is reached through the Worker proxy. Unlike the Vault, the IDE is **session-keyed** ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable)): the browser and Worker retain `/api/vscode/<sessionId>/`, while the trusted host strips only that exact session prefix before forwarding HTTP or WebSocket traffic to loopback code-server. Canonical forwarded host/protocol identity preserves Origin enforcement. Public `folder`, `workspace`, and `ew` selectors are rejected at Worker and host boundaries; the private root hop selects `/home/user/workspace`, and the successful root response projects its equivalent fixed `folderUri` into Code OSS while the browser location remains clean.
+
+The sessionId in the URL is the sole container selector under [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable); there is no bucket-stable serving path. A bounded per-user UI snapshot is storage state, not a route selector.
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) | Session-keyed OpenVSCode proxy, parsed before Hono so WebSocket upgrades pass through. Path forwarded unchanged. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal + vault). |
+| GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-fixed-workspace-projection-and-clean-browser-ide-url) | Session-keyed code-server proxy, parsed before Hono so WebSocket upgrades pass through. Worker preserves the external path; host strips the exact session prefix. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal + vault). |
 
 **Error responses:**
 
+- Public `folder`, `workspace`, or `ew` selector → 400 `VSCODE_WORKSPACE_SELECTOR_FORBIDDEN` before container/code-server access.
+- Missing, duplicate, malformed, compressed, or oversized pinned root workbench configuration → 502 `VSCODE_WORKBENCH_CONFIGURATION_INVALID` instead of an empty editor window.
 - Malformed sessionId → 400 `INVALID_SESSION` (`src/routes/vscode-validation.ts`); unowned session → 404 `SESSION_NOT_FOUND` and stopped session → 503 `CONTAINER_STOPPED` (`src/routes/vault/access.ts::assertSessionOwnership`, shared with the vault auth chain).
 - Non-advanced session → 409 for HTTP (host-layer HTML page, the IDE is not enabled for the session mode) and a refused upgrade for WebSocket ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) AC7).
 - Unhealthy container → 503 `CONTAINER_NOT_READY` for a WebSocket upgrade; a navigable request instead gets an auto-refreshing HTML page, because the IDE opens in a bare tab where a JSON body renders as raw text (`src/routes/vscode.ts::warmingPage`).
 - That page refreshes every 3 s and gives up with 504 once the wait passes 120 s (`WARM_GIVE_UP_MS`, `WARM_REFRESH_SECONDS`).
 - The Worker is stateless, so the episode start rides in a `cf_since` query parameter and the page measures elapsed time against it. A client-forged future value is ignored (`src/routes/vscode.ts::warmStartedAt`).
 - Once the container answers, the Worker redirects `cf_since` back out of the tab's URL, so a later cold start is not born already expired (`src/routes/vscode.ts::redirectAwayFromWarmParam`).
-- OpenVSCode still lazy-starting (container healthy, editor not yet bound) → the host serves its own 503 auto-refreshing HTML warming page with no JSON `code`, which likewise stops refreshing and returns 504 after 120 s (`host/src/vscode-proxy.ts::vscodeWarmingResponse`, `VSCODE_WARMING_GIVE_UP_MS`).
+- code-server still lazy-starting (container healthy, editor not yet bound) → the host serves its own 503 auto-refreshing HTML warming page with no JSON `code`, which likewise stops refreshing and returns 504 after 120 s (`host/src/vscode-proxy.ts::vscodeWarmingResponse`, `VSCODE_WARMING_GIVE_UP_MS`).
 
 The pre-Hono, pre-auth 400 keeps the full default security-header set; every other response gets the relaxed set above.
 
