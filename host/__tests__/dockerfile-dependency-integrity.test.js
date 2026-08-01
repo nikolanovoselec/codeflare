@@ -40,8 +40,8 @@ function assertCompleteIntegrityTree(lockfile) {
   }
 }
 
-describe('REQ-OPS-019/033: build dependencies have committed integrity', () => {
-  it('REQ-AGENT-001 AC3: privileged npm tool manifest has a complete committed integrity tree', () => {
+describe('REQ-OPS-033: build dependencies have committed integrity', () => {
+  it('privileged npm tool manifest has a complete committed integrity tree', () => {
     const expectedTools = [
       '@anthropic-ai/claude-code',
       '@earendil-works/pi-coding-agent',

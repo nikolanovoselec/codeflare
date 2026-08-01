@@ -1698,9 +1698,8 @@ jobs:
 
   browser-run-mcp:
     # The Claude-side browser-run MCP server pins @modelcontextprotocol/sdk exact
-    # in preseed/agents/claude/browser-run-mcp/package.json. That dir has no
-    # lockfile and is not covered by Dependabot or the pi-extensions job (which only
-    # reads the Pi package.json), so this job bumps it weekly.
+    # in its dedicated manifest and committed lock. The pi-extensions job reads
+    # only Pi's package.json, so this job updates the Browser Run pair weekly.
     runs-on: ubuntu-latest
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS

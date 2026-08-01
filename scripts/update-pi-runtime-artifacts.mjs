@@ -14,7 +14,8 @@ function runChecked(command, args, options) {
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} exited ${result.status ?? 'without status'}`);
 }
 
-export function updatePiRuntimeArtifacts(repositoryRoot, currentVersion, nextVersion, run = runChecked) {
+export function updatePiRuntimeArtifacts(repositoryRoot, currentVersion, nextVersion, options = {}) {
+  const { npmCommand = 'npm' } = options;
   const toolsDirectory = resolve(repositoryRoot, 'preseed/npm-tools');
   const toolsManifest = resolve(toolsDirectory, 'package.json');
   const toolsLock = resolve(toolsDirectory, 'package-lock.json');
@@ -24,12 +25,12 @@ export function updatePiRuntimeArtifacts(repositoryRoot, currentVersion, nextVer
   const regeneratePrewarm = resolve(repositoryRoot, 'scripts/regenerate-pi-preseed-lock.mjs');
 
   updateNpmToolManifests(toolsManifest, PI_PACKAGE, currentVersion, nextVersion, prewarmManifest);
-  run('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: toolsDirectory });
-  run(process.execPath, [securityPins, toolsLock], { cwd: repositoryRoot });
-  run(process.execPath, [regeneratePrewarm], { cwd: repositoryRoot });
-  run(process.execPath, [securityPins, prewarmLock], { cwd: repositoryRoot });
-  run('npm', ['ci', '--no-audit', '--no-fund', '--silent'], { cwd: repositoryRoot });
-  run('npm', ['run', 'generate:agent-seed'], { cwd: repositoryRoot });
+  runChecked(npmCommand, ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: toolsDirectory });
+  runChecked(process.execPath, [securityPins, toolsLock], { cwd: repositoryRoot });
+  runChecked(process.execPath, [regeneratePrewarm], { cwd: repositoryRoot });
+  runChecked(process.execPath, [securityPins, prewarmLock], { cwd: repositoryRoot });
+  runChecked(npmCommand, ['ci', '--no-audit', '--no-fund', '--silent'], { cwd: repositoryRoot });
+  runChecked(npmCommand, ['run', 'generate:agent-seed'], { cwd: repositoryRoot });
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

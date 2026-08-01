@@ -94,6 +94,7 @@ describe('Browser IDE image input fingerprint', () => {
       'scripts/browser-ide-ui-state.py',
       'scripts/materialize-agent-seed.mjs',
       'scripts/patch-context-mode-bundles.mjs',
+      'scripts/verify-pi-lockstep.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
     ]) assert.equal(isBrowserIdeImageInput(path), true, path);
 

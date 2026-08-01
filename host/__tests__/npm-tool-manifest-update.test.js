@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,18 +45,28 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
     try {
       const toolsDirectory = join(directory, 'preseed/npm-tools');
       const prewarmDirectory = join(directory, 'preseed/agents/pi');
-      mkdirSync(toolsDirectory, { recursive: true });
-      mkdirSync(prewarmDirectory, { recursive: true });
+      const scriptsDirectory = join(directory, 'scripts');
+      const sourceDirectory = join(directory, 'src/lib');
+      const binDirectory = join(directory, 'bin');
+      for (const path of [toolsDirectory, prewarmDirectory, scriptsDirectory, sourceDirectory, binDirectory]) {
+        mkdirSync(path, { recursive: true });
+      }
       const tools = join(toolsDirectory, 'package.json');
       const prewarm = join(prewarmDirectory, 'package.json');
+      const toolsLock = join(toolsDirectory, 'package-lock.json');
+      const prewarmLock = join(prewarmDirectory, 'package-lock.json');
+      const seed = join(sourceDirectory, 'agent-seed.generated.ts');
       const devDependencies = Object.fromEntries(piLibraries.map((dependency) => [dependency, '0.81.0']));
       writeJson(tools, { dependencies: { [piPackage]: '0.81.0' }, devDependencies });
       writeJson(prewarm, { overrides: { [piPackage]: '0.81.0' }, devDependencies });
 
-      const calls = [];
-      updatePiRuntimeArtifacts(directory, '0.81.0', '0.82.0', (command, args, options) => {
-        calls.push({ command, args, cwd: options.cwd });
-      });
+      const fakeNpm = join(binDirectory, 'npm');
+      writeFileSync(fakeNpm, `#!/bin/sh\nset -eu\ncase "$*" in\n  "install --package-lock-only --ignore-scripts --no-audit --no-fund") printf '{"generated":"tools"}\\n' > package-lock.json ;;\n  "ci --no-audit --no-fund --silent") : ;;\n  "run generate:agent-seed") printf 'export const generated = true;\\n' > src/lib/agent-seed.generated.ts ;;\n  *) exit 64 ;;\nesac\n`);
+      chmodSync(fakeNpm, 0o755);
+      writeFileSync(join(scriptsDirectory, 'apply-npm-security-lock-pins.mjs'), `import { readFileSync, writeFileSync } from 'node:fs';\nconst path = process.argv[2];\nconst lock = JSON.parse(readFileSync(path, 'utf8'));\nwriteFileSync(path, JSON.stringify({ ...lock, securityPinned: true }) + '\\n');\n`);
+      writeFileSync(join(scriptsDirectory, 'regenerate-pi-preseed-lock.mjs'), `import { writeFileSync } from 'node:fs';\nwriteFileSync(new URL('../preseed/agents/pi/package-lock.json', import.meta.url), '{"generated":"prewarm"}\\n');\n`);
+
+      updatePiRuntimeArtifacts(directory, '0.81.0', '0.82.0', { npmCommand: fakeNpm });
 
       const nextTools = readJson(tools);
       const nextPrewarm = readJson(prewarm);
@@ -66,19 +76,15 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
         assert.equal(nextTools.devDependencies[dependency], '0.82.0');
         assert.equal(nextPrewarm.devDependencies[dependency], '0.82.0');
       }
-      assert.deepEqual(
-        calls.map(({ command, args }) => [command, ...args].join(' ')),
-        [
-          'npm install --package-lock-only --ignore-scripts --no-audit --no-fund',
-          `${process.execPath} ${join(directory, 'scripts/apply-npm-security-lock-pins.mjs')} ${join(toolsDirectory, 'package-lock.json')}`,
-          `${process.execPath} ${join(directory, 'scripts/regenerate-pi-preseed-lock.mjs')}`,
-          `${process.execPath} ${join(directory, 'scripts/apply-npm-security-lock-pins.mjs')} ${join(prewarmDirectory, 'package-lock.json')}`,
-          'npm ci --no-audit --no-fund --silent',
-          'npm run generate:agent-seed',
-        ],
+      assert.deepEqual(readJson(toolsLock), { generated: 'tools', securityPinned: true });
+      assert.deepEqual(readJson(prewarmLock), { generated: 'prewarm', securityPinned: true });
+      assert.equal(readFileSync(seed, 'utf8'), 'export const generated = true;\n');
+
+      writeFileSync(fakeNpm, '#!/bin/sh\nexit 9\n');
+      assert.throws(
+        () => updatePiRuntimeArtifacts(directory, '0.82.0', '0.83.0', { npmCommand: fakeNpm }),
+        /exited 9/,
       );
-      assert.equal(calls[0].cwd, toolsDirectory);
-      assert.ok(calls.slice(1).every(({ cwd }) => cwd === directory));
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

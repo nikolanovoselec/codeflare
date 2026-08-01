@@ -91,6 +91,7 @@ describe('deployment container image input hash', () => {
       'scripts/browser-ide-ui-state.py',
       'scripts/materialize-agent-seed.mjs',
       'scripts/patch-context-mode-bundles.mjs',
+      'scripts/verify-pi-lockstep.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'src/lib/agent-seed.generated.ts',
@@ -107,7 +108,12 @@ describe('deployment container image input hash', () => {
 
     write('host/src/index.ts', 'production change\n');
     commit('production change');
-    assert.notEqual(imageHashResult().tag, baseline.tag);
+    const productionTag = imageHashResult().tag;
+    assert.notEqual(productionTag, baseline.tag);
+
+    write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
+    commit('image script change');
+    assert.notEqual(imageHashResult().tag, productionTag);
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');

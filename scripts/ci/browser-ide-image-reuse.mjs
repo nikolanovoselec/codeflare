@@ -26,6 +26,7 @@ const IMAGE_EXACT_PATHS = new Set([
   'scripts/ci/smoke-openvscode-sidebar-image.mjs',
   'scripts/materialize-agent-seed.mjs',
   'scripts/patch-context-mode-bundles.mjs',
+  'scripts/verify-pi-lockstep.mjs',
   'src/lib/agent-seed.generated.ts',
 ]);
 
