@@ -220,6 +220,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const hostPatterns = flattenPatterns(filters.host);
 
     expect(matchesAny('openvscode/agent-sidebar/src/extension.ts', idePatterns)).toBe(true);
+    // code-server coupled-pin PRs update Dockerfile and must run the packaged IDE lane.
+    expect(matchesAny('Dockerfile', idePatterns)).toBe(true);
     expect(matchesAny('scripts/ci/smoke-openvscode-sidebar-image.mjs', idePatterns)).toBe(true);
     expect(matchesAny('scripts/browser-ide-ui-state.py', idePatterns)).toBe(true);
     expect(matchesAny('scripts/browser-ide-ui-state.py', hostPatterns)).toBe(true);

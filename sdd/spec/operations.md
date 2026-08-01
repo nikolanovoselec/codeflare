@@ -535,7 +535,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([suite gates](../../src/__tests__/ci/suite-gates.test.ts)); remaining third-party workflow execution manual
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -549,7 +549,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The dedicated SilverBullet release job resolves the latest linux server archive and accepts only its authoritative SHA-256 asset digest. <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (resolves the authoritative release digest through the workflow command boundary) -->
+1. The dedicated SilverBullet release job resolves the latest linux server archive and accepts only its authoritative asset integrity digest. <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (resolves the authoritative release digest through the workflow command boundary) -->
 2. Applying the bump atomically updates the server version, artifact digest, vendored worker bytes, worker version annotation, and worker drift hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @impl: scripts/ci/update-silverbullet-pins.mjs::updateSilverBulletPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-032: SilverBullet coupled-pin automation) -->
 
 **Constraints:**
@@ -739,7 +739,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. code-server has a dedicated bump job whose compatibility PR runs the Browser IDE verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (derives and cross-checks packaged provenance through the workflow command boundary) -->
+1. code-server has a dedicated bump job whose compatibility PR runs the Browser IDE verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (routes owned Browser IDE paths through the workflow classifier while leaving docs-only changes inert) -->
 2. The bump derives the packaged code-server commit and embedded Code version from the immutable release artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (derives and cross-checks packaged provenance through the workflow command boundary) -->
 3. The packaged code-server and Code metadata must agree with the product metadata before their pins are emitted. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (derives and cross-checks packaged provenance through the workflow command boundary) -->
 4. The bump derives the embedded Code source commit from the immutable release gitlink. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (derives and cross-checks packaged provenance through the workflow command boundary) -->

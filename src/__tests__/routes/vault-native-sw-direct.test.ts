@@ -62,7 +62,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     return requests;
   }
 
-  it('REQ-VAULT-017 AC4: install precaching constructs cache-reload requests', async () => {
+  it('REQ-VAULT-017 AC4: install precaching bypasses stale browser cache entries', async () => {
     const requests = await runInstallPrecache(VAULT_NATIVE_SERVICE_WORKER_JS);
     expect(requests).toEqual([
       { url: '/', cache: 'reload' },
