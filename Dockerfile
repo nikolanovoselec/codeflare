@@ -561,10 +561,10 @@ RUN pi --version 2>&1 || true
 #   env is ignored by this build), so the warm run redirects TMPDIR and the
 #   result is moved to /opt/codeflare/jiti-cache; the entrypoint symlinks
 #   /tmp/jiti -> there at boot (same pattern as the npm preseed symlink).
-# - jiti's cache key is PATH-SENSITIVE, not just content: the cache filename is
-#   <flatpath>.<hash(abspath + source + jiti version)>.mjs. Proven empirically —
-#   identical bytes at two different paths produce two different cache entries. So
-#   the warm run MUST transpile each extension at the EXACT path Pi loads it from
+# - jiti's cache key is PATH-SENSITIVE, not just content: its async cache filename
+#   is <parent>-<base>.<hash(realpath)>.mjs, while the compiled output carries the
+#   source/version marker used to reject stale content. So the warm run MUST
+#   transpile each extension at the EXACT path Pi loads it from
 #   at runtime (/home/user/.pi/agent/extensions/<x>.ts); a different warm path
 #   (the old /tmp/pi-warm) hashes differently and the entry NEVER hits — which is
 #   why every advanced session cold-transpiled its extensions. npm packages hit
@@ -604,8 +604,9 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
         if [ -n "$hit" ]; then echo "[Dockerfile]   jiti-cached: $base -> $(basename "$hit")"; \
         else echo "ERROR: Pi extension '$base' has no jiti warm-cache entry — it would cold-transpile every session; failing build" >&2; exit 1; fi; \
     done && \
-    goal_hit="$(ls /opt/codeflare/jiti-cache/*pi-goal-list-loop-audit*goal*.mjs 2>/dev/null | head -1)" && \
-    [ -n "$goal_hit" ] || { echo "ERROR: preseeded Goal package has no path-correct jiti cache entry" >&2; exit 1; } && \
+    goal_source="/opt/codeflare/pi-agent/npm/node_modules/pi-goal-list-loop-audit/extensions/loops/goal.ts" && \
+    goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --jiti-cache-path "$goal_source" /opt/codeflare/jiti-cache)" && \
+    [ -f "$goal_hit" ] || { echo "ERROR: preseeded Goal package has no path-correct jiti cache entry at $goal_hit" >&2; exit 1; } && \
     echo "[Dockerfile] jiti warm cache verified: local extensions and Goal are baked"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
