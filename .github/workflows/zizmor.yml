@@ -43,7 +43,7 @@ jobs:
 
       # Reproduce locally with: zizmor .github/workflows
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@6599ee8b7a49aef6a770f63d261d214911a7ce02 # v0.6.0
+        uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
         with:
           # Offline: the online known-vulnerable-actions audit dies fatally
           # ("no audit was performed") whenever the GitHub advisory API blips,
