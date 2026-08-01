@@ -662,7 +662,7 @@ describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
       'export const VAULT_NATIVE_SW_SHA256 = "old";',
       'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
     ].join('\n');
-    const worker = 'new Request("/",{cache:"reload"})';
+    const worker = 'new Request("/",{cache:"reload"});const replacementTokens="$&-$`-$\'-$${value}"';
 
     const updated = updateSilverBulletPins(dockerfile, nativeWorkerSource, worker, {
       version: '2.10.0',
@@ -673,6 +673,7 @@ describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
     expect(updated.dockerfile).toContain(`SILVERBULLET_SHA256="${'a'.repeat(64)}"`);
     expect(updated.nativeWorkerSource).toContain('SilverBullet 2.10.0 native service worker');
     expect(updated.nativeWorkerSource).toContain(JSON.stringify(worker));
+    expect(updated.nativeWorkerSource.match(/export const VAULT_NATIVE_SW_VERBATIM/g)).toHaveLength(1);
     expect(updated.nativeWorkerSource).not.toContain('old-worker');
   });
 

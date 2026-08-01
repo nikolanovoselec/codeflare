@@ -10,7 +10,7 @@ function replaceExactlyOnce(source, pattern, replacement, label) {
   if (matches.length !== 1) {
     throw new Error(`${label}: expected exactly one match, found ${matches.length}`);
   }
-  return source.replace(pattern, replacement);
+  return source.replace(pattern, () => replacement);
 }
 
 export function updateSilverBulletPins(dockerfile, nativeWorkerSource, worker, pins) {
