@@ -58,7 +58,7 @@ When `SAAS_MODE=active` or `ONBOARDING_LANDING_PAGE=active`, and `OAUTH_CLIENT_I
 User clicks "Sign in with GitHub" on /login
   -> GET /auth/github/login
   -> Generate HMAC-signed state token (nonce.iat.sig, signed with OAUTH_JWT_SECRET, 30-min iat window)
-  -> 302 to github.com/login/oauth/authorize?client_id=...&scope=user:email&state=<signed>
+  -> 302 to github.com/login/oauth/authorize?client_id=...&scope=user%3Aemail+gist&state=<signed>
   -> User authorizes on GitHub
   -> GitHub redirects to /auth/github/callback?code=...&state=...
   -> Worker verifies HMAC signature on state and checks iat is within window
@@ -71,6 +71,7 @@ User clicks "Sign in with GitHub" on /login
   -> On state verification failure: redirect to /?error=session-expired
 ```
 
+- Login requests the `user:email` and `gist` scopes; its exchanged token remains callback-local and is never persisted
 - Only `primary: true, verified: true` emails accepted from GitHub API
 - Callback rate-limited (10/min per IP)
 - Missing `OAUTH_JWT_SECRET` throws `AuthError` (fail-loud - never silently falls through to CF Access)

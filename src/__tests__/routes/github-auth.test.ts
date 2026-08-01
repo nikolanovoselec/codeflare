@@ -74,18 +74,19 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
   // ─── Login ─────────────────────────────────────────────────────
 
   describe('GET /login', () => {
-    it('redirects to github.com with correct params', async () => {
+    it('REQ-AUTH-023: requests verified-email and gist access in the GitHub login redirect', async () => {
       mockKV._set('setup:custom_domain', 'codeflare.example.com');
       const app = createApp();
       const res = await app.request('/login');
 
       expect(res.status).toBe(302);
-      const location = res.headers.get('Location')!;
-      expect(location).toContain('github.com/login/oauth/authorize');
-      expect(location).toContain('client_id=test-client-id');
-      expect(location).toContain('scope=user%3Aemail');
-      expect(location).toContain('state=');
-      expect(location).toContain('redirect_uri=');
+      const location = new URL(res.headers.get('Location')!);
+      expect(location.origin).toBe('https://github.com');
+      expect(location.pathname).toBe('/login/oauth/authorize');
+      expect(location.searchParams.get('client_id')).toBe('test-client-id');
+      expect(location.searchParams.get('scope')?.split(' ')).toEqual(['user:email', 'gist']);
+      expect(location.searchParams.get('state')).toBeTruthy();
+      expect(location.searchParams.get('redirect_uri')).toBeTruthy();
     });
 
     it('does not set oauth_state cookie (stateless HMAC-signed state in URL)', async () => {
