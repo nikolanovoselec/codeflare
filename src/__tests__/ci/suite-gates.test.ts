@@ -21,12 +21,14 @@ import {
 } from '../../../scripts/ci/container-build-cache-policy.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
 import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pins.mjs';
+import { updateSilverBulletPins } from '../../../scripts/ci/update-silverbullet-pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
 const COVERAGE_GATE = join(REPO, 'scripts/ci/check-coverage-result.mjs');
 const CODE_SERVER_PIN_UPDATER = join(REPO, 'scripts/ci/update-code-server-pins.mjs');
+const SILVERBULLET_PIN_UPDATER = join(REPO, 'scripts/ci/update-silverbullet-pins.mjs');
 const SHADOW_PINS_WORKFLOW = join(REPO, '.github/workflows/bump-shadow-pins.yml');
 
 let work: string;
@@ -218,6 +220,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const hostPatterns = flattenPatterns(filters.host);
 
     expect(matchesAny('openvscode/agent-sidebar/src/extension.ts', idePatterns)).toBe(true);
+    // code-server coupled-pin PRs update Dockerfile and must run the packaged IDE lane.
+    expect(matchesAny('Dockerfile', idePatterns)).toBe(true);
     expect(matchesAny('scripts/ci/smoke-openvscode-sidebar-image.mjs', idePatterns)).toBe(true);
     expect(matchesAny('scripts/browser-ide-ui-state.py', idePatterns)).toBe(true);
     expect(matchesAny('scripts/browser-ide-ui-state.py', hostPatterns)).toBe(true);
@@ -498,7 +502,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       sharedCacheLogin(imageJob.steps),
     ]) {
       expect(step).toMatchObject({
-        uses: 'docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0',
+        uses: 'docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7',
         with: {
           registry: 'ghcr.io',
           username: '${{ github.actor }}',
@@ -633,17 +637,226 @@ describe('Cloudflare test transport capacity', () => {
   });
 });
 
+describe('REQ-OPS-032: SilverBullet coupled-pin automation', () => {
+  it('resolves the authoritative release digest through the workflow command boundary', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const resolveStep = workflow.jobs.silverbullet.steps?.find(
+      (step) => step.name === 'Resolve the latest release and authoritative digest',
+    );
+    const fixture = join(work, 'silverbullet-resolve');
+    const fakeBin = join(fixture, 'bin');
+    const output = join(fixture, 'github-output');
+    mkdirSync(join(fixture, 'src/routes/vault'), { recursive: true });
+    mkdirSync(fakeBin);
+    writeFileSync(join(fixture, 'Dockerfile'), 'SILVERBULLET_VERSION="2.9.0"');
+    writeFileSync(
+      join(fixture, 'src/routes/vault/native-sw.ts'),
+      '/** SilverBullet 2.9.0 native service worker. */',
+    );
+    writeFileSync(join(fakeBin, 'gh'), '#!/bin/sh\nprintf \'%s\n\' "$FAKE_RELEASE"\n');
+    chmodSync(join(fakeBin, 'gh'), 0o755);
+    const digest = `sha256:${'a'.repeat(64)}`;
+    const asset = {
+      name: 'silverbullet-server-linux-x86_64.zip',
+      digest,
+      browser_download_url: 'https://example.invalid/silverbullet.zip',
+    };
+    const execute = (release: unknown, outputPath: string) => spawnSync(
+      'bash',
+      ['-c', resolveStep?.run ?? ''],
+      {
+        cwd: fixture,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          GITHUB_OUTPUT: outputPath,
+          FAKE_RELEASE: JSON.stringify(release),
+        },
+      },
+    );
+    const result = execute({ tag_name: 'v2.10.0', assets: [asset] }, output);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(output, 'utf8').trim().split('\n')).toEqual([
+      'current=2.9.0',
+      'latest=2.10.0',
+      `sha256=${'a'.repeat(64)}`,
+      'url=https://example.invalid/silverbullet.zip',
+    ]);
+    expect(execute(
+      { tag_name: 'v2.10.0', assets: [{ ...asset, digest: undefined }] },
+      join(fixture, 'missing-digest-output'),
+    ).status).toBe(1);
+  });
+
+  it('updates the Docker pin and vendored worker atomically', () => {
+    const dockerfile = [
+      'SILVERBULLET_VERSION="2.9.0"',
+      'SILVERBULLET_SHA256="old"',
+    ].join('\n');
+    const nativeWorkerSource = [
+      '/** SilverBullet 2.9.0 native service worker. */',
+      '/** Drift guard. From SilverBullet 2.9.0. */',
+      'export const VAULT_NATIVE_SW_SHA256 = "deadbeef";',
+      'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
+    ].join('\n');
+    const worker = 'new Request("/",{cache:"reload"});const replacementTokens="$&-$`-$\'-$${value}"';
+
+    const updated = updateSilverBulletPins(dockerfile, nativeWorkerSource, worker, {
+      version: '2.10.0',
+      artifactSha256: 'a'.repeat(64),
+    });
+
+    expect(updated.dockerfile).toContain('SILVERBULLET_VERSION="2.10.0"');
+    expect(updated.dockerfile).toContain(`SILVERBULLET_SHA256="${'a'.repeat(64)}"`);
+    expect(updated.nativeWorkerSource).toContain('SilverBullet 2.10.0 native service worker');
+    expect(updated.nativeWorkerSource).toContain(JSON.stringify(worker));
+    expect(updated.nativeWorkerSource.match(/export const VAULT_NATIVE_SW_VERBATIM/g)).toHaveLength(1);
+    expect(updated.nativeWorkerSource).not.toContain('old-worker');
+  });
+
+  it('fails closed for malformed release metadata or incomplete pin contracts', () => {
+    const nativeWorkerSource = [
+      '/** SilverBullet 2.9.0 native service worker. */',
+      '/** Drift guard. From SilverBullet 2.9.0. */',
+      'export const VAULT_NATIVE_SW_SHA256 = "deadbeef";',
+      'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
+    ].join('\n');
+    expect(() => updateSilverBulletPins(
+      'SILVERBULLET_VERSION="2.9.0"',
+      nativeWorkerSource,
+      'new Request("/",{cache:"reload"})',
+      { version: '2.10.0', artifactSha256: 'a'.repeat(64) },
+    )).toThrow(/SILVERBULLET_SHA256: expected exactly one match/);
+    expect(() => updateSilverBulletPins(
+      'SILVERBULLET_VERSION="2.9.0"\nSILVERBULLET_SHA256="old"',
+      nativeWorkerSource,
+      'stale worker',
+      { version: 'release prose', artifactSha256: 'not-a-digest' },
+    )).toThrow(/release metadata|cache reload/);
+  });
+
+  it('executes the updater through its CLI boundary', () => {
+    const dockerfile = join(work, 'Dockerfile');
+    const nativeWorker = join(work, 'native-sw.ts');
+    const worker = join(work, 'service_worker.js');
+    writeFileSync(dockerfile, 'SILVERBULLET_VERSION="2.9.0"\nSILVERBULLET_SHA256="old"');
+    writeFileSync(nativeWorker, [
+      '/** SilverBullet 2.9.0 native service worker. */',
+      '/** Drift guard. From SilverBullet 2.9.0. */',
+      'export const VAULT_NATIVE_SW_SHA256 = "deadbeef";',
+      'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
+    ].join('\n'));
+    writeFileSync(worker, 'new Request("/",{cache:"reload"})');
+
+    const result = spawnSync(process.execPath, [SILVERBULLET_PIN_UPDATER, dockerfile, nativeWorker, worker], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        SILVERBULLET_VERSION: '2.10.0',
+        SILVERBULLET_SHA256: 'a'.repeat(64),
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(dockerfile, 'utf8')).toContain('SILVERBULLET_VERSION="2.10.0"');
+    expect(readFileSync(nativeWorker, 'utf8')).toContain(JSON.stringify(readFileSync(worker, 'utf8')));
+  });
+});
+
 describe('REQ-OPS-027: code-server coupled-pin automation', () => {
-  it('routes code-server bumps through one dedicated fail-closed updater', () => {
+  it('derives and cross-checks packaged provenance through the workflow command boundary', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
     const job = workflow.jobs['code-server'];
-    const applyStep = job.steps?.find((step) => step.name === 'Apply bump and invalidate the release checksum');
-
+    const deriveStep = job.steps?.find(
+      (step) => step.name === 'Derive code-server pins from the immutable artifact and release tag',
+    );
     expect(job).toBeDefined();
     expect(workflow.jobs['openvscode-server']).toBeUndefined();
-    expect(applyStep).toBeDefined();
+
+    const fixture = join(work, 'code-server-resolve');
+    const fakeBin = join(fixture, 'bin');
+    const archiveRoot = join(fixture, 'archive', 'code-server-4.2.0-linux-amd64');
+    const output = join(fixture, 'github-output');
+    mkdirSync(join(archiveRoot, 'lib/vscode'), { recursive: true });
+    mkdirSync(fakeBin);
+    writeFileSync(join(fixture, 'Dockerfile'), [
+      'CODE_SERVER_VERSION="4.1.0"',
+      'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
+      'CODE_SERVER_CODE_VERSION="1.1.0"',
+      'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+    ].join('\n'));
+    const packageCommit = '3'.repeat(40);
+    const tagCommit = '4'.repeat(40);
+    const treeSha = '5'.repeat(40);
+    const vscodeCommit = '6'.repeat(40);
+    writeFileSync(join(archiveRoot, 'package.json'), JSON.stringify({ version: '4.2.0', commit: packageCommit }));
+    writeFileSync(join(archiveRoot, 'lib/vscode/package.json'), JSON.stringify({ version: '1.2.0' }));
+    writeFileSync(join(archiveRoot, 'lib/vscode/product.json'), JSON.stringify({
+      version: '1.2.0',
+      commit: packageCommit,
+      codeServerVersion: '4.2.0',
+    }));
+    const archive = join(fixture, 'code-server-4.2.0-linux-amd64.tar.gz');
+    const packArchive = () => spawnSync(
+      'tar',
+      ['-czf', archive, '-C', join(fixture, 'archive'), 'code-server-4.2.0-linux-amd64'],
+      { encoding: 'utf8' },
+    );
+    const tar = packArchive();
+    expect(tar.status, tar.stderr).toBe(0);
+    writeFileSync(join(fakeBin, 'gh'), `#!/bin/bash
+set -euo pipefail
+if [ "$1" = "release" ]; then cp "$FAKE_ARCHIVE" "/tmp/$7"; exit 0; fi
+case "$2|\${4:-}" in
+  'repos/coder/code-server/releases/latest|.tag_name') echo v4.2.0 ;;
+  'repos/coder/code-server/git/ref/tags/v4.2.0|.object.type') echo commit ;;
+  'repos/coder/code-server/git/ref/tags/v4.2.0|.object.sha') echo "$FAKE_TAG_COMMIT" ;;
+  "repos/coder/code-server/git/commits/$FAKE_TAG_COMMIT|.tree.sha") echo "$FAKE_TREE_SHA" ;;
+  "repos/coder/code-server/git/trees/$FAKE_TREE_SHA?recursive=1|"*) echo "$FAKE_VSCODE_COMMIT" ;;
+  "repos/microsoft/vscode/contents/package.json?ref=$FAKE_VSCODE_COMMIT|.content") echo "$FAKE_CODE_CONTENT" ;;
+  *) echo "unexpected gh call: $*" >&2; exit 1 ;;
+esac
+`);
+    chmodSync(join(fakeBin, 'gh'), 0o755);
+    const execute = (outputPath: string) => spawnSync('bash', ['-c', deriveStep?.run ?? ''], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        GITHUB_OUTPUT: outputPath,
+        FAKE_ARCHIVE: archive,
+        FAKE_TAG_COMMIT: tagCommit,
+        FAKE_TREE_SHA: treeSha,
+        FAKE_VSCODE_COMMIT: vscodeCommit,
+        FAKE_CODE_CONTENT: Buffer.from(JSON.stringify({ version: '1.2.0' })).toString('base64'),
+      },
+    });
+    const result = execute(output);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(output, 'utf8').trim().split('\n')).toEqual([
+      'current=4.1.0',
+      'latest=4.2.0',
+      `commit=${packageCommit}`,
+      'code_version=1.2.0',
+      `vscode_commit=${vscodeCommit}`,
+    ]);
+
+    writeFileSync(join(archiveRoot, 'lib/vscode/product.json'), JSON.stringify({
+      version: '1.2.0',
+      commit: '7'.repeat(40),
+      codeServerVersion: '4.2.0',
+    }));
+    const mismatchedTar = packArchive();
+    expect(mismatchedTar.status, mismatchedTar.stderr).toBe(0);
+    expect(execute(join(fixture, 'mismatch-output')).status).toBe(1);
   });
 
   it('executes the configured workflow step through the updater boundary', () => {
@@ -815,6 +1028,21 @@ describe('REQ-OPS-023 AC3: cross-suite completeness gate', () => {
     writeFileSync(join(dir, 'backend-shard-1.json'), '{ not json');
 
     expect(runCompleteness({ backend: 'success' }, cwd).status).toBe(1);
+  });
+
+  it('reconciles the single artifact layout emitted directly under the download root', () => {
+    const cwd = tree([]);
+    const file = 'openvscode/agent-sidebar/test/only.test.ts';
+    touch(cwd, file);
+    report('browser-ide', 'browser-ide.json', [file]);
+    copyFileSync(
+      join(work, 'artifacts', 'browser-ide', 'browser-ide.json'),
+      join(work, 'artifacts', 'browser-ide.json'),
+    );
+    rmSync(join(work, 'artifacts', 'browser-ide'), { recursive: true });
+
+    const r = runCompleteness({ 'browser-ide': 'success' }, cwd);
+    expect(r.status, r.stderr).toBe(0);
   });
 
   it('fails when a lane reported success but uploaded no reports', () => {

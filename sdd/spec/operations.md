@@ -519,7 +519,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Zoxide, yazi, lazygit, and SilverBullet each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @manual -->
+1. Zoxide, yazi, and lazygit each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
 2. Actionlint and Antigravity each have a dedicated release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
 3. The official Claude extension and supported agent CLIs each have a dedicated bump job whose compatibility PR runs the owned verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
 4. A binary bump without an authoritative upstream checksum invalidates its pinned artifact checksum for operator verification. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
@@ -527,7 +527,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
 7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, and browser-run-mcp each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @manual -->
 
-**Notes:** Workflow execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md).
+**Notes:** Third-party release execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); owned updater boundaries are automated where listed.
 
 **Constraints:** The owned Browser IDE extension's npm dependencies remain Dependabot-owned.
 
@@ -536,6 +536,32 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** None.
 
 **Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-032: SilverBullet coupled-release automation
+
+**Intent:** A SilverBullet release bump moves the server binary, authoritative digest, and vendored native worker as one verified unit so browser and server releases cannot drift.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The dedicated SilverBullet release job resolves the latest linux server archive and accepts only its authoritative asset integrity digest. <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (resolves the authoritative release digest through the workflow command boundary) -->
+2. Applying the bump atomically updates the server version, artifact digest, vendored worker bytes, worker version annotation, and worker drift hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::silverbullet --> <!-- @impl: scripts/ci/update-silverbullet-pins.mjs::updateSilverBulletPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-032: SilverBullet coupled-pin automation) -->
+
+**Constraints:**
+
+- The downloaded archive is checksum-verified before execution, and its served version must match the release before its worker is accepted.
+- Malformed metadata, an incomplete pin contract, or a worker without cache-bypassing precache fails closed.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-VAULT-017](vault.md#req-vault-017-silverbullet-native-service-worker)
+
+**Verification:** Automated test ([suite gates](../../src/__tests__/ci/suite-gates.test.ts)); complete-image verification
 
 **Status:** Implemented
 
@@ -713,9 +739,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. code-server has a dedicated bump job whose compatibility PR runs the Browser IDE verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (routes code-server bumps through one dedicated fail-closed updater) -->
-2. The bump derives the embedded Code version and source commit from the immutable release gitlink. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (updates every coupled runtime pin and invalidates the checksum atomically) -->
-3. Updating the coupled pins invalidates the code-server artifact checksum for operator review. <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (updates every coupled runtime pin and invalidates the checksum atomically) -->
+1. code-server has a dedicated bump job whose compatibility PR runs the Browser IDE verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (routes owned Browser IDE paths through the workflow classifier while leaving docs-only changes inert) -->
+2. The bump derives the packaged code-server commit and embedded Code version from the immutable release artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (derives and cross-checks packaged provenance through the workflow command boundary) -->
+3. The packaged code-server and Code metadata must agree with the product metadata before their pins are emitted. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (derives and cross-checks packaged provenance through the workflow command boundary) -->
+4. The bump derives the embedded Code source commit from the immutable release gitlink. <!-- @impl: .github/workflows/bump-shadow-pins.yml::code-server --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (derives and cross-checks packaged provenance through the workflow command boundary) -->
+5. Updating the coupled pins invalidates the code-server artifact checksum for operator review. <!-- @impl: scripts/ci/update-code-server-pins.mjs::updateCodeServerPins --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (updates every coupled runtime pin and invalidates the checksum atomically) -->
 
 **Constraints:**
 

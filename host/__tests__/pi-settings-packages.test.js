@@ -56,19 +56,19 @@ function runAdvisorGuidanceMerge(initialConfig) {
 
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.source);
 const REQUIRED = [
-  'npm:@gotgenes/pi-subagents@18.1.1',
+  'npm:@gotgenes/pi-subagents@18.1.2',
   'npm:context-mode@1.0.169',
-  'npm:@juicesharp/rpiv-advisor@2.0.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.0.0',
-  'npm:@juicesharp/rpiv-todo@2.0.0',
+  'npm:@juicesharp/rpiv-advisor@2.1.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.1.0',
+  'npm:@juicesharp/rpiv-todo@2.1.0',
   'npm:pi-web-access@0.13.0',
-  'npm:pi-mcp-adapter@2.11.0',
+  'npm:pi-mcp-adapter@2.13.0',
 ];
 
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.0.0');
+    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.1.0');
     assert.equal(pkg.scripts?.postinstall, undefined);
     assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));
   });

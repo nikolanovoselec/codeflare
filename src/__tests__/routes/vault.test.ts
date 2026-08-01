@@ -375,17 +375,17 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       // defined, the config auth-gate calls it before posting auth-error (the
       // path that actually fires the .auth bounce), and get-encryption-key calls
       // it before replying. The verbatim worker has none of these.
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(';var v;async function __cfRecover()');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('codeflare-vault-idb-open');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
-        'if(t.enableClientEncryption&&!y){await __cfRecover()}if(t.enableClientEncryption&&!y){console.error("Supposed',
+        'if(t.enableClientEncryption&&!v){await __cfRecover()}if(t.enableClientEncryption&&!v){console.error("Supposed',
       );
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('case"get-encryption-key":{if(y===void 0)await __cfRecover()');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('case"get-encryption-key":{if(v===void 0)await __cfRecover()');
       expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('__cfRecover');
     });
 
     it('T9: the drift guard hashes the VERBATIM upstream worker', async () => {
-      // The guard pins the upstream SB 2.9.0 bytes (pre-graft); a SilverBullet
+      // The guard pins the upstream SB 2.10.0 bytes (pre-graft); a SilverBullet
       // version bump that changes the worker must be a deliberate re-vendor
       // (update the constant AND the hash), never a silent drift. The verbatim
       // bytes are what is hashed - the graft is applied deterministically on top.
@@ -402,7 +402,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  describe('isServiceWorkerContextFetch / REQ-VAULT-017 AC4/AC5 (SW precache vs navigation)', () => {
+  describe('isServiceWorkerContextFetch / REQ-VAULT-017 AC6/AC7 (SW precache vs navigation)', () => {
     function req(headers: Record<string, string> = {}): Request {
       return new Request('https://codeflare.ch/api/vault/abcdef12/', {
         headers: new Headers(headers),

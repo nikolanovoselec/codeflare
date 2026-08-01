@@ -60,7 +60,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** `Language model unavailable` means the pinned Code OSS host rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
 
-**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes the host-reserved fallback vendor `copilot`, and complete-image smoke confirms a hidden default model whose generation path rejects. Code OSS 1.130 considers only that vendor when resolving an implicit participant model; the identifier does not invoke GitHub Copilot, request authorization, or change Pi's local RPC inference. Do not sign into Copilot.
+**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes the host-reserved fallback vendor `copilot`, and complete-image smoke confirms a hidden default model whose generation path rejects. Code OSS 1.131 retains the behavior introduced in 1.130 and considers only that vendor when resolving an implicit participant model; the identifier does not invoke GitHub Copilot, request authorization, or change Pi's local RPC inference. Do not sign into Copilot.
 
 For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
 
@@ -302,7 +302,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Cause:** Images built before the `@juicesharp/rpiv-todo` 2.0.0 pin carry 1.20.0, which uses one module-level task cell for every Pi session unless the retired [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override patched it. A child lifecycle replay can overwrite the foreground cell with the child's empty list.
 
-**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0 pin, which ships session-keyed task state upstream with no source override.
+**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0-or-later pin (currently 2.1.0), which ships session-keyed task state upstream with no source override.
 
 ### Pi Web Search Crashed the Session
 
