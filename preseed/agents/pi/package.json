@@ -1,19 +1,30 @@
 {
   "name": "codeflare-pi-preseed",
   "private": true,
-  "//pi-coding-agent-override": "Build-time placeholder only. The Dockerfile prewarm layer overwrites overrides['@earendil-works/pi-coding-agent'] with the exact version the global @latest agent install resolved, so the prewarm SDK always matches the runtime agent. This committed value is the baseline and is NOT what ships.",
+  "//pi-coding-agent-override": "Must match preseed/npm-tools/package.json. The Docker build consumes this committed lockfile with npm ci and fails if the runtime and prewarm Pi versions drift.",
   "dependencies": {
     "@gotgenes/pi-subagents": "18.1.2",
     "@juicesharp/rpiv-advisor": "2.1.0",
     "@juicesharp/rpiv-ask-user-question": "2.1.0",
     "@juicesharp/rpiv-todo": "2.1.0",
     "context-mode": "1.0.169",
+    "pi-goal-list-loop-audit": "0.34.16",
     "pi-mcp-adapter": "2.13.0",
     "pi-web-access": "0.13.0"
   },
+  "devDependencies": {
+    "@earendil-works/pi-agent-core": "0.82.0",
+    "@earendil-works/pi-ai": "0.82.0",
+    "@earendil-works/pi-tui": "0.82.0"
+  },
   "overrides": {
-    "@earendil-works/pi-coding-agent": "0.79.6",
+    "@earendil-works/pi-coding-agent": "0.82.0",
+    "@hono/node-server": "2.0.12",
     "@mozilla/readability": "0.6.0",
-    "hono": "^4.12.25"
+    "brace-expansion": "5.0.8",
+    "hono": "^4.12.25",
+    "protobufjs": "7.6.5",
+    "undici": "8.5.0",
+    "ws": "8.21.1"
   }
 }

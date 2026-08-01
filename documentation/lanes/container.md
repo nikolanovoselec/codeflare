@@ -32,32 +32,30 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Process | procps (ps, pgrep) |
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
 
-### Global NPM Packages
+### Lock-backed NPM Tools
 
-Privileged agent CLIs install at exact Dockerfile versions. `.cache-bust` still invalidates their install layer on each deploy, but it never resolves mutable `@latest`; weekly shadow-pin jobs move each reviewed version after the supply-chain cooldown, and the image asserts the installed package matches its pin.
+Privileged agent CLIs and MCP binaries install together from `preseed/npm-tools/package.json` and its committed lockfile. `.cache-bust` still invalidates their install layer on each deploy, but `npm ci` preserves reviewed registry integrity and transitive versions; weekly shadow-pin jobs update each exact direct pin and regenerate the lock after the supply-chain cooldown.
 
 **Known trade-off:** Long-lived sessions keep the image version they started with while a later reviewed image may carry newer CLIs. Version changes remain a compatibility risk, but they now pass PR checks and image smoke instead of entering an arbitrary deploy through mutable resolution.
 
 | Package | Current pin | Provides |
 |---------|-------------|----------|
-| `@anthropic-ai/claude-code` | `CLAUDE_CODE_VERSION` Docker ARG | Terminal `claude` command. Runs with `IS_SANDBOX=1` plus the tab-1 permission mode. The Browser IDE official extension has its own Open VSX pin. |
-| `@openai/codex` | `CODEX_VERSION` Docker ARG | `codex` command |
+| `@anthropic-ai/claude-code` | image-tools lock | Terminal `claude` command. Runs with `IS_SANDBOX=1` plus the tab-1 permission mode. The Browser IDE official extension has its own Open VSX pin. |
+| `@openai/codex` | image-tools lock | `codex` command |
 | Antigravity (agy) | installer SHA-256 pinned | `agy` command. The reviewed installer hash is verified before execution. |
-| `opencode-ai` | `OPENCODE_VERSION` Docker ARG | `opencode` command |
-| `@github/copilot` | `COPILOT_VERSION` Docker ARG | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
-| `@earendil-works/pi-coding-agent` | `PI_CODING_AGENT_VERSION` Docker ARG | `pi` command and local RPC backend used by native Pi Chat. |
-| `bun` | pinned | JS/TS subprocess runtime autodetected by context-mode. The shadow-pin workflow owns the Dockerfile version. Image cleanup retains only the linux-x64 executable and strips non-Linux packages. |
-| `consult-llm-mcp` | pinned | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. |
-| `browser-run-mcp` | `@modelcontextprotocol/sdk` pinned exact in `preseed/agents/claude/browser-run-mcp/package.json` | Claude Code's cheap one-shot Browser Run READ surface. |
-| `chrome-devtools-mcp` | pinned via `CHROME_DEVTOOLS_MCP_VERSION` | Interactive Browser Run for Claude Code and Pi. The image exposes a baked executable; advanced-mode startup registers it only with a Browser Rendering token. Shadow-pin automation owns the Dockerfile version. ([REQ-BROWSER-001](../../sdd/spec/browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) |
+| `opencode-ai` | image-tools lock | `opencode` command |
+| `@github/copilot` | image-tools lock | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
+| `@earendil-works/pi-coding-agent` | image-tools lock | `pi` command and local RPC backend used by native Pi Chat. |
+| `bun` | image-tools lock | JS/TS subprocess runtime autodetected by context-mode. The shadow-pin workflow updates the shared manifest and lock. Image cleanup retains only the linux-x64 executable and strips non-Linux packages. |
+| `consult-llm-mcp` | image-tools lock | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. |
+| `browser-run-mcp` | dedicated package lock | Claude Code's cheap one-shot Browser Run READ surface. |
+| `chrome-devtools-mcp` | image-tools lock | Interactive Browser Run for Claude Code and Pi. The image exposes a baked executable; advanced-mode startup registers it only with a Browser Rendering token. Shadow-pin automation owns the Dockerfile version. ([REQ-BROWSER-001](../../sdd/spec/browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) |
 
-`consult-llm-mcp` is installed `-g` and verified on `PATH` at build time so the server starts without a runtime `npx` fetch. It is pinned and shadow-pinned by the `consult-llm-mcp` job in `bump-shadow-pins.yml`; the version literal lives only in the Dockerfile `npm install -g` line, so Dependabot cannot see it.
-
-`chrome-devtools-mcp` is warmed through `npx -y chrome-devtools-mcp@$CHROME_DEVTOOLS_MCP_VERSION --help` during the Docker build, then linked to `/opt/codeflare/bin/chrome-devtools-mcp` and smoke-tested through that stable path. Runtime Browser Run config points Claude Code and Pi at the baked bin, not `npx`, so new sessions do not pay npm resolve/download/extract time. Future bumps update only the Dockerfile version env; the image rebuild regenerates the matching cache.
+`consult-llm-mcp` and `chrome-devtools-mcp` are installed by the shared `npm ci`, linked onto `PATH`, and smoke-tested at build time. Runtime config points both agents at stable binaries, so sessions perform no registry resolution. Their shadow-pin jobs update the shared manifest and lock atomically.
 
 Additional details:
 
-**`browser-run-mcp`:** Claude Code's cheap one-shot Browser Run READ surface. Exposes `browser_markdown` / `browser_content` / `browser_scrape` as MCP tools over the Cloudflare Browser Run REST Quick Actions. Built into the image at `/opt/codeflare/browser-run-mcp/` (COPY + `npm install --omit=dev` + an import smoke test) and registered in `~/.claude.json` by `entrypoint.sh` under the same advanced-mode + CF-token gate as `chrome-devtools-mcp`. The `@modelcontextprotocol/sdk` pin is exact and shadow-pinned (the `browser-run-mcp` job in `bump-shadow-pins.yml`) — the dir has no lockfile and is invisible to Dependabot, so the workflow bumps it weekly, like the `consult-llm-mcp` Dockerfile pin. Pi's equivalent is the native `browser-run.ts` + `browser-run-helpers.ts` extension (ships via preseed, no baked image artifact). ([REQ-BROWSER-005](../../sdd/spec/browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity))
+**`browser-run-mcp`:** Claude Code's cheap one-shot Browser Run READ surface. Exposes `browser_markdown` / `browser_content` / `browser_scrape` over Cloudflare Browser Run REST Quick Actions. Its dedicated committed lock installs with `npm ci`, followed by an import smoke test. The weekly SDK bump updates the exact manifest pin and lock together. Pi's equivalent is the native `browser-run.ts` + `browser-run-helpers.ts` extension. ([REQ-BROWSER-005](../../sdd/spec/browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity))
 
 ### Pi Extension npm Cache
 
@@ -65,9 +63,9 @@ Pi extensions (`@gotgenes/pi-subagents`, `context-mode`) are preinstalled at Doc
 
 Neither `entrypoint.sh` nor the preseeded `context-mode-runtime.ts` extension forces `CONTEXT_MODE_BRIDGE_IDLE_MS=0` globally. Package assembly installs context-mode with `extensions: []` (skills remain available), and `context-mode-runtime.ts` loads the installed Pi adapter once for the process-wide foreground owner. In-process subagent ResourceLoaders therefore never initialize context-mode or spawn `server.bundle.mjs`; they use native fallbacks. The owner is released on `session_shutdown`, so root reload/toggle cycles clean up and reattach one bridge without modifying either upstream package ([AD101](../decisions/README.md#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC7, [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
 
-**Pi SDK version bridge (build-time):** `@earendil-works/pi-coding-agent` is only a *transitive* dependency of the prewarm extensions, so a frozen lockfile would pin it independently of the Dockerfile-pinned runtime agent and drift (Trivy flagged the stale copy as CVE-2026-54328). A dedicated Dockerfile layer sits below the `.cache-bust` COPY and therefore runs on every deploy. It reads the exact installed version of the global pinned agent, applies that version through an npm `overrides` entry, drops the lockfile, and reinstalls with `npm install --omit=dev`. The prewarm SDK and runtime agent therefore stay on the same version.
+**Pi SDK lockstep (build-time):** the runtime image-tools manifest and Pi prewarm manifest commit the same exact Pi version. Both installs consume committed locks with `npm ci`; the image compares the two pins before installation and verifies the installed prewarm version afterward. Pi bump automation updates both manifests, both locks, bundled-dependency integrity pins, and the embedded seed atomically.
 
-The build **fails closed**: an empty resolved version aborts before reinstall, and a post-install assertion confirms the override actually pinned the transitive copy. The committed `overrides` value in `preseed/agents/pi/package.json` is a build-time placeholder the layer overwrites on every deploy.
+The bounded `brace-expansion` 5.0.8 lock correction handles Pi's upstream packed shrinkwrap until a Pi release includes the patched dependency itself. The correction is content-addressed by the registry SHA-512 and fails closed on malformed locks.
 
 ### V8 Compile Cache Warm-Up
 

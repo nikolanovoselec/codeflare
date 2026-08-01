@@ -30,4 +30,15 @@ if (result.error) {
   process.exit(1);
 }
 
-process.exit(result.status ?? 1);
+if (result.status !== 0) process.exit(result.status ?? 1);
+
+const securityPins = spawnSync(
+  process.execPath,
+  [join(repositoryRoot, 'scripts/apply-npm-security-lock-pins.mjs'), join(packageDirectory, 'package-lock.json')],
+  { stdio: 'inherit' },
+);
+if (securityPins.error) {
+  process.stderr.write(`Failed to apply Pi preseed security lock pins: ${securityPins.error.message}\n`);
+  process.exit(1);
+}
+process.exit(securityPins.status ?? 1);

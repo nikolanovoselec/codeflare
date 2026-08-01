@@ -375,18 +375,9 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-      - name: Install wrangler (pinned to the repo's devDependency version)
+      - name: Install locked wrangler
         if: steps.reuse.outputs.reused != 'true' && inputs.registry == 'cloudflare'
-        # This job never runs `npm ci` (nothing else here needs node_modules),
-        # so wrangler is installed globally at the exact pinned version.
-        #
-        # zizmor: ignore[adhoc-packages] the version is not ad-hoc: it is read
-        # out of this repo's own package.json devDependency, so it moves only
-        # when the lockfile-managed pin moves. Installing from the lockfile
-        # instead would mean an `npm ci` of the full tree in a job that
-        # otherwise needs no node_modules. Residual gap: a global install
-        # verifies no integrity hash, unlike a lockfile install.
-        run: npm install -g "wrangler@$(node -p "require('./package.json').devDependencies.wrangler")"
+        run: npm ci --prefix .github/npm-tools/wrangler --no-audit --no-fund
 
       - name: Push image
         id: push
@@ -423,7 +414,7 @@ jobs:
               # would trip `set -e` and abort the step before any retry could run. The
               # `if` condition suppresses `set -e`; pipefail still surfaces wrangler's
               # exit through the pipe while tee keeps writing the log for URI extraction.
-              if npx wrangler containers push "${IMAGE_NAME}:${TAG}" 2>&1 | tee /tmp/push-output.txt; then
+              if .github/npm-tools/wrangler/node_modules/.bin/wrangler containers push "${IMAGE_NAME}:${TAG}" 2>&1 | tee /tmp/push-output.txt; then
                 echo "::endgroup::"
                 break
               fi

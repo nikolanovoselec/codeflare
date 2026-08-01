@@ -69,11 +69,12 @@ describe('Dockerfile context-mode patch (createRequire shim + REQ-AGENT-076 AC4 
 });
 
 // The patch FUNCTION working is necessary but not sufficient — the bug that shipped was the
-// Dockerfile only running it on the GLOBAL install while Pi loads its OWN copy (npm:context-mode
-// resolved from ~/.pi/agent/npm/node_modules, a symlink to the build prewarm tree). These assert
-// the Dockerfile patches BOTH installs and guards the two version pins from drifting.
+// Dockerfile only running it on the shared image-tools copy while Pi loads its OWN copy
+// (npm:context-mode resolved from ~/.pi/agent/npm/node_modules, a symlink to the build
+// prewarm tree). These assert both installs are patched and guarded against drift.
 describe('Dockerfile patches context-mode in BOTH installs (global + Pi prewarm)', () => {
-  it('patches the global install (Claude MCP bin)', () => {
+  it('patches the lock-backed shared install (Claude MCP bin)', () => {
+    assert.match(dockerfile, /CTX_DIR="\/opt\/codeflare\/npm-tools\/node_modules\/context-mode"/);
     assert.match(dockerfile, /node \/tmp\/patch-context-mode-bundles\.mjs "\$CTX_DIR"/);
   });
 

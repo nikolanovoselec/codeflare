@@ -39,16 +39,17 @@ Multi-agent support, preseed system, and session modes.
 
 1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
 2. The supported agent-type values are schema-validated at the request boundary. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
-3. Each agent's CLI is pre-installed in the container image as a global npm package or native binary. <!-- @impl: Dockerfile::npm --> <!-- @manual -->
+3. Each agent's CLI is pre-installed in the container image from a committed lock-backed npm tree or a checksum-pinned native artifact. <!-- @impl: Dockerfile::npm --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (privileged npm tools install from one committed lockfile) -->
 4. Of the Node.js-based agent CLIs, only Pi is pre-warmed at image build time; Codex and Copilot pay the compile cost on first launch. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE --> <!-- @manual -->
 5. Pi extension npm dependencies are available from the image cache without overwriting restored user package metadata. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001: Pi npm warm cache seeds dependencies without overwriting user package metadata) -->
-6. The image build fails if the pre-warmed Pi SDK cannot be pinned to the resolved runtime-agent version. <!-- @impl: Dockerfile::INSTALLED_PI_VER --> <!-- @manual -->
+6. The image build fails if the committed pre-warmed Pi SDK pin differs from the lock-backed runtime-agent pin or installed version. <!-- @impl: Dockerfile::INSTALLED_PI_VER --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (Pi prewarm and runtime agent versions move together) -->
 7. The image build verifies that Claude Code can start. <!-- @impl: Dockerfile::claude --> <!-- @manual -->
+8. Pi sessions include the reviewed Goal package for durable goal, list, loop, and isolated-audit workflows. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
 
 **Constraints:**
 
-- Agent CLI versions are installed via `@latest` at build time; versions may drift between deploys.
-- Major version jumps between deploys have caused regressions; monitoring is required after deploys.
+- Agent CLI versions move only through reviewed lockfile bump PRs after the configured cooldown.
+- Major version jumps remain compatibility-sensitive and require normal review and CI.
 
 **Priority:** P0
 

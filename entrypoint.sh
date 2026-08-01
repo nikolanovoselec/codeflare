@@ -2334,6 +2334,7 @@ const required = [
   'npm:@juicesharp/rpiv-todo@2.1.0',
   'npm:pi-web-access@0.13.0',
   'npm:pi-mcp-adapter@2.13.0',
+  'npm:pi-goal-list-loop-audit@0.34.16',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
 // every fresh container start until upstream ships a memory-safe Pi adapter.

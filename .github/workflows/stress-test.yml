@@ -44,19 +44,8 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install wrangler
-        # zizmor: ignore[adhoc-packages] the version is read out of this repo's
-        # own package.json devDependency, so it tracks the lockfile-managed pin
-        # rather than floating. Same trade as container-image.yml: a global
-        # install avoids an `npm ci` of the full tree in a job that needs no
-        # node_modules, at the cost of not verifying an integrity hash.
-        # No backslashes on the inner quotes. Inside $( ), `\"` is a literal
-        # quote, so node -p was handed a JS *string literal* and printed it
-        # verbatim — making the spec `wrangler@require('./package.json')...`,
-        # which npm rejects. This job therefore failed on every run and the
-        # whole stress workflow was dead. container-image.yml has the same line
-        # written correctly; this was a copy-paste regression.
-        run: npm install -g "wrangler@$(node -p "require('./package.json').devDependencies.wrangler")"
+      - name: Install locked wrangler
+        run: npm ci --prefix .github/npm-tools/wrangler --no-audit --no-fund
 
       - name: Resolve target
         id: target
@@ -80,21 +69,21 @@ jobs:
 
           WORKER="$WORKER_NAME_VAR"
           echo "Setting SERVICE_AUTH_SECRET on worker: $WORKER"
-          printf '%s' "${AUTH_SECRET}" | wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
+          printf '%s' "${AUTH_SECRET}" | .github/npm-tools/wrangler/node_modules/.bin/wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
 
           # Seed stress test service user in KV allowlist
           SERVICE_EMAIL="e2e-service@codeflare.local"
           echo "Seeding service user: ${SERVICE_EMAIL}"
 
           KV_TITLE="${WORKER}-kv"
-          KV_ID=$(wrangler kv namespace list 2>&1 \
+          KV_ID=$(.github/npm-tools/wrangler/node_modules/.bin/wrangler kv namespace list 2>&1 \
             | sed -n '/^\[/,/^\]/p' \
             | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
             | head -1)
 
           if [ -n "$KV_ID" ]; then
             KV_VALUE="{\"addedBy\":\"stress-test\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
-            wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --namespace-id "$KV_ID" --remote 2>&1 || \
+            .github/npm-tools/wrangler/node_modules/.bin/wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --namespace-id "$KV_ID" --remote 2>&1 || \
             echo "::warning::Could not seed service user in KV (non-fatal)"
           else
             echo "::warning::KV namespace not found for worker $WORKER (non-fatal)"
