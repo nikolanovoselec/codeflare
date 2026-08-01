@@ -50,7 +50,7 @@ Codeflare supports two fundamentally different authentication flows:
 3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) - all other modes. RS256 JWT verified against CF Access JWKS endpoint.
 4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) - trusted only before setup completes.
 
-### Direct GitHub OAuth Flow ([REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth)) <!-- @impl: src/routes/github-auth.ts::app -->
+### Direct GitHub OAuth Flow ([REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow))
 
 When `SAAS_MODE=active` or `ONBOARDING_LANDING_PAGE=active`, and `OAUTH_CLIENT_ID` is configured, the Worker handles the entire OAuth flow:
 
@@ -67,15 +67,17 @@ User clicks "Sign in with GitHub" on /login
   -> Worker fetches verified email from /user + /user/emails
   -> Worker signs HMAC-SHA256 JWT with OAUTH_JWT_SECRET
   -> Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, Max-Age=3600)
-  -> Redirect to /app/ (active user) or /app/subscribe (pending user)
+  -> Redirect active user to /app/
+  -> Redirect pending SaaS user to /app/subscribe
+  -> Redirect pending onboarding user to /login?status=requested
   -> On state verification failure: redirect to /?error=session-expired
 ```
 
-- Login requests only the `user:email` identity scope; its exchanged token remains callback-local and is never persisted
+- Login requests only the `user:email` identity scope; its exchanged token remains callback-local and is never persisted <!-- @impl: src/routes/github-auth.ts::app -->
 - Only `primary: true, verified: true` emails accepted from GitHub API
 - Callback rate-limited (10/min per IP)
 - Missing `OAUTH_JWT_SECRET` throws `AuthError` (fail-loud - never silently falls through to CF Access)
-- Cookie auto-refreshed by middleware when < 15 min remaining
+- Cookie auto-refreshed by middleware when < 15 min remaining <!-- @impl: src/index.ts::app -->
 
 ### Connect GitHub (link mode)
 
