@@ -201,7 +201,7 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns every literal in this block.
 RUN CODE_SERVER_VERSION="4.131.0" && \
-    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_SHA256="f6316f0b14ef5c12ed6e67e0154dd02ccf5e66112064687d7e93c51763105361" && \
     CODE_SERVER_COMMIT="924bfac9fd89c5a45f2706f0db71cbb53ae152bf" && \
     CODE_SERVER_CODE_VERSION="1.131.0" && \
     CODE_SERVER_VSCODE_COMMIT="3a03d6f72d628a7741c29f456b4ddbb5ae68502c" && \

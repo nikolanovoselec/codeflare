@@ -654,8 +654,8 @@ CVE-2026-39822
 # surface in the deployment-gating Trivy scan and receive fresh, evidence-backed review before
 # any new suppression is added.
 #
-# code-server 4.130.0 vendors js-yaml 4.2.0; 4.3.0 fixes crafted-YAML resource
-# exhaustion, but 4.130.0 is the latest code-server release and has not rebuilt
+# code-server 4.131.0 still vendors js-yaml 4.2.0; 4.3.0 fixes crafted-YAML resource
+# exhaustion, but 4.131.0 is the latest code-server release and has not rebuilt
 # its immutable release archive with that dependency. code-server imports
 # js-yaml only for its local YAML config parser. Any crafted config belongs to
 # the session owner, who already has unrestricted shell access; impact is a DoS
