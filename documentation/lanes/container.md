@@ -82,9 +82,7 @@ Pi is warmed at Docker build time by running `pi --version`, which triggers V8 t
 
     The warm run therefore transpiles each extension at exactly the path Pi loads it from at runtime (`/home/user/.pi/agent/extensions/`), using the real `PI_CODING_AGENT_DIR`/`HOME` — not a throwaway tmpdir. npm packages hit regardless because warm and runtime both resolve through the same symlink realpath (`/opt/codeflare/pi-agent/npm`). The entrypoint's `relay_managed_pi_extensions()` keeps the on-disk extension bytes equal to the build so the embedded content marker validates in all deployment modes.
 - The package list is **derived** from the preseed `package.json`, so a version bump there warms the right set automatically.
-- The build is **fail-closed**
-
-    The build is **fail-closed**: after the warm bake it asserts every extension in the source set produced a baked cache entry (`extensions-<base>.<hash>.mjs`), so an added, modified, or skipped extension — or a Pi CLI change that breaks the warm-up — fails the build rather than silently regressing startup in production.
+- The build is **fail-closed**: after the warm bake it checks every local preseed extension by cache filename (`extensions-<base>.<hash>.mjs`). It separately derives Goal's expected artifact from the installed package's resolved source path and requires that artifact to be a regular file ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-reviewed-goal-workflows-in-pi-sessions) AC3). An added, modified, or skipped extension — or a Pi CLI change that breaks the warm-up — therefore fails the build rather than silently regressing startup in production.
 
 ### OpenCode Database Pre-Initialization
 

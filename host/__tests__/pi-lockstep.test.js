@@ -45,6 +45,16 @@ describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verif
       assert.equal(missing.stderr, `jiti cache artifact is missing at ${expectedArtifact}\n`);
 
       mkdirSync(cacheDirectory);
+      mkdirSync(expectedArtifact);
+      const directoryCollision = spawnSync(
+        process.execPath,
+        [script, '--verify-jiti-cache', runtimeSource, cacheDirectory],
+        { encoding: 'utf8' },
+      );
+      assert.notEqual(directoryCollision.status, 0);
+      assert.equal(directoryCollision.stderr, `jiti cache artifact is missing at ${expectedArtifact}\n`);
+      rmSync(expectedArtifact, { recursive: true });
+
       writeFileSync(expectedArtifact, 'compiled cache\n');
       const present = spawnSync(process.execPath, [script, '--verify-jiti-cache', runtimeSource, cacheDirectory], {
         encoding: 'utf8',

@@ -582,12 +582,12 @@ RUN pi --version 2>&1 || true
 #   extensions load (|| true); the mv + final test fail the build if the cache
 #   came out empty, so a pi CLI change that breaks the warm-up is caught at
 #   build, not as a silent startup regression in production.
-# - Fail-closed completeness check: the build asserts that EVERY Pi extension
-#   produced a baked cache entry (jiti names them extensions-<base>.<hash>.mjs).
-#   So a future extension that is added, modified into a non-loading state, or
-#   skipped by a pi-loader change fails the build instead of silently
-#   cold-transpiling every session in production. This enforces "the prewarm
-#   cache covers everything, every deploy".
+# - Fail-closed completeness check: the build asserts that every local Pi extension
+#   produced an extensions-<base>.<hash>.mjs entry, then derives and requires Goal's
+#   exact regular-file artifact from its runtime-resolved package source. A future
+#   extension that is added, modified into a non-loading state, or skipped by a
+#   pi-loader change therefore fails the build instead of silently cold-transpiling
+#   every session in production.
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \

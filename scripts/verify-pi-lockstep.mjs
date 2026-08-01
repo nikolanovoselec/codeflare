@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createHash, getFips } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 
@@ -20,7 +20,9 @@ export function resolveJitiCachePath(sourcePath, cacheDirectory) {
 
 export function verifyJitiCacheArtifact(sourcePath, cacheDirectory) {
   const artifactPath = resolveJitiCachePath(sourcePath, cacheDirectory);
-  if (!existsSync(artifactPath)) throw new Error(`jiti cache artifact is missing at ${artifactPath}`);
+  if (!existsSync(artifactPath) || !statSync(artifactPath).isFile()) {
+    throw new Error(`jiti cache artifact is missing at ${artifactPath}`);
+  }
   return artifactPath;
 }
 
