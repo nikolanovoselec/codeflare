@@ -76,7 +76,7 @@ export function patchContextModeDirectory(dir) {
     if (!head.startsWith(SHIM)) {
       throw new Error(`createRequire shim missing after patch in ${name}`);
     }
-    if (after.includes(UPDATE_PROBE_URL)) {
+    if (after.split(UPDATE_PROBE_URL).length !== 1) {
       throw new Error(`update-check probe still present in ${name} after patch`);
     }
     console.log(`[patch-context-mode] patched ${name} in ${dir} (createRequire shim + update-check disabled)`);
