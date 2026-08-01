@@ -50,7 +50,7 @@ Codeflare supports two fundamentally different authentication flows:
 3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) - all other modes. RS256 JWT verified against CF Access JWKS endpoint.
 4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) - trusted only before setup completes.
 
-### Direct GitHub OAuth Flow
+### Direct GitHub OAuth Flow ([REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth)) <!-- @impl: src/routes/github-auth.ts::app -->
 
 When `SAAS_MODE=active` or `ONBOARDING_LANDING_PAGE=active`, and `OAUTH_CLIENT_ID` is configured, the Worker handles the entire OAuth flow:
 
