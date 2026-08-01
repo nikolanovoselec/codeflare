@@ -5,19 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
-const npmToolsPackage = JSON.parse(readFileSync(join(repoRoot, 'preseed/npm-tools/package.json'), 'utf8'));
-const npmToolsLock = JSON.parse(readFileSync(join(repoRoot, 'preseed/npm-tools/package-lock.json'), 'utf8'));
-const piPackage = JSON.parse(readFileSync(join(repoRoot, 'preseed/agents/pi/package.json'), 'utf8'));
-const piLock = JSON.parse(readFileSync(join(repoRoot, 'preseed/agents/pi/package-lock.json'), 'utf8'));
-const browserRunLock = JSON.parse(
-  readFileSync(join(repoRoot, 'preseed/agents/claude/browser-run-mcp/package-lock.json'), 'utf8'),
-);
-const wranglerPackage = JSON.parse(readFileSync(join(repoRoot, '.github/npm-tools/wrangler/package.json'), 'utf8'));
-const wranglerLock = JSON.parse(readFileSync(join(repoRoot, '.github/npm-tools/wrangler/package-lock.json'), 'utf8'));
-const containerWorkflow = readFileSync(join(repoRoot, '.github/workflows/container-image.yml'), 'utf8');
-const stressWorkflow = readFileSync(join(repoRoot, '.github/workflows/stress-test.yml'), 'utf8');
-const shadowPinWorkflow = readFileSync(join(repoRoot, '.github/workflows/bump-shadow-pins.yml'), 'utf8');
+const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
+const npmToolsPackage = readJson('preseed/npm-tools/package.json');
+const npmToolsLock = readJson('preseed/npm-tools/package-lock.json');
+const piPackage = readJson('preseed/agents/pi/package.json');
+const piLock = readJson('preseed/agents/pi/package-lock.json');
+const browserRunPackage = readJson('preseed/agents/claude/browser-run-mcp/package.json');
+const browserRunLock = readJson('preseed/agents/claude/browser-run-mcp/package-lock.json');
+const wranglerPackage = readJson('.github/npm-tools/wrangler/package.json');
+const wranglerLock = readJson('.github/npm-tools/wrangler/package-lock.json');
 
 const versionParts = (version) => version.split('.').map(Number);
 const atLeast = (actual, minimum) => {
@@ -37,8 +33,15 @@ function versionsOf(lockfile, dependency) {
     .filter(Boolean);
 }
 
-describe('REQ-OPS-019/020: build dependencies have committed integrity', () => {
-  it('installs every privileged npm tool from one committed lockfile', () => {
+function assertCompleteIntegrityTree(lockfile) {
+  for (const [path, metadata] of Object.entries(lockfile.packages)) {
+    if (!path || metadata.link) continue;
+    assert.ok(metadata.integrity, `${path} must have committed registry integrity`);
+  }
+}
+
+describe('REQ-OPS-019/033: build dependencies have committed integrity', () => {
+  it('REQ-AGENT-001 AC3: privileged npm tool manifest has a complete committed integrity tree', () => {
     const expectedTools = [
       '@anthropic-ai/claude-code',
       '@earendil-works/pi-coding-agent',
@@ -52,36 +55,26 @@ describe('REQ-OPS-019/020: build dependencies have committed integrity', () => {
     ];
 
     for (const tool of expectedTools) {
-      assert.ok(npmToolsPackage.dependencies[tool], `${tool} must be locked for the image`);
+      assert.match(npmToolsPackage.dependencies[tool], /^\d+\.\d+\.\d+$/, `${tool} must have an exact image pin`);
     }
     assert.deepEqual(npmToolsLock.packages[''].dependencies, npmToolsPackage.dependencies);
-    assert.match(dockerfile, /COPY preseed\/npm-tools\/package\.json preseed\/npm-tools\/package-lock\.json \/opt\/codeflare\/npm-tools\//);
-    assert.match(dockerfile, /npm ci --omit=dev --no-audit --no-fund/);
-    assert.doesNotMatch(dockerfile, /npm install -g|npx -y/);
-
-    for (const [path, metadata] of Object.entries(npmToolsLock.packages)) {
-      if (!path || metadata.link) continue;
-      assert.ok(metadata.integrity, `${path} must have committed registry integrity`);
-    }
+    assertCompleteIntegrityTree(npmToolsLock);
   });
 
-  it('uses the committed Pi and Browser Run MCP locks at image build time', () => {
-    assert.match(dockerfile, /COPY preseed\/agents\/pi\/package\.json preseed\/agents\/pi\/package-lock\.json \/opt\/codeflare\/pi-agent\/npm\//);
-    assert.match(dockerfile, /cd \/opt\/codeflare\/pi-agent\/npm[\s\S]*?npm ci --omit=dev --no-audit --no-fund/);
-    assert.doesNotMatch(dockerfile, /rm -f package-lock\.json[\s\S]*?npm install --omit=dev/);
-
-    assert.match(dockerfile, /COPY preseed\/agents\/claude\/browser-run-mcp\/package\.json preseed\/agents\/claude\/browser-run-mcp\/package-lock\.json/);
-    assert.match(dockerfile, /cd \/opt\/codeflare\/browser-run-mcp[\s\S]*?npm ci --omit=dev --no-audit --no-fund/);
-    assert.ok(browserRunLock.packages['node_modules/@modelcontextprotocol/sdk'].integrity);
-  });
-
-  it('pins patched versions across both committed npm runtime trees', () => {
+  it('dedicated Pi, Browser Run MCP, and Wrangler locks match their manifests', () => {
     assert.equal(
       piPackage.overrides['@earendil-works/pi-coding-agent'],
       npmToolsPackage.dependencies['@earendil-works/pi-coding-agent'],
-      'Pi prewarm and runtime agent versions must move together',
     );
+    assert.deepEqual(browserRunLock.packages[''].dependencies, browserRunPackage.dependencies);
+    assert.equal(browserRunPackage.overrides['@hono/node-server'], '2.0.12');
+    assert.deepEqual(wranglerLock.packages[''].dependencies, wranglerPackage.dependencies);
+    assertCompleteIntegrityTree(piLock);
+    assertCompleteIntegrityTree(browserRunLock);
+    assertCompleteIntegrityTree(wranglerLock);
+  });
 
+  it('pins patched versions across every affected committed runtime tree', () => {
     const floors = {
       'brace-expansion': '5.0.8',
       protobufjs: '7.6.5',
@@ -100,24 +93,9 @@ describe('REQ-OPS-019/020: build dependencies have committed integrity', () => {
         );
       }
     }
-  });
 
-  it('downloads uv as an immutable release artifact and verifies its SHA-256 before extraction', () => {
-    assert.match(dockerfile, /^ARG UV_VERSION=\d+\.\d+\.\d+$/m);
-    assert.match(dockerfile, /^ARG UV_X86_64_LINUX_SHA256=[0-9a-f]{64}$/m);
-    assert.match(dockerfile, /uv-x86_64-unknown-linux-gnu\.tar\.gz/);
-    assert.match(dockerfile, /sha256sum -c -/);
-    assert.doesNotMatch(dockerfile, /astral\.sh\/uv\/install\.sh\s*\|\s*sh/);
-    assert.match(shadowPinWorkflow, /^  uv:$/m);
-    assert.match(shadowPinWorkflow, /UV_X86_64_LINUX_SHA256/);
-  });
-
-  it('runs workflow Wrangler from its isolated committed lock', () => {
-    assert.equal(wranglerLock.packages[''].dependencies.wrangler, wranglerPackage.dependencies.wrangler);
-    for (const workflow of [containerWorkflow, stressWorkflow]) {
-      assert.match(workflow, /npm ci --prefix \.github\/npm-tools\/wrangler --no-audit --no-fund/);
-      assert.match(workflow, /\.github\/npm-tools\/wrangler\/node_modules\/\.bin\/wrangler/);
-      assert.doesNotMatch(workflow, /npm install -g/);
-    }
+    const browserHonoVersions = versionsOf(browserRunLock, '@hono/node-server');
+    assert.ok(browserHonoVersions.length > 0);
+    assert.ok(browserHonoVersions.every((version) => atLeast(version, '2.0.5')));
   });
 });

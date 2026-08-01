@@ -352,6 +352,7 @@ RUN AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/nul
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
+COPY scripts/verify-pi-lockstep.mjs /opt/codeflare/scripts/verify-pi-lockstep.mjs
 # Local Pi extensions, used by the jiti warm-up layer below (they reach user
 # containers via the R2 agent seed, verbatim — same content, so the
 # content-addressed cache entries baked from these files hit at runtime).
@@ -366,14 +367,14 @@ COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
 # Keep prewarm Pi in lockstep with the runtime agent while preserving committed
 # package integrity. The image fails closed on manifest drift.
 RUN cd /opt/codeflare/pi-agent/npm && \
+    node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
+      /opt/codeflare/npm-tools/package.json ./package.json && \
     apt-get update && \
     apt-get install -y --no-install-recommends make gcc g++ && \
-    RUNTIME_PI_VER="$(node -p "require('/opt/codeflare/npm-tools/package.json').dependencies['@earendil-works/pi-coding-agent']")" && \
-    PREWARM_PI_VER="$(node -p "require('./package.json').overrides['@earendil-works/pi-coding-agent']")" && \
-    [ "$PREWARM_PI_VER" = "$RUNTIME_PI_VER" ] || { echo "ERROR: prewarm Pi SDK $PREWARM_PI_VER != runtime $RUNTIME_PI_VER" >&2; exit 1; } && \
     npm ci --omit=dev --no-audit --no-fund && \
-    INSTALLED_PI_VER="$(node -p "require('/opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/package.json').version")" && \
-    [ "$INSTALLED_PI_VER" = "$RUNTIME_PI_VER" ] || { echo "ERROR: installed prewarm Pi SDK $INSTALLED_PI_VER != runtime $RUNTIME_PI_VER" >&2; exit 1; } && \
+    node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
+      /opt/codeflare/npm-tools/package.json ./package.json \
+      ./node_modules/@earendil-works/pi-coding-agent/package.json && \
     apt-get purge -y make gcc g++ && \
     apt-get autoremove -y && \
     npm cache clean --force && \
@@ -608,7 +609,8 @@ RUN pi --version 2>&1 || true
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
-    node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>`npm:${n}@${v}`)}))' > /home/user/.pi/agent/settings.json && \
+    PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>`npm:${n}@${v}`)}))')" && \
+    printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 pi -p "warm" || true) && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \

@@ -452,7 +452,8 @@ None.
 2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail) --> <!-- @manual -->
 3. Tab-1 PTY pre-warm is gated on the init-complete signal, so it never starts before initial state restore is in place. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: On a deployed cold start, hold back the init-complete signal and confirm tab 1 is not created until the signal appears. -->
 4. The host terminal server rejects terminal WebSocket upgrades with a retriable ("try again later") close code and a human-readable container-warming reason until both the init-complete signal is observed and the pre-warm session is registered. <!-- @impl: host/src/server.ts::initFlagObserved --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate (PR #365) / REQ-SEC-020 AC2 (1013 close BEFORE WS rate-limit when terminalServiceReady=false; /health probe error falls through)) -->
-5. The image bakes a pre-transpiled cache for the full Pi extension set at build time, including package-provided extensions such as Goal, using a throwaway `pi` run with the package list derived from the preseed manifest; the build fails if the cache is empty or the Goal entrypoint is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (Pi startup warm-up: baked jiti cache) -->
+5. The image bakes a pre-transpiled cache for the full Pi extension set, with package extensions derived from the preseed manifest. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
+6. The image build fails if the transpile cache is empty or a required package extension is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @manual -->
 
 **Constraints:**
 

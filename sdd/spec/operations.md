@@ -525,7 +525,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. A binary bump without an authoritative upstream checksum invalidates its pinned artifact checksum for operator verification. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
 5. Actionlint resolves its release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
 6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
-7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, browser-run-mcp, and uv each have a dedicated release-check job or matrix; npm-tool jobs regenerate the owning committed lock. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::uv --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (lock-backed build dependency automation) -->
+7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, browser-run-mcp, and uv each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::uv --> <!-- @manual -->
 
 **Notes:** Third-party release execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); owned updater boundaries are automated where listed.
 
@@ -536,6 +536,29 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** None.
 
 **Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-033: Lock-Backed NPM Bump Coherence
+
+**Intent:** Automated npm release bumps must reject stale inputs and move each exact manifest pin with its owning committed lock.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The shared manifest updater changes only the requested exact dependency and rejects current-version drift. <!-- @impl: scripts/update-npm-tool-manifests.mjs::updateNpmToolManifests --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-033: lock-backed npm bump manifest updates) -->
+2. Npm-tool bump jobs regenerate and commit each changed manifest's owning lock without executing dependency lifecycle scripts. <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @manual -->
+
+**Constraints:** Package updates remain subject to the configured supply-chain cooldown and normal PR review.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
+
+**Verification:** Automated manifest-update test; workflow execution manual
 
 **Status:** Implemented
 
@@ -578,13 +601,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The context-mode job bumps its Claude-plugin and Pi-prewarm pins atomically in one PR, and generated-artifact validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
 2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
 3. Those jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
-4. A Pi runtime-agent bump updates the shared image-tools lock, the prewarm pin and lock, bundled-dependency integrity corrections, and embedded seed atomically. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (Pi prewarm and runtime agent versions move together) -->
+4. A Pi runtime-agent bump updates the shared image-tools lock, the prewarm pin and lock, bundled-dependency integrity corrections, and embedded seed atomically. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation) -->
 
 **Constraints:** None.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
 **Verification:** Automated test ([Automated lockfile test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js); workflow execution manual)
 

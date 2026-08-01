@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 
-const script = new URL('../../scripts/apply-npm-security-lock-pins.mjs', import.meta.url);
+const script = fileURLToPath(new URL('../../scripts/apply-npm-security-lock-pins.mjs', import.meta.url));
 
 describe('REQ-OPS-019: bounded npm security lock pins', () => {
   it('replaces every vulnerable bundled brace-expansion entry and preserves unrelated packages', () => {

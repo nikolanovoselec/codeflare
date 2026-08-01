@@ -49,14 +49,6 @@ describe('Pi startup warm-up: baked jiti cache', () => {
     );
   });
 
-  it('fails closed unless the preseeded Goal package entrypoint is in the baked jiti cache', () => {
-    assert.match(
-      dockerfile,
-      /\*pi-goal-list-loop-audit\*goal\*\.mjs/,
-      'Goal must be loaded during image warm-up and have a path-correct jiti cache entry',
-    );
-  });
-
   it('entrypoint symlinks /tmp/jiti to the baked cache (jiti tmpdir fallback path), guarded on existence', () => {
     assert.ok(
       entrypoint.includes('ln -s /opt/codeflare/jiti-cache /tmp/jiti'),

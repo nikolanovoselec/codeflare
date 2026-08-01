@@ -1133,13 +1133,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
-          LAT='$LAT' node <<'NODE'
-          const fs = require('node:fs');
-          const file = 'preseed/npm-tools/package.json';
-          const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
-          manifest.dependencies.bun = process.env.LAT;
-          fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
-          NODE
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/npm-tools/package.json bun "$CUR" "$LAT"
           (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
           node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
           git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
@@ -1539,16 +1534,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const cur = process.env.CUR;
-          const lat = process.env.LAT;
-          const f = 'preseed/npm-tools/package.json';
-          const manifest = JSON.parse(fs.readFileSync(f, 'utf8'));
-          if (manifest.dependencies['consult-llm-mcp'] !== cur) throw new Error('consult-llm-mcp pin drift');
-          manifest.dependencies['consult-llm-mcp'] = lat;
-          fs.writeFileSync(f, `${JSON.stringify(manifest, null, 2)}\n`);
-          NODE
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/npm-tools/package.json consult-llm-mcp "$CUR" "$LAT"
           (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
           node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
 
@@ -1663,16 +1650,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const cur = process.env.CUR;
-          const lat = process.env.LAT;
-          const file = 'preseed/npm-tools/package.json';
-          const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
-          if (manifest.dependencies['chrome-devtools-mcp'] !== cur) throw new Error('chrome-devtools-mcp pin drift');
-          manifest.dependencies['chrome-devtools-mcp'] = lat;
-          fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
-          NODE
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/npm-tools/package.json chrome-devtools-mcp "$CUR" "$LAT"
           (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
           node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
 
@@ -1789,15 +1768,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const f = 'preseed/agents/claude/browser-run-mcp/package.json';
-          const cur = process.env.CUR;
-          const lat = process.env.LAT;
-          const before = fs.readFileSync(f, 'utf-8');
-          const after = before.replace(`"@modelcontextprotocol/sdk": "${cur}"`, `"@modelcontextprotocol/sdk": "${lat}"`);
-          if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
-          NODE
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/agents/claude/browser-run-mcp/package.json \
+            @modelcontextprotocol/sdk "$CUR" "$LAT"
           (cd preseed/agents/claude/browser-run-mcp && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
 
           git add preseed/agents/claude/browser-run-mcp/package.json preseed/agents/claude/browser-run-mcp/package-lock.json
@@ -2077,33 +2050,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const { PKG, LAT } = process.env;
-          const toolsPath = 'preseed/npm-tools/package.json';
-          const tools = JSON.parse(fs.readFileSync(toolsPath, 'utf8'));
-          if (!tools.dependencies?.[PKG]) throw new Error(`${PKG} is not in ${toolsPath}`);
-          tools.dependencies[PKG] = LAT;
-          if (PKG === '@earendil-works/pi-coding-agent') {
-            for (const dependency of ['@earendil-works/pi-agent-core', '@earendil-works/pi-ai', '@earendil-works/pi-tui']) {
-              tools.devDependencies[dependency] = LAT;
-            }
-            const piPath = 'preseed/agents/pi/package.json';
-            const pi = JSON.parse(fs.readFileSync(piPath, 'utf8'));
-            pi.overrides[PKG] = LAT;
-            for (const dependency of Object.keys(tools.devDependencies)) pi.devDependencies[dependency] = LAT;
-            fs.writeFileSync(piPath, `${JSON.stringify(pi, null, 2)}\n`);
-          }
-          fs.writeFileSync(toolsPath, `${JSON.stringify(tools, null, 2)}\n`);
-          NODE
-
-          (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
-          node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
           if [ "$PKG" = '@earendil-works/pi-coding-agent' ]; then
-            node scripts/regenerate-pi-preseed-lock.mjs
-            node scripts/apply-npm-security-lock-pins.mjs preseed/agents/pi/package-lock.json
-            npm ci --no-audit --no-fund --silent
-            npm run generate:agent-seed
+            node scripts/update-pi-runtime-artifacts.mjs "$CUR" "$LAT"
+          else
+            node scripts/update-npm-tool-manifests.mjs \
+              preseed/npm-tools/package.json "$PKG" "$CUR" "$LAT"
+            (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+            node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
           fi
 
           git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json

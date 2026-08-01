@@ -66,7 +66,7 @@ const REQUIRED = [
   'npm:pi-goal-list-loop-audit@0.34.16',
 ];
 
-describe('Goal package preseed (REQ-AGENT-001)', () => {
+describe('Goal package preseed (REQ-AGENT-111)', () => {
   it('pins the reviewed package and its declared Goal extension in the committed lock', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));

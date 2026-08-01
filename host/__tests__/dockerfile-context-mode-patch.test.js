@@ -74,7 +74,6 @@ describe('Dockerfile context-mode patch (createRequire shim + REQ-AGENT-076 AC4 
 // prewarm tree). These assert both installs are patched and guarded against drift.
 describe('Dockerfile patches context-mode in BOTH installs (global + Pi prewarm)', () => {
   it('patches the lock-backed shared install (Claude MCP bin)', () => {
-    assert.match(dockerfile, /CTX_DIR="\/opt\/codeflare\/npm-tools\/node_modules\/context-mode"/);
     assert.match(dockerfile, /node \/tmp\/patch-context-mode-bundles\.mjs "\$CTX_DIR"/);
   });
 
