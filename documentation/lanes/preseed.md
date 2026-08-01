@@ -903,16 +903,16 @@ not retain obsolete hard-routing behavior.
 context-mode's npm update-check probe (`registry.npmjs.org/context-mode/latest`)
 is neutralized at image-build time in both installs it loads from:
 
-- The Claude global install, resolved via `npm root -g`.
+- The shared image-tools copy used by Claude.
 - The Pi runtime's prewarmed copy at `/opt/codeflare/pi-agent/npm/node_modules/context-mode`.
 
 Pi loads that prewarm tree as `npm:context-mode@<ver>` through a runtime symlink.
-`scripts/patch-context-mode-bundles.mjs` repoints the probe URL to a refused
-local address in both bundles. The version resolves to `"unknown"`, no "Update
-available ... ctx_upgrade" notice renders, and no outbound npm registry traffic
-is generated.
+`scripts/patch-context-mode-bundles.mjs` first validates both installed versions
+against the plugin pin, then repoints the probe URL in both bundles to a refused
+local address. The version resolves to `"unknown"`, no "Update available ...
+ctx_upgrade" notice renders, and no outbound npm registry traffic is generated.
 
-Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC4.
+Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC5.
 
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.
