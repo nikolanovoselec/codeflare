@@ -18,6 +18,7 @@ import type { DeployKeys, Env } from '../types';
 import { getDeployKeysKey, SETUP_KEYS } from './kv-keys';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from './kv-crypto';
 import { createLogger } from './logger';
+import { githubScopeForTier } from './oauth-scopes';
 
 const logger = createLogger('github-token');
 
@@ -258,7 +259,6 @@ class GitHubAppUserProvider implements GithubOAuthProvider {
 
 class OAuthAppProvider implements GithubOAuthProvider {
   readonly source = 'oauth' as const;
-  private static readonly SCOPES = 'repo read:org workflow';
   constructor(private env: Env, private clientId: string, private clientSecret: string) {}
 
   authorizeUrl({ state, redirectUri, scope }: { state: string; redirectUri: string; scope?: string }): string {
@@ -266,7 +266,7 @@ class OAuthAppProvider implements GithubOAuthProvider {
       client_id: this.clientId,
       state,
       redirect_uri: redirectUri,
-      scope: scope ?? OAuthAppProvider.SCOPES,
+      scope: scope ?? githubScopeForTier(undefined),
     });
     return `https://${webHost(this.env)}/login/oauth/authorize?${p.toString()}`;
   }

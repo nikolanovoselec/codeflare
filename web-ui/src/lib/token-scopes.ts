@@ -13,11 +13,11 @@ export interface TierConfig {
 export const GITHUB_TIERS: Record<ScopeTier, TierConfig> = {
   minimal: {
     label: 'Minimal',
-    description: 'Push and pull code to existing repositories.',
+    description: 'Push and pull code to existing repositories, and manage gists.'
   },
   recommended: {
     label: 'Recommended',
-    description: 'Create repos, open PRs, monitor CI, and deploy.',
+    description: 'Create repos, manage gists, open PRs, monitor CI, and deploy.'
   },
   advanced: {
     label: 'Advanced',

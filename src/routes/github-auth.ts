@@ -65,7 +65,7 @@ app.get('/login', loginRateLimiter, async (c) => {
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: 'user:email gist',
+    scope: 'user:email',
     state,
   });
 

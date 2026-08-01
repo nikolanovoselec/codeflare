@@ -647,28 +647,3 @@ None.
 **Status:** Implemented
 
 ---
-
-### REQ-AUTH-023: Direct GitHub login requests gist access
-
-**Intent:** The Direct GitHub OAuth consent grants Codeflare verified-email and gist access during login.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. The GitHub authorization redirect requests exactly the `user:email` and `gist` scopes. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/routes/github-auth.test.ts (REQ-AUTH-023: requests verified-email and gist access in the GitHub login redirect) -->
-
-**Constraints:**
-
-- The exchanged access token remains callback-local and is never persisted by the login flow.
-- Connect GitHub's separate tiered scope catalog is unchanged.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
-
-**Verification:** Automated test ([github-auth](../../src/__tests__/routes/github-auth.test.ts))
-
-**Status:** Implemented
-
----

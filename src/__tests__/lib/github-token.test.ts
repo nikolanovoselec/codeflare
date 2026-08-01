@@ -281,11 +281,11 @@ describe('authorizeUrl', () => {
     expect(url.searchParams.get('scope')).toBeNull();
   });
 
-  it('OAuth URL requests the repo/read:org/workflow scope', async () => {
+  it('OAuth URL requests the default connection scope including gist', async () => {
     const url = new URL(
       (await getGithubProvider(env(OAUTH_ENV)))!.authorizeUrl({ state: 's', redirectUri: 'https://cf/cb' }),
     );
-    expect(url.searchParams.get('scope')).toBe('repo read:org workflow');
+    expect(url.searchParams.get('scope')).toBe('repo gist read:org workflow');
   });
 
   it('honours the GITHUB_HOST override for data-residency tenants', async () => {
