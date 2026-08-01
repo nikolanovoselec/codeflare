@@ -2333,7 +2333,7 @@ const required = [
   'npm:@juicesharp/rpiv-ask-user-question@2.0.0',
   'npm:@juicesharp/rpiv-todo@2.0.0',
   'npm:pi-web-access@0.13.0',
-  'npm:pi-mcp-adapter@2.11.0',
+  'npm:pi-mcp-adapter@2.13.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
 // every fresh container start until upstream ships a memory-safe Pi adapter.

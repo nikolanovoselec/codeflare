@@ -62,7 +62,7 @@ const REQUIRED = [
   'npm:@juicesharp/rpiv-ask-user-question@2.0.0',
   'npm:@juicesharp/rpiv-todo@2.0.0',
   'npm:pi-web-access@0.13.0',
-  'npm:pi-mcp-adapter@2.11.0',
+  'npm:pi-mcp-adapter@2.13.0',
 ];
 
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
