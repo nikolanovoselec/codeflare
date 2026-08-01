@@ -274,6 +274,8 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     assert.equal(r.status, 2);
     assert.ok(r.stderr.includes(TRIAGE_HEADER), 'directive carries the canonical header contract');
     assert.equal(r.stdout, '');
+    assert.equal(pretool(cwd, t, 'Write').status, 2,
+      'Write carries no exemption while blocked');
   });
 
   it('allows read-only tools during the blocked window', () => {

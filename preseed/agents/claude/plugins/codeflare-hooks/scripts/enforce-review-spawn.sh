@@ -747,8 +747,7 @@ spawn_completion_line() {
 # Only text blocks are extracted below, so nothing inside a tool_use envelope
 # can fake the shape.
 # The canonical stacked shape on stdin: header, divider, and a data row on
-# consecutive lines. Shared by the transcript scan and the file check so the
-# two channels can never drift apart on what counts as a table.
+# consecutive lines.
 stacked_table_in_stream() {
   awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
     { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
