@@ -659,7 +659,7 @@ describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
     const nativeWorkerSource = [
       '/** SilverBullet 2.9.0 native service worker. */',
       '/** Drift guard. From SilverBullet 2.9.0. */',
-      'export const VAULT_NATIVE_SW_SHA256 = "old";',
+      'export const VAULT_NATIVE_SW_SHA256 = "deadbeef";',
       'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
     ].join('\n');
     const worker = 'new Request("/",{cache:"reload"});const replacementTokens="$&-$`-$\'-$${value}"';
@@ -681,7 +681,7 @@ describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
     const nativeWorkerSource = [
       '/** SilverBullet 2.9.0 native service worker. */',
       '/** Drift guard. From SilverBullet 2.9.0. */',
-      'export const VAULT_NATIVE_SW_SHA256 = "old";',
+      'export const VAULT_NATIVE_SW_SHA256 = "deadbeef";',
       'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
     ].join('\n');
     expect(() => updateSilverBulletPins(
@@ -689,7 +689,7 @@ describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
       nativeWorkerSource,
       'new Request("/",{cache:"reload"})',
       { version: '2.10.0', artifactSha256: 'a'.repeat(64) },
-    )).toThrow(/exactly one Dockerfile match/);
+    )).toThrow(/SILVERBULLET_SHA256: expected exactly one match/);
     expect(() => updateSilverBulletPins(
       'SILVERBULLET_VERSION="2.9.0"\nSILVERBULLET_SHA256="old"',
       nativeWorkerSource,
@@ -706,7 +706,7 @@ describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
     writeFileSync(nativeWorker, [
       '/** SilverBullet 2.9.0 native service worker. */',
       '/** Drift guard. From SilverBullet 2.9.0. */',
-      'export const VAULT_NATIVE_SW_SHA256 = "old";',
+      'export const VAULT_NATIVE_SW_SHA256 = "deadbeef";',
       'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
     ].join('\n'));
     writeFileSync(worker, 'new Request("/",{cache:"reload"})');
