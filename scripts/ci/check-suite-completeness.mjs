@@ -74,6 +74,16 @@ const artifactDirs = (() => {
     return [];
   }
 })();
+const rootReports = (() => {
+  try {
+    return readdirSync(root)
+      .map((entry) => join(root, entry))
+      .filter((path) => lstatSync(path).isFile() && path.endsWith('.json'));
+  } catch {
+    return [];
+  }
+})();
+const successfulSuites = SUITES.filter((suite) => laneResults[suite.lane] === 'success');
 
 for (const suite of SUITES) {
   // `laneResults[missing]` is undefined, and undefined !== 'success' takes the
@@ -86,7 +96,16 @@ for (const suite of SUITES) {
   }
   const laneResult = laneResults[suite.lane];
   const dirs = artifactDirs.filter((d) => suite.artifacts.some((a) => d.startsWith(a)));
-  const reports = dirs.flatMap((d) => collect(join(root, d), (e) => e.endsWith('.json')));
+  const nestedReports = dirs.flatMap((d) => collect(join(root, d), (e) => e.endsWith('.json')));
+  // download-artifact extracts a single pattern match directly into `root`
+  // instead of creating its artifact-named directory. Assign that flat layout
+  // only when exactly one suite lane succeeded; otherwise attribution would be
+  // ambiguous and the existing missing-report failures remain fail-closed.
+  const reports = nestedReports.length > 0
+    ? nestedReports
+    : successfulSuites.length === 1 && successfulSuites[0] === suite
+      ? rootReports
+      : [];
 
   if (!reports.length) {
     if (laneResult === 'success') {

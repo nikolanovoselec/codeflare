@@ -910,6 +910,21 @@ describe('REQ-OPS-023 AC3: cross-suite completeness gate', () => {
     expect(runCompleteness({ backend: 'success' }, cwd).status).toBe(1);
   });
 
+  it('reconciles the single artifact layout emitted directly under the download root', () => {
+    const cwd = tree([]);
+    const file = 'openvscode/agent-sidebar/test/only.test.ts';
+    touch(cwd, file);
+    report('browser-ide', 'browser-ide.json', [file]);
+    copyFileSync(
+      join(work, 'artifacts', 'browser-ide', 'browser-ide.json'),
+      join(work, 'artifacts', 'browser-ide.json'),
+    );
+    rmSync(join(work, 'artifacts', 'browser-ide'), { recursive: true });
+
+    const r = runCompleteness({ 'browser-ide': 'success' }, cwd);
+    expect(r.status, r.stderr).toBe(0);
+  });
+
   it('fails when a lane reported success but uploaded no reports', () => {
     const cwd = tree(['src/a.test.ts']);
     expect(runCompleteness({ backend: 'success' }, cwd, 'missing').status).toBe(1);
