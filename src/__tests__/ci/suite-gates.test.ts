@@ -732,10 +732,16 @@ describe('REQ-OPS-027: code-server coupled-pin automation', () => {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
     const job = workflow.jobs['code-server'];
+    const deriveStep = job.steps?.find(
+      (step) => step.name === 'Derive code-server pins from the immutable artifact and release tag',
+    );
     const applyStep = job.steps?.find((step) => step.name === 'Apply bump and invalidate the release checksum');
 
     expect(job).toBeDefined();
     expect(workflow.jobs['openvscode-server']).toBeUndefined();
+    expect(deriveStep?.run).toContain('gh release download "$TAG"');
+    expect(deriveStep?.run).toContain('CODE_SERVER_COMMIT=$(jq -r .commit <<<"$PACKAGE_JSON")');
+    expect(deriveStep?.run).toContain('[ "$PRODUCT_COMMIT" = "$CODE_SERVER_COMMIT" ]');
     expect(applyStep).toBeDefined();
   });
 
