@@ -263,6 +263,14 @@ jobs:
           git diff --exit-code src/lib/agent-seed.generated.ts \
             || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
 
+      - name: Capture remotely generated agent seed
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-seed-generated
+          path: src/lib/agent-seed.generated.ts
+          if-no-files-found: error
+
       - uses: ./.github/actions/install-deps
         with:
           key-prefix: root
