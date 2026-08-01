@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 // anchor-drift guard at the module boundary.
 import {
   graftVaultKeyRecovery,
+  VAULT_NATIVE_SW_SHA256,
   VAULT_NATIVE_SW_VERBATIM,
   VAULT_NATIVE_SERVICE_WORKER_JS,
 } from '../../routes/vault/native-sw';
@@ -22,9 +23,14 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
   });
 
+  it('REQ-VAULT-017 AC3: precaching bypasses stale browser HTTP cache entries', () => {
+    expect(VAULT_NATIVE_SW_VERBATIM).toContain('cache:"reload"');
+    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('cache:"reload"');
+  });
+
   it('the graft calls __cfRecover before the get-encryption-key reply', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
-      'case"get-encryption-key":{if(y===void 0)await __cfRecover()',
+      'case"get-encryption-key":{if(v===void 0)await __cfRecover()',
     );
   });
 
@@ -45,12 +51,18 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const NEEDLE = '.matchAll().then(a=>{';
     const open = sw.indexOf(NEEDLE + 'a.length===0');
     if (open < 0) throw new Error('no-client flush callback not found in served worker');
+    const keyVariable =
+      /async function __cfRecover\(\)\{if\(([A-Za-z_$][\w$]*)!==void 0\)/.exec(sw)?.[1]
+      ?? /a\.length===0&&([A-Za-z_$][\w$]*)&&\(console\.info\("No more clients, flushing encryption key"\),\1=void 0\)/.exec(sw)?.[1];
+    if (!keyVariable) throw new Error('encryption-key variable not found in worker');
     const exprStart = open + NEEDLE.length;
     const exprEnd = sw.indexOf('}', exprStart);
     const expr = sw.slice(exprStart, exprEnd);
     // eslint-disable-next-line no-new-func
-    const fn = new Function('a', `let y = "AES-KEY"; ${expr}; return y;`) as (a: unknown[]) => string | undefined;
-    return fn([]); // [] == zero window clients == the flush trigger
+    const fn = new Function(keyVariable, `const a = []; ${expr}; return ${keyVariable};`) as (
+      key: string,
+    ) => string | undefined;
+    return fn('AES-KEY');
   }
 
   it('REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
@@ -238,6 +250,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     const hex = Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    expect(hex).toBe('a7b21f560e357db3f1d76fdf5603880530b8a6219842ec46dd9ef8e5d82adecb');
+    expect(VAULT_NATIVE_SW_SHA256).toBe('caae72f32c92e402e08199def85840b56e1aad0377dc418e521dc1b1be20eff8');
+    expect(hex).toBe(VAULT_NATIVE_SW_SHA256);
   });
 });

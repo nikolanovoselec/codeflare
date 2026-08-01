@@ -385,7 +385,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
 
     it('T9: the drift guard hashes the VERBATIM upstream worker', async () => {
-      // The guard pins the upstream SB 2.9.0 bytes (pre-graft); a SilverBullet
+      // The guard pins the upstream SB 2.10.0 bytes (pre-graft); a SilverBullet
       // version bump that changes the worker must be a deliberate re-vendor
       // (update the constant AND the hash), never a silent drift. The verbatim
       // bytes are what is hashed - the graft is applied deterministically on top.

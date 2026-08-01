@@ -21,12 +21,14 @@ import {
 } from '../../../scripts/ci/container-build-cache-policy.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
 import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pins.mjs';
+import { updateSilverBulletPins } from '../../../scripts/ci/update-silverbullet-pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
 const COVERAGE_GATE = join(REPO, 'scripts/ci/check-coverage-result.mjs');
 const CODE_SERVER_PIN_UPDATER = join(REPO, 'scripts/ci/update-code-server-pins.mjs');
+const SILVERBULLET_PIN_UPDATER = join(REPO, 'scripts/ci/update-silverbullet-pins.mjs');
 const SHADOW_PINS_WORKFLOW = join(REPO, '.github/workflows/bump-shadow-pins.yml');
 
 let work: string;
@@ -630,6 +632,96 @@ describe('Cloudflare test transport capacity', () => {
     expect(CLOUDFLARE_TEST_OPTIONS.miniflare.compatibilityFlags).toContain(
       'increase_websocket_message_size',
     );
+  });
+});
+
+describe('REQ-OPS-020: SilverBullet coupled-pin automation', () => {
+  it('routes the binary, checksum, and native worker through one updater', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const job = workflow.jobs.silverbullet;
+    const resolveStep = job.steps?.find((step) => step.name === 'Resolve the latest release and authoritative digest');
+    const applyStep = job.steps?.find((step) => step.name === 'Apply coupled SilverBullet bump');
+
+    expect(resolveStep?.run).toContain('.digest');
+    expect(applyStep?.run).toContain('scripts/ci/update-silverbullet-pins.mjs');
+    expect(applyStep?.run).toContain('service_worker.js');
+    expect(applyStep?.run).toContain('X-Server-Version');
+    expect(applyStep?.run).toContain('SERVER_VERSION');
+  });
+
+  it('updates the Docker pin and vendored worker atomically', () => {
+    const dockerfile = [
+      'SILVERBULLET_VERSION="2.9.0"',
+      'SILVERBULLET_SHA256="old"',
+    ].join('\n');
+    const nativeWorkerSource = [
+      '/** SilverBullet 2.9.0 native service worker. */',
+      '/** Drift guard. From SilverBullet 2.9.0. */',
+      'export const VAULT_NATIVE_SW_SHA256 = "old";',
+      'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
+    ].join('\n');
+    const worker = 'new Request("/",{cache:"reload"})';
+
+    const updated = updateSilverBulletPins(dockerfile, nativeWorkerSource, worker, {
+      version: '2.10.0',
+      artifactSha256: 'a'.repeat(64),
+    });
+
+    expect(updated.dockerfile).toContain('SILVERBULLET_VERSION="2.10.0"');
+    expect(updated.dockerfile).toContain(`SILVERBULLET_SHA256="${'a'.repeat(64)}"`);
+    expect(updated.nativeWorkerSource).toContain('SilverBullet 2.10.0 native service worker');
+    expect(updated.nativeWorkerSource).toContain(JSON.stringify(worker));
+    expect(updated.nativeWorkerSource).not.toContain('old-worker');
+  });
+
+  it('fails closed for malformed release metadata or incomplete pin contracts', () => {
+    const nativeWorkerSource = [
+      '/** SilverBullet 2.9.0 native service worker. */',
+      '/** Drift guard. From SilverBullet 2.9.0. */',
+      'export const VAULT_NATIVE_SW_SHA256 = "old";',
+      'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
+    ].join('\n');
+    expect(() => updateSilverBulletPins(
+      'SILVERBULLET_VERSION="2.9.0"',
+      nativeWorkerSource,
+      'new Request("/",{cache:"reload"})',
+      { version: '2.10.0', artifactSha256: 'a'.repeat(64) },
+    )).toThrow(/exactly one Dockerfile match/);
+    expect(() => updateSilverBulletPins(
+      'SILVERBULLET_VERSION="2.9.0"\nSILVERBULLET_SHA256="old"',
+      nativeWorkerSource,
+      'stale worker',
+      { version: 'release prose', artifactSha256: 'not-a-digest' },
+    )).toThrow(/release metadata|cache reload/);
+  });
+
+  it('executes the updater through its CLI boundary', () => {
+    const dockerfile = join(work, 'Dockerfile');
+    const nativeWorker = join(work, 'native-sw.ts');
+    const worker = join(work, 'service_worker.js');
+    writeFileSync(dockerfile, 'SILVERBULLET_VERSION="2.9.0"\nSILVERBULLET_SHA256="old"');
+    writeFileSync(nativeWorker, [
+      '/** SilverBullet 2.9.0 native service worker. */',
+      '/** Drift guard. From SilverBullet 2.9.0. */',
+      'export const VAULT_NATIVE_SW_SHA256 = "old";',
+      'export const VAULT_NATIVE_SW_VERBATIM = "old-worker";',
+    ].join('\n'));
+    writeFileSync(worker, 'new Request("/",{cache:"reload"})');
+
+    const result = spawnSync(process.execPath, [SILVERBULLET_PIN_UPDATER, dockerfile, nativeWorker, worker], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        SILVERBULLET_VERSION: '2.10.0',
+        SILVERBULLET_SHA256: 'a'.repeat(64),
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(dockerfile, 'utf8')).toContain('SILVERBULLET_VERSION="2.10.0"');
+    expect(readFileSync(nativeWorker, 'utf8')).toContain(JSON.stringify(readFileSync(worker, 'utf8')));
   });
 });
 
