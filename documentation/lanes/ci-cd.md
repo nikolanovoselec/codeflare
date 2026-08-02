@@ -73,9 +73,11 @@ The non-default enterprise environments, account overrides, and dispatch procedu
 | Branch | Required checks | Bypass |
 |--------|-----------------|--------|
 | `main` | `test`, `CodeQL`, `Property-based fuzzing` | none |
-| `develop` | `test` | repository admin |
+| `develop` | `test`, `CodeQL`, `Property-based fuzzing` | none |
 
-Required status checks apply to direct pushes, not merges alone. `test.yml` has no `push` trigger for `develop`, so a locally authored commit cannot acquire the `test` check and a direct push to `develop` is rejected — the admin bypass exists so an emergency push is still possible. The release-time `git push -f origin main:develop` reset is unaffected, because that SHA already carries a green `test` from `main`.
+Both long-lived branches require squash-only pull requests, block deletion and non-fast-forward updates, dismiss stale reviews, and require the latest branch state to carry all three checks. Neither ruleset requires an approving review because Codeflare currently has one maintainer; self-approval would add delay without independent assurance.
+
+`test.yml` has no `push` trigger for `develop`, so a locally authored commit cannot acquire the required checks and direct pushes are rejected. The former admin bypass and force-reset path are intentionally gone: synchronization must preserve protected history rather than using `git push -f origin main:develop`.
 
 Workflow references are SHA-pinned repository-wide (`sha_pinning_required`); a `uses:` on a tag or branch is rejected at the Actions level rather than caught in review.
 
