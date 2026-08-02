@@ -2281,7 +2281,7 @@ else
 fi
 
 configure_pi_goal_defaults() {
-    local goal_config="${PI_GOAL_CONFIG_FILE:-$USER_HOME/.pi/agent/pi-goal.json}"
+    local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
     if [ -e "$goal_config" ]; then
         return 0
     fi

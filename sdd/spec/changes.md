@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-02
+
+- **Goal activation works with capability-filtered sessions while preserving user preferences** ([REQ-AGENT-111](agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4 remains Implemented). Startup creates the Goal settings file with lazy terminal-tool visibility only when it is absent; an existing file remains byte-for-byte user-owned. Behavioral coverage executes the real startup invocation for both paths.
+
 ## 2026-08-01
 
 - **Privileged build dependencies now install from committed integrity trees** ([REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) AC3/AC6, [REQ-OPS-033](operations.md#req-ops-033-lock-backed-npm-bump-coherence), and [REQ-OPS-025](operations.md#req-ops-025-pi-preseed-bump-artifact-coherence) AC4 remain Implemented). Agent tools, Pi prewarm, Browser Run MCP, workflow Wrangler, and uv now use reviewed locks or verified release digests, including a bounded correction for Pi's vulnerable packed dependency.

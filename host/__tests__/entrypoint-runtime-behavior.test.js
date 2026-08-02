@@ -29,28 +29,28 @@ function runFunction(name, setup, invocation, env = {}) {
   });
 }
 
+function runStartupInvocation(name, env = {}) {
+  const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
+  const invocation = lines.find((line) => line.startsWith(`${name} || `));
+  if (!invocation) throw new Error(`Could not locate production startup invocation for ${name}()`);
+  return spawnSync('bash', ['-c', `${extractFunction(name)}\n${invocation}`], {
+    encoding: 'utf8',
+    env: { ...process.env, ...env },
+  });
+}
+
 describe('entrypoint production helpers', () => {
   it('REQ-AGENT-111 AC4: initializes Goal tool visibility once and preserves existing preferences', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');
 
-    const first = runFunction(
-      'configure_pi_goal_defaults',
-      '',
-      'configure_pi_goal_defaults',
-      { USER_HOME: fixture },
-    );
+    const first = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
     assert.equal(first.status, 0, first.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), { toolVisibility: 'after-first-goal' });
 
     const userSettings = '{"toolVisibility":"always","continuationLimits":{"automaticTurns":7},"rpc":{"enabled":true}}';
     writeFileSync(configPath, userSettings);
-    const second = runFunction(
-      'configure_pi_goal_defaults',
-      '',
-      'configure_pi_goal_defaults',
-      { USER_HOME: fixture },
-    );
+    const second = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
     assert.equal(second.status, 0, second.stderr);
     assert.equal(readFileSync(configPath, 'utf8'), userSettings);
   });

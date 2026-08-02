@@ -79,7 +79,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Automated manifest test; complete-image verification
+**Verification:** Entrypoint runtime behavior test; complete-image verification
 
 **Status:** Implemented
 
