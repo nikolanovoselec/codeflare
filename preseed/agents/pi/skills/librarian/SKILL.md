@@ -1,6 +1,6 @@
 ---
 name: librarian
-description: Research open-source libraries with evidence-backed answers and GitHub permalinks. Use when the user asks about library internals, needs implementation details with source code references, wants to understand why something was changed, or needs authoritative answers backed by actual code. Excels at navigating large open-source repos and providing citations to exact lines of code.
+description: Research open-source libraries with evidence and GitHub source permalinks.
 ---
 
 # Librarian

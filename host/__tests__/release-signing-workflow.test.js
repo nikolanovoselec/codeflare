@@ -27,7 +27,8 @@ describe('REQ-OPS-034: keyless GitHub release signing', () => {
 
   it('binds signing to a validated semantic-version tag reachable from main', () => {
     const validate = steps['Validate release source'];
-    assert.equal(validate.env.RELEASE_TAG, "${{ github.event.release.tag_name || inputs.tag }}");
+    assert.equal(workflow.env.RELEASE_TAG, "${{ github.event.release.tag_name || inputs.tag }}");
+    assert.equal(validate.env.RELEASE_TAG, '${{ env.RELEASE_TAG }}');
     assert.equal(validate.env.EVENT_NAME, '${{ github.event_name }}');
     assert.equal(validate.env.SOURCE_REF, '${{ github.ref }}');
     assert.doesNotMatch(validate.run, /\$\{\{/);
