@@ -179,9 +179,16 @@ async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string
     try {
       pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, { head, goalId: goal.id } satisfies ReviewGoalPause);
     } catch (error) {
-      await requestGoalControl(pi, "resume", goal.id);
-      clearReviewGoalPause(pi);
-      notifyGoalBridgeFailure(ctx, `Could not transfer Goal pause to the new PR head: ${String(error)}`);
+      const rollback = await requestGoalControl(pi, "resume", goal.id);
+      if (rollback?.ok && rollback.status === "active") {
+        clearReviewGoalPause(pi);
+        notifyGoalBridgeFailure(ctx, `Could not transfer Goal pause to the new PR head: ${String(error)}`);
+      } else {
+        notifyGoalBridgeFailure(
+          ctx,
+          `Could not transfer Goal pause to the new PR head and rollback also failed; review ownership was retained: ${String(error)}`,
+        );
+      }
     }
     return;
   }
@@ -206,14 +213,18 @@ function ownsReviewGoalPause(ctx: ReviewContext, head: string): boolean {
 async function releaseReviewGoalPause(pi: ReviewPi, ctx: ReviewContext, head: string): Promise<boolean> {
   const owned = reviewGoalPause(ctx);
   if (!owned) return false;
-  if (!ownsReviewGoalPause(ctx, head)) {
+  const goal = currentGoal(ctx);
+  const retainsReplacementOwnership = goal?.id === owned.goalId && goal.status === "paused";
+  if (!ownsReviewGoalPause(ctx, head) && !retainsReplacementOwnership) {
     clearReviewGoalPause(pi);
     return false;
   }
   const result = await requestGoalControl(pi, "resume", owned.goalId);
-  clearReviewGoalPause(pi);
-  if (result?.ok && result.status === "active") return true;
-  notifyGoalBridgeFailure(ctx, "Could not resume Goal after PR review; use /goal resume after resolving its current state.");
+  if (result?.ok && result.status === "active") {
+    clearReviewGoalPause(pi);
+    return true;
+  }
+  notifyGoalBridgeFailure(ctx, "Could not resume Goal after PR review; review ownership was retained. Use /goal resume after resolving its current state.");
   return false;
 }
 

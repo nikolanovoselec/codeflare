@@ -24,7 +24,7 @@ type TestContext = {
   hasUI: boolean;
   isIdle(): boolean;
   sessionManager: { getSessionFile(): string; getEntries(): Record<string, unknown>[] };
-  ui: { notify(): void; setStatus(): void; clearStatus(): void };
+  ui: { notify(message: string): void; setStatus(): void; clearStatus(): void };
 };
 type PlannedReviewEnforcement = {
   registerReviewEnforcement(
@@ -307,17 +307,21 @@ function makeHarness(repo: string, sessionFile: string): {
   ctx: TestContext;
   sent: SentMessage[];
   goalControlRequests: Array<{ action: string; goalId: string }>;
+  notifications: string[];
   operations: string[];
   setGoalControlAvailable(available: boolean): void;
+  setGoalResumeSucceeds(succeeds: boolean): void;
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
   const sent: SentMessage[] = [];
   const goalControlRequests: Array<{ action: string; goalId: string }> = [];
+  const notifications: string[] = [];
   const operations: string[] = [];
   let activeTools = ['read', 'bash'];
   let goalControlAvailable = true;
+  let goalResumeSucceeds = true;
   let liveEntries: Record<string, unknown>[] | undefined;
   const allTools = [
     { name: 'read', description: 'Read files' },
@@ -340,10 +344,11 @@ function makeHarness(repo: string, sessionFile: string): {
           || typeof request.respond !== 'function') return;
         goalControlRequests.push({ action: request.action, goalId: request.goalId });
         request.accepted?.();
+        const succeeded = request.action === 'pause' || goalResumeSucceeds;
         request.respond({
-          ok: true,
+          ok: succeeded,
           goalId: request.goalId,
-          status: request.action === 'pause' ? 'paused' : 'active',
+          status: request.action === 'pause' || !succeeded ? 'paused' : 'active',
         });
       },
     },
@@ -386,15 +391,21 @@ function makeHarness(repo: string, sessionFile: string): {
         .map((line) => JSON.parse(line) as Record<string, unknown>)
         .filter((entry) => entry.type !== 'session'),
     },
-    ui: { notify: () => undefined, setStatus: () => undefined, clearStatus: () => undefined },
+    ui: {
+      notify: (message) => { notifications.push(message); },
+      setStatus: () => undefined,
+      clearStatus: () => undefined,
+    },
   };
   return {
     pi,
     ctx,
     sent,
     goalControlRequests,
+    notifications,
     operations,
     setGoalControlAvailable: (available) => { goalControlAvailable = available; },
+    setGoalResumeSucceeds: (succeeds) => { goalResumeSucceeds = succeeds; },
     setLiveEntries: (entries) => { liveEntries = entries; },
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
@@ -657,6 +668,67 @@ describe('Pi review reminder and settled enforcement', () => {
       { action: 'resume', goalId: 'goal-1' },
     ]);
     const entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toBeNull();
+  });
+
+  it('REQ-AGENT-111: retains failed rollback ownership and releases it after replacement-head review', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    const originalHead = fixture.head;
+
+    appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
+    write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
+    git(fixture.repo, 'add', 'src/review.ts');
+    git(fixture.repo, 'commit', '-m', 'replacement head');
+    fixture.head = git(fixture.repo, 'rev-parse', 'HEAD');
+    fixture.pr.headRefOid = fixture.head;
+    appendSession(fixture.sessionFile,
+      assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-2', 'bash'),
+    );
+    const appendEntry = harness.pi.appendEntry;
+    harness.pi.appendEntry = (customType, data) => {
+      if (customType === 'pr-boundary-goal-pause'
+        && (data as { head?: string } | null)?.head === fixture.head) {
+        throw new Error('simulated transfer persistence failure');
+      }
+      appendEntry(customType, data);
+    };
+    harness.setGoalResumeSucceeds(false);
+
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
+
+    let entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toEqual({
+      head: originalHead,
+      goalId: 'goal-1',
+    });
+    expect(harness.notifications.at(-1)).toContain('rollback also failed');
+
+    harness.setGoalResumeSucceeds(true);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-2', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-2', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-2', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-2'),
+      notification('spec-2'),
+      notification('doc-2'),
+      triageMessage(),
+    );
+    await harness.emit('agent_end');
+
+    expect(harness.goalControlRequests).toEqual([
+      { action: 'pause', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
+    ]);
+    entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toBeNull();
   });
 
