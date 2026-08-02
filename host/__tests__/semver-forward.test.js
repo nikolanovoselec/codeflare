@@ -43,27 +43,27 @@ describe('strictSemverUpgrade', () => {
 });
 
 describe('shadow-pin workflow forward-only routing', () => {
-  const cooldownComparatorSteps = Object.entries(workflow.jobs).flatMap(
-    ([jobName, job]) => {
-      const steps = job.steps ?? [];
-      const usesCooldown = steps.some(
-        (step) => step.uses === './.github/actions/npm-cooldown-version',
-      );
-      if (!usesCooldown) return [];
-      return steps
-        .filter((step) => (step.run ?? '').includes('scripts/ci/semver-forward.mjs'))
-        .map((step) => ({ jobName, step }));
-    },
-  );
+  const cooldownRoutes = Object.entries(workflow.jobs).flatMap(([jobName, job]) => {
+    const steps = job.steps ?? [];
+    const usesCooldown = steps.some(
+      (step) => step.uses === './.github/actions/npm-cooldown-version',
+    );
+    if (!usesCooldown) return [];
+    return [{
+      jobName,
+      comparatorSteps: steps.filter((step) =>
+        (step.run ?? '').includes('scripts/ci/semver-forward.mjs')),
+    }];
+  });
 
   it('routes every shared npm cooldown candidate through the forward-only comparator', () => {
-    const cooldownJobs = Object.values(workflow.jobs).filter((job) =>
-      (job.steps ?? []).some(
-        (step) => step.uses === './.github/actions/npm-cooldown-version',
-      ),
-    );
-
-    assert.equal(cooldownComparatorSteps.length, cooldownJobs.length);
+    for (const { jobName, comparatorSteps } of cooldownRoutes) {
+      assert.equal(
+        comparatorSteps.length,
+        1,
+        `${jobName} must make exactly one forward-only decision`,
+      );
+    }
   });
 
   it('fails every cooldown route when the comparator rejects malformed input', () => {
@@ -81,8 +81,8 @@ describe('shadow-pin workflow forward-only routing', () => {
     chmodSync(jq, 0o755);
 
     try {
-      for (const { jobName, step } of cooldownComparatorSteps) {
-        const result = spawnSync('bash', ['-c', step.run], {
+      for (const { jobName, comparatorSteps } of cooldownRoutes) {
+        const result = spawnSync('bash', ['-c', comparatorSteps[0].run], {
           cwd: resolve(__dirname, '../..'),
           encoding: 'utf8',
           env: {
