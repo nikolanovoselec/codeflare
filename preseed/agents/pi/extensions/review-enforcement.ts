@@ -47,13 +47,18 @@ type ReviewContext = {
   cwd: string;
   sessionManager: {
     getSessionFile(): string | undefined;
+    getBranch?(): Record<string, any>[];
     getEntries?(): Record<string, any>[];
     getHeader?(): { parentSession?: string } | undefined;
   };
+  ui?: { notify(message: string, level?: "info" | "warning" | "error"): void };
 };
 
 type ReviewPi = ToolActivationPi & {
   on(event: "session_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  getCommands?(): Array<{ name: string; source: string }>;
+  appendEntry(customType: string, data: unknown): void;
+  sendUserMessage(text: string, options?: { deliverAs?: "steer" | "followUp" }): void | Promise<void>;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -69,6 +74,134 @@ type QueryPrRunner = (
 const execFileAsync = promisify(execFile) as unknown as QueryPrRunner;
 const MAX_BLOCKS = 5;
 const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
+const GOAL_STATE_ENTRY_TYPE = "goal-state";
+const REVIEW_GOAL_PAUSE_ENTRY_TYPE = "pr-boundary-goal-pause";
+
+type GoalSnapshot = { id: string; status: string };
+type ReviewGoalPause = {
+  head: string;
+  goalId: string;
+  statusAtRequest: "active" | "paused";
+};
+
+function sessionEntries(ctx: ReviewContext): Record<string, any>[] {
+  try {
+    return ctx.sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries?.() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function goalSnapshot(entry: Record<string, any>): GoalSnapshot | undefined {
+  const goal = entry?.type === "custom" && entry.customType === GOAL_STATE_ENTRY_TYPE
+    ? entry.data?.goal
+    : undefined;
+  return goal
+    && typeof goal.id === "string"
+    && typeof goal.status === "string"
+    ? { id: goal.id, status: goal.status }
+    : undefined;
+}
+
+function currentGoal(ctx: ReviewContext): GoalSnapshot | undefined {
+  const entry = sessionEntries(ctx)
+    .filter((candidate) => (
+      candidate?.type === "custom" && candidate.customType === GOAL_STATE_ENTRY_TYPE
+    ))
+    .at(-1);
+  return entry ? goalSnapshot(entry) : undefined;
+}
+
+function reviewGoalPause(ctx: ReviewContext): { pause: ReviewGoalPause; index: number } | undefined {
+  const entries = sessionEntries(ctx);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.type !== "custom" || entry.customType !== REVIEW_GOAL_PAUSE_ENTRY_TYPE) continue;
+    const data = entry.data;
+    if (data === null) return undefined;
+    if (data
+      && fullSha(data.head)
+      && typeof data.goalId === "string"
+      && (data.statusAtRequest === "active" || data.statusAtRequest === "paused")) {
+      return { pause: data as ReviewGoalPause, index };
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+function clearReviewGoalPause(pi: ReviewPi): void {
+  try {
+    pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, null);
+  } catch {
+    // Goal integration is optional and must never block PR enforcement.
+  }
+}
+
+function notifyGoalBridgeFailure(ctx: ReviewContext, message: string): void {
+  try {
+    ctx.ui?.notify(message, "error");
+  } catch {
+    // Notification failure must not change the PR-boundary result.
+  }
+}
+
+function goalCommandAvailable(pi: ReviewPi): boolean {
+  try {
+    return pi.getCommands?.().some((command) => (
+      command.name === "goal" && command.source === "extension"
+    )) === true;
+  } catch {
+    return false;
+  }
+}
+
+async function pauseGoalForReview(
+  pi: ReviewPi,
+  ctx: ReviewContext,
+  head: string,
+): Promise<void> {
+  const goal = currentGoal(ctx);
+  const owned = reviewGoalPause(ctx);
+  if (!goalCommandAvailable(pi)) {
+    if (owned) clearReviewGoalPause(pi);
+    return;
+  }
+  if (!goal || (goal.status !== "active" && goal.status !== "paused")) return;
+  if (owned?.pause.head === head && owned.pause.goalId === goal.id) return;
+  if (goal.status === "paused" && owned?.pause.goalId !== goal.id) return;
+
+  try {
+    pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, {
+      head,
+      goalId: goal.id,
+      statusAtRequest: goal.status,
+    } satisfies ReviewGoalPause);
+    if (goal.status === "active") {
+      await pi.sendUserMessage("/goal pause", { deliverAs: "steer" });
+    }
+  } catch (error) {
+    clearReviewGoalPause(pi);
+    notifyGoalBridgeFailure(ctx, `Could not pause Goal for PR review: ${String(error)}`);
+  }
+}
+
+function ownsReviewGoalPause(ctx: ReviewContext, head: string): boolean {
+  const entries = sessionEntries(ctx);
+  const owned = reviewGoalPause(ctx);
+  const goal = currentGoal(ctx);
+  if (!owned || owned.pause.head !== head || !goal || goal.id !== owned.pause.goalId) return false;
+  if (goal.status !== "paused") return false;
+  if (owned.pause.statusAtRequest === "paused") return true;
+
+  const laterStatuses = entries
+    .slice(owned.index + 1)
+    .map(goalSnapshot)
+    .filter((snapshot): snapshot is GoalSnapshot => Boolean(snapshot && snapshot.id === goal.id))
+    .map((snapshot) => snapshot.status);
+  const pausedIndex = laterStatuses.indexOf("paused");
+  return pausedIndex >= 0 && !laterStatuses.slice(pausedIndex + 1).includes("active");
+}
 
 function fullSha(value: string | undefined): value is string {
   return Boolean(value && /^[0-9a-f]{40}$/.test(value));
@@ -422,7 +555,24 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
-function sendFixFollowUp(pi: ReviewPi, pr: PrState, range: string | undefined): void {
+async function sendFixFollowUp(
+  pi: ReviewPi,
+  ctx: ReviewContext,
+  pr: PrState,
+  range: string | undefined,
+): Promise<void> {
+  let resumedGoal = false;
+  if (goalCommandAvailable(pi) && ownsReviewGoalPause(ctx, pr.headRefOid)) {
+    try {
+      await pi.sendUserMessage("/goal resume", { deliverAs: "followUp" });
+      resumedGoal = true;
+    } catch (error) {
+      notifyGoalBridgeFailure(ctx, `Could not resume Goal after PR review: ${String(error)}`);
+    }
+    clearReviewGoalPause(pi);
+  } else if (reviewGoalPause(ctx)) {
+    clearReviewGoalPause(pi);
+  }
   pi.sendMessage({
     customType: "pr-boundary-fix-follow-up",
     content: [
@@ -438,7 +588,7 @@ function sendFixFollowUp(pi: ReviewPi, pr: PrState, range: string | undefined): 
     ].join("\n"),
     display: true,
     details: { head: pr.headRefOid, reviewRange: range },
-  }, { deliverAs: "followUp", triggerTurn: true });
+  }, resumedGoal ? { triggerTurn: false } : { deliverAs: "followUp", triggerTurn: true });
 }
 
 function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
@@ -520,7 +670,7 @@ async function acknowledgeCompletedReview(
       ciEvent,
     });
   }
-  sendFixFollowUp(pi, reviewedPr, reviewedRange);
+  await sendFixFollowUp(pi, ctx, reviewedPr, reviewedRange);
   return true;
 }
 
@@ -569,6 +719,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       : [];
     const ciEvent = ciBoundaryEvent(boundary.classification.event);
     if (requiredLanes.length === 0 && !ciEvent) return;
+    if (requiredLanes.length > 0) {
+      await pauseGoalForReview(pi, ctx, review.pr.headRefOid);
+    }
 
     sendLaunchMessage(pi, {
       phase: "plan",
@@ -652,6 +805,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     if (shouldReview && requiredLanes.length > 0
       && (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range)) {
+      await pauseGoalForReview(pi, ctx, review.pr.headRefOid);
       sendLaunchMessage(pi, {
         phase: "plan",
         repo: review.repo,
@@ -673,6 +827,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       : requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
     if (missingLanes.length === 0 && !ciEvent) return;
     if (missingLanes.length > 0 && blockDecision(review.repo, review.pr.headRefOid) === "giveup") return;
+    if (missingLanes.length > 0) {
+      await pauseGoalForReview(pi, ctx, review.pr.headRefOid);
+    }
 
     sendLaunchMessage(pi, {
       phase: "follow-up",

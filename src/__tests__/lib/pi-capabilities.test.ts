@@ -54,7 +54,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       ],
     });
     const registered = new Map<string, CapabilityTool>();
-    const handlers = new Map<string, () => void>();
+    const handlers = new Map<string, (event?: unknown, ctx?: unknown) => void>();
     const pi = {
       ...base,
       getAllTools: () => [
@@ -65,7 +65,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         const candidate = tool as CapabilityTool;
         registered.set(candidate.name, candidate);
       },
-      on(event: string, handler: () => void) {
+      on(event: string, handler: (event?: unknown, ctx?: unknown) => void) {
         handlers.set(event, handler);
       },
     };
@@ -98,6 +98,66 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       'graphify_query',
       'subagent',
     ]);
+  });
+
+  it('REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal', () => {
+    const base = fakePi({
+      active: ['read'],
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'bash', description: 'Run shell commands' },
+        { name: 'goal_complete', description: 'Complete Goal' },
+        { name: 'goal_blocked', description: 'Block Goal' },
+      ],
+    });
+    const handlers = new Map<string, (event?: unknown, ctx?: unknown) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event?: unknown, ctx?: unknown) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    capabilityExtension(pi);
+    const session = (status: string | null) => ({
+      sessionManager: {
+        getBranch: () => [{
+          type: 'custom',
+          customType: 'goal-state',
+          data: { goal: status === null ? null : { id: 'goal-1', status } },
+        }],
+      },
+    });
+
+    handlers.get('session_start')?.({}, session('paused'));
+    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
+  });
+
+  it('REQ-AGENT-111: preserves Goal tools already active under the always-visible policy', () => {
+    const base = fakePi({
+      active: ['read', 'goal_complete', 'goal_blocked'],
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'bash', description: 'Run shell commands' },
+        { name: 'goal_complete', description: 'Complete Goal' },
+        { name: 'goal_blocked', description: 'Block Goal' },
+      ],
+    });
+    const handlers = new Map<string, (event?: unknown, ctx?: unknown) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event?: unknown, ctx?: unknown) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    capabilityExtension(pi);
+
+    handlers.get('session_start')?.({}, {
+      sessionManager: { getBranch: () => [] },
+    });
+
+    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
   });
 
   it('searches registered inactive tools by name and description', () => {

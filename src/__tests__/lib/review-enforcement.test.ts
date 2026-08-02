@@ -60,7 +60,10 @@ type PlannedReviewEnforcement = {
 };
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
+  getCommands(): Array<{ name: string; source: string }>;
+  appendEntry(customType: string, data: unknown): void;
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void;
+  sendUserMessage(text: string, options?: { deliverAs?: 'steer' | 'followUp' }): void | Promise<void>;
   getActiveTools(): string[];
   getAllTools(): Array<{ name: string; description: string }>;
   setActiveTools(names: string[]): void;
@@ -222,6 +225,17 @@ function triageMessage(): Record<string, unknown> {
   return assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|');
 }
 
+function goalState(goalId: string, status: 'active' | 'paused' | 'blocked' | 'complete' | null): Record<string, unknown> {
+  return {
+    type: 'custom',
+    id: nextId('goal-state'),
+    customType: 'goal-state',
+    data: {
+      goal: status === null ? null : { id: goalId, status },
+    },
+  };
+}
+
 function notification(toolUseId: string, status = 'Done'): Record<string, unknown> {
   return {
     type: 'custom_message',
@@ -291,14 +305,18 @@ function makeHarness(repo: string, sessionFile: string): {
   pi: TestPi;
   ctx: TestContext;
   sent: SentMessage[];
+  sentUserMessages: Array<{ text: string; options?: { deliverAs?: 'steer' | 'followUp' } }>;
   operations: string[];
+  setGoalAvailable(available: boolean): void;
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
   const sent: SentMessage[] = [];
+  const sentUserMessages: Array<{ text: string; options?: { deliverAs?: 'steer' | 'followUp' } }> = [];
   const operations: string[] = [];
   let activeTools = ['read', 'bash'];
+  let goalAvailable = true;
   let liveEntries: Record<string, unknown>[] | undefined;
   const allTools = [
     { name: 'read', description: 'Read files' },
@@ -307,6 +325,22 @@ function makeHarness(repo: string, sessionFile: string): {
   ];
   const pi: TestPi = {
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
+    getCommands: () => goalAvailable
+      ? [{ name: 'goal', source: 'extension' }]
+      : [],
+    appendEntry: (customType, data) => {
+      operations.push(`append:${customType}`);
+      appendSession(sessionFile, {
+        type: 'custom',
+        id: nextId('custom'),
+        customType,
+        data,
+      });
+    },
+    sendUserMessage: (text, options) => {
+      operations.push(`user:${text}`);
+      sentUserMessages.push({ text, options });
+    },
     getActiveTools: () => [...activeTools],
     getAllTools: () => allTools.map((tool) => ({ ...tool })),
     setActiveTools: (names) => {
@@ -343,7 +377,9 @@ function makeHarness(repo: string, sessionFile: string): {
     pi,
     ctx,
     sent,
+    sentUserMessages,
     operations,
+    setGoalAvailable: (available) => { goalAvailable = available; },
     setLiveEntries: (entries) => { liveEntries = entries; },
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
@@ -475,6 +511,131 @@ describe('Pi review reminder and settled enforcement', () => {
       '### 3. Triage and acknowledge before fixing',
     ]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-111: pauses an active Goal once at review launch and resumes the same Goal from the FIX reminder', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('tool_result', boundaryEvent());
+
+    expect(harness.sentUserMessages).toEqual([{
+      text: '/goal pause',
+      options: { deliverAs: 'steer' },
+    }]);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'paused'),
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_end');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sentUserMessages).toEqual([
+      { text: '/goal pause', options: { deliverAs: 'steer' } },
+      { text: '/goal resume', options: { deliverAs: 'followUp' } },
+    ]);
+    expect(harness.sent.at(-1)).toEqual({
+      message: expect.objectContaining({
+        customType: 'pr-boundary-fix-follow-up',
+        details: { head: fixture.head, reviewRange: `${fixture.base}..${fixture.head}` },
+      }),
+      options: { triggerTurn: false },
+    });
+  });
+
+  it('REQ-AGENT-111: fails open when the Goal extension is unavailable', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    harness.setGoalAvailable(false);
+    appendSession(fixture.sessionFile,
+      goalState('stale-goal', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent());
+
+    expect(harness.sentUserMessages).toEqual([]);
+    expect(harness.sent.at(-1)).toEqual({
+      message: expect.objectContaining({ customType: 'pr-boundary-launch-plan' }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    });
+  });
+
+  it('REQ-AGENT-111: keeps FIX delivery fail-open when Goal is removed during review', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'paused'),
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageMessage(),
+    );
+    harness.setGoalAvailable(false);
+
+    await harness.emit('agent_end');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sentUserMessages).toEqual([{
+      text: '/goal pause',
+      options: { deliverAs: 'steer' },
+    }]);
+    expect(harness.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+  });
+
+  it('REQ-AGENT-111: never resumes a Goal that the user reactivated after the boundary pause', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'paused'),
+      goalState('goal-2', 'active'),
+      goalState('goal-2', 'paused'),
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_end');
+
+    expect(harness.sentUserMessages).toEqual([{
+      text: '/goal pause',
+      options: { deliverAs: 'steer' },
+    }]);
+    expect(harness.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
   });
 
   it('REQ-AGENT-055/REQ-AGENT-071: invalid acknowledgements request a full-PR review', async () => {

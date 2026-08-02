@@ -4,7 +4,9 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-02
 
-- **Goal activation works with capability-filtered sessions while preserving user preferences** ([REQ-AGENT-111](agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4 remains Implemented). Startup creates the Goal settings file with lazy terminal-tool visibility only when it is absent; an existing file remains byte-for-byte user-owned. Behavioral coverage executes the real startup invocation for both paths.
+- **Goal activation and reload work with capability-filtered sessions while preserving user preferences** ([REQ-AGENT-111](agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4 remains Implemented; AC6 added as Implemented). Startup creates the Goal settings file with lazy terminal-tool visibility only when it is absent; an existing file remains byte-for-byte user-owned. Capability initialization retains terminal Goal tools for a canonical unfinished session Goal or Goal's already-active `always` policy, so reload restores it without independently widening fresh, cleared, completed, malformed, or lazy sessions.
+
+- **Reviewer-bearing PR boundaries pause and resume the active Pi Goal** ([REQ-AGENT-111](agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC5 added; remains Implemented). The existing review-enforcement extension owns the optional bridge: one supported `/goal pause` precedes review launch, and the matching acknowledged FIX reminder resumes only that persisted objective. Goal absence, removal, replacement, or independent reactivation leaves PR review enforcement unchanged.
 
 - **PR Checks never build the container image** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) AC7 amended; [REQ-OPS-031](operations.md#req-ops-031-trusted-deployment-container-build-cache) amended; both remain Implemented). Source-validation lanes run at maximum parallelism with a sub-three-minute target. Deployment alone owns the complete-image build, packaged smoke, scan, SBOM, cache, provenance, and push; the PR receipt records only the exact tested tree.
 
