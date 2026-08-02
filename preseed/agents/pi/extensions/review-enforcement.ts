@@ -772,10 +772,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       || !preview.reviewPrNumber
       || !preview.reviewBase
       || preview.reviewBoundaryToolUseId !== preview.boundary.toolUseId) return;
-    if (deferredSettledRecoveryHead === preview.reviewHead) {
-      deferredSettledRecoveryHead = undefined;
-      return;
-    }
     const context = boundaryContext(ctx, preview.reviewRepo);
     if (!context) return;
     const pr = await dependencies.queryPr(context.repo, preview.reviewBranch);
@@ -801,6 +797,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       : [];
     const facts = transcriptFacts(ctx, review.file, requiredLanes, review.pr.headRefOid);
     if (!facts.boundary) return;
+    if (deferredSettledRecoveryHead === review.pr.headRefOid) {
+      const noLaunchesRecorded = !facts.ciLaunched
+        && requiredLanes.every((lane) => facts.lanes[lane].state === "missing");
+      deferredSettledRecoveryHead = undefined;
+      if (reviewIsOpen && !bypassed && noLaunchesRecorded) return;
+    }
     if (review.pr.state !== "OPEN") {
       await releaseReviewGoalPause(pi, ctx, review.pr.headRefOid);
       if (reviewEnabled(review.repo) && !facts.closedNotified && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
