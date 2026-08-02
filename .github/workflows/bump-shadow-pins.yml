@@ -989,7 +989,7 @@ jobs:
           ## Test plan
           - [ ] Replace \`NEEDS_UPDATE_SEE_PR_BODY\` with the digest (without \`sha256:\`)
           - [ ] Review code-server and Code release notes
-          - [ ] CI complete-image Browser IDE smoke green
+          - [ ] Deployment image Browser IDE smoke green
           - [ ] Integration Pi and official Claude pass@3 green
           EOF
           )"
@@ -1817,7 +1817,7 @@ jobs:
   claude-vscode-extension:
     # The official extension is a privileged proprietary package bundled into
     # the server image from Open VSX. Its metadata file is the one source of
-    # truth for Docker, staging validation, and complete-image smoke.
+    # truth for Docker, staging validation, and deployment image smoke.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -1940,7 +1940,7 @@ jobs:
           - SHA-256: \`$SHA\`
           - Single pin: \`openvscode/agent-sidebar/official-claude.json\`
 
-          CI downloads the exact package, verifies this digest and identity, and runs complete-image host smoke before merge.
+          Deployment downloads the exact package, verifies this digest and identity, and runs packaged host smoke before push.
           EOF
           )"
 

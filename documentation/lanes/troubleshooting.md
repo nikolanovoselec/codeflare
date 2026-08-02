@@ -36,7 +36,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** The deployment predates clean fixed-workspace routing, only one defense-in-depth check was updated, or the pinned Code OSS workbench meta-element drifted. A private upstream query alone is insufficient because Code OSS reads the browser location or server-provided `folderUri`.
 
-**Fix:** Use a fresh session on an image where Worker and host reject decoded selector keys, the private root hop injects the fixed folder, and the host projects its equivalent `folderUri` into the root workbench configuration. The normal public location is `/api/vscode/<sessionId>/`. A projection mismatch returns `VSCODE_WORKBENCH_CONFIGURATION_INVALID`; complete-image smoke must validate the packaged root HTML before deployment. This is not an OS sandbox; terminals, trusted extensions, and agents retain container filesystem access.
+**Fix:** Use a fresh session on an image where Worker and host reject decoded selector keys, the private root hop injects the fixed folder, and the host projects its equivalent `folderUri` into the root workbench configuration. The normal public location is `/api/vscode/<sessionId>/`. A projection mismatch returns `VSCODE_WORKBENCH_CONFIGURATION_INVALID`; deployment image smoke must validate the packaged root HTML before deployment. This is not an OS sandbox; terminals, trusted extensions, and agents retain container filesystem access.
 
 ### Browser IDE theme, Explorer state, or open files do not persist ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering))
 
@@ -60,7 +60,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Cause:** `Language model unavailable` means the pinned Code OSS host rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
 
-**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes the host-reserved fallback vendor `copilot`, and complete-image smoke confirms a hidden default model whose generation path rejects. Code OSS 1.131 retains the behavior introduced in 1.130 and considers only that vendor when resolving an implicit participant model; the identifier does not invoke GitHub Copilot, request authorization, or change Pi's local RPC inference. Do not sign into Copilot.
+**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes the host-reserved fallback vendor `copilot`, and deployment image smoke confirms a hidden default model whose generation path rejects. Code OSS 1.131 retains the behavior introduced in 1.130 and considers only that vendor when resolving an implicit participant model; the identifier does not invoke GitHub Copilot, request authorization, or change Pi's local RPC inference. Do not sign into Copilot.
 
 For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
 
@@ -78,7 +78,7 @@ For request failures, confirm the file is under `/home/user/workspace`, the part
 
 **Cause:** Request or launch-generation cleanup did not converge before replacement.
 
-**Fix:** Do not delete pidfiles first. Stop or restart the Browser IDE and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use `browser-ide-image` evidence for package identity, process count, and RSS.
+**Fix:** Do not delete pidfiles first. Stop or restart the Browser IDE and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use deployment container-image evidence for package identity, process count, and RSS.
 
 See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 

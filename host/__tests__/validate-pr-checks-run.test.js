@@ -26,8 +26,11 @@ const run = {
 };
 
 const receipt = {
+  schema: 'codeflare.pr-checks-receipt.v3',
   repository: expected.repo,
+  workflowPath: '.github/workflows/test.yml',
   runId: expected.runId,
+  runAttempt: 1,
   testedCommit: 'c'.repeat(40),
   testedTree: expected.tree,
 };
@@ -214,6 +217,9 @@ describe('exact-head PR Checks run validation', () => {
   });
 
   for (const [name, changedReceipt] of [
+    ['wrong schema', { ...receipt, schema: 'codeflare.pr-checks-receipt.v2' }],
+    ['wrong workflow', { ...receipt, workflowPath: '.github/workflows/other.yml' }],
+    ['invalid run attempt', { ...receipt, runAttempt: 0 }],
     ['wrong tested tree', { ...receipt, testedTree: 'd'.repeat(40) }],
     ['wrong receipt repository', { ...receipt, repository: 'attacker/fork' }],
     ['wrong receipt run id', { ...receipt, runId: '999999' }],

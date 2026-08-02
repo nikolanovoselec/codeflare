@@ -9,16 +9,12 @@ import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runInNewContext } from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 import { CLOUDFLARE_TEST_OPTIONS } from '../../../vitest.config';
 import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
-import {
-  sharedCacheEnabled,
-  shouldAttemptSharedCacheLogin,
-} from '../../../scripts/ci/container-build-cache-policy.mjs';
+import { sharedCacheEnabled } from '../../../scripts/ci/container-build-cache-policy.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
 import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pins.mjs';
 import { updateSilverBulletPins } from '../../../scripts/ci/update-silverbullet-pins.mjs';
@@ -40,15 +36,6 @@ afterEach(() => {
   rmSync(work, { recursive: true, force: true });
 });
 
-function evaluateWorkflowCondition(expression: string, values: Record<string, string>): boolean {
-  let resolved = expression;
-  for (const reference of Object.keys(values).sort((left, right) => right.length - left.length)) {
-    resolved = resolved.replaceAll(reference, JSON.stringify(values[reference]));
-  }
-  expect(resolved).not.toMatch(/\b(?:needs|steps)\./);
-  return Boolean(runInNewContext(resolved, Object.create(null), { timeout: 100 }));
-}
-
 type CacheStep = {
   name?: string;
   id?: string;
@@ -60,7 +47,13 @@ type CacheStep = {
   'continue-on-error'?: boolean;
 };
 type WorkflowPermissions = Record<string, string>;
-type CacheJob = { permissions?: WorkflowPermissions; steps?: CacheStep[] };
+type CacheJob = {
+  permissions?: WorkflowPermissions;
+  steps?: CacheStep[];
+  needs?: string | string[];
+  strategy?: { 'max-parallel'?: number };
+  if?: string;
+};
 type CacheWorkflow = {
   permissions?: WorkflowPermissions;
   jobs: Record<string, CacheJob>;
@@ -98,7 +91,6 @@ function readCacheWorkflowContract() {
   ) as { jobs: Record<string, CacheJob> };
   return {
     testWorkflow,
-    completeImageJob: testWorkflow.jobs['browser-ide-image'],
     imageJob: imageWorkflow.jobs.image,
     deployWorkflow,
   };
@@ -252,264 +244,68 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     });
   });
 
-  it('REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status', () => {
-    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: Record<string, {
-        if?: string;
-        needs?: string | string[];
-        'continue-on-error'?: boolean;
-        permissions?: Record<string, string>;
-        steps?: Array<{
-          name?: string;
-          if?: string;
-          run?: string;
-          uses?: string;
-          with?: Record<string, unknown>;
-          'continue-on-error'?: boolean;
-        }>;
-      }>;
-    };
-    const extensionJob = workflow.jobs['browser-ide'];
-    const reuseJob = workflow.jobs['browser-ide-image-reuse'];
-    const imageJob = workflow.jobs['browser-ide-image'];
-    const summaryJob = workflow.jobs.summary;
+  it('REQ-OPS-003 AC7: PR Checks never build a container image and deployment owns packaged smoke', () => {
+    const { testWorkflow, imageJob } = readCacheWorkflowContract();
+    const summary = testWorkflow.jobs.summary;
+    expect(testWorkflow.jobs['browser-ide-image-reuse']).toBeUndefined();
+    expect(testWorkflow.jobs['browser-ide-image']).toBeUndefined();
+    expect(JSON.stringify(testWorkflow)).not.toMatch(/docker buildx build|Build complete image/);
+    const requiredJobs = Array.isArray(summary.needs) ? summary.needs : [summary.needs];
+    expect(requiredJobs).not.toContain('browser-ide-image-reuse');
+    expect(requiredJobs).not.toContain('browser-ide-image');
 
-    expect(extensionJob).toBeDefined();
-    expect(reuseJob).toBeDefined();
-    expect(imageJob).toBeDefined();
-    expect(imageJob.needs).toEqual(['changes', 'browser-ide', 'browser-ide-image-reuse']);
-    expect(imageJob['continue-on-error']).not.toBe(true);
-    expect(imageJob.if?.replace(/\s+/g, ' ').trim()).toBe(
-      "(needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') && needs.browser-ide.result == 'success' && needs.browser-ide-image-reuse.result == 'success' && needs.browser-ide-image-reuse.outputs.reused != 'true'",
-    );
-
-    const imageSteps = imageJob.steps ?? [];
-    const optionalCacheSteps = new Set([
-      'Resolve shared cache eligibility',
-      'Log in to GHCR for shared BuildKit cache',
-      'Resolve shared cache availability',
-    ]);
-    const criticalSteps = imageSteps.filter((step) =>
-      step.name !== 'Upload image evidence' && !optionalCacheSteps.has(step.name ?? ''));
-    expect(criticalSteps.every((step) => step.if === undefined && step['continue-on-error'] !== true)).toBe(true);
-    const imageCommands = imageSteps.flatMap((step) => step.run ?? []).join('\n');
-    expect(imageJob.permissions?.packages).toBe('read');
-    expect(imageCommands).toContain('docker buildx build');
-    expect(imageCommands).toContain('--load');
-    expect(imageCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
-    // Identity and pinning shape, not the digest itself: what AC7 protects is
-    // which actions this job may run -- adding an image-publishing action has to
-    // fail here -- and that each is pinned to an immutable digest rather than a
-    // floating tag. Asserting the digest value instead made every routine bump
-    // of either action fail for a reason the AC does not care about.
-    const imageUses = imageSteps.flatMap((step) => step.uses ?? []);
-    expect(imageUses.map((use) => use.split('@')[0])).toEqual([
-      'actions/checkout',
-      'docker/login-action',
-      'docker/setup-buildx-action',
-      'actions/upload-artifact',
-    ]);
-    expect(imageUses.filter((use) => !/@[0-9a-f]{40}$/.test(use))).toEqual([]);
-    expect(imageCommands).not.toMatch(
-      /\b(?:docker|podman)\s+(?:(?:image|manifest)\s+)?(?:login|push)\b|\bdocker\s+(?:buildx\s+build|build)\b[^;&]*--push\b|\b(?:npm\s+publish|oras\s+push|skopeo\s+copy)\b/i,
-    );
-    expect(JSON.stringify(imageSteps)).not.toMatch(/build-push-action/i);
-
-    const requiredJobs = Array.isArray(summaryJob.needs) ? summaryJob.needs : [summaryJob.needs];
-    expect(requiredJobs).toEqual(expect.arrayContaining([
-      'browser-ide',
-      'browser-ide-image-reuse',
-      'browser-ide-image',
-    ]));
+    const deploymentCommands = imageJob.steps?.flatMap((step) => step.run ?? []).join('\n') ?? '';
+    expect(deploymentCommands).toContain('docker buildx build');
+    expect(deploymentCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
+    const stepNames = imageJob.steps?.map((step) => step.name) ?? [];
+    const smokeIndex = stepNames.indexOf('Verify packaged native Pi Chat and official Claude');
+    expect(smokeIndex).toBeGreaterThan(stepNames.indexOf('Build container image'));
+    expect(smokeIndex).toBeLessThan(stepNames.indexOf('Scan container image for vulnerabilities'));
+    expect(smokeIndex).toBeLessThan(stepNames.indexOf('Push image'));
+    expect(imageJob.steps?.find((step) => step.name === 'Verify packaged native Pi Chat and official Claude')?.if)
+      .toBe("steps.reuse.outputs.reused != 'true'");
   });
 
-  it('REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips', () => {
-    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: Record<string, {
-        needs?: string | string[];
-        permissions?: Record<string, string>;
-        outputs?: Record<string, string>;
-        steps?: Array<{
-          id?: string;
-          name?: string;
-          if?: string;
-          run?: string;
-          env?: Record<string, string>;
-          with?: Record<string, unknown>;
-        }>;
-      }>;
-    };
-    const changes = workflow.jobs.changes;
-    const reuse = workflow.jobs['browser-ide-image-reuse'];
-    const image = workflow.jobs['browser-ide-image'] as typeof reuse & { if?: string };
-    const summary = workflow.jobs.summary;
-    const resolve = reuse.steps?.find((step) => step.name === 'Resolve reusable complete-image evidence');
-    const gate = summary.steps?.find((step) => step.name === 'Verify complete-image result');
-    const receipt = summary.steps?.find((step) => step.name === 'Write exact tested-tree receipt');
-    const filters = String(changes.steps?.find((step) => step.id === 'filter')?.with?.filters ?? '');
-    const ideInputs = filters.slice(filters.indexOf('\nide:'), filters.indexOf('\nhost:'));
-
-    for (const input of [
-      "'host/src/**'",
-      "'openvscode/**'",
-      "'preseed/**'",
-      "'src/lib/agent-seed.generated.ts'",
-      "'scripts/materialize-agent-seed.mjs'",
-      "'scripts/patch-context-mode-bundles.mjs'",
-    ]) expect(ideInputs).toContain(input);
-    expect(reuse.needs).toBe('changes');
-    expect(reuse.permissions).toEqual({ actions: 'read', contents: 'read' });
-    expect(reuse.outputs).toMatchObject({
-      reused: '${{ steps.resolve.outputs.reused }}',
-      source_run_id: '${{ steps.resolve.outputs.source_run_id }}',
-      fingerprint: '${{ steps.fingerprint.outputs.image }}',
-      contract_fingerprint: '${{ steps.fingerprint.outputs.contract }}',
-      reuse_safe: '${{ steps.fingerprint.outputs.reuse_safe }}',
-    });
-    expect(resolve?.if?.replace(/\s+/g, ' ').trim()).toBe(
-      "github.event_name == 'pull_request' && steps.fingerprint.outputs.reuse_safe == 'true' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true')",
-    );
-    const imageCondition = image.if?.replace(/\s+/g, ' ').trim() ?? '';
-    const base = {
-      "needs.changes.outputs.full": 'false',
-      "needs.changes.outputs.ide": 'true',
-      "needs.browser-ide.result": 'success',
-      "needs.browser-ide-image-reuse.result": 'success',
-      "needs.browser-ide-image-reuse.outputs.reused": 'false',
-    };
-    expect(evaluateWorkflowCondition(imageCondition, base)).toBe(true);
-    expect(evaluateWorkflowCondition(imageCondition, {
-      ...base,
-      "needs.browser-ide-image-reuse.outputs.reused": 'true',
-    })).toBe(false);
-    expect(evaluateWorkflowCondition(imageCondition, {
-      ...base,
-      "needs.browser-ide-image-reuse.result": 'failure',
-    })).toBe(false);
-    expect(evaluateWorkflowCondition(imageCondition, {
-      ...base,
-      "needs.changes.outputs.ide": 'false',
-    })).toBe(false);
-    expect(evaluateWorkflowCondition(imageCondition, {
-      ...base,
-      "needs.changes.outputs.full": 'true',
-      "needs.changes.outputs.ide": 'false',
-    })).toBe(true);
-    expect(gate?.run?.replace(/\s+/g, ' ').trim()).toBe(
-      'node scripts/ci/browser-ide-image-reuse.mjs gate "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" "$IMAGE_REUSED" "$IMAGE_RESULT"',
-    );
-    expect(receipt?.env).toMatchObject({
-      REPOSITORY: '${{ github.repository }}',
-      RUN_ID: '${{ github.run_id }}',
-      RUN_ATTEMPT: '${{ github.run_attempt }}',
-      IMAGE_FINGERPRINT: '${{ needs.browser-ide-image-reuse.outputs.fingerprint }}',
-    });
-    expect(receipt?.run?.split('\n').map((line) => line.trim()).filter(Boolean)).toEqual([
-      'set -euo pipefail',
-      'tested_commit=$(git rev-parse HEAD)',
-      "tested_tree=$(git rev-parse 'HEAD^{tree}')",
-      'node scripts/ci/browser-ide-image-reuse.mjs receipt \\',
-      '"$REPOSITORY" "$RUN_ID" "$RUN_ATTEMPT" "$tested_commit" "$tested_tree" \\',
-      '"$IMAGE_FINGERPRINT" "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" \\',
-      '"$IMAGE_REUSED" "$IMAGE_SOURCE_RUN_ID" "$IMAGE_RESULT" \\',
-      '> /tmp/pr-checks-receipt.json',
-    ]);
+  it('REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target', () => {
+    const { testWorkflow } = readCacheWorkflowContract();
+    const directWorkloads = [
+      'quality', 'typecheck', 'workflow-audit', 'bundle-size',
+      'coverage-backend', 'coverage-frontend', 'backend-tests', 'frontend-tests',
+      'landing-tests', 'host-tests', 'browser-ide',
+    ];
+    for (const name of directWorkloads) expect(testWorkflow.jobs[name].needs).toBe('changes');
+    expect((testWorkflow.jobs['backend-tests'] as { strategy?: { 'max-parallel'?: number } }).strategy?.['max-parallel']).toBe(5);
+    expect((testWorkflow.jobs['frontend-tests'] as { strategy?: { 'max-parallel'?: number } }).strategy?.['max-parallel']).toBe(3);
+    for (const name of ['coverage-backend', 'coverage-frontend']) {
+      expect((testWorkflow.jobs[name] as { if?: string }).if).toContain("github.event_name != 'pull_request'");
+    }
   });
 
-  it('REQ-OPS-031 AC3: excludes forks and Dependabot from shared-cache authentication', () => {
-    expect(shouldAttemptSharedCacheLogin({
-      eventName: 'pull_request',
-      repository: 'owner/codeflare',
-      headRepository: 'owner/codeflare',
-      actor: 'contributor',
-    })).toBe(true);
-    expect(shouldAttemptSharedCacheLogin({
-      eventName: 'push',
-      repository: 'owner/codeflare',
-      headRepository: '',
-      actor: 'maintainer',
-    })).toBe(true);
-    expect(shouldAttemptSharedCacheLogin({
-      eventName: 'pull_request',
-      repository: 'owner/codeflare',
-      headRepository: 'fork/codeflare',
-      actor: 'contributor',
-    })).toBe(false);
-    expect(shouldAttemptSharedCacheLogin({
-      eventName: 'pull_request',
-      repository: 'owner/codeflare',
-      headRepository: 'owner/codeflare',
-      actor: 'dependabot[bot]',
-    })).toBe(false);
-
-    const { completeImageJob } = readCacheWorkflowContract();
-    const policy = completeImageJob.steps?.find(
-      (step) => step.name === 'Resolve shared cache eligibility',
-    );
-    expect(policy).toMatchObject({
-      id: 'cache-policy',
-      env: {
-        EVENT_NAME: '${{ github.event_name }}',
-        REPOSITORY: '${{ github.repository }}',
-        HEAD_REPOSITORY: '${{ github.event.pull_request.head.repo.full_name }}',
-        ACTOR: '${{ github.actor }}',
+  it('REQ-OPS-031 AC3: PR Checks never authenticate to the container cache', () => {
+    const { testWorkflow, imageJob } = readCacheWorkflowContract();
+    expect(JSON.stringify(testWorkflow)).not.toContain('container-build-cache:linux-amd64');
+    expect(JSON.stringify(testWorkflow)).not.toContain('Log in to GHCR for shared BuildKit cache');
+    expect(sharedCacheLogin(imageJob.steps)).toMatchObject({
+      uses: 'docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7',
+      with: {
+        registry: 'ghcr.io',
+        username: '${{ github.actor }}',
+        password: '${{ secrets.GITHUB_TOKEN }}',
       },
     });
-    expect(policy?.run).toContain('container-build-cache-policy.mjs eligibility');
-    expect(sharedCacheLogin(completeImageJob.steps)?.if).toBe(
-      "steps.cache-policy.outputs.login_allowed == 'true'",
-    );
-    expect(sharedCacheEnabled('skipped')).toBe(false);
-    const args = captureDockerBuildArguments(
-      cacheBuildCommand(completeImageJob.steps, 'Build complete image'),
-      false,
-      'ac7-complete-image',
-    );
-    expect(cachePrefixedArguments(args)).toEqual([]);
   });
 
-  it('REQ-OPS-031 AC1 + AC2 + AC5: imports one cache, restricts publication, and ignores export errors', () => {
-    const { completeImageJob, imageJob, deployWorkflow } = readCacheWorkflowContract();
-    const completeImage = cacheBuildCommand(completeImageJob.steps, 'Build complete image');
+  it('REQ-OPS-031 AC1 + AC2 + AC5: deployment alone imports and publishes the shared cache', () => {
+    const { imageJob, deployWorkflow } = readCacheWorkflowContract();
     const deployment = cacheBuildCommand(imageJob.steps, 'Build container image');
-    const cacheRef = (command: string) =>
-      command.split('\n').find((line) => line.startsWith('CACHE_REF='));
-
-    expect(cacheRef(completeImage)).toBe(
-      'CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"',
-    );
-    expect(cacheRef(deployment)).toBe(cacheRef(completeImage));
     const expectedFrom = 'type=registry,ref=ghcr.io/owner/codeflare/container-build-cache:linux-amd64';
     const expectedTo = `${expectedFrom},mode=max,oci-mediatypes=true,image-manifest=true,ignore-error=true`;
-    const completeImageArgs = captureDockerBuildArguments(
-      completeImage,
-      true,
-      'ac1-complete-image',
-    );
-    expect(cachePrefixedArguments(completeImageArgs)).toEqual(['--cache-from']);
-    expect(valuesFollowing(completeImageArgs, '--cache-from')).toEqual([expectedFrom]);
-    expect(valuesFollowing(completeImageArgs, '--cache-to')).toEqual([]);
     const deploymentArgs = captureDockerBuildArguments(deployment, true, 'ac1-deployment');
     expect(cachePrefixedArguments(deploymentArgs)).toEqual(['--cache-from', '--cache-to']);
     expect(valuesFollowing(deploymentArgs, '--cache-from')).toEqual([expectedFrom]);
     expect(valuesFollowing(deploymentArgs, '--cache-to')).toEqual([expectedTo]);
-    expect(completeImageJob.permissions?.packages).toBe('read');
     expect(imageJob.permissions?.packages).toBe('write');
-    expect(deployWorkflow.jobs.verify.permissions?.packages).toBe('read');
     expect(deployWorkflow.jobs.container.permissions?.packages).toBe('write');
-    for (const step of [
-      sharedCacheLogin(completeImageJob.steps),
-      sharedCacheLogin(imageJob.steps),
-    ]) {
-      expect(step).toMatchObject({
-        uses: 'docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7',
-        with: {
-          registry: 'ghcr.io',
-          username: '${{ github.actor }}',
-          password: '${{ secrets.GITHUB_TOKEN }}',
-        },
-      });
-    }
   });
 
   it('REQ-OPS-029 AC2: inline deploy verification grants every reusable-workflow permission', () => {
@@ -520,40 +316,26 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     );
   });
 
-  it('REQ-OPS-031 AC4: cache login unavailability cannot block complete-image or deploy builds', () => {
+  it('REQ-OPS-031 AC4: cache login unavailability cannot block deployment image builds', () => {
     expect(sharedCacheEnabled('success')).toBe(true);
     expect(sharedCacheEnabled('failure')).toBe(false);
     expect(sharedCacheEnabled('skipped')).toBe(false);
 
-    const { completeImageJob, imageJob } = readCacheWorkflowContract();
-    for (const job of [completeImageJob, imageJob]) {
-      const login = sharedCacheLogin(job.steps);
-      const availability = job.steps?.find(
-        (step) => step.name === 'Resolve shared cache availability',
-      );
-      expect(login).toMatchObject({ id: 'cache-login', 'continue-on-error': true });
-      expect(availability).toMatchObject({
-        id: 'cache',
-        env: { LOGIN_OUTCOME: '${{ steps.cache-login.outcome }}' },
-      });
-      expect(availability?.run).toContain('container-build-cache-policy.mjs availability');
-    }
-
-    const builds = [
-      [completeImageJob, 'Build complete image', 'ac8-complete-image'],
-      [imageJob, 'Build container image', 'ac8-deployment'],
-    ] as const;
-    for (const [job, stepName, label] of builds) {
-      expect(job.steps?.find((step) => step.name === stepName)?.env?.CACHE_ENABLED)
-        .toBe('${{ steps.cache.outputs.enabled }}');
-      const args = captureDockerBuildArguments(
-        cacheBuildCommand(job.steps, stepName),
-        false,
-        label,
-      );
-      expect(args).toEqual(expect.arrayContaining(['buildx', 'build', '--load']));
-      expect(cachePrefixedArguments(args)).toEqual([]);
-    }
+    const { imageJob } = readCacheWorkflowContract();
+    const login = sharedCacheLogin(imageJob.steps);
+    const availability = imageJob.steps?.find((step) => step.name === 'Resolve shared cache availability');
+    expect(login).toMatchObject({ id: 'cache-login', 'continue-on-error': true });
+    expect(availability).toMatchObject({
+      id: 'cache',
+      env: { LOGIN_OUTCOME: '${{ steps.cache-login.outcome }}' },
+    });
+    const args = captureDockerBuildArguments(
+      cacheBuildCommand(imageJob.steps, 'Build container image'),
+      false,
+      'ac8-deployment',
+    );
+    expect(args).toEqual(expect.arrayContaining(['buildx', 'build', '--load']));
+    expect(cachePrefixedArguments(args)).toEqual([]);
   });
 
   it('fails closed on coverage evidence and bounds the backend crash exception', () => {

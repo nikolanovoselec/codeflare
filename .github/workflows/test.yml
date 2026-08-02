@@ -342,6 +342,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
+      max-parallel: 5
       matrix:
         # Four shards, not two. Roughly 85% of a shard's wall clock is per-file
         # Vite transform and workerd isolate setup rather than test execution
@@ -554,8 +555,9 @@ jobs:
     name: Coverage (backend)
     needs: changes
     if: >-
-      needs.changes.outputs.full == 'true' ||
-      needs.changes.outputs.backend == 'true'
+      github.event_name != 'pull_request' &&
+      (needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.backend == 'true')
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -574,8 +576,9 @@ jobs:
     name: Coverage (frontend)
     needs: changes
     if: >-
-      needs.changes.outputs.full == 'true' ||
-      needs.changes.outputs.webui == 'true'
+      github.event_name != 'pull_request' &&
+      (needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.webui == 'true')
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -599,6 +602,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
+      max-parallel: 3
       # 129 jsdom test files took 76s in one job — the longest lane in the run
       # once the backend was sharded. Same reasoning as the backend split: the
       # cost is per-file and per-process, so it divides across runners.
@@ -838,368 +842,6 @@ jobs:
           working-directory: openvscode/agent-sidebar
           artifact-name: browser-ide
 
-  browser-ide-image-reuse:
-    name: Resolve Browser IDE image evidence
-    needs: changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      reused: ${{ steps.resolve.outputs.reused }}
-      source_run_id: ${{ steps.resolve.outputs.source_run_id }}
-      fingerprint: ${{ steps.fingerprint.outputs.image }}
-      contract_fingerprint: ${{ steps.fingerprint.outputs.contract }}
-      reuse_safe: ${{ steps.fingerprint.outputs.reuse_safe }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Fingerprint complete-image inputs
-        id: fingerprint
-        run: |
-          set -euo pipefail
-          freshness=$(date -u +%G-W%V)
-          result=$(node scripts/ci/browser-ide-image-reuse.mjs fingerprint HEAD "$freshness")
-          image=$(printf '%s' "$result" | jq -r 'if (.image | type) == "string" and (.image | test("^[0-9a-f]{64}$")) then .image else error("invalid image fingerprint") end')
-          contract=$(printf '%s' "$result" | jq -r 'if (.contract | type) == "string" and (.contract | test("^[0-9a-f]{64}$")) then .contract else error("invalid contract fingerprint") end')
-          reuse_safe=$(printf '%s' "$result" | jq -r 'if .reuseSafe == true then "true" elif .reuseSafe == false then "false" else error("invalid reuse safety") end')
-          echo "image=${image}" >> "$GITHUB_OUTPUT"
-          echo "contract=${contract}" >> "$GITHUB_OUTPUT"
-          echo "reuse_safe=${reuse_safe}" >> "$GITHUB_OUTPUT"
-          if [ "$reuse_safe" != "true" ]; then
-            printf '::warning::Browser IDE image reuse disabled; uncovered Dockerfile sources: %s\n' \
-              "$(printf '%s' "$result" | jq -c '.uncovered')"
-          fi
-
-      - name: Resolve reusable complete-image evidence
-        id: resolve
-        if: >-
-          github.event_name == 'pull_request' &&
-          steps.fingerprint.outputs.reuse_safe == 'true' &&
-          (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          IMAGE_FINGERPRINT: ${{ steps.fingerprint.outputs.image }}
-          CONTRACT_FINGERPRINT: ${{ steps.fingerprint.outputs.contract }}
-          CURRENT_RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          result=$(node scripts/ci/browser-ide-image-reuse.mjs resolve \
-            "$GITHUB_REPOSITORY" "$PR_NUMBER" "$IMAGE_FINGERPRINT" \
-            "$CONTRACT_FINGERPRINT" "$CURRENT_RUN_ID")
-          state=$(printf '%s' "$result" | jq -r \
-            'if .reused == true and (.runId | type) == "string" then "true" elif .reused == false and (has("runId") | not) then "false" else "invalid" end')
-          [ "$state" != "invalid" ] || { echo "::error::permitted resolver output not received"; exit 1; }
-          echo "reused=${state}" >> "$GITHUB_OUTPUT"
-          if [ "$state" = "true" ]; then
-            source_run_id=$(printf '%s' "$result" | jq -r '.runId')
-            echo "source_run_id=${source_run_id}" >> "$GITHUB_OUTPUT"
-          fi
-          printf 'permitted resolver output: %s\n' "$result"
-
-  browser-ide-image:
-    name: Browser IDE complete image
-    needs: [changes, browser-ide, browser-ide-image-reuse]
-    if: >-
-      (needs.changes.outputs.full == 'true' || needs.changes.outputs.ide == 'true') &&
-      needs.browser-ide.result == 'success' &&
-      needs.browser-ide-image-reuse.result == 'success' &&
-      needs.browser-ide-image-reuse.outputs.reused != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      packages: read # same-repository checks may consume but never publish the trusted cache
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Resolve shared cache eligibility
-        id: cache-policy
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REPOSITORY: ${{ github.repository }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          ACTOR: ${{ github.actor }}
-        run: >-
-          node scripts/ci/container-build-cache-policy.mjs eligibility
-          "$EVENT_NAME" "$REPOSITORY" "$HEAD_REPOSITORY" "$ACTOR" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to GHCR for shared BuildKit cache
-        id: cache-login
-        if: steps.cache-policy.outputs.login_allowed == 'true'
-        continue-on-error: true
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Resolve shared cache availability
-        id: cache
-        env:
-          LOGIN_OUTCOME: ${{ steps.cache-login.outcome }}
-        run: >-
-          node scripts/ci/container-build-cache-policy.mjs availability
-          "$LOGIN_OUTCOME" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-      - name: Build complete image
-        env:
-          IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
-          CACHE_ENABLED: ${{ steps.cache.outputs.enabled }}
-        run: |
-          set -euo pipefail
-          CACHE_REF="ghcr.io/${GITHUB_REPOSITORY,,}/container-build-cache:linux-amd64"
-          CACHE_ARGS=()
-          if [ "$CACHE_ENABLED" = "true" ]; then
-            CACHE_ARGS+=(--cache-from "type=registry,ref=${CACHE_REF}")
-          fi
-          docker buildx build --platform linux/amd64 \
-            "${CACHE_ARGS[@]}" \
-            --load \
-            --tag "$IMAGE" .
-
-      - name: Verify packaged native Pi Chat and official Claude
-        env:
-          IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
-        run: |
-          set -euo pipefail
-          docker run --rm --entrypoint /usr/local/bin/node "$IMAGE" \
-            /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs \
-            | tee /tmp/browser-ide-image-evidence.txt
-          IMAGE_BYTES=$(docker image inspect "$IMAGE" --format '{{.Size}}')
-          IMAGE_ID=$(docker image inspect "$IMAGE" --format '{{.Id}}')
-          printf 'image_bytes=%s image_id=%s\n' "$IMAGE_BYTES" "$IMAGE_ID" \
-            | tee -a /tmp/browser-ide-image-evidence.txt
-          [ "$IMAGE_BYTES" -le 4500000000 ] || {
-            echo "Complete image exceeds the 4.5 GB Browser IDE migration ceiling." >&2
-            exit 1
-          }
-
-      - name: Measure idle code-server resources
-        env:
-          IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
-        run: |
-          set -euo pipefail
-          claude_extension_version=$(jq -r '.version' openvscode/agent-sidebar/official-claude.json)
-          pi_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
-            --extensions-dir /opt/codeflare/openvscode/extensions/pi \
-            --list-extensions --show-versions)
-          claude_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
-            --extensions-dir /opt/codeflare/openvscode/extensions/claude \
-            --list-extensions --show-versions)
-          none_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
-            --extensions-dir /opt/codeflare/openvscode/extensions/none \
-            --list-extensions --show-versions)
-          printf '%s\n' "$pi_extensions" | grep -Fxi 'codeflare.codeflare-agent-sidebar@0.0.0'
-          printf '%s\n' "$claude_extensions" | grep -Fxi "anthropic.claude-code@${claude_extension_version}"
-          [ -z "$none_extensions" ] || { printf '%s\n' "$none_extensions"; exit 1; }
-          printf 'host_discovery=pi:%s claude:%s none:empty\n' \
-            'codeflare.codeflare-agent-sidebar@0.0.0' "anthropic.claude-code@${claude_extension_version}" \
-            | tee -a /tmp/browser-ide-image-evidence.txt
-
-          started_ms=$(date +%s%3N)
-          container=$(docker run -d --entrypoint /usr/local/bin/code-server "$IMAGE" \
-            --bind-addr 127.0.0.1:13337 \
-            --auth none \
-            --disable-telemetry \
-            --disable-update-check \
-            --disable-proxy \
-            --disable-getting-started-override \
-            --disable-workspace-trust \
-            --user-data-dir /tmp/openvscode-smoke-data/data \
-            --extensions-dir /opt/codeflare/openvscode/extensions/pi \
-            --enable-proposed-api codeflare.codeflare-agent-sidebar \
-            /home/user/workspace)
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
-          ready=0
-          for _ in $(seq 1 60); do
-            if docker exec "$container" curl -fsS http://127.0.0.1:13337/ >/dev/null 2>&1; then ready=1; break; fi
-            sleep 1
-          done
-          [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
-          readiness_ms=$(( $(date +%s%3N) - started_ms ))
-          [ "$readiness_ms" -le 60000 ] || { echo "code-server cold readiness exceeded 60s" >&2; exit 1; }
-          STATS=$(docker exec "$container" sh -c \
-            'printf "processes=%s rss_kib=%s" "$(ps -e --no-headers | wc -l)" "$(ps -e -o rss= | awk '\''{s+=$1} END {print s+0}'\'')"')
-          processes=$(printf '%s\n' "$STATS" | sed -n 's/.*processes=\([0-9][0-9]*\).*/\1/p')
-          rss_kib=$(printf '%s\n' "$STATS" | sed -n 's/.*rss_kib=\([0-9][0-9]*\).*/\1/p')
-          [ -n "$processes" ] && [ "$processes" -le 24 ] || { echo "code-server process ceiling exceeded: $STATS" >&2; exit 1; }
-          [ -n "$rss_kib" ] && [ "$rss_kib" -le 1048576 ] || { echo "code-server RSS ceiling exceeded: $STATS" >&2; exit 1; }
-          printf 'cold_readiness_ms=%s %s\n' "$readiness_ms" "$STATS" \
-            | tee -a /tmp/browser-ide-image-evidence.txt
-          if docker exec "$container" pgrep -af '(/usr/local/bin/pi|/usr/local/bin/claude|anthropic\.claude-code/.*/claude)' >/tmp/sidebar-agents.txt; then
-            cat /tmp/sidebar-agents.txt
-            echo 'Agent process started before native Chat or the Claude panel was used.' >&2
-            exit 1
-          fi
-          if docker logs "$container" 2>&1 | grep -E 'CANNOT use API proposal|API proposal.*not found|Failed to register participant codeflare\.pi'; then
-            docker logs "$container"
-            echo 'Native Pi Chat contribution was rejected by code-server embedded Code.' >&2
-            exit 1
-          fi
-
-          docker rm -f "$container" >/dev/null
-          container=$(docker run -d --entrypoint /bin/sh "$IMAGE" -c '
-            /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh /tmp/openvscode-claude-smoke-data claude &&
-            exec /usr/local/bin/code-server "$@"
-          ' openvscode-claude-smoke \
-            --bind-addr 127.0.0.1:13337 \
-            --auth none \
-            --disable-telemetry \
-            --disable-update-check \
-            --disable-proxy \
-            --disable-getting-started-override \
-            --disable-workspace-trust \
-            --user-data-dir /tmp/openvscode-claude-smoke-data/data \
-            --extensions-dir /opt/codeflare/openvscode/extensions/claude \
-            /home/user/workspace)
-          ready=0
-          for _ in $(seq 1 60); do
-            if docker exec "$container" curl -fsS http://127.0.0.1:13337/ >/dev/null 2>&1; then ready=1; break; fi
-            sleep 1
-          done
-          [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
-          docker exec "$container" /usr/local/bin/node -e '
-            const settings = require("/tmp/openvscode-claude-smoke-data/data/User/settings.json");
-            if (settings["claudeCode.initialPermissionMode"] !== "bypassPermissions" ||
-                settings["claudeCode.allowDangerouslySkipPermissions"] !== true ||
-                settings["claudeCode.environmentVariables"]?.[0]?.value !== "/tmp/codeflare-sidebar/claude/config") process.exit(1);
-          '
-          sleep 3
-          if docker logs "$container" 2>&1 | grep -E 'Unsupported platform|Extension activation failed.*[Aa]nthropic|anthropic\.claude-code.*(error|failed)'; then
-            docker logs "$container"
-            echo 'Official Claude extension failed against code-server embedded Code.' >&2
-            exit 1
-          fi
-          if docker exec "$container" pgrep -af 'anthropic\.claude-code/.*/claude' >/tmp/claude-agent.txt; then
-            cat /tmp/claude-agent.txt
-            echo 'Official Claude process started before its panel was used.' >&2
-            exit 1
-          fi
-          printf 'official_claude_host=ready settings_path=/tmp/openvscode-claude-smoke-data/data/User/settings.json lazy_process=true\n' \
-            | tee -a /tmp/browser-ide-image-evidence.txt
-
-      - name: Verify real code-server through the session proxy
-        env:
-          IMAGE: codeflare-sidebar-smoke:${{ github.sha }}
-        run: |
-          set -euo pipefail
-          container=$(docker run -d \
-            -e CONTAINER_AUTH_TOKEN=browser-ide-smoke-token \
-            -e SESSION_ID=smoke \
-            -e SESSION_MODE=advanced \
-            --entrypoint /bin/sh "$IMAGE" -c '
-              /usr/local/bin/code-server \
-                --bind-addr 127.0.0.1:13337 --auth none \
-                --disable-telemetry --disable-update-check --disable-proxy \
-                --disable-getting-started-override --disable-workspace-trust \
-                --user-data-dir /tmp/openvscode-proxy-smoke/data \
-                --extensions-dir /opt/codeflare/openvscode/extensions/none \
-                /home/user/workspace >/tmp/code-server-proxy-smoke.log 2>&1 &
-              exec /usr/local/bin/node /app/host/dist/server.js
-            ')
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
-          ready=0
-          for _ in $(seq 1 60); do
-            status=$(docker exec "$container" curl -sS -L --max-redirs 5 -o /tmp/prefixed-editor.html \
-              -w '%{http_code}' \
-              -H 'Authorization: Bearer browser-ide-smoke-token' \
-              -H 'Origin: https://codeflare.example' \
-              -H 'X-Forwarded-Host: codeflare.example' \
-              -H 'X-Forwarded-Proto: https' \
-              http://127.0.0.1:8080/api/vscode/smoke/ || true)
-            if [ "$status" = 200 ]; then ready=1; break; fi
-            sleep 1
-          done
-          [ "$ready" -eq 1 ] || {
-            docker logs "$container"
-            docker exec "$container" cat /tmp/code-server-proxy-smoke.log || true
-            exit 1
-          }
-          if docker exec "$container" grep -Eq '(src|href)="/' /tmp/prefixed-editor.html; then
-            docker exec "$container" grep -E '(src|href)="/' /tmp/prefixed-editor.html
-            echo 'code-server emitted a root-scoped initial asset URL through the session proxy.' >&2
-            exit 1
-          fi
-
-          docker exec "$container" curl -fsS \
-            -H 'Authorization: Bearer browser-ide-smoke-token' \
-            -H 'Origin: https://codeflare.example' \
-            -H 'X-Forwarded-Host: codeflare.example' \
-            -H 'X-Forwarded-Proto: https' \
-            http://127.0.0.1:8080/api/vscode/smoke/manifest.json \
-            -o /tmp/prefixed-manifest.json
-          asset=$(docker exec "$container" jq -r '.icons[0].src' /tmp/prefixed-manifest.json)
-          case "$asset" in
-            ./*) ;;
-            *) echo "Manifest asset escaped the session-relative path: $asset" >&2; exit 1 ;;
-          esac
-          docker exec "$container" curl -fsS \
-            -H 'Authorization: Bearer browser-ide-smoke-token' \
-            -H 'Origin: https://codeflare.example' \
-            -H 'X-Forwarded-Host: codeflare.example' \
-            -H 'X-Forwarded-Proto: https' \
-            "http://127.0.0.1:8080/api/vscode/smoke/${asset#./}" \
-            -o /dev/null
-
-          docker exec "$container" /usr/local/bin/node -e '
-            const WebSocket = require("/app/host/node_modules/ws");
-            const ws = new WebSocket(
-              "ws://127.0.0.1:8080/api/vscode/smoke/?reconnectionToken=11111111-1111-4111-8111-111111111111&reconnection=false&skipWebSocketFrames=false",
-              { headers: {
-                Authorization: "Bearer browser-ide-smoke-token",
-                Origin: "https://codeflare.example",
-                "X-Forwarded-Host": "codeflare.example",
-                "X-Forwarded-Proto": "https",
-              } },
-            );
-            const timer = setTimeout(() => {
-              process.stderr.write("prefixed code-server WebSocket did not open\n");
-              ws.terminate();
-              process.exit(1);
-            }, 10000);
-            ws.once("open", () => {
-              setTimeout(() => {
-                clearTimeout(timer);
-                if (ws.readyState !== WebSocket.OPEN) {
-                  process.stderr.write("prefixed code-server WebSocket closed during upstream handshake\n");
-                  process.exit(1);
-                }
-                process.stdout.write("prefixed_ws=ready\n");
-                ws.terminate();
-              }, 1000);
-            });
-            ws.once("unexpected-response", (_request, response) => {
-              clearTimeout(timer);
-              process.stderr.write(`prefixed code-server WebSocket returned ${response.statusCode}\n`);
-              response.resume();
-              process.exit(1);
-            });
-            ws.once("error", (error) => {
-              clearTimeout(timer);
-              process.stderr.write(`${error.message}\n`);
-              process.exit(1);
-            });
-          ' | tee -a /tmp/browser-ide-image-evidence.txt
-          printf 'prefixed_http=ready prefixed_asset=ready external_path=/api/vscode/smoke/ origin=https://codeflare.example\n' \
-            | tee -a /tmp/browser-ide-image-evidence.txt
-
-      - name: Upload image evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: browser-ide-image-evidence
-          path: /tmp/browser-ide-image-evidence.txt
-          retention-days: 5
-          if-no-files-found: error
 
   dependency-review:
     name: Dependency Review
@@ -1229,8 +871,6 @@ jobs:
       - landing-tests
       - host-tests
       - browser-ide
-      - browser-ide-image-reuse
-      - browser-ide-image
       - dependency-review
     if: always()
     runs-on: ubuntu-latest
@@ -1272,18 +912,7 @@ jobs:
               esac
             done
           fi
-          echo "All lanes green (skipped = not affected or backed by validated reusable evidence)"
-
-      - name: Verify complete-image result
-        env:
-          FULL: ${{ needs.changes.outputs.full || 'false' }}
-          IDE: ${{ needs.changes.outputs.ide || 'false' }}
-          IMAGE_REUSE_RESULT: ${{ needs.browser-ide-image-reuse.result }}
-          IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
-          IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
-        run: >-
-          node scripts/ci/browser-ide-image-reuse.mjs gate
-          "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" "$IMAGE_REUSED" "$IMAGE_RESULT"
+          echo "All lanes green (skipped = not affected)"
 
       - name: Download suite reports
         if: always()
@@ -1313,21 +942,17 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          IMAGE_FINGERPRINT: ${{ needs.browser-ide-image-reuse.outputs.fingerprint }}
-          FULL: ${{ needs.changes.outputs.full || 'false' }}
-          IDE: ${{ needs.changes.outputs.ide || 'false' }}
-          IMAGE_REUSE_RESULT: ${{ needs.browser-ide-image-reuse.result }}
-          IMAGE_REUSED: ${{ needs.browser-ide-image-reuse.outputs.reused || 'false' }}
-          IMAGE_SOURCE_RUN_ID: ${{ needs.browser-ide-image-reuse.outputs.source_run_id }}
-          IMAGE_RESULT: ${{ needs.browser-ide-image.result }}
         run: |
           set -euo pipefail
           tested_commit=$(git rev-parse HEAD)
           tested_tree=$(git rev-parse 'HEAD^{tree}')
-          node scripts/ci/browser-ide-image-reuse.mjs receipt \
-            "$REPOSITORY" "$RUN_ID" "$RUN_ATTEMPT" "$tested_commit" "$tested_tree" \
-            "$IMAGE_FINGERPRINT" "$FULL" "$IDE" "$IMAGE_REUSE_RESULT" \
-            "$IMAGE_REUSED" "$IMAGE_SOURCE_RUN_ID" "$IMAGE_RESULT" \
+          jq -n \
+            --arg repository "$REPOSITORY" \
+            --arg runId "$RUN_ID" \
+            --argjson runAttempt "$RUN_ATTEMPT" \
+            --arg testedCommit "$tested_commit" \
+            --arg testedTree "$tested_tree" \
+            '{schema:"codeflare.pr-checks-receipt.v3",repository:$repository,workflowPath:".github/workflows/test.yml",runId:$runId,runAttempt:$runAttempt,testedCommit:$testedCommit,testedTree:$testedTree}' \
             > /tmp/pr-checks-receipt.json
 
       - name: Upload exact tested-tree receipt

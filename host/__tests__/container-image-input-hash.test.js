@@ -79,6 +79,7 @@ describe('deployment container image input hash', () => {
       '',
     ].join('\n'));
     for (const path of [
+      '.github/workflows/container-image.yml',
       '.dockerignore',
       '.trivyignore',
       'entrypoint.sh',
@@ -113,7 +114,12 @@ describe('deployment container image input hash', () => {
 
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');
-    assert.notEqual(imageHashResult().tag, productionTag);
+    const scriptTag = imageHashResult().tag;
+    assert.notEqual(scriptTag, productionTag);
+
+    write('.github/workflows/container-image.yml', 'deployment smoke change\n');
+    commit('deployment workflow change');
+    assert.notEqual(imageHashResult().tag, scriptTag);
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');

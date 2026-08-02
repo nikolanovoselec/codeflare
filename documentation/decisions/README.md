@@ -3211,7 +3211,7 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Category:** Architecture, Operations
 
-**Status:** Accepted (2026-07-20); amended 2026-07-29 for automatic exact-tree deploy reuse and direct complete-image lane reuse; amended 2026-07-30 to make the shared BuildKit cache accessible across PR and deployment refs
+**Status:** Accepted (2026-07-20); amended 2026-08-02 to keep container construction exclusively in deployment
 
 **Context:** PR Checks ran as one serial job (~10 min: lint → knip → build → backend tests → host → frontend → landing → typecheck → audit) regardless of what changed, with the backend suite forced to `maxWorkers: 1` by the Workers-pool teardown crash and gated by a grep-on-prose guard duplicated in test.yml and deploy.yml. Deploy was a single 729-line job that re-ran the entire test suite it had already gated on via `workflow_run`, rebuilt and rescanned the multi-GB container image on every deploy even when no container input changed, and carried a 533-line Docker Hub near-copy (`deploy-dockerhub.yml`).
 
@@ -3221,28 +3221,22 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 
 - PR Checks split into parallel workload lanes gated by the [`changes` job](../../.github/workflows/test.yml): quality, typecheck, sharded backend/frontend tests, path-specific backend/frontend coverage, landing, host, and Browser IDE.
 - [Dependency review](../../.github/workflows/test.yml) is an independent pull-request-only gate.
-- A `summary` job keeps the required `test` status context. Path-filtered skips pass; a relevant complete-image skip requires validated reuse; failed or cancelled lanes fail.
+- A `summary` job keeps the required `test` status context. Path-filtered skips pass; failed or cancelled lanes fail.
 - Ordinary test suites use `.github/actions/vitest-suite`; its teardown-crash guard requires `scripts/ci/check-vitest-report.mjs` to accept a parsed Vitest JSON report rather than grepping reporter prose.
 - Path-specific coverage jobs use `.github/actions/coverage-suite`; its classifier requires the coverage table, rejects reported test or threshold failures, and bounds the backend-only crash exception.
 - Non-zero ordinary-suite exits are accepted only with a parsed report showing >0 tests, 0 failures, and the exact crash fingerprint; coverage accepts its backend exception only after the required coverage evidence passes. Missing or corrupt evidence fails closed.
 - Deploy stages into `prepare` → (`build-worker` ∥ `container`) → `deploy`, drops test re-runs after verification, uploads secrets through one `wrangler secret bulk` call, and prunes the registry through `scripts/ci/prune-registry.mjs`.
 - Manual dispatch can reuse an explicit successful PR Checks run when its uploaded checked-out-tree receipt equals the deploy tree; otherwise checks run inline.
-- Repeated pull-request runs may reuse a direct successful complete-image execution from the same repository and PR only when the workflow contract and immutable fingerprint match.
-- The fingerprint binds tracked inputs, `linux/amd64`, and the ISO week. Uncovered Dockerfile inputs, full runs, and invalid evidence execute the image job normally.
 - The `/health` smoke check and the public `/health` route were both removed later; the deploy currently performs no post-deploy verification.
-- Container build/scan/push moves to reusable `container-image.yml`. PR complete-image verification and deployment import one GHCR-backed BuildKit cache while preserving the `image_tag`/`reused` workflow outputs.
-- PR verification receives read-only package access; deployment alone publishes cache updates. Fork PRs and Dependabot do not authenticate to it.
-
-  GitHub's `type=gha` cache was rejected because its ref scoping prevented pull-request verification and deployment from consuming one trusted layer set across their refs. Login failure disables cache use; deployment export errors cannot fail the image build.
+- Container build/smoke/scan/push moves exclusively to reusable `container-image.yml`; PR Checks never construct, load, run, publish, or authenticate a container image.
+- Deployment alone imports and publishes the GHCR-backed BuildKit cache. Login failure disables cache use; export errors cannot fail the image build.
 - Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned image.
 - A COPY-coverage guard disables reuse when the hash list goes stale; the weekly salt bounds agent-`@latest` and CVE-verdict staleness at seven days.
 - The scripted e2e suite is deleted rather than repaired; the k6 stress suites move to `stress/` and keep the deploy-time service-auth secret + KV service-user seeding. `zizmor.yml` audits the workflows themselves (SARIF, informational).
 
-**2026-07-29 amendment:** Manual dispatch now searches successful PR Checks runs for the deployed SHA and reuses the newest run whose uploaded checked-out-tree receipt equals the deploy tree. When no retained receipt validates, checks run inline. The explicit run id remains an advanced override and fails closed instead of falling back. Repeated pull-request heads also reuse a prior direct Browser IDE complete-image execution when its tracked input fingerprint and independently checked workflow contract match; reused receipts do not chain, and every unverifiable case rebuilds.
+**2026-08-02 amendment:** PR Checks target a sub-three-minute critical path by running every workload lane at maximum parallelism and never building a container image. Deployment is the sole owner of image build, packaged smoke, scan, SBOM, provenance, and push. The exact-tree PR receipt proves source verification only.
 
-**2026-07-30 amendment:** The shared BuildKit cache moves from `type=gha` to a dedicated mutable GHCR cache manifest. GitHub Actions cache entries are ref-scoped, so the registry cache crosses pull-request and deployment refs without exposing Cloudflare or Docker Hub deployment credentials to PR jobs. Same-repository PR verification may authenticate only with read-only package access and imports the cache without publishing; deployment owns cache updates. Forks and Dependabot do not authenticate to or access the shared cache. Login failure disables cache arguments, and deployment cache export ignores registry errors, so cache availability cannot become an image-build gate.
-
-**Consequences:** PR wall-clock drops to the slowest lane (sharded backend tests), docs-only changes skip every path-gated workload lane, and unchanged Browser IDE inputs avoid loading and smoking the multi-gigabyte image. Deploys skip build and scan for unchanged container inputs. Retained-image reuse preserves the original scan and uploaded SBOM without regenerating or revalidating them. Provenance exists only if the original post-push attestation succeeded, and reuse does not check it. The weekly salt bounds the reused CVE verdict to seven days.
+**Consequences:** PR wall-clock drops to the slowest source-validation lane, docs-only changes skip every path-gated workload lane, and PRs never pay the multi-gigabyte image cost. Deploys skip build and scan for unchanged container inputs. Retained-image reuse preserves the original scan and uploaded SBOM without regenerating or revalidating them. Provenance exists only if the original post-push attestation succeeded, and reuse does not check it. The weekly salt bounds the reused CVE verdict to seven days.
 
 The ordinary-suite guard cannot pass an empty run or depend on reporter prose; coverage requires its table and rejects reported failures or threshold misses. Accepted trade-offs are replicated test scaffolding across split test files (vi.mock hoisting is per module) and no scripted browser e2e; deployed-UI verification uses the agent-driven browser-e2e path.
 

@@ -70,11 +70,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, path, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 6. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+7. A freshly built image passes packaged Pi/Claude inventory, cold-readiness, process, resource, and prefixed-proxy smoke before vulnerability scan or push. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: PR Checks never build a container image and deployment owns packaged smoke) -->
 
 **Constraints:**
 
 - The container-binding and scaling steps rebuild the registry URI from the image tag this REQ produces — the URI itself is never a workflow output, since it would embed a masked secret and be silently dropped; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
-- The hash covers copied production paths, Dockerfile, ignore and scan policy, and the weekly salt.
+- The hash covers copied production paths, Dockerfile, deployment image workflow, ignore and scan policy, and the weekly salt.
 - Cache-bust disables reuse without changing the content-addressed tag.
 - A COPY coverage gap disables reuse.
 - The weekly hash salt bounds reuse: an unchanged image is rebuilt and rescanned at least once per ISO week.
@@ -83,7 +84,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Manual check
+**Verification:** Automated workflow-ownership test; deployment image evidence
 
 **Status:** Implemented
 
@@ -103,7 +104,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
-7. A Browser IDE image change cannot pass the required PR status unless its tracked image inputs are covered by a successful non-publishing complete-image smoke, executed for the current run or reused through the direct-evidence contract in REQ-OPS-030. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: requires non-publishing complete-image smoke in the required status) --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image aggregate gate) -->
+7. PR Checks never build, scan, run, or publish the session container image; the deployment image workflow owns the complete-image build, packaged smoke, vulnerability scan, SBOM, and push. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: PR Checks never build a container image and deployment owns packaged smoke) -->
+8. An affected PR Checks run targets completion within three minutes by starting every workload directly after classification and exposing all backend and frontend matrix legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target) --> <!-- @manual: Confirm the exact-head PR Checks run completes in under three minutes. -->
 
 **Constraints:**
 
@@ -657,6 +659,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+5. Pull-request runs omit the unsharded coverage lanes from their critical path; push, merge-group, scheduled, and manually dispatched full runs retain both threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target) -->
 
 **Constraints:**
 
@@ -831,58 +834,28 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-030: Browser IDE complete-image verification reuse
+### REQ-OPS-031: Trusted deployment container build cache
 
-**Intent:** Repeated PR Checks avoid rebuilding an unchanged Browser IDE image without weakening verification of the current head.
-
-**Applies To:** Contributor
-
-**Acceptance Criteria:**
-
-1. Every PR Checks run fingerprints the tracked inputs that assemble or smoke-test the Browser IDE image plus platform and weekly freshness, independently from unrelated landing, dashboard, documentation, and specification files; an uncovered Dockerfile source disables reuse. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::isBrowserIdeImageInput --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::fingerprintEntries --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image input fingerprint) -->
-2. An affected pull-request run may reuse only direct successful complete-image evidence from the same repository, pull request, PR Checks workflow, and unchanged reuse contract when its immutable receipt matches the image fingerprint; invalid evidence falls back to execution. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::validateBrowserIdeImageEvidence --> <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::resolveReusableBrowserIdeImageRun --> <!-- @impl: .github/workflows/test.yml::browser-ide-image-reuse --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse evidence) --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image reuse CLI boundary) -->
-3. The required `test` status fails when an affected complete-image lane is merely skipped, and accepts only a successful current execution or validated reuse; full runs never reuse this PR-only evidence. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::browserIdeImageGate --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (Browser IDE image aggregate gate) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips) -->
-4. The current head's exact-tree receipt records whether complete-image evidence executed, was reused, or was not required, including the evidence source run when present, so exact-tree deployment verification remains authoritative. <!-- @impl: scripts/ci/browser-ide-image-reuse.mjs::buildPrChecksReceipt --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/browser-ide-image-reuse.test.js (current exact-tree receipt with Browser IDE image provenance) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-030: reuses only validated Browser IDE image evidence and gates relevant skips) -->
-
-**Constraints:**
-
-- Candidate discovery evaluates one bounded page newest-first.
-- Reused evidence never chains through another reused run.
-- Missing, malformed, expired, cross-repository, cross-PR, changed-contract, failed, skipped, truncated, stale-week, or COPY/ADD-uncovered source evidence cannot authorize a skip.
-- Scheduled, manual, called, merge-group, and post-merge full runs execute the complete-image lane when required.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-029](#req-ops-029-automatic-manual-deploy-verification-reuse)
-
-**Verification:** Automated test (host tests exercise fingerprint selection, evidence validation, the fake-GitHub CLI boundary, and the aggregate truth table; workflow-structure tests bind those decisions into the required status and exact-tree receipt).
-
-**Status:** Implemented
-
----
-
-### REQ-OPS-031: Trusted cross-ref container build cache
-
-**Intent:** Browser IDE verification and deployment can reuse container build work across workflow refs without allowing pull requests to publish cache state consumed by deployment.
+**Intent:** Deployment can reuse trusted container build work without exposing mutable cache state to pull requests.
 
 **Applies To:** Contributor
 
 **Acceptance Criteria:**
 
-1. Same-repository complete-image verification and deployment import one shared GHCR BuildKit cache reference. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC1 + AC2 + AC5: imports one cache, restricts publication, and ignores export errors) -->
-2. Pull-request verification receives read-only cache access, while deployment alone exports updates. <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC1 + AC2 + AC5: imports one cache, restricts publication, and ignores export errors) -->
-3. Fork pull requests and Dependabot authenticate to neither read nor write the shared mutable cache. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::shouldAttemptSharedCacheLogin --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC3: excludes forks and Dependabot from shared-cache authentication) -->
-4. Shared-cache login unavailability does not fail complete-image verification or deployment image builds. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::sharedCacheEnabled --> <!-- @impl: .github/workflows/test.yml::browser-ide-image --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC4: cache login unavailability cannot block complete-image or deploy builds) -->
+1. Deployment imports and exports one GHCR BuildKit cache reference. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC1 + AC2 + AC5: deployment alone imports and publishes the shared cache) -->
+2. PR Checks neither authenticate to nor read or write the shared mutable cache. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC3: PR Checks never authenticate to the container cache) -->
+3. Fork pull requests and Dependabot therefore receive no container-cache credentials. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC3: PR Checks never authenticate to the container cache) -->
+4. Shared-cache login unavailability does not fail deployment image builds. <!-- @impl: scripts/ci/container-build-cache-policy.mjs::sharedCacheEnabled --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC4: cache login unavailability cannot block deployment image builds) -->
 5. Deployment cache-export unavailability does not fail the image build. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-031 AC1 + AC2 + AC5: imports one cache, restricts publication, and ignores export errors) -->
 
 **Constraints:**
 
 - Pull-request jobs receive no Cloudflare or Docker Hub deployment credentials.
-- Shared cache use is optional and never replaces the complete-image smoke, vulnerability scan, SBOM, digest, provenance, or attestation gates.
+- Shared cache use is optional and never replaces deployment's complete-image smoke, vulnerability scan, SBOM, digest, provenance, or attestation gates.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-030](#req-ops-030-browser-ide-complete-image-verification-reuse)
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
 **Verification:** Automated test (workflow-structure and fake-Docker tests execute cache-enabled and cache-unavailable build paths and assert the exact import/export arguments and permissions).
 
