@@ -9,7 +9,7 @@ function parseNumericSemver(value, label) {
   if (!match) {
     throw new Error(`${label} must be a numeric semantic version (x.y.z), got ${JSON.stringify(value)}`);
   }
-  return match.slice(1).map(Number);
+  return match.slice(1).map(BigInt);
 }
 
 export function strictSemverUpgrade(current, candidate) {
