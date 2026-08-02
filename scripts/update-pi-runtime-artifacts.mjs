@@ -18,17 +18,13 @@ export function updatePiRuntimeArtifacts(repositoryRoot, currentVersion, nextVer
   const { npmCommand = 'npm' } = options;
   const toolsDirectory = resolve(repositoryRoot, 'preseed/npm-tools');
   const toolsManifest = resolve(toolsDirectory, 'package.json');
-  const toolsLock = resolve(toolsDirectory, 'package-lock.json');
-  const prewarmManifest = resolve(repositoryRoot, 'preseed/agents/pi/package.json');
-  const prewarmLock = resolve(repositoryRoot, 'preseed/agents/pi/package-lock.json');
-  const securityPins = resolve(repositoryRoot, 'scripts/apply-npm-security-lock-pins.mjs');
-  const regeneratePrewarm = resolve(repositoryRoot, 'scripts/regenerate-pi-preseed-lock.mjs');
+  const prewarmDirectory = resolve(repositoryRoot, 'preseed/agents/pi');
+  const prewarmManifest = resolve(prewarmDirectory, 'package.json');
+  const regenerateLock = resolve(repositoryRoot, 'scripts/regenerate-npm-package-lock.mjs');
 
   updateNpmToolManifests(toolsManifest, PI_PACKAGE, currentVersion, nextVersion, prewarmManifest);
-  runChecked(npmCommand, ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: toolsDirectory });
-  runChecked(process.execPath, [securityPins, toolsLock], { cwd: repositoryRoot });
-  runChecked(process.execPath, [regeneratePrewarm], { cwd: repositoryRoot });
-  runChecked(process.execPath, [securityPins, prewarmLock], { cwd: repositoryRoot });
+  runChecked(process.execPath, [regenerateLock, toolsDirectory], { cwd: repositoryRoot });
+  runChecked(process.execPath, [regenerateLock, prewarmDirectory], { cwd: repositoryRoot });
   runChecked(npmCommand, ['ci', '--no-audit', '--no-fund', '--silent'], { cwd: repositoryRoot });
   runChecked(npmCommand, ['run', 'generate:agent-seed'], { cwd: repositoryRoot });
 }

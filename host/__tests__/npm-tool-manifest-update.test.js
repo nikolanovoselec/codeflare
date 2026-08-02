@@ -61,10 +61,10 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
       writeJson(prewarm, { overrides: { [piPackage]: '0.81.0' }, devDependencies });
 
       const fakeNpm = join(binDirectory, 'npm');
-      writeFileSync(fakeNpm, `#!/bin/sh\nset -eu\ncase "$*" in\n  "install --package-lock-only --ignore-scripts --no-audit --no-fund") printf '{"generated":"tools"}\\n' > package-lock.json ;;\n  "ci --no-audit --no-fund --silent") : ;;\n  "run generate:agent-seed") printf 'export const generated = true;\\n' > src/lib/agent-seed.generated.ts ;;\n  *) exit 64 ;;\nesac\n`);
+      writeFileSync(fakeNpm, `#!/bin/sh\nset -eu\ncase "$*" in\n  "ci --no-audit --no-fund --silent") : ;;\n  "run generate:agent-seed") printf 'export const generated = true;\\n' > src/lib/agent-seed.generated.ts ;;\n  *) exit 64 ;;\nesac\n`);
       chmodSync(fakeNpm, 0o755);
       writeFileSync(join(scriptsDirectory, 'apply-npm-security-lock-pins.mjs'), `import { readFileSync, writeFileSync } from 'node:fs';\nconst path = process.argv[2];\nconst lock = JSON.parse(readFileSync(path, 'utf8'));\nwriteFileSync(path, JSON.stringify({ ...lock, securityPinned: true }) + '\\n');\n`);
-      writeFileSync(join(scriptsDirectory, 'regenerate-pi-preseed-lock.mjs'), `import { writeFileSync } from 'node:fs';\nwriteFileSync(new URL('../preseed/agents/pi/package-lock.json', import.meta.url), '{"generated":"prewarm"}\\n');\n`);
+      writeFileSync(join(scriptsDirectory, 'regenerate-npm-package-lock.mjs'), `import { writeFileSync } from 'node:fs';\nimport { join } from 'node:path';\nconst directory = process.argv[2];\nconst generated = directory.endsWith('/npm-tools') ? 'tools' : 'prewarm';\nwriteFileSync(join(directory, 'package-lock.json'), JSON.stringify({ generated, securityPinned: true }) + '\\n');\n`);
 
       updatePiRuntimeArtifacts(directory, '0.81.0', '0.82.0', { npmCommand: fakeNpm });
 
