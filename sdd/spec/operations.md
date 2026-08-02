@@ -269,7 +269,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Manual check
+**Verification:** Automated workflow-routing test for AC3; manual checks for AC1, AC2, AC4, and AC5.
 
 **Status:** Implemented
 
