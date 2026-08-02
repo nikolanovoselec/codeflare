@@ -552,7 +552,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. For non-Pi packages, the shared manifest updater changes only the requested dependency after an exact current-value match. <!-- @impl: scripts/update-npm-tool-manifests.mjs::updateNpmToolManifests --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-033: lock-backed npm bump manifest updates) -->
-2. Npm-tool bump jobs regenerate and commit each changed manifest's owning lock without executing dependency lifecycle scripts. <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @manual -->
+2. Npm-tool bump jobs regenerate and commit each changed manifest's owning lock through one lifecycle-safe helper. <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-033 AC2: npm bump jobs regenerate locks through the lifecycle-safe helper) -->
 
 **Constraints:** Package updates remain subject to the configured supply-chain cooldown and normal PR review.
 
@@ -601,7 +601,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The context-mode job bumps its Claude-plugin and Pi-prewarm pins atomically in one PR, and generated-artifact validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
-2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
+2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) -->
 3. Those jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
 4. A Pi runtime-agent bump updates the shared image-tools lock, the prewarm pin and lock, bundled-dependency integrity corrections, and embedded seed atomically. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation) -->
 
@@ -611,7 +611,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test ([Automated lockfile test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js); workflow execution manual)
+**Verification:** Automated test ([Automated lockfile test](../../host/__tests__/npm-package-lock-regeneration.test.js); workflow execution manual)
 
 **Status:** Implemented
 

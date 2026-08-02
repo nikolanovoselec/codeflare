@@ -7,10 +7,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const regenerateScript = resolve(__dirname, '../../scripts/regenerate-pi-preseed-lock.mjs');
+const regenerateScript = resolve(__dirname, '../../scripts/regenerate-npm-package-lock.mjs');
 
-describe('REQ-OPS-020: Pi preseed lockfile regeneration', () => {
-  it('creates the lockfile without executing package lifecycle scripts', () => {
+describe('REQ-OPS-033: lifecycle-safe npm lockfile regeneration', () => {
+  it('creates a requested package lock without executing lifecycle scripts', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'codeflare-pi-lock-'));
     const lifecycleMarker = join(fixture, 'postinstall-ran');
 

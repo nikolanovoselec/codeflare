@@ -653,6 +653,25 @@ esac
     expect(execute(join(fixture, 'mismatch-output')).status).toBe(1);
   });
 
+  it('REQ-OPS-033 AC2: npm bump jobs regenerate locks through the lifecycle-safe helper', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ run?: string }> }>;
+    };
+    const workflowCommands = Object.values(workflow.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .map((step) => step.run ?? '')
+      .join('\n');
+    const helperCalls = workflowCommands.match(/node scripts\/regenerate-npm-package-lock\.mjs [^\n]+/g) ?? [];
+
+    expect(workflowCommands).not.toMatch(/\bnpm\s+(?:install|i|install-test|update)\b/);
+    expect(helperCalls).toHaveLength(8);
+    expect(helperCalls.filter((call) => call.endsWith('preseed/npm-tools'))).toHaveLength(5);
+    expect(helperCalls.filter((call) => call.endsWith('preseed/agents/pi'))).toHaveLength(2);
+    expect(helperCalls).toContain(
+      'node scripts/regenerate-npm-package-lock.mjs preseed/agents/claude/browser-run-mcp',
+    );
+  });
+
   it('REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
