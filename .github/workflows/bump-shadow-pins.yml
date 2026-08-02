@@ -97,11 +97,11 @@ jobs:
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Already on $LATEST, nothing to do."
-          else
+          if [ "$(node scripts/ci/semver-forward.mjs "$CURRENT" "$LATEST")" = upgrade ]; then
             echo "Bumping $CURRENT -> $LATEST"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Candidate $LATEST is not newer than pinned $CURRENT — nothing to do."
           fi
 
       - name: Skip if a branch for this version already exists
@@ -1099,11 +1099,11 @@ jobs:
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Already on $LATEST, nothing to do."
-          else
+          if [ "$(node scripts/ci/semver-forward.mjs "$CURRENT" "$LATEST")" = upgrade ]; then
             echo "Bumping $CURRENT -> $LATEST"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Candidate $LATEST is not newer than pinned $CURRENT — nothing to do."
           fi
 
       - name: Skip if a branch for this version already exists
@@ -1248,11 +1248,11 @@ jobs:
           if [ -z "$LAT" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CUR" >> "$GITHUB_OUTPUT"
           echo "latest=$LAT" >> "$GITHUB_OUTPUT"
-          if [ "$CUR" = "$LAT" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "$PKG already at latest ($CUR), nothing to do."
-          else
+          if [ "$(node scripts/ci/semver-forward.mjs "$CUR" "$LAT")" = upgrade ]; then
             echo "$PKG: $CUR -> $LAT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Candidate $LAT is not newer than pinned $CUR — nothing to do."
           fi
 
       - name: Skip if a branch for this bump already exists
@@ -1511,11 +1511,11 @@ jobs:
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Already on $LATEST, nothing to do."
-          else
+          if [ "$(node scripts/ci/semver-forward.mjs "$CURRENT" "$LATEST")" = upgrade ]; then
             echo "Bumping $CURRENT -> $LATEST"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Candidate $LATEST is not newer than pinned $CURRENT — nothing to do."
           fi
 
       - name: Skip if a branch for this version already exists
@@ -1626,11 +1626,11 @@ jobs:
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Already on $LATEST, nothing to do."
-          else
+          if [ "$(node scripts/ci/semver-forward.mjs "$CURRENT" "$LATEST")" = upgrade ]; then
             echo "Bumping $CURRENT -> $LATEST"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Candidate $LATEST is not newer than pinned $CURRENT — nothing to do."
           fi
 
       - name: Skip if a branch for this version already exists
@@ -1742,11 +1742,11 @@ jobs:
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Already on $LATEST, nothing to do."
-          else
+          if [ "$(node scripts/ci/semver-forward.mjs "$CURRENT" "$LATEST")" = upgrade ]; then
             echo "Bumping $CURRENT -> $LATEST"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Candidate $LATEST is not newer than pinned $CURRENT — nothing to do."
           fi
 
       - name: Skip if a branch for this version already exists
@@ -1999,20 +1999,11 @@ jobs:
           fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          # Forward only. The cooldown deliberately looks PAST the newest release,
-          # so the eligible version is routinely older than a pin that was set
-          # from @latest — without this the job would open a downgrade PR every
-          # Monday, and a downgrade to a version whose successor fixed a CVE is
-          # a regression wearing a chore(deps) title.
-          NEWEST=$(printf '%s\n%s\n' "$CURRENT" "$LATEST" | sort -V | tail -1)
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Already on $LATEST."
-          elif [ "$NEWEST" = "$CURRENT" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Pinned $CURRENT is newer than the newest cooldown-eligible release ($LATEST) — nothing to do."
-          else
+          if [ "$(node scripts/ci/semver-forward.mjs "$CURRENT" "$LATEST")" = upgrade ]; then
             echo "Bumping $PKG $CURRENT -> $LATEST"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Candidate $LATEST is not newer than pinned $CURRENT — nothing to do."
           fi
 
       - name: Skip if a branch for this version already exists
