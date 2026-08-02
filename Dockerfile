@@ -352,7 +352,7 @@ RUN AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/nul
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs /opt/codeflare/scripts/verify-pi-lockstep.mjs
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs /opt/codeflare/scripts/
 # Local Pi extensions, used by the jiti warm-up layer below (they reach user
 # containers via the R2 agent seed, verbatim — same content, so the
 # content-addressed cache entries baked from these files hit at runtime).
@@ -372,6 +372,9 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     apt-get update && \
     apt-get install -y --no-install-recommends make gcc g++ && \
     npm ci --omit=dev --no-audit --no-fund && \
+    GOAL_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-goal"]')" && \
+    node /opt/codeflare/scripts/patch-pi-goal-review-control.mjs \
+      "$GOAL_VERSION" ./node_modules/@narumitw/pi-goal && \
     node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
       /opt/codeflare/npm-tools/package.json ./package.json \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \

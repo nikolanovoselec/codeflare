@@ -60,10 +60,11 @@ type PlannedReviewEnforcement = {
 };
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
-  getCommands(): Array<{ name: string; source: string }>;
+  events: {
+    emit(channel: string, payload: unknown): void;
+  };
   appendEntry(customType: string, data: unknown): void;
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void;
-  sendUserMessage(text: string, options?: { deliverAs?: 'steer' | 'followUp' }): void | Promise<void>;
   getActiveTools(): string[];
   getAllTools(): Array<{ name: string; description: string }>;
   setActiveTools(names: string[]): void;
@@ -305,18 +306,18 @@ function makeHarness(repo: string, sessionFile: string): {
   pi: TestPi;
   ctx: TestContext;
   sent: SentMessage[];
-  sentUserMessages: Array<{ text: string; options?: { deliverAs?: 'steer' | 'followUp' } }>;
+  goalControlRequests: Array<{ action: string; goalId: string }>;
   operations: string[];
-  setGoalAvailable(available: boolean): void;
+  setGoalControlAvailable(available: boolean): void;
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
   const sent: SentMessage[] = [];
-  const sentUserMessages: Array<{ text: string; options?: { deliverAs?: 'steer' | 'followUp' } }> = [];
+  const goalControlRequests: Array<{ action: string; goalId: string }> = [];
   const operations: string[] = [];
   let activeTools = ['read', 'bash'];
-  let goalAvailable = true;
+  let goalControlAvailable = true;
   let liveEntries: Record<string, unknown>[] | undefined;
   const allTools = [
     { name: 'read', description: 'Read files' },
@@ -325,9 +326,27 @@ function makeHarness(repo: string, sessionFile: string): {
   ];
   const pi: TestPi = {
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
-    getCommands: () => goalAvailable
-      ? [{ name: 'goal', source: 'extension' }]
-      : [],
+    events: {
+      emit: (channel, payload) => {
+        if (channel !== 'codeflare:pi-goal:control' || !goalControlAvailable) return;
+        const request = payload as {
+          action?: unknown;
+          goalId?: unknown;
+          accepted?: () => void;
+          respond?: (result: { ok: boolean; goalId: string; status: string }) => void;
+        };
+        if ((request.action !== 'pause' && request.action !== 'resume')
+          || typeof request.goalId !== 'string'
+          || typeof request.respond !== 'function') return;
+        goalControlRequests.push({ action: request.action, goalId: request.goalId });
+        request.accepted?.();
+        request.respond({
+          ok: true,
+          goalId: request.goalId,
+          status: request.action === 'pause' ? 'paused' : 'active',
+        });
+      },
+    },
     appendEntry: (customType, data) => {
       operations.push(`append:${customType}`);
       appendSession(sessionFile, {
@@ -336,10 +355,6 @@ function makeHarness(repo: string, sessionFile: string): {
         customType,
         data,
       });
-    },
-    sendUserMessage: (text, options) => {
-      operations.push(`user:${text}`);
-      sentUserMessages.push({ text, options });
     },
     getActiveTools: () => [...activeTools],
     getAllTools: () => allTools.map((tool) => ({ ...tool })),
@@ -377,9 +392,9 @@ function makeHarness(repo: string, sessionFile: string): {
     pi,
     ctx,
     sent,
-    sentUserMessages,
+    goalControlRequests,
     operations,
-    setGoalAvailable: (available) => { goalAvailable = available; },
+    setGoalControlAvailable: (available) => { goalControlAvailable = available; },
     setLiveEntries: (entries) => { liveEntries = entries; },
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
@@ -525,9 +540,9 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('tool_result', boundaryEvent());
 
-    expect(harness.sentUserMessages).toEqual([{
-      text: '/goal pause',
-      options: { deliverAs: 'steer' },
+    expect(harness.goalControlRequests).toEqual([{
+      action: 'pause',
+      goalId: 'goal-1',
     }]);
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
@@ -544,9 +559,9 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_end');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
-    expect(harness.sentUserMessages).toEqual([
-      { text: '/goal pause', options: { deliverAs: 'steer' } },
-      { text: '/goal resume', options: { deliverAs: 'followUp' } },
+    expect(harness.goalControlRequests).toEqual([
+      { action: 'pause', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
     ]);
     expect(harness.sent.at(-1)).toEqual({
       message: expect.objectContaining({
@@ -560,7 +575,7 @@ describe('Pi review reminder and settled enforcement', () => {
   it('REQ-AGENT-111: fails open when the Goal extension is unavailable', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
-    harness.setGoalAvailable(false);
+    harness.setGoalControlAvailable(false);
     appendSession(fixture.sessionFile,
       goalState('stale-goal', 'active'),
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
@@ -569,7 +584,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent());
 
-    expect(harness.sentUserMessages).toEqual([]);
+    expect(harness.goalControlRequests).toEqual([]);
     expect(harness.sent.at(-1)).toEqual({
       message: expect.objectContaining({ customType: 'pr-boundary-launch-plan' }),
       options: { deliverAs: 'followUp', triggerTurn: true },
@@ -595,14 +610,14 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('doc-1'),
       triageMessage(),
     );
-    harness.setGoalAvailable(false);
+    harness.setGoalControlAvailable(false);
 
     await harness.emit('agent_end');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
-    expect(harness.sentUserMessages).toEqual([{
-      text: '/goal pause',
-      options: { deliverAs: 'steer' },
+    expect(harness.goalControlRequests).toEqual([{
+      action: 'pause',
+      goalId: 'goal-1',
     }]);
     expect(harness.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
   });
@@ -631,9 +646,9 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('agent_end');
 
-    expect(harness.sentUserMessages).toEqual([{
-      text: '/goal pause',
-      options: { deliverAs: 'steer' },
+    expect(harness.goalControlRequests).toEqual([{
+      action: 'pause',
+      goalId: 'goal-1',
     }]);
     expect(harness.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
   });
@@ -1962,11 +1977,13 @@ describe('Pi review reminder and settled enforcement', () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
     harness.sent.splice(0);
+    appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     fixture.pr.state = 'MERGED';
     writeFileSync(REVIEW_BYPASS_FILE, '', 'utf8');
 
@@ -1980,6 +1997,10 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { triggerTurn: false },
     }]);
+    expect(harness.goalControlRequests).toEqual([
+      { action: 'pause', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
+    ]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(true);
   });

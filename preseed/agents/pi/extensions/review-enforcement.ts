@@ -56,9 +56,8 @@ type ReviewContext = {
 
 type ReviewPi = ToolActivationPi & {
   on(event: "session_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
-  getCommands?(): Array<{ name: string; source: string }>;
+  events: { emit(channel: string, payload: unknown): void };
   appendEntry(customType: string, data: unknown): void;
-  sendUserMessage(text: string, options?: { deliverAs?: "steer" | "followUp" }): void | Promise<void>;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -76,13 +75,11 @@ const MAX_BLOCKS = 5;
 const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const REVIEW_GOAL_PAUSE_ENTRY_TYPE = "pr-boundary-goal-pause";
+const GOAL_CONTROL_CHANNEL = "codeflare:pi-goal:control";
 
 type GoalSnapshot = { id: string; status: string };
-type ReviewGoalPause = {
-  head: string;
-  goalId: string;
-  statusAtRequest: "active" | "paused";
-};
+type ReviewGoalPause = { head: string; goalId: string };
+type GoalControlResult = { ok: boolean; goalId: string; status: string };
 
 function sessionEntries(ctx: ReviewContext): Record<string, any>[] {
   try {
@@ -112,22 +109,18 @@ function currentGoal(ctx: ReviewContext): GoalSnapshot | undefined {
   return entry ? goalSnapshot(entry) : undefined;
 }
 
-function reviewGoalPause(ctx: ReviewContext): { pause: ReviewGoalPause; index: number } | undefined {
-  const entries = sessionEntries(ctx);
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (entry?.type !== "custom" || entry.customType !== REVIEW_GOAL_PAUSE_ENTRY_TYPE) continue;
-    const data = entry.data;
-    if (data === null) return undefined;
-    if (data
-      && fullSha(data.head)
-      && typeof data.goalId === "string"
-      && (data.statusAtRequest === "active" || data.statusAtRequest === "paused")) {
-      return { pause: data as ReviewGoalPause, index };
-    }
-    return undefined;
-  }
-  return undefined;
+function reviewGoalPause(ctx: ReviewContext): ReviewGoalPause | undefined {
+  const entry = sessionEntries(ctx)
+    .filter((candidate) => (
+      candidate?.type === "custom" && candidate.customType === REVIEW_GOAL_PAUSE_ENTRY_TYPE
+    ))
+    .at(-1);
+  const data = entry?.data;
+  return data
+    && fullSha(data.head)
+    && typeof data.goalId === "string"
+    ? data as ReviewGoalPause
+    : undefined;
 }
 
 function clearReviewGoalPause(pi: ReviewPi): void {
@@ -146,61 +139,71 @@ function notifyGoalBridgeFailure(ctx: ReviewContext, message: string): void {
   }
 }
 
-function goalCommandAvailable(pi: ReviewPi): boolean {
+async function requestGoalControl(
+  pi: ReviewPi,
+  action: "pause" | "resume",
+  goalId: string,
+): Promise<GoalControlResult | undefined> {
+  let accepted = false;
+  let resolveResponse: (result: GoalControlResult | undefined) => void = () => {};
+  const response = new Promise<GoalControlResult | undefined>((resolve) => {
+    resolveResponse = resolve;
+  });
   try {
-    return pi.getCommands?.().some((command) => (
-      command.name === "goal" && command.source === "extension"
-    )) === true;
+    pi.events.emit(GOAL_CONTROL_CHANNEL, {
+      action,
+      goalId,
+      accepted: () => {
+        accepted = true;
+      },
+      respond: (result: GoalControlResult) => {
+        resolveResponse(
+          result && typeof result.ok === "boolean" && typeof result.goalId === "string" && typeof result.status === "string"
+            ? result
+            : undefined,
+        );
+      },
+    });
   } catch {
-    return false;
+    return undefined;
   }
+  return accepted ? response : undefined;
 }
 
-async function pauseGoalForReview(
-  pi: ReviewPi,
-  ctx: ReviewContext,
-  head: string,
-): Promise<void> {
+async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string): Promise<void> {
   const goal = currentGoal(ctx);
   const owned = reviewGoalPause(ctx);
-  if (!goalCommandAvailable(pi)) {
-    if (owned) clearReviewGoalPause(pi);
-    return;
-  }
-  if (!goal || (goal.status !== "active" && goal.status !== "paused")) return;
-  if (owned?.pause.head === head && owned.pause.goalId === goal.id) return;
-  if (goal.status === "paused" && owned?.pause.goalId !== goal.id) return;
+  if (!goal || goal.status !== "active") return;
+  if (owned?.head === head && owned.goalId === goal.id) return;
 
+  const result = await requestGoalControl(pi, "pause", goal.id);
+  if (!result?.ok || result.goalId !== goal.id || result.status !== "paused") return;
   try {
-    pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, {
-      head,
-      goalId: goal.id,
-      statusAtRequest: goal.status,
-    } satisfies ReviewGoalPause);
-    if (goal.status === "active") {
-      await pi.sendUserMessage("/goal pause", { deliverAs: "steer" });
-    }
+    pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, { head, goalId: goal.id } satisfies ReviewGoalPause);
   } catch (error) {
-    clearReviewGoalPause(pi);
-    notifyGoalBridgeFailure(ctx, `Could not pause Goal for PR review: ${String(error)}`);
+    await requestGoalControl(pi, "resume", goal.id);
+    notifyGoalBridgeFailure(ctx, `Could not record Goal pause for PR review: ${String(error)}`);
   }
 }
 
 function ownsReviewGoalPause(ctx: ReviewContext, head: string): boolean {
-  const entries = sessionEntries(ctx);
   const owned = reviewGoalPause(ctx);
   const goal = currentGoal(ctx);
-  if (!owned || owned.pause.head !== head || !goal || goal.id !== owned.pause.goalId) return false;
-  if (goal.status !== "paused") return false;
-  if (owned.pause.statusAtRequest === "paused") return true;
+  return Boolean(owned && owned.head === head && goal?.id === owned.goalId && goal.status === "paused");
+}
 
-  const laterStatuses = entries
-    .slice(owned.index + 1)
-    .map(goalSnapshot)
-    .filter((snapshot): snapshot is GoalSnapshot => Boolean(snapshot && snapshot.id === goal.id))
-    .map((snapshot) => snapshot.status);
-  const pausedIndex = laterStatuses.indexOf("paused");
-  return pausedIndex >= 0 && !laterStatuses.slice(pausedIndex + 1).includes("active");
+async function releaseReviewGoalPause(pi: ReviewPi, ctx: ReviewContext, head: string): Promise<boolean> {
+  const owned = reviewGoalPause(ctx);
+  if (!owned) return false;
+  if (!ownsReviewGoalPause(ctx, head)) {
+    clearReviewGoalPause(pi);
+    return false;
+  }
+  const result = await requestGoalControl(pi, "resume", owned.goalId);
+  clearReviewGoalPause(pi);
+  if (result?.ok && result.status === "active") return true;
+  notifyGoalBridgeFailure(ctx, "Could not resume Goal after PR review; use /goal resume after resolving its current state.");
+  return false;
 }
 
 function fullSha(value: string | undefined): value is string {
@@ -561,18 +564,7 @@ async function sendFixFollowUp(
   pr: PrState,
   range: string | undefined,
 ): Promise<void> {
-  let resumedGoal = false;
-  if (goalCommandAvailable(pi) && ownsReviewGoalPause(ctx, pr.headRefOid)) {
-    try {
-      await pi.sendUserMessage("/goal resume", { deliverAs: "followUp" });
-      resumedGoal = true;
-    } catch (error) {
-      notifyGoalBridgeFailure(ctx, `Could not resume Goal after PR review: ${String(error)}`);
-    }
-    clearReviewGoalPause(pi);
-  } else if (reviewGoalPause(ctx)) {
-    clearReviewGoalPause(pi);
-  }
+  const resumedGoal = await releaseReviewGoalPause(pi, ctx, pr.headRefOid);
   pi.sendMessage({
     customType: "pr-boundary-fix-follow-up",
     content: [
@@ -779,6 +771,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const facts = transcriptFacts(ctx, review.file, requiredLanes, review.pr.headRefOid);
     if (!facts.boundary) return;
     if (review.pr.state !== "OPEN") {
+      await releaseReviewGoalPause(pi, ctx, review.pr.headRefOid);
       if (reviewEnabled(review.repo) && !facts.closedNotified && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
         pi.sendMessage({
           customType: "pr-boundary-review-closed-unacknowledged",

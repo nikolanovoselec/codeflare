@@ -14,6 +14,13 @@ type CapabilityTool = {
   execute(id: string, params: { query?: string; name?: string }): Promise<unknown>;
 };
 
+type CapabilitySessionContext = {
+  sessionManager?: {
+    getBranch?(): Array<{ type?: string; customType?: string; data?: unknown }>;
+    getEntries?(): Array<{ type?: string; customType?: string; data?: unknown }>;
+  };
+};
+
 function fakePi(input?: {
   active?: string[];
   tools?: Array<{ name: string; description: string }>;
@@ -54,7 +61,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       ],
     });
     const registered = new Map<string, CapabilityTool>();
-    const handlers = new Map<string, (event?: unknown, ctx?: unknown) => void>();
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
     const pi = {
       ...base,
       getAllTools: () => [
@@ -65,13 +72,13 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         const candidate = tool as CapabilityTool;
         registered.set(candidate.name, candidate);
       },
-      on(event: string, handler: (event?: unknown, ctx?: unknown) => void) {
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
         handlers.set(event, handler);
       },
     };
 
     capabilityExtension(pi);
-    handlers.get('session_start')?.();
+    handlers.get('session_start')?.({}, {});
 
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'capability', 'graphify_query']);
     const capability = registered.get('capability');
@@ -110,11 +117,11 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         { name: 'goal_blocked', description: 'Block Goal' },
       ],
     });
-    const handlers = new Map<string, (event?: unknown, ctx?: unknown) => void>();
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
     const pi = {
       ...base,
       registerTool() {},
-      on(event: string, handler: (event?: unknown, ctx?: unknown) => void) {
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
         handlers.set(event, handler);
       },
     };
@@ -143,11 +150,11 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         { name: 'goal_blocked', description: 'Block Goal' },
       ],
     });
-    const handlers = new Map<string, (event?: unknown, ctx?: unknown) => void>();
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
     const pi = {
       ...base,
       registerTool() {},
-      on(event: string, handler: (event?: unknown, ctx?: unknown) => void) {
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
         handlers.set(event, handler);
       },
     };

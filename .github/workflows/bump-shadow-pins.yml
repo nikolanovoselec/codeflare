@@ -1312,9 +1312,16 @@ jobs:
           }
           NODE
 
-          # Regenerate the pi preseed lockfile to match the bumped manifest, then
-          # regenerate the agent seed.
+          # Regenerate the Pi preseed lockfile. Goal's review-boundary bridge
+          # patches private upstream source because ordinary slash commands are
+          # not programmatically invokable; reject a bump before opening its PR
+          # when that exact candidate no longer satisfies the reviewed anchors.
           node scripts/regenerate-pi-preseed-lock.mjs
+          if [ "$PKG" = '@narumitw/pi-goal' ]; then
+            (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
+            node scripts/patch-pi-goal-review-control.mjs \
+              "$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal
+          fi
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
@@ -1350,6 +1357,7 @@ jobs:
           ## Test plan
           - [ ] CI green
           - [ ] Review the \`$PKG\` CHANGELOG - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
+          - [ ] For \`@narumitw/pi-goal\`, the locked candidate passed the fail-closed PR review-control source patch before this PR opened
           - [ ] Smoke test on integration: Pi loads all preseed extensions without error
           EOF
           )

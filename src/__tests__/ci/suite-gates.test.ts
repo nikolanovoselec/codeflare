@@ -244,7 +244,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     });
   });
 
-  it('REQ-OPS-003 AC7: PR Checks never build a container image and deployment owns packaged smoke', () => {
+  it('REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate', () => {
     const { testWorkflow, imageJob } = readCacheWorkflowContract();
     const summary = testWorkflow.jobs.summary;
     expect(testWorkflow.jobs['browser-ide-image-reuse']).toBeUndefined();
@@ -256,14 +256,26 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
     const deploymentCommands = imageJob.steps?.flatMap((step) => step.run ?? []).join('\n') ?? '';
     expect(deploymentCommands).toContain('docker buildx build');
-    expect(deploymentCommands).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
-    const stepNames = imageJob.steps?.map((step) => step.name) ?? [];
-    const smokeIndex = stepNames.indexOf('Verify packaged native Pi Chat and official Claude');
-    expect(smokeIndex).toBeGreaterThan(stepNames.indexOf('Build container image'));
-    expect(smokeIndex).toBeLessThan(stepNames.indexOf('Scan container image for vulnerabilities'));
-    expect(smokeIndex).toBeLessThan(stepNames.indexOf('Push image'));
-    expect(imageJob.steps?.find((step) => step.name === 'Verify packaged native Pi Chat and official Claude')?.if)
-      .toBe("steps.reuse.outputs.reused != 'true'");
+    const steps = imageJob.steps ?? [];
+    const stepNames = steps.map((step) => step.name);
+    const smokeSteps = [
+      'Verify packaged native Pi Chat and official Claude',
+      'Measure idle code-server resources',
+      'Verify real code-server through the session proxy',
+    ];
+    for (const name of smokeSteps) {
+      const index = stepNames.indexOf(name);
+      expect(index).toBeGreaterThan(stepNames.indexOf('Build container image'));
+      expect(index).toBeLessThan(stepNames.indexOf('Scan container image for vulnerabilities'));
+      expect(index).toBeLessThan(stepNames.indexOf('Push image'));
+      expect(steps[index]?.if).toBe("steps.reuse.outputs.reused != 'true'");
+    }
+    const packaged = steps.find((step) => step.name === smokeSteps[0])?.run ?? '';
+    const resources = steps.find((step) => step.name === smokeSteps[1])?.run ?? '';
+    const proxy = steps.find((step) => step.name === smokeSteps[2])?.run ?? '';
+    expect(packaged).toContain('/opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs');
+    expect(resources).toMatch(/cold readiness exceeded|process ceiling exceeded|Agent process started|Official Claude process started/);
+    expect(proxy).toMatch(/prefixed_http=ready|prefixed_ws=ready|root-scoped initial asset URL/);
   });
 
   it('REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target', () => {
@@ -639,6 +651,17 @@ esac
     const mismatchedTar = packArchive();
     expect(mismatchedTar.status, mismatchedTar.stderr).toBe(0);
     expect(execute(join(fixture, 'mismatch-output')).status).toBe(1);
+  });
+
+  it('REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
+    expect(apply).toContain("if [ \"$PKG\" = '@narumitw/pi-goal' ]; then");
+    expect(apply).toContain('(cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)');
+    expect(apply).toContain('node scripts/patch-pi-goal-review-control.mjs');
+    expect(apply).toContain('"$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal');
   });
 
   it('executes the configured workflow step through the updater boundary', () => {
