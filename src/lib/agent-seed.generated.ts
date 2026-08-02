@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = '4d6efa23e6c1b1fa';
+export const PRESEED_CONTENT_HASH = '71829f78fdad94fc';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -3031,6 +3031,15 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
     "key": ".pi/agent/npm/package.json",
     "contentType": "application/json; charset=utf-8",
     "content": "{\n  \"name\": \"codeflare-pi-preseed\",\n  \"private\": true,\n  \"//pi-coding-agent-override\": \"Must match preseed/npm-tools/package.json. The Docker build consumes this committed lockfile with npm ci and fails if the runtime and prewarm Pi versions drift.\",\n  \"dependencies\": {\n    \"@gotgenes/pi-subagents\": \"18.1.2\",\n    \"@juicesharp/rpiv-advisor\": \"2.1.0\",\n    \"@juicesharp/rpiv-ask-user-question\": \"2.1.0\",\n    \"@juicesharp/rpiv-todo\": \"2.1.0\",\n    \"@narumitw/pi-goal\": \"0.43.0\",\n    \"context-mode\": \"1.0.169\",\n    \"pi-mcp-adapter\": \"2.13.0\",\n    \"pi-web-access\": \"0.13.0\"\n  },\n  \"devDependencies\": {\n    \"@earendil-works/pi-agent-core\": \"0.82.0\",\n    \"@earendil-works/pi-ai\": \"0.82.0\",\n    \"@earendil-works/pi-tui\": \"0.82.0\"\n  },\n  \"overrides\": {\n    \"@earendil-works/pi-coding-agent\": \"0.82.0\",\n    \"@hono/node-server\": \"2.0.12\",\n    \"@mozilla/readability\": \"0.6.0\",\n    \"brace-expansion\": \"5.0.8\",\n    \"hono\": \"^4.12.25\",\n    \"protobufjs\": \"7.6.5\",\n    \"undici\": \"8.5.0\",\n    \"ws\": \"8.21.1\"\n  }\n}\n",
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  {
+    "key": ".pi/agent/pi-goal.json",
+    "contentType": "application/json; charset=utf-8",
+    "content": "{\n  \"toolVisibility\": \"after-first-goal\"\n}\n",
     "modes": [
       "default",
       "advanced"
