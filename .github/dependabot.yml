@@ -13,7 +13,17 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
-    # Owns the Wrangler pin used by package.json and GitHub workflow installs.
+    # Owns the application Wrangler pin. Workflow-only Wrangler has its own
+    # isolated lock-backed directory below.
+
+  - package-ecosystem: npm
+    directory: /.github/npm-tools/wrangler
+    target-branch: develop
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
 
   - package-ecosystem: npm
     directory: /web-ui

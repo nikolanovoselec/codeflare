@@ -148,9 +148,7 @@ jobs:
       && needs.verify-existing.result == 'success'
       && needs.verify-existing.outputs.verified == 'false'
     permissions:
-      actions: read # called evidence resolver reads prior PR Checks artifacts
       contents: read
-      packages: read # called complete-image job may consume but never publish the trusted cache
     uses: ./.github/workflows/test.yml
     with:
       # Keeps this deploy's inline verify in its own concurrency group. Without

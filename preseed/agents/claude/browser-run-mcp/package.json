@@ -9,5 +9,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0"
+  },
+  "overrides": {
+    "@hono/node-server": "2.0.12"
   }
 }

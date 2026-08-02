@@ -18,7 +18,7 @@ function option(name, fallback) {
 const agentDir = path.resolve(option('--agent-dir', path.join(homedir(), '.pi/agent')));
 const limit = Number(option('--limit', '10000'));
 const piRoot = process.env.PI_CODING_AGENT_ROOT
-  ?? '/usr/local/lib/node_modules/@earendil-works/pi-coding-agent';
+  ?? '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent';
 const cwd = process.cwd();
 
 const sdk = await import(pathToFileURL(path.join(piRoot, 'dist/index.js')));

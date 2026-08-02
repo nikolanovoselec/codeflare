@@ -1,7 +1,7 @@
 name: Bump Shadow Pins
 
-# Watches pinned versions that live outside any package.json
-# (so Dependabot can't see them) and opens a single PR per bump.
+# Watches reviewed pins outside normal Dependabot ownership and opens one PR
+# per bump, regenerating committed locks where the image consumes npm packages.
 #
 # Currently watched:
 # - context-mode npm package (plugin.json + entrypoint.sh + Pi foreground-owner runtime + README.md)
@@ -9,16 +9,15 @@ name: Bump Shadow Pins
 #   so no Dockerfile literal to bump)
 # - zoxide, yazi, lazygit, silverbullet, code-server (GitHub release binaries pinned in Dockerfile; code-server also owns its embedded Code gitlink)
 # - Anthropic's official Claude Code Open VSX package (version + linux-x64 SHA-256 metadata)
-# - bun npm package (pinned `npm install -g` literal in Dockerfile for context-mode speed)
-# - consult-llm-mcp npm package (pinned `npm install -g` literal in Dockerfile)
-# - chrome-devtools-mcp npm package (Dockerfile-baked npx cache + stable bin)
-# - browser-run-mcp: @modelcontextprotocol/sdk pin in
-#   preseed/agents/claude/browser-run-mcp/package.json (baked into the image; no
-#   Dockerfile literal — the job reads/bumps the package.json pin via jq)
+# - lock-backed image npm tools: agent CLIs, Bun, context-mode,
+#   consult-llm-mcp, and chrome-devtools-mcp
+# - uv versioned GitHub archive + authoritative SHA-256 digest
+# - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
 # - pi-extensions: every dependency in preseed/agents/pi/package.json except context-mode
-#   (the @juicesharp rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents)
-#   — each is also a literal install spec in entrypoint.sh + baked into the seed;
-#   context-mode is owned atomically by its dedicated job above
+#   (the @juicesharp rpiv family, @narumitw/pi-goal, pi-web-access,
+#   pi-mcp-adapter, @gotgenes/pi-subagents) — each is also a literal install
+#   spec in entrypoint.sh + baked into the seed; context-mode is owned
+#   atomically by its dedicated job above
 # - impeccable skill bundle (vendored for Claude Code + Pi, checked via impeccable.style)
 # - actionlint (VERSION + SHA256 literals in .github/workflows/test.yml; the job
 #   resolves the new checksum from the release's checksums.txt, so its PR is
@@ -26,9 +25,9 @@ name: Bump Shadow Pins
 # - zizmor (pinned twice: the action's `version:` in zizmor.yml and the
 #   VERSION + SHA256 of the gating binary in test.yml)
 # - the five coding-agent CLIs baked into the image (claude-code, codex,
-#   opencode-ai, copilot, pi-coding-agent) as Dockerfile ARGs; the candidate is
-#   the newest release published MORE than 7 days ago, mirroring the
-#   dependabot.yml cooldown, and the bump is forward-only
+#   opencode-ai, copilot, pi-coding-agent) from the shared npm-tools lock; the
+#   candidate is the newest release published MORE than 7 days ago, mirroring
+#   the dependabot.yml cooldown, and the bump is forward-only
 # - the Antigravity CLI installer script, pinned by sha256 in the Dockerfile
 #   (a changed hash is both a normal vendor update and what substitution looks
 #   like, so its PR asks for the installer diff to be reviewed)
@@ -134,6 +133,7 @@ jobs:
           const files = [
             'preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json',
             'preseed/agents/claude/plugins/context-mode/README.md',
+            'preseed/npm-tools/package.json',
           ];
           for (const f of files) {
             const before = fs.readFileSync(f, 'utf-8');
@@ -191,9 +191,12 @@ jobs:
           }
           NODE
 
-          # Regenerate the Pi preseed lockfile so its context-mode pin matches the
-          # bumped manifest (same mechanism the pi-extensions job uses for its deps).
+          # Regenerate both lock-backed installs and retain the bounded bundled
+          # dependency integrity pins before rebuilding the embedded seed.
           node scripts/regenerate-pi-preseed-lock.mjs
+          (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+          node scripts/apply-npm-security-lock-pins.mjs preseed/agents/pi/package-lock.json
+          node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
@@ -986,15 +989,81 @@ jobs:
           ## Test plan
           - [ ] Replace \`NEEDS_UPDATE_SEE_PR_BODY\` with the digest (without \`sha256:\`)
           - [ ] Review code-server and Code release notes
-          - [ ] CI complete-image Browser IDE smoke green
+          - [ ] Deployment image Browser IDE smoke green
           - [ ] Integration Pi and official Claude pass@3 green
           EOF
           )"
 
+  uv:
+    # uv is downloaded as an immutable GitHub release archive and verified
+    # against GitHub's authoritative asset digest before extraction.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve newest uv release past cooldown with authoritative digest
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP '^ARG UV_VERSION=\K.+' Dockerfile)
+          CUTOFF=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          RELEASE=$(gh api 'repos/astral-sh/uv/releases?per_page=100' | jq -c --arg cutoff "$CUTOFF" '[.[] | select(.draft == false and .prerelease == false and .published_at <= $cutoff)][0]')
+          LATEST=$(jq -r '.tag_name // empty' <<<"$RELEASE")
+          LATEST="${LATEST#v}"
+          DIGEST=$(jq -r '.assets[] | select(.name == "uv-x86_64-unknown-linux-gnu.tar.gz") | .digest // empty' <<<"$RELEASE")
+          SHA256="${DIGEST#sha256:}"
+          [ -n "$LATEST" ] && [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'No cooldown-eligible uv release with digest' >&2; exit 1; }
+          printf 'current=%s\nlatest=%s\nsha256=%s\n' "$CURRENT" "$LATEST" "$SHA256" >> "$GITHUB_OUTPUT"
+          NEWEST=$(printf '%s\n%s\n' "$CURRENT" "$LATEST" | sort -V | tail -1)
+          if [ "$CURRENT" = "$LATEST" ] || [ "$NEWEST" = "$CURRENT" ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if branch exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          BRANCH="bump/uv-$LAT"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump and open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          SHA256: ${{ steps.ver.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git checkout -B "$BRANCH"
+          sed -i "s/^ARG UV_VERSION=.*/ARG UV_VERSION=${LAT}/; s/^ARG UV_X86_64_LINUX_SHA256=.*/ARG UV_X86_64_LINUX_SHA256=${SHA256}/" Dockerfile
+          git add Dockerfile
+          git commit -m "chore(deps): bump uv $CUR -> $LAT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+          gh pr create --base develop --head "$BRANCH" --title "chore(deps): bump uv $CUR -> $LAT" --body "Updates the immutable uv release archive and its authoritative SHA-256 digest together. CI verifies the digest before extraction."
+
   bun:
-    # Bun is installed globally as a pinned npm package because context-mode
+    # Bun is installed from the shared lock because context-mode
     # autodetects it for faster ctx_execute/ctx_batch_execute subprocess starts.
-    # The Dockerfile literal is invisible to Dependabot, so this job tracks it.
     runs-on: ubuntu-latest
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
@@ -1027,7 +1096,7 @@ jobs:
           COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP 'npm install -g bun@\K[0-9][0-9.]*' Dockerfile | head -n1)
+          CURRENT=$(node -p "require('./preseed/npm-tools/package.json').dependencies.bun")
           LATEST="$COOLDOWN_VERSION"
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -1065,17 +1134,11 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
-          CUR='$CUR' LAT='$LAT' node <<'NODE'
-          const fs = require('node:fs');
-          const cur = process.env.CUR;
-          const lat = process.env.LAT;
-          const file = 'Dockerfile';
-          const before = fs.readFileSync(file, 'utf-8');
-          const after = before.replaceAll(`bun@${cur}`, `bun@${lat}`);
-          if (before === after) throw new Error('bun pin not found in Dockerfile');
-          fs.writeFileSync(file, after);
-          NODE
-          git add Dockerfile
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/npm-tools/package.json bun "$CUR" "$LAT"
+          (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+          node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
+          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
           if git diff --cached --quiet; then
             echo "Nothing changed - aborting."
             exit 1
@@ -1095,10 +1158,10 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`bun\` from \`$CUR\` to \`$LAT\`.
 
-          Bun is pinned as a Dockerfile \`npm install -g bun@X\` literal for context-mode subprocess startup speed, so Dependabot cannot see it.
+          Bun is installed for context-mode subprocess startup speed from the committed image-tools lock.
 
           Files updated:
-          - \`Dockerfile\` (\`bun@$CUR\` -> \`bun@$LAT\`)
+          - \`preseed/npm-tools/package.json\` + \`package-lock.json\`
 
           ## Test plan
           - [ ] CI green
@@ -1249,9 +1312,16 @@ jobs:
           }
           NODE
 
-          # Regenerate the pi preseed lockfile to match the bumped manifest, then
-          # regenerate the agent seed.
+          # Regenerate the Pi preseed lockfile. Goal's review-boundary bridge
+          # patches private upstream source because ordinary slash commands are
+          # not programmatically invokable; reject a bump before opening its PR
+          # when that exact candidate no longer satisfies the reviewed anchors.
           node scripts/regenerate-pi-preseed-lock.mjs
+          if [ "$PKG" = '@narumitw/pi-goal' ]; then
+            (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
+            node scripts/patch-pi-goal-review-control.mjs \
+              "$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal
+          fi
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
@@ -1287,6 +1357,7 @@ jobs:
           ## Test plan
           - [ ] CI green
           - [ ] Review the \`$PKG\` CHANGELOG - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
+          - [ ] For \`@narumitw/pi-goal\`, the locked candidate passed the fail-closed PR review-control source patch before this PR opened
           - [ ] Smoke test on integration: Pi loads all preseed extensions without error
           EOF
           )
@@ -1404,11 +1475,8 @@ jobs:
             --body "$BODY"
 
   consult-llm-mcp:
-    # consult-llm-mcp is the MCP server Claude Code + Pi use for the consult-llm
-    # tool. It is pinned + pre-warmed as a global `npm install -g consult-llm-mcp@X`
-    # literal in the Dockerfile (so the runtime MCP config invokes the global bin
-    # with no per-session npx fetch). That Dockerfile literal is invisible to
-    # Dependabot, so this job bumps it weekly.
+    # consult-llm-mcp is the MCP server Claude Code + Pi use for consultation.
+    # Its shared lock pin keeps the pre-warmed binary reproducible.
     runs-on: ubuntu-latest
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
@@ -1441,7 +1509,7 @@ jobs:
           COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP 'consult-llm-mcp@\K[0-9][0-9.]*' Dockerfile | head -n1)
+          CURRENT=$(node -p "require('./preseed/npm-tools/package.json').dependencies['consult-llm-mcp']")
           LATEST="$COOLDOWN_VERSION"
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -1475,17 +1543,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const cur = process.env.CUR;
-          const lat = process.env.LAT;
-          const f = 'Dockerfile';
-          const before = fs.readFileSync(f, 'utf-8');
-          const after = before.replaceAll(`consult-llm-mcp@${cur}`, `consult-llm-mcp@${lat}`);
-          if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
-          NODE
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/npm-tools/package.json consult-llm-mcp "$CUR" "$LAT"
+          (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+          node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
 
-          git add Dockerfile
+          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
           if git diff --cached --quiet; then
             echo "Nothing changed (replacement found nothing) - aborting."
             exit 1
@@ -1510,10 +1573,10 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`consult-llm-mcp\` from \`$CUR\` to \`$LAT\`.
 
-          The version is pinned as a \`npm install -g consult-llm-mcp@X\` literal in the \`Dockerfile\` (pre-warmed global install; the Claude Code + Pi MCP config invokes the global bin), so Dependabot can't see it - \`bump-shadow-pins.yml\` opens this PR weekly.
+          The pre-warmed server and its complete integrity tree are committed in the shared image-tools lock.
 
           Files updated:
-          - \`Dockerfile\` (\`consult-llm-mcp@$CUR\` -> \`@$LAT\`)
+          - \`preseed/npm-tools/package.json\` + \`package-lock.json\`
 
           ## Test plan
           - [ ] CI green (Docker build installs the new version)
@@ -1528,9 +1591,8 @@ jobs:
 
   chrome-devtools-mcp:
     # chrome-devtools-mcp is the interactive Browser Run MCP server Claude Code
-    # and Pi use (Pi through pi-mcp-adapter). It is baked into the Docker image
-    # as an npx cache + stable bin path; the Dockerfile version env is invisible
-    # to Dependabot, so this job bumps it weekly.
+    # and Pi use (Pi through pi-mcp-adapter). It is installed from the shared
+    # lock and exposed through a stable image bin path.
     runs-on: ubuntu-latest
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
@@ -1563,7 +1625,7 @@ jobs:
           COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP 'CHROME_DEVTOOLS_MCP_VERSION=\K[0-9][0-9.]*' Dockerfile | head -n1)
+          CURRENT=$(node -p "require('./preseed/npm-tools/package.json').dependencies['chrome-devtools-mcp']")
           LATEST="$COOLDOWN_VERSION"
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -1597,17 +1659,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const cur = process.env.CUR;
-          const lat = process.env.LAT;
-          const file = 'Dockerfile';
-          const before = fs.readFileSync(file, 'utf-8');
-          const after = before.replaceAll(`CHROME_DEVTOOLS_MCP_VERSION=${cur}`, `CHROME_DEVTOOLS_MCP_VERSION=${lat}`);
-          if (before !== after) { fs.writeFileSync(file, after); console.log(`updated ${file}`); }
-          NODE
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/npm-tools/package.json chrome-devtools-mcp "$CUR" "$LAT"
+          (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+          node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
 
-          git add Dockerfile
+          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
           if git diff --cached --quiet; then
             echo "Nothing changed (replacement found nothing) - aborting."
             exit 1
@@ -1632,10 +1689,10 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`chrome-devtools-mcp\` from \`$CUR\` to \`$LAT\`.
 
-          The version is pinned as \`CHROME_DEVTOOLS_MCP_VERSION\` in \`Dockerfile\`, which bakes an npx cache plus stable bin path for Claude Code and Pi's bridged interactive Browser Run surface. Dependabot can't see that Dockerfile env pin, so \`bump-shadow-pins.yml\` opens this PR weekly.
+          The interactive Browser Run server and its integrity tree are committed in the shared image-tools lock; the image still exposes the stable bin path used by both agents.
 
           Files updated:
-          - \`Dockerfile\` (\`CHROME_DEVTOOLS_MCP_VERSION=$CUR\` -> \`$LAT\`)
+          - \`preseed/npm-tools/package.json\` + \`package-lock.json\`
 
           ## Test plan
           - [ ] CI green
@@ -1650,9 +1707,8 @@ jobs:
 
   browser-run-mcp:
     # The Claude-side browser-run MCP server pins @modelcontextprotocol/sdk exact
-    # in preseed/agents/claude/browser-run-mcp/package.json. That dir has no
-    # lockfile and is not covered by Dependabot or the pi-extensions job (which only
-    # reads the Pi package.json), so this job bumps it weekly.
+    # in its dedicated manifest and committed lock. The pi-extensions job reads
+    # only Pi's package.json, so this job updates the Browser Run pair weekly.
     runs-on: ubuntu-latest
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
@@ -1720,17 +1776,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const f = 'preseed/agents/claude/browser-run-mcp/package.json';
-          const cur = process.env.CUR;
-          const lat = process.env.LAT;
-          const before = fs.readFileSync(f, 'utf-8');
-          const after = before.replace(`"@modelcontextprotocol/sdk": "${cur}"`, `"@modelcontextprotocol/sdk": "${lat}"`);
-          if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
-          NODE
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/agents/claude/browser-run-mcp/package.json \
+            @modelcontextprotocol/sdk "$CUR" "$LAT"
+          (cd preseed/agents/claude/browser-run-mcp && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
 
-          git add preseed/agents/claude/browser-run-mcp/package.json
+          git add preseed/agents/claude/browser-run-mcp/package.json preseed/agents/claude/browser-run-mcp/package-lock.json
           if git diff --cached --quiet; then
             echo "Nothing changed (replacement found nothing) - aborting."
             exit 1
@@ -1755,10 +1806,10 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`@modelcontextprotocol/sdk\` (the Claude-side \`browser-run\` MCP server) from \`$CUR\` to \`$LAT\`.
 
-          The version is pinned exact in \`preseed/agents/claude/browser-run-mcp/package.json\`; that dir has no lockfile and is not covered by Dependabot or the \`pi-extensions\` job, so \`bump-shadow-pins.yml\` opens this PR weekly.
+          The exact version and registry integrity tree are committed in \`preseed/agents/claude/browser-run-mcp/package.json\` and \`package-lock.json\`; this job updates both atomically.
 
           Files updated:
-          - \`preseed/agents/claude/browser-run-mcp/package.json\` (\`@modelcontextprotocol/sdk\` \`$CUR\` -> \`$LAT\`)
+          - \`preseed/agents/claude/browser-run-mcp/package.json\` + \`package-lock.json\` (\`@modelcontextprotocol/sdk\` \`$CUR\` -> \`$LAT\`)
 
           ## Test plan
           - [ ] CI green (Docker build installs the new SDK; the browser-run-mcp import smoke test passes)
@@ -1774,7 +1825,7 @@ jobs:
   claude-vscode-extension:
     # The official extension is a privileged proprietary package bundled into
     # the server image from Open VSX. Its metadata file is the one source of
-    # truth for Docker, staging validation, and complete-image smoke.
+    # truth for Docker, staging validation, and deployment image smoke.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -1897,7 +1948,7 @@ jobs:
           - SHA-256: \`$SHA\`
           - Single pin: \`openvscode/agent-sidebar/official-claude.json\`
 
-          CI downloads the exact package, verifies this digest and identity, and runs complete-image host smoke before merge.
+          Deployment downloads the exact package, verifies this digest and identity, and runs packaged host smoke before push.
           EOF
           )"
 
@@ -1905,8 +1956,8 @@ jobs:
     # The five coding-agent CLIs baked into the image. They used to install at
     # @latest, which meant the most privileged packages in the container — they
     # execute user code and hold OAuth tokens — were the only ones exempt from
-    # the cooldown dependabot.yml spends 40 lines justifying. Pinned in the
-    # Dockerfile as ARGs and moved here instead, so they still update weekly but
+    # the cooldown dependabot.yml spends 40 lines justifying. The shared
+    # npm-tools manifest and lock now own them, so they still update weekly but
     # through a PR that CI has run against.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1920,15 +1971,10 @@ jobs:
       matrix:
         include:
           - pkg: '@anthropic-ai/claude-code'
-            arg: CLAUDE_CODE_VERSION
           - pkg: '@openai/codex'
-            arg: CODEX_VERSION
           - pkg: 'opencode-ai'
-            arg: OPENCODE_VERSION
           - pkg: '@github/copilot'
-            arg: COPILOT_VERSION
           - pkg: '@earendil-works/pi-coding-agent'
-            arg: PI_CODING_AGENT_VERSION
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1942,15 +1988,14 @@ jobs:
         with:
           package: ${{ matrix.pkg }}
 
-      - name: Diff the Dockerfile pin against npm
+      - name: Diff the shared lock pin against npm
         id: ver
         env:
           COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
           PKG: ${{ matrix.pkg }}
-          ARG_NAME: ${{ matrix.arg }}
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP "^ARG ${ARG_NAME}=\\K.+" Dockerfile)
+          CURRENT=$(PKG="$PKG" node -p "require('./preseed/npm-tools/package.json').dependencies[process.env.PKG]")
           LATEST="$COOLDOWN_VERSION"
           if [ -z "$LATEST" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -1997,7 +2042,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG: ${{ matrix.pkg }}
-          ARG_NAME: ${{ matrix.arg }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
           BRANCH: ${{ steps.branch.outputs.branch }}
@@ -2007,19 +2051,19 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const { ARG_NAME, LAT } = process.env;
-          const before = fs.readFileSync('Dockerfile', 'utf-8');
-          const after = before.replace(new RegExp(`^ARG ${ARG_NAME}=.+$`, 'm'), `ARG ${ARG_NAME}=${LAT}`);
-          if (before === after) {
-            console.error(`ARG ${ARG_NAME} not found in Dockerfile`);
-            process.exit(1);
-          }
-          fs.writeFileSync('Dockerfile', after);
-          NODE
+          if [ "$PKG" = '@earendil-works/pi-coding-agent' ]; then
+            node scripts/update-pi-runtime-artifacts.mjs "$CUR" "$LAT"
+          else
+            node scripts/update-npm-tool-manifests.mjs \
+              preseed/npm-tools/package.json "$PKG" "$CUR" "$LAT"
+            (cd preseed/npm-tools && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+            node scripts/apply-npm-security-lock-pins.mjs preseed/npm-tools/package-lock.json
+          fi
 
-          git add Dockerfile
+          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
+          if [ "$PKG" = '@earendil-works/pi-coding-agent' ]; then
+            git add preseed/agents/pi/package.json preseed/agents/pi/package-lock.json src/lib/agent-seed.generated.ts
+          fi
           if git diff --cached --quiet; then
             echo "Nothing changed - aborting."
             exit 1
@@ -2032,7 +2076,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG: ${{ matrix.pkg }}
-          ARG_NAME: ${{ matrix.arg }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
           BRANCH: ${{ steps.branch.outputs.branch }}
@@ -2041,12 +2084,13 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`$PKG\` from \`$CUR\` to \`$LAT\`.
 
-          This is a coding-agent CLI baked into the container image. It is a Dockerfile \`ARG\` literal, so Dependabot cannot see it.
+          This coding-agent CLI is baked from the committed \`preseed/npm-tools/package-lock.json\`, so both its exact version and registry integrity tree are reviewable.
 
           The candidate version is the newest release published **more than 7 days ago**, matching the cooldown in \`.github/dependabot.yml\` — a version published hours ago is not eligible, because the npm compromise pattern is publish-malicious-then-wait-for-automation.
 
           Files updated:
-          - \`Dockerfile\` (\`ARG $ARG_NAME\`)
+          - \`preseed/npm-tools/package.json\` + \`package-lock.json\`
+          - Pi bumps also update the prewarm manifest, lock, and embedded seed
 
           ## Test plan
           - [ ] CI green
@@ -2056,7 +2100,7 @@ jobs:
           # The entrypoint injects settings Claude Code owns. A rename or a
           # behaviour change upstream cannot fail a test — the setting just
           # stops applying — so the reminder rides the bump that invalidates it.
-          if [ "$ARG_NAME" = "CLAUDE_CODE_VERSION" ]; then
+          if [ "$PKG" = '@anthropic-ai/claude-code' ]; then
             BODY=$(cat <<EOF
           $BODY
           - [ ] \`disableAgentView\` still suppresses the full-screen agent view, and background subagents still spawn under it (REQ-AGENT-099 AC5). A test asserts both mode literals still carry the key, but nothing can assert the upstream half — that Claude Code still honours it and still spawns background subagents under it; if that second half breaks, the memory-capture and vault-extract hooks stop firing silently.

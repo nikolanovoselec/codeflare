@@ -29,7 +29,36 @@ function runFunction(name, setup, invocation, env = {}) {
   });
 }
 
+function runStartupInvocation(name, env = {}) {
+  const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
+  const invocation = lines.find((line) => line.startsWith(`${name} || `));
+  if (!invocation) throw new Error(`Could not locate production startup invocation for ${name}()`);
+  return spawnSync('bash', ['-c', `${extractFunction(name)}\n${invocation}`], {
+    encoding: 'utf8',
+    env: { ...process.env, ...env },
+  });
+}
+
 describe('entrypoint production helpers', () => {
+  it('REQ-AGENT-111 AC4: initializes Goal tool visibility once and preserves existing preferences', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    const conflictingPath = join(fixture, 'legacy/pi-goal.json');
+    const env = { USER_HOME: fixture, PI_GOAL_CONFIG_FILE: conflictingPath };
+
+    const first = runStartupInvocation('configure_pi_goal_defaults', env);
+    assert.equal(first.status, 0, first.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), { toolVisibility: 'after-first-goal' });
+    assert.equal(existsSync(conflictingPath), false);
+
+    const userSettings = '{"toolVisibility":"always","continuationLimits":{"automaticTurns":7},"rpc":{"enabled":true}}';
+    writeFileSync(configPath, userSettings);
+    const second = runStartupInvocation('configure_pi_goal_defaults', env);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(configPath, 'utf8'), userSettings);
+    assert.equal(existsSync(conflictingPath), false);
+  });
+
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'graphify-path-'));
     const source = join(fixture, 'tools/graphify');

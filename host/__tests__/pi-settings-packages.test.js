@@ -2,8 +2,8 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being disabled by default while remaining available through explicit /ctx on,
-//   - the five tool extensions (rpiv-advisor, rpiv-ask-user-question, rpiv-todo,
-//     pi-web-access, pi-mcp-adapter) being present in `required` so they are
+//   - the managed extension packages, including Goal, being present in
+//     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
 //   - advisor guidance being user-invoked only while preserving user model config.
 import { describe, it } from 'node:test';
@@ -63,7 +63,22 @@ const REQUIRED = [
   'npm:@juicesharp/rpiv-todo@2.1.0',
   'npm:pi-web-access@0.13.0',
   'npm:pi-mcp-adapter@2.13.0',
+  'npm:@narumitw/pi-goal@0.43.0',
 ];
+
+describe('Goal package preseed (REQ-AGENT-111)', () => {
+  it('replaces glla with the exact reviewed Goal package and integrity-locked release', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    assert.equal(pkg.dependencies['@narumitw/pi-goal'], '0.43.0');
+    assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
+    const goal = lock.packages['node_modules/@narumitw/pi-goal'];
+    assert.equal(goal.version, '0.43.0');
+    assert.equal(goal.integrity, 'sha512-+HUjcd9u9Pr1YVqmPfDib09QTybZZKziEEgpiB0WfW/J38FWeH0+IfJy120TV3U9TolFLOKdhrdpUFFzly6CSA==');
+    assert.equal(lock.packages['node_modules/pi-goal-list-loop-audit'], undefined);
+  });
+
+});
 
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
@@ -85,10 +100,11 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.deepEqual(contextMode, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
   });
 
-  it('coexistence: a prior settings that enabled context-mode is reset to disabled, with the 5 extensions present and unrelated packages preserved', () => {
+  it('startup removes the retired package while preserving managed and unrelated packages', () => {
     const initial = JSON.stringify({
       packages: [
         { source: 'npm:context-mode@1.0.169', extensions: [] },
+        'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
       ],
     });
@@ -96,8 +112,9 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const sources = settings.packages.map(sourceOf);
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
     assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
-    // The five tool extensions are present regardless of context-mode's prior state.
+    // Managed packages are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
+    assert.ok(!sources.includes('npm:pi-goal-list-loop-audit@0.34.16'), 'retired glla package must be removed');
     // The user's unrelated package is preserved (assembly merges, never wipes).
     assert.ok(sources.includes('npm:some-user-package@1.0.0'), 'unrelated existing packages must be preserved');
   });

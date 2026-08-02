@@ -5,8 +5,8 @@
 // long-lived FTS5 indexes). v1.0.169 additionally carries the issue #868
 // foreground bridge stability behavior used by Codeflare's single foreground owner
 // (REQ-AGENT-076 AC7). In-process subagents do not load context-mode.
-// The Dockerfile reads `version` from this JSON and runs `npm install -g
-// context-mode@$VER`; if the pin slips below either floor, the produced container
+// The Dockerfile validates this JSON against the lock-backed image-tools install;
+// if the pin slips below either floor, the produced container
 // ships a version that reintroduces a failure mode codeflare lived through.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

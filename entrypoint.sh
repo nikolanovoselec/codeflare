@@ -2280,6 +2280,16 @@ else
     update_sync_status "skipped" "$SYNC_ERROR"
 fi
 
+configure_pi_goal_defaults() {
+    local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
+    if [ -e "$goal_config" ]; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$goal_config")"
+    printf '{\n  "toolVisibility": "after-first-goal"\n}\n' > "$goal_config"
+    echo "[entrypoint] Pi Goal configured for capability-filtered tool activation"
+}
+
 warm_pi_npm_dependencies() {
     local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
     local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
@@ -2334,6 +2344,7 @@ const required = [
   'npm:@juicesharp/rpiv-todo@2.1.0',
   'npm:pi-web-access@0.13.0',
   'npm:pi-mcp-adapter@2.13.0',
+  'npm:@narumitw/pi-goal@0.43.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
 // every fresh container start until upstream ships a memory-safe Pi adapter.
@@ -2341,11 +2352,11 @@ const disabledPackageIds = new Set(['npm:context-mode']);
 const disabledPackages = [
   { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
 ];
-// Migration: hard-remove the deprecated third-party graphify wrapper from existing settings.
-// graphify is now the first-party graphify-native.ts extension; loading both registers the same
-// tools (graphify_query/path/explain) and Pi refuses to start. Unlike disabled packages this is
-// dropped and never re-added, so an upgrade from the @gaodes era loads cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify']);
+// Migration: hard-remove retired managed packages from existing settings.
+// The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
+// replaced by @narumitw/pi-goal and would otherwise keep loading from persisted user settings.
+// Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -2417,6 +2428,7 @@ update_pi_when_fast_start_disabled() {
 # MAIN EXECUTION), which leaves the terminal server gated in "warming up"
 # forever and no session can attach. A failed Pi warm-up must degrade, not
 # block startup. Same cold-start discipline as PR #364/#365.
+configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
 update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
 

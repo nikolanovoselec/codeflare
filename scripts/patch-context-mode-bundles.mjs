@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Patches the installed context-mode esbuild bundles (cli.bundle.mjs +
-// server.bundle.mjs) at image-build time. Implements REQ-AGENT-076 AC4
+// server.bundle.mjs) at image-build time. Implements REQ-AGENT-076 AC5
 // (update-check disable); the createRequire shim below has no dedicated AC,
 // see AD49 in documentation/decisions/README.md and codeflare#309 for the
 // original shim bug report.
@@ -16,7 +16,7 @@
 //     ctx_execute / ctx_batch_execute fail with "Dynamic require of node:fs is
 //     not supported" in both Node and Bun ESM. Prepend a 2-line createRequire
 //     shim. Load-bearing.
-// (2) update-check disable (REQ-AGENT-076 AC4): context-mode unconditionally GETs
+// (2) update-check disable (REQ-AGENT-076 AC5): context-mode unconditionally GETs
 //     registry.npmjs.org/context-mode/latest (MCP server on boot + hourly; CLI
 //     on each ctx_stats/ctx_insight render) and prints an "Update available ...
 //     ctx_upgrade" notice whenever the fetched version differs. It exposes no env
@@ -62,37 +62,54 @@ export function patchContextModeBundle(content) {
   return out;
 }
 
-// CLI: patch the two bundles in <dir> in place. The shim is load-bearing, so its
-// absence after the write is FATAL (catches a marker collision or truncated write).
-function main(dir) {
-  if (!dir) {
-    console.error('[patch-context-mode] FATAL: missing context-mode dir (argv[2] or CTX_DIR)');
-    process.exit(1);
-  }
+// Patch and verify one installed package directory. The shim is load-bearing,
+// so an absent bundle or incomplete write fails the image build.
+export function patchContextModeDirectory(dir) {
   for (const name of BUNDLE_NAMES) {
-    const f = join(dir, name);
-    if (!existsSync(f)) {
-      console.error('[patch-context-mode] FATAL: ' + f + ' not found; context-mode layout may have changed');
-      process.exit(1);
+    const file = join(dir, name);
+    if (!existsSync(file)) {
+      throw new Error(`${file} not found; context-mode layout may have changed`);
     }
-    writeFileSync(f, patchContextModeBundle(readFileSync(f, 'utf8')));
-    // Re-read from disk so a truncated/corrupted write is caught too (not just the
-    // in-memory result): the createRequire shim is load-bearing, so verify it landed
-    // at the head, and verify the update-check probe (AC8) was fully removed.
-    const after = readFileSync(f, 'utf8');
+    writeFileSync(file, patchContextModeBundle(readFileSync(file, 'utf8')));
+    const after = readFileSync(file, 'utf8');
     const head = after.startsWith('#!') ? after.slice(after.indexOf('\n') + 1) : after;
     if (!head.startsWith(SHIM)) {
-      console.error('[patch-context-mode] FATAL: createRequire shim missing after patch in ' + name);
-      process.exit(1);
+      throw new Error(`createRequire shim missing after patch in ${name}`);
     }
     if (after.split(UPDATE_PROBE_URL).length !== 1) {
-      console.error('[patch-context-mode] FATAL: update-check probe still present in ' + name + ' after patch');
-      process.exit(1);
+      throw new Error(`update-check probe still present in ${name} after patch`);
     }
-    console.log('[patch-context-mode] patched ' + name + ' (createRequire shim + update-check disabled)');
+    console.log(`[patch-context-mode] patched ${name} in ${dir} (createRequire shim + update-check disabled)`);
   }
 }
 
+function installedVersion(dir) {
+  const packageJson = join(dir, 'package.json');
+  if (!existsSync(packageJson)) throw new Error(`${packageJson} not found`);
+  return JSON.parse(readFileSync(packageJson, 'utf8')).version;
+}
+
+export function patchContextModeInstallations(expectedVersion, sharedDirectory, piDirectory) {
+  if (!expectedVersion || !sharedDirectory || !piDirectory) {
+    throw new Error('expected version, shared directory, and Pi directory are required');
+  }
+  const sharedVersion = installedVersion(sharedDirectory);
+  const piVersion = installedVersion(piDirectory);
+  if (sharedVersion !== expectedVersion) {
+    throw new Error(`locked context-mode ${sharedVersion ?? 'missing'} != plugin.json ${expectedVersion}`);
+  }
+  if (piVersion !== expectedVersion) {
+    throw new Error(`Pi context-mode ${piVersion ?? 'missing'} != plugin.json ${expectedVersion}`);
+  }
+  patchContextModeDirectory(sharedDirectory);
+  patchContextModeDirectory(piDirectory);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main(process.argv[2] || process.env.CTX_DIR);
+  try {
+    patchContextModeInstallations(process.argv[2], process.argv[3], process.argv[4]);
+  } catch (error) {
+    console.error(`[patch-context-mode] FATAL: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 }

@@ -1,0 +1,7 @@
+{
+  "name": "codeflare-workflow-wrangler",
+  "private": true,
+  "dependencies": {
+    "wrangler": "4.114.0"
+  }
+}

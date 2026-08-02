@@ -73,7 +73,7 @@ jobs:
       packages: write # read and refresh the cross-ref GHCR BuildKit cache
       id-token: write # OIDC identity the provenance attestation is signed against
       attestations: write # store the attestation on this repository
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       # Registry credentials are deliberately NOT job-level. At job scope they
       # sit in process.env for every third-party action in this job —
@@ -104,7 +104,7 @@ jobs:
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS="Dockerfile .dockerignore .trivyignore entrypoint.sh host/package.json host/package-lock.json host/tsconfig.json host/src openvscode preseed scripts/browser-ide-ui-state.py scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh host/package.json host/package-lock.json host/tsconfig.json host/src openvscode preseed scripts/browser-ide-ui-state.py scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/verify-pi-lockstep.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
 
           # Guard: every COPY source in the Dockerfile must be covered by
           # HASHED_PATHS — otherwise the reuse gate could serve a stale image
@@ -113,7 +113,7 @@ jobs:
           while read -r src; do
             case "$src" in
               .cache-bust) ;; # represented by the cache-bust input
-              Dockerfile|entrypoint.sh|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
+              Dockerfile|entrypoint.sh|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/verify-pi-lockstep.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
               *)
                 echo "::warning::COPY source '$src' not covered by the image input hash — disabling reuse for this run. Add it to HASHED_PATHS in container-image.yml."
                 NO_REUSE=1
@@ -245,9 +245,8 @@ jobs:
           "$LOGIN_OUTCOME" >> "$GITHUB_OUTPUT"
 
       # The docker-container driver supports the registry-backed cache shared
-      # across pull-request refs and deployment branch refs. GitHub's `type=gha`
-      # cache is ref-scoped, so the deploy could not read the cache populated by
-      # an otherwise identical PR complete-image build.
+      # across deployment refs. GitHub's `type=gha` cache is ref-scoped, while
+      # this registry cache remains available to later deployment runs.
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
         if: steps.reuse.outputs.reused != 'true'
 
@@ -279,6 +278,243 @@ jobs:
             -t "${IMAGE_NAME}:${TAG}" .
           echo "local_ref=${IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify packaged native Pi Chat and official Claude
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /usr/local/bin/node "$IMAGE" \
+            /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs \
+            | tee /tmp/browser-ide-image-evidence.txt
+          IMAGE_BYTES=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          IMAGE_ID=$(docker image inspect "$IMAGE" --format '{{.Id}}')
+          printf 'image_bytes=%s image_id=%s\n' "$IMAGE_BYTES" "$IMAGE_ID" \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+          [ "$IMAGE_BYTES" -le 4500000000 ] || {
+            echo "Complete image exceeds the 4.5 GB Browser IDE migration ceiling." >&2
+            exit 1
+          }
+
+      - name: Measure idle code-server resources
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          claude_extension_version=$(jq -r '.version' openvscode/agent-sidebar/official-claude.json)
+          pi_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
+            --extensions-dir /opt/codeflare/openvscode/extensions/pi \
+            --list-extensions --show-versions)
+          claude_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
+            --extensions-dir /opt/codeflare/openvscode/extensions/claude \
+            --list-extensions --show-versions)
+          none_extensions=$(docker run --rm --entrypoint /usr/local/bin/code-server "$IMAGE" \
+            --extensions-dir /opt/codeflare/openvscode/extensions/none \
+            --list-extensions --show-versions)
+          printf '%s\n' "$pi_extensions" | grep -Fxi 'codeflare.codeflare-agent-sidebar@0.0.0'
+          printf '%s\n' "$claude_extensions" | grep -Fxi "anthropic.claude-code@${claude_extension_version}"
+          [ -z "$none_extensions" ] || { printf '%s\n' "$none_extensions"; exit 1; }
+          printf 'host_discovery=pi:%s claude:%s none:empty\n' \
+            'codeflare.codeflare-agent-sidebar@0.0.0' "anthropic.claude-code@${claude_extension_version}" \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+
+          started_ms=$(date +%s%3N)
+          container=$(docker run -d --entrypoint /usr/local/bin/code-server "$IMAGE" \
+            --bind-addr 127.0.0.1:13337 \
+            --auth none \
+            --disable-telemetry \
+            --disable-update-check \
+            --disable-proxy \
+            --disable-getting-started-override \
+            --disable-workspace-trust \
+            --user-data-dir /tmp/openvscode-smoke-data/data \
+            --extensions-dir /opt/codeflare/openvscode/extensions/pi \
+            --enable-proposed-api codeflare.codeflare-agent-sidebar \
+            /home/user/workspace)
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for _ in $(seq 1 60); do
+            if docker exec "$container" curl -fsS http://127.0.0.1:13337/ >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
+          readiness_ms=$(( $(date +%s%3N) - started_ms ))
+          [ "$readiness_ms" -le 60000 ] || { echo "code-server cold readiness exceeded 60s" >&2; exit 1; }
+          STATS=$(docker exec "$container" sh -c \
+            'printf "processes=%s rss_kib=%s" "$(ps -e --no-headers | wc -l)" "$(ps -e -o rss= | awk '\''{s+=$1} END {print s+0}'\'')"')
+          processes=$(printf '%s\n' "$STATS" | sed -n 's/.*processes=\([0-9][0-9]*\).*/\1/p')
+          rss_kib=$(printf '%s\n' "$STATS" | sed -n 's/.*rss_kib=\([0-9][0-9]*\).*/\1/p')
+          [ -n "$processes" ] && [ "$processes" -le 24 ] || { echo "code-server process ceiling exceeded: $STATS" >&2; exit 1; }
+          [ -n "$rss_kib" ] && [ "$rss_kib" -le 1048576 ] || { echo "code-server RSS ceiling exceeded: $STATS" >&2; exit 1; }
+          printf 'cold_readiness_ms=%s %s\n' "$readiness_ms" "$STATS" \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+          if docker exec "$container" pgrep -af '(/usr/local/bin/pi|/usr/local/bin/claude|anthropic\.claude-code/.*/claude)' >/tmp/sidebar-agents.txt; then
+            cat /tmp/sidebar-agents.txt
+            echo 'Agent process started before native Chat or the Claude panel was used.' >&2
+            exit 1
+          fi
+          if docker logs "$container" 2>&1 | grep -E 'CANNOT use API proposal|API proposal.*not found|Failed to register participant codeflare\.pi'; then
+            docker logs "$container"
+            echo 'Native Pi Chat contribution was rejected by code-server embedded Code.' >&2
+            exit 1
+          fi
+
+          docker rm -f "$container" >/dev/null
+          container=$(docker run -d --entrypoint /bin/sh "$IMAGE" -c '
+            /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh /tmp/openvscode-claude-smoke-data claude &&
+            exec /usr/local/bin/code-server "$@"
+          ' openvscode-claude-smoke \
+            --bind-addr 127.0.0.1:13337 \
+            --auth none \
+            --disable-telemetry \
+            --disable-update-check \
+            --disable-proxy \
+            --disable-getting-started-override \
+            --disable-workspace-trust \
+            --user-data-dir /tmp/openvscode-claude-smoke-data/data \
+            --extensions-dir /opt/codeflare/openvscode/extensions/claude \
+            /home/user/workspace)
+          ready=0
+          for _ in $(seq 1 60); do
+            if docker exec "$container" curl -fsS http://127.0.0.1:13337/ >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ] || { docker logs "$container"; exit 1; }
+          docker exec "$container" /usr/local/bin/node -e '
+            const settings = require("/tmp/openvscode-claude-smoke-data/data/User/settings.json");
+            if (settings["claudeCode.initialPermissionMode"] !== "bypassPermissions" ||
+                settings["claudeCode.allowDangerouslySkipPermissions"] !== true ||
+                settings["claudeCode.environmentVariables"]?.[0]?.value !== "/tmp/codeflare-sidebar/claude/config") process.exit(1);
+          '
+          sleep 3
+          if docker logs "$container" 2>&1 | grep -E 'Unsupported platform|Extension activation failed.*[Aa]nthropic|anthropic\.claude-code.*(error|failed)'; then
+            docker logs "$container"
+            echo 'Official Claude extension failed against code-server embedded Code.' >&2
+            exit 1
+          fi
+          if docker exec "$container" pgrep -af 'anthropic\.claude-code/.*/claude' >/tmp/claude-agent.txt; then
+            cat /tmp/claude-agent.txt
+            echo 'Official Claude process started before its panel was used.' >&2
+            exit 1
+          fi
+          printf 'official_claude_host=ready settings_path=/tmp/openvscode-claude-smoke-data/data/User/settings.json lazy_process=true\n' \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+
+      - name: Verify real code-server through the session proxy
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          container=$(docker run -d \
+            -e CONTAINER_AUTH_TOKEN=browser-ide-smoke-token \
+            -e SESSION_ID=smoke \
+            -e SESSION_MODE=advanced \
+            --entrypoint /bin/sh "$IMAGE" -c '
+              /usr/local/bin/code-server \
+                --bind-addr 127.0.0.1:13337 --auth none \
+                --disable-telemetry --disable-update-check --disable-proxy \
+                --disable-getting-started-override --disable-workspace-trust \
+                --user-data-dir /tmp/openvscode-proxy-smoke/data \
+                --extensions-dir /opt/codeflare/openvscode/extensions/none \
+                /home/user/workspace >/tmp/code-server-proxy-smoke.log 2>&1 &
+              exec /usr/local/bin/node /app/host/dist/server.js
+            ')
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for _ in $(seq 1 60); do
+            status=$(docker exec "$container" curl -sS -L --max-redirs 5 -o /tmp/prefixed-editor.html \
+              -w '%{http_code}' \
+              -H 'Authorization: Bearer browser-ide-smoke-token' \
+              -H 'Origin: https://codeflare.example' \
+              -H 'X-Forwarded-Host: codeflare.example' \
+              -H 'X-Forwarded-Proto: https' \
+              http://127.0.0.1:8080/api/vscode/smoke/ || true)
+            if [ "$status" = 200 ]; then ready=1; break; fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ] || {
+            docker logs "$container"
+            docker exec "$container" cat /tmp/code-server-proxy-smoke.log || true
+            exit 1
+          }
+          if docker exec "$container" grep -Eq '(src|href)="/' /tmp/prefixed-editor.html; then
+            docker exec "$container" grep -E '(src|href)="/' /tmp/prefixed-editor.html
+            echo 'code-server emitted a root-scoped initial asset URL through the session proxy.' >&2
+            exit 1
+          fi
+
+          docker exec "$container" curl -fsS \
+            -H 'Authorization: Bearer browser-ide-smoke-token' \
+            -H 'Origin: https://codeflare.example' \
+            -H 'X-Forwarded-Host: codeflare.example' \
+            -H 'X-Forwarded-Proto: https' \
+            http://127.0.0.1:8080/api/vscode/smoke/manifest.json \
+            -o /tmp/prefixed-manifest.json
+          asset=$(docker exec "$container" jq -r '.icons[0].src' /tmp/prefixed-manifest.json)
+          case "$asset" in
+            ./*) ;;
+            *) echo "Manifest asset escaped the session-relative path: $asset" >&2; exit 1 ;;
+          esac
+          docker exec "$container" curl -fsS \
+            -H 'Authorization: Bearer browser-ide-smoke-token' \
+            -H 'Origin: https://codeflare.example' \
+            -H 'X-Forwarded-Host: codeflare.example' \
+            -H 'X-Forwarded-Proto: https' \
+            "http://127.0.0.1:8080/api/vscode/smoke/${asset#./}" \
+            -o /dev/null
+
+          docker exec "$container" /usr/local/bin/node -e '
+            const WebSocket = require("/app/host/node_modules/ws");
+            const ws = new WebSocket(
+              "ws://127.0.0.1:8080/api/vscode/smoke/?reconnectionToken=11111111-1111-4111-8111-111111111111&reconnection=false&skipWebSocketFrames=false",
+              { headers: {
+                Authorization: "Bearer browser-ide-smoke-token",
+                Origin: "https://codeflare.example",
+                "X-Forwarded-Host": "codeflare.example",
+                "X-Forwarded-Proto": "https",
+              } },
+            );
+            const timer = setTimeout(() => {
+              process.stderr.write("prefixed code-server WebSocket did not open\n");
+              ws.terminate();
+              process.exit(1);
+            }, 10000);
+            ws.once("open", () => {
+              setTimeout(() => {
+                clearTimeout(timer);
+                if (ws.readyState !== WebSocket.OPEN) {
+                  process.stderr.write("prefixed code-server WebSocket closed during upstream handshake\n");
+                  process.exit(1);
+                }
+                process.stdout.write("prefixed_ws=ready\n");
+                ws.terminate();
+              }, 1000);
+            });
+            ws.once("unexpected-response", (_request, response) => {
+              clearTimeout(timer);
+              process.stderr.write(`prefixed code-server WebSocket returned ${response.statusCode}\n`);
+              response.resume();
+              process.exit(1);
+            });
+            ws.once("error", (error) => {
+              clearTimeout(timer);
+              process.stderr.write(`${error.message}\n`);
+              process.exit(1);
+            });
+          ' | tee -a /tmp/browser-ide-image-evidence.txt
+          printf 'prefixed_http=ready prefixed_asset=ready external_path=/api/vscode/smoke/ origin=https://codeflare.example\n' \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+
+      - name: Upload image evidence
+        if: always() && steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-ide-image-evidence
+          path: /tmp/browser-ide-image-evidence.txt
+          retention-days: 5
+          if-no-files-found: error
       - name: Provision scan scratch space and free disk
         if: steps.reuse.outputs.reused != 'true'
         # Trivy exports the full uncompressed image to a temp dir before
@@ -375,18 +611,9 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-      - name: Install wrangler (pinned to the repo's devDependency version)
+      - name: Install locked wrangler
         if: steps.reuse.outputs.reused != 'true' && inputs.registry == 'cloudflare'
-        # This job never runs `npm ci` (nothing else here needs node_modules),
-        # so wrangler is installed globally at the exact pinned version.
-        #
-        # zizmor: ignore[adhoc-packages] the version is not ad-hoc: it is read
-        # out of this repo's own package.json devDependency, so it moves only
-        # when the lockfile-managed pin moves. Installing from the lockfile
-        # instead would mean an `npm ci` of the full tree in a job that
-        # otherwise needs no node_modules. Residual gap: a global install
-        # verifies no integrity hash, unlike a lockfile install.
-        run: npm install -g "wrangler@$(node -p "require('./package.json').devDependencies.wrangler")"
+        run: npm ci --prefix .github/npm-tools/wrangler --no-audit --no-fund
 
       - name: Push image
         id: push
@@ -423,7 +650,7 @@ jobs:
               # would trip `set -e` and abort the step before any retry could run. The
               # `if` condition suppresses `set -e`; pipefail still surfaces wrangler's
               # exit through the pipe while tee keeps writing the log for URI extraction.
-              if npx wrangler containers push "${IMAGE_NAME}:${TAG}" 2>&1 | tee /tmp/push-output.txt; then
+              if .github/npm-tools/wrangler/node_modules/.bin/wrangler containers push "${IMAGE_NAME}:${TAG}" 2>&1 | tee /tmp/push-output.txt; then
                 echo "::endgroup::"
                 break
               fi

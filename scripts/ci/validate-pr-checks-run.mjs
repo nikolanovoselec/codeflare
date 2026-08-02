@@ -25,6 +25,9 @@ export function validatePrChecksRun(run, jobsResponse, receipt, expected) {
     throw new Error('Required test summary is not successful');
   }
 
+  if (receipt?.schema !== 'codeflare.pr-checks-receipt.v3') throw new Error('Verification receipt schema mismatch');
+  if (receipt?.workflowPath !== '.github/workflows/test.yml') throw new Error('Verification receipt workflow mismatch');
+  if (!Number.isInteger(receipt?.runAttempt) || receipt.runAttempt < 1) throw new Error('Verification receipt attempt is invalid');
   if (receipt?.repository !== expected.repo) throw new Error('Verification receipt repository mismatch');
   if (String(receipt?.runId) !== expected.runId) throw new Error('Verification receipt run id mismatch');
   if (!SHA_PATTERN.test(receipt?.testedCommit ?? '')) throw new Error('Verification receipt commit is malformed');
