@@ -34,7 +34,9 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 ### Lock-backed NPM Tools
 
-Privileged agent CLIs and MCP binaries install together from `preseed/npm-tools/package.json` and its committed lockfile. `.cache-bust` still invalidates their install layer on each deploy, but `npm ci` preserves reviewed registry integrity and transitive versions; weekly shadow-pin jobs update each exact direct pin and regenerate the lock after the supply-chain cooldown.
+The shared npm-tool set—agent CLIs, Bun, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp`—installs from `preseed/npm-tools/package.json` and its committed lock. `.cache-bust` still invalidates that layer on each deploy, but `npm ci` preserves reviewed registry integrity and transitive versions.
+
+Antigravity remains a checksum-verified installer outside npm. Browser Run MCP uses its own committed package lock. Weekly Shadow Pins updates each owning manifest and lock after the supply-chain cooldown.
 
 **Known trade-off:** Long-lived sessions keep the image version they started with while a later reviewed image may carry newer CLIs. Version changes remain a compatibility risk, but they now pass PR checks and image smoke instead of entering an arbitrary deploy through mutable resolution.
 

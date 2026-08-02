@@ -14,9 +14,10 @@ name: Bump Shadow Pins
 # - uv versioned GitHub archive + authoritative SHA-256 digest
 # - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
 # - pi-extensions: every dependency in preseed/agents/pi/package.json except context-mode
-#   (the @juicesharp rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents)
-#   — each is also a literal install spec in entrypoint.sh + baked into the seed;
-#   context-mode is owned atomically by its dedicated job above
+#   (the @juicesharp rpiv family, @narumitw/pi-goal, pi-web-access,
+#   pi-mcp-adapter, @gotgenes/pi-subagents) — each is also a literal install
+#   spec in entrypoint.sh + baked into the seed; context-mode is owned
+#   atomically by its dedicated job above
 # - impeccable skill bundle (vendored for Claude Code + Pi, checked via impeccable.style)
 # - actionlint (VERSION + SHA256 literals in .github/workflows/test.yml; the job
 #   resolves the new checksum from the release's checksums.txt, so its PR is
@@ -24,9 +25,9 @@ name: Bump Shadow Pins
 # - zizmor (pinned twice: the action's `version:` in zizmor.yml and the
 #   VERSION + SHA256 of the gating binary in test.yml)
 # - the five coding-agent CLIs baked into the image (claude-code, codex,
-#   opencode-ai, copilot, pi-coding-agent) as Dockerfile ARGs; the candidate is
-#   the newest release published MORE than 7 days ago, mirroring the
-#   dependabot.yml cooldown, and the bump is forward-only
+#   opencode-ai, copilot, pi-coding-agent) from the shared npm-tools lock; the
+#   candidate is the newest release published MORE than 7 days ago, mirroring
+#   the dependabot.yml cooldown, and the bump is forward-only
 # - the Antigravity CLI installer script, pinned by sha256 in the Dockerfile
 #   (a changed hash is both a normal vendor update and what substitution looks
 #   like, so its PR asks for the installer diff to be reviewed)
@@ -1947,8 +1948,8 @@ jobs:
     # The five coding-agent CLIs baked into the image. They used to install at
     # @latest, which meant the most privileged packages in the container — they
     # execute user code and hold OAuth tokens — were the only ones exempt from
-    # the cooldown dependabot.yml spends 40 lines justifying. Pinned in the
-    # Dockerfile as ARGs and moved here instead, so they still update weekly but
+    # the cooldown dependabot.yml spends 40 lines justifying. The shared
+    # npm-tools manifest and lock now own them, so they still update weekly but
     # through a PR that CI has run against.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1962,15 +1963,10 @@ jobs:
       matrix:
         include:
           - pkg: '@anthropic-ai/claude-code'
-            arg: CLAUDE_CODE_VERSION
           - pkg: '@openai/codex'
-            arg: CODEX_VERSION
           - pkg: 'opencode-ai'
-            arg: OPENCODE_VERSION
           - pkg: '@github/copilot'
-            arg: COPILOT_VERSION
           - pkg: '@earendil-works/pi-coding-agent'
-            arg: PI_CODING_AGENT_VERSION
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1984,12 +1980,11 @@ jobs:
         with:
           package: ${{ matrix.pkg }}
 
-      - name: Diff the Dockerfile pin against npm
+      - name: Diff the shared lock pin against npm
         id: ver
         env:
           COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
           PKG: ${{ matrix.pkg }}
-          ARG_NAME: ${{ matrix.arg }}
         run: |
           set -euo pipefail
           CURRENT=$(PKG="$PKG" node -p "require('./preseed/npm-tools/package.json').dependencies[process.env.PKG]")
@@ -2039,7 +2034,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG: ${{ matrix.pkg }}
-          ARG_NAME: ${{ matrix.arg }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
           BRANCH: ${{ steps.branch.outputs.branch }}
@@ -2074,7 +2068,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG: ${{ matrix.pkg }}
-          ARG_NAME: ${{ matrix.arg }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
           BRANCH: ${{ steps.branch.outputs.branch }}
@@ -2099,7 +2092,7 @@ jobs:
           # The entrypoint injects settings Claude Code owns. A rename or a
           # behaviour change upstream cannot fail a test — the setting just
           # stops applying — so the reminder rides the bump that invalidates it.
-          if [ "$ARG_NAME" = "CLAUDE_CODE_VERSION" ]; then
+          if [ "$PKG" = '@anthropic-ai/claude-code' ]; then
             BODY=$(cat <<EOF
           $BODY
           - [ ] \`disableAgentView\` still suppresses the full-screen agent view, and background subagents still spawn under it (REQ-AGENT-099 AC5). A test asserts both mode literals still carry the key, but nothing can assert the upstream half — that Claude Code still honours it and still spawns background subagents under it; if that second half breaks, the memory-capture and vault-extract hooks stop firing silently.

@@ -99,7 +99,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.deepEqual(contextMode, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
   });
 
-  it('coexistence: a prior settings that enabled context-mode is reset to disabled, with managed extensions and unrelated packages preserved', () => {
+  it('startup removes the retired package while preserving managed and unrelated packages', () => {
     const initial = JSON.stringify({
       packages: [
         { source: 'npm:context-mode@1.0.169', extensions: [] },
