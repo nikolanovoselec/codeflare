@@ -255,8 +255,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The OSSF Scorecard workflow runs on push to main and weekly. <!-- @manual -->
 2. Scorecard results are uploaded to GitHub Security. <!-- @manual -->
-3. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
-4. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+3. A manual dispatch scans only the repository default branch; a non-default dispatch records an explicit successful no-op instead of invoking Scorecard's unsupported branch path. <!-- @impl: .github/workflows/scorecard.yml::unsupported-ref --> <!-- @impl: .github/workflows/scorecard.yml::scorecard --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
+4. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+5. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
 
 **Constraints:**
 
