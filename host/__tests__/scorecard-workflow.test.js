@@ -31,7 +31,10 @@ describe('REQ-OPS-009: Scorecard default-branch dispatch routing', () => {
       `github.event_name == 'workflow_dispatch' && !(${defaultBranchExpression})`,
     );
     assert.equal(guard.permissions?.contents, 'read');
+    assert.equal(guard.steps?.[0]?.env?.REF_NAME, '${{ github.ref_name }}');
     assert.match(guard.steps?.[0]?.run ?? '', /only supports the default branch/);
+    assert.match(guard.steps?.[0]?.run ?? '', /\$REF_NAME/);
+    assert.doesNotMatch(guard.steps?.[0]?.run ?? '', /\$\{\{/);
     assert.match(guard.steps?.[0]?.run ?? '', /GITHUB_STEP_SUMMARY/);
   });
 });

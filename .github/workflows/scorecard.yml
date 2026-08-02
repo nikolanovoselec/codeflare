@@ -22,8 +22,10 @@ jobs:
       contents: read
     steps:
       - name: Explain default-branch requirement
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          echo "Scorecard only supports the default branch; '${{ github.ref_name }}' was not scanned." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Scorecard only supports the default branch; '$REF_NAME' was not scanned." | tee -a "$GITHUB_STEP_SUMMARY"
 
   scorecard:
     if: github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
