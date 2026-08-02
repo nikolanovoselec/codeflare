@@ -692,9 +692,11 @@ async function acknowledgeCompletedReview(
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   let resumedWithoutBoundary = false;
+  let deferredSettledRecoveryHead: string | undefined;
 
   pi.on("session_start", (event) => {
     resumedWithoutBoundary = event?.reason === "resume";
+    deferredSettledRecoveryHead = undefined;
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -749,6 +751,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       reviewers: requiredLanes,
       ciEvent,
     });
+    deferredSettledRecoveryHead = review.pr.headRefOid;
   });
 
   pi.on("agent_end", async (_event, ctx) => {
@@ -769,6 +772,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       || !preview.reviewPrNumber
       || !preview.reviewBase
       || preview.reviewBoundaryToolUseId !== preview.boundary.toolUseId) return;
+    if (deferredSettledRecoveryHead === preview.reviewHead) {
+      deferredSettledRecoveryHead = undefined;
+      return;
+    }
     const context = boundaryContext(ctx, preview.reviewRepo);
     if (!context) return;
     const pr = await dependencies.queryPr(context.repo, preview.reviewBranch);
@@ -833,6 +840,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         reviewers: requiredLanes,
         ciEvent,
       });
+      deferredSettledRecoveryHead = review.pr.headRefOid;
       return;
     }
 

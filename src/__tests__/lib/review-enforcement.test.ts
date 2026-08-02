@@ -454,7 +454,7 @@ afterEach(() => {
 });
 
 describe('Pi review reminder and settled enforcement', () => {
-  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110: emits one plan before settled recovery', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -514,6 +514,9 @@ describe('Pi review reminder and settled enforcement', () => {
     ]);
     harness.sent.splice(0);
     await harness.emit('agent_settled');
+    expect(harness.sent).toEqual([]);
+
+    await harness.emit('agent_settled');
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
@@ -539,7 +542,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-112: pauses an active Goal once at review launch and resumes the same Goal from the FIX reminder', async () => {
+  it('REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114: pauses an active Goal once at review launch and resumes the same Goal from the FIX reminder', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -561,12 +564,19 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
       assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
-      notification('code-1'),
-      notification('spec-1'),
-      notification('doc-1'),
-      triageMessage(),
+      notification('ci-1'),
     );
+    await harness.emit('agent_end');
+    expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
 
+    for (const reviewer of ['code-1', 'spec-1', 'doc-1']) {
+      appendSession(fixture.sessionFile, notification(reviewer));
+      await harness.emit('agent_end');
+      expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
+    }
+
+    appendSession(fixture.sessionFile, triageMessage());
     await harness.emit('agent_end');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
@@ -768,7 +778,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-112: fails open when the Goal extension is unavailable', async () => {
+  it('REQ-AGENT-113: fails open when the Goal extension is unavailable', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     harness.setGoalControlAvailable(false);
@@ -787,7 +797,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-112: keeps FIX delivery fail-open when Goal is removed during review', async () => {
+  it('REQ-AGENT-113: keeps FIX delivery fail-open when Goal is removed during review', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -818,7 +828,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
   });
 
-  it('REQ-AGENT-112: never resumes a Goal that the user reactivated after the boundary pause', async () => {
+  it('REQ-AGENT-113: never resumes a replacement Goal after the boundary pause', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -831,6 +841,36 @@ describe('Pi review reminder and settled enforcement', () => {
       goalState('goal-1', 'paused'),
       goalState('goal-2', 'active'),
       goalState('goal-2', 'paused'),
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_end');
+
+    expect(harness.goalControlRequests).toEqual([{
+      action: 'pause',
+      goalId: 'goal-1',
+    }]);
+    expect(harness.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+  });
+
+  it('REQ-AGENT-113: never resumes the same Goal after independent reactivation', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'paused'),
+      goalState('goal-1', 'active'),
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
@@ -2169,7 +2209,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-041/REQ-AGENT-058/REQ-AGENT-112: a merged PR releases Goal without consuming bypass or acknowledging', async () => {
+  it('REQ-AGENT-041/REQ-AGENT-058/REQ-AGENT-113/REQ-AGENT-114: a merged PR releases Goal without consuming bypass or acknowledging', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
