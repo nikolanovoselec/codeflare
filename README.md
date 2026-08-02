@@ -166,6 +166,7 @@ Codeflare's repository applies the same delivery rules that it gives to agents:
 
 - PR Checks run path-aware lint, type checks, audits, backend and frontend tests, host tests, coverage, dependency review, workflow analysis, bundle limits, and complete-image Browser IDE verification.
 - Container publication requires content-addressed input verification and a Trivy scan of fixable HIGH and CRITICAL findings. Fresh images carry an SBOM and provenance.
+- Published source releases include deterministic archives, checksums, keyless Sigstore bundles, and GitHub provenance; verification commands are documented in [CI/CD and Testing](documentation/lanes/ci-cd.md#keyless-release-signing).
 - CodeQL, property-based fuzzing, workflow static analysis, dependency monitoring, and external security probes run on their owned schedules.
 - Deployment verifies the exact reviewed head and source tree before promoting Worker assets and the session image.
 - Rollback starts from a known successful deployment and requires the original failed user flow to pass before the incident closes.

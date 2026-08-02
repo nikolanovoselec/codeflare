@@ -2,7 +2,7 @@
 
 CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cost model.
 
-**Domain owner:** GitHub Actions workflows, deploy.yml, container-image.yml, test.yml, pentest.yml, fuzz.yml, stress-test.yml
+**Domain owner:** GitHub Actions workflows, deploy.yml, container-image.yml, sign-release.yml, test.yml, pentest.yml, fuzz.yml, stress-test.yml
 
 ### Key Concepts
 
@@ -837,6 +837,38 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate)
 
 **Verification:** Automated test (host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates).
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-034: Keyless GitHub release signing
+
+**Intent:** Every published source release provides downloadable artifacts whose origin, exact source revision, and post-publication integrity can be verified without Codeflare storing a long-lived signing key.
+
+**Applies To:** Release consumer
+
+**Acceptance Criteria:**
+
+1. Publishing a GitHub release signs it automatically; an explicit tag input can safely recover or repeat signing for an existing release. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (signs published releases and supports an explicit recovery dispatch) -->
+2. Signing fails unless the release tag has the exact `vMAJOR.MINOR.PATCH` form, names an existing non-draft release, and resolves to a commit reachable from `main`; recovery dispatches must themselves run from `main`. <!-- @impl: .github/workflows/sign-release.yml::Validate release source --> <!-- @test: host/__tests__/release-signing-workflow.test.js (binds signing to a validated semantic-version tag reachable from main) -->
+3. The workflow creates a deterministic, tag-prefixed source archive and SHA-256 manifest from the validated tag commit. <!-- @impl: .github/workflows/sign-release.yml::Build deterministic release archive --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
+4. GitHub OIDC supplies short-lived keyless identity to Sigstore Cosign, which signs both the archive and checksum manifest and emits self-contained Sigstore bundles; no repository signing key or password is read. <!-- @impl: .github/workflows/sign-release.yml::Sign release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
+5. GitHub build-provenance attestations bind both release assets to the release workflow, repository, and exact source revision. <!-- @impl: .github/workflows/sign-release.yml::Attest release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (publishes GitHub provenance for the exact archive and checksum manifest) -->
+6. The archive, checksum manifest, and both `.sigstore.json` bundles are uploaded to the matching GitHub release only after signing and attestation succeed. <!-- @impl: .github/workflows/sign-release.yml::Upload signed release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
+
+**Constraints:**
+
+- Release signing is separate from deployment container provenance; neither substitutes for the other.
+- Workflow dependencies and the Cosign release are immutable pins reviewed in source.
+- The job alone receives least-privilege `contents: write`, `id-token: write`, and `attestations: write`; repository-wide permissions remain read-only.
+- A repeated recovery dispatch deterministically replaces only the four assets owned by this workflow.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-019](#req-ops-019-security-posture-scanning-workflows)
+
+**Verification:** Automated workflow contract test and an observed signing run on a published release.
 
 **Status:** Implemented
 
