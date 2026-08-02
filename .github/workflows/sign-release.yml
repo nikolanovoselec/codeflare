@@ -58,7 +58,7 @@ jobs:
           jq -e --arg tag "$RELEASE_TAG" \
             '.tagName == $tag and .isDraft == false' <<< "$release_json" >/dev/null
           release_commit="$(git rev-parse "$RELEASE_TAG^{commit}")"
-          git fetch --no-tags origin main
+          git fetch --no-tags origin main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor "$release_commit" origin/main; then
             echo "::error::$RELEASE_TAG does not identify a commit reachable from main"
             exit 1
