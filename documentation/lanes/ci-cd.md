@@ -30,6 +30,7 @@ The root npm lane owns application Wrangler. Stress and container-image workflow
 |----------|---------|-------------|
 | `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub; optional advanced `verified_run_id`) | Automatically reuses a successful exact-head, exact-tree PR Checks receipt or falls back to inline checks, then runs staged `prepare` → (`build-worker` ∥ `container`) → `deploy`. |
 | `container-image.yml` | `workflow_call` (from `deploy.yml`) | Reusable container build → Trivy scan → push, parameterized by registry (Cloudflare managed registry, or Docker Hub as connection-drop bypass). Tags images `in-<input-hash>` and **reuses the existing already-scanned image when inputs are unchanged**, skipping the multi-GB build+scan; a weekly hash salt bounds reuse at seven days. |
+| `sign-release.yml` | GitHub release publication + recovery `workflow_dispatch` with an existing tag | Validates that a semantic-version release tag is reachable from `main`, creates a deterministic source archive and checksum manifest, keylessly signs both with Sigstore, records GitHub build provenance, and uploads the four verifiable assets to that release. |
 | `test.yml` | PRs to `main` or `develop`, push to `main`, `merge_group`, `workflow_dispatch` + nightly schedule (all lanes) | Parallel path-filtered quality (lint, knip, audit, seed drift), typecheck, workflow-audit, bundle-size, coverage, test-suite, host, and dependency-review lanes. One fail-closed action runs four backend shards, a Node leg, three frontend shards, and landing. The required `test` summary fails failed/cancelled lanes and passes unaffected skipped lanes. |
 | `zizmor.yml` | PRs and pushes touching `.github/**` + `workflow_dispatch` | Records the workflow security audit as SARIF in code scanning, so the alert history is preserved. It only records — the blocking check is the `workflow-audit` lane in `test.yml`. Its zizmor version is pinned (the action defaults to `latest`, which floats the auditor). |
 | `codeql.yml` | Push to `main`, PRs to `main` or `develop`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF ([REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows)). Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
@@ -56,6 +57,29 @@ The code-server job validates upstream release tags against a strict version pat
 The `pi-extensions` bump is data-driven: `pi-extensions-discover` lists every dependency in `preseed/agents/pi/package.json` except context-mode. That set is `@gotgenes/pi-subagents` plus six managed extensions: the three `@juicesharp` packages, `@narumitw/pi-goal`, `pi-web-access`, and `pi-mcp-adapter`. A `fail-fast: false` matrix gives each package its own bump leg and PR; the dedicated `context-mode` job owns its coupled copies.
 
 Each package version also appears in `entrypoint.sh`, pinned-version tests, and the generated seed. Dependabot intentionally skips the Pi preseed directory, so Shadow Pins updates every owning copy together.
+
+### Keyless release signing
+
+Published `vMAJOR.MINOR.PATCH` releases receive a deterministic `codeflare-vMAJOR.MINOR.PATCH.tar.gz`, `SHA256SUMS`, and a `.sigstore.json` bundle for each file. The signing job rejects drafts, malformed tags, and commits not reachable from `main`. A manual dispatch must run from `main`, accepts only an existing release tag, and reruns the same deterministic path, so recovery does not create or retarget releases.
+
+Cosign obtains a short-lived certificate from GitHub's OIDC identity; Codeflare stores no private signing key or signing password. GitHub artifact attestations independently bind the archive and checksum manifest to the repository, workflow, and source revision. This source-release evidence complements rather than replaces the container-image provenance created during deployment.
+
+After downloading all four assets from a release, verify the checksum and Sigstore bundles:
+
+```bash
+sha256sum --check SHA256SUMS
+cosign verify-blob "codeflare-${TAG}.tar.gz" \
+  --bundle "codeflare-${TAG}.tar.gz.sigstore.json" \
+  --certificate-identity-regexp '^https://github.com/nikolanovoselec/codeflare/.github/workflows/sign-release.yml@refs/(tags/v[0-9]+\\.[0-9]+\\.[0-9]+|heads/main)$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/nikolanovoselec/codeflare/.github/workflows/sign-release.yml@refs/(tags/v[0-9]+\\.[0-9]+\\.[0-9]+|heads/main)$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+gh attestation verify "codeflare-${TAG}.tar.gz" --repo nikolanovoselec/codeflare
+```
+
+Set `TAG` to the downloaded release tag, including its leading `v`. The signature check proves the workflow identity; the checksum manifest alone does not. Implements [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-keyless-github-release-signing).
 
 ### GitHub Environments
 

@@ -579,6 +579,12 @@ Per-user cap on concurrent running sessions, configurable by role. The two varia
 
 Browse endpoint validates prefix parameter against directory traversal (`..` rejection) and protected path access via `validateKey()` in `src/routes/storage/validation.ts`.
 
+### Keyless source-release identity
+
+GitHub source releases are signed by [the dedicated release workflow](../../.github/workflows/sign-release.yml), not by a private key stored in repository secrets. GitHub OIDC gives Cosign a short-lived certificate bound to this repository, the immutable workflow path, and the release tag. The workflow first proves that the semantic-version tag resolves to a commit reachable from `main`, then signs both its deterministic archive and checksum manifest and publishes GitHub provenance attestations for the same files.
+
+Consumers must verify the Sigstore bundle's workflow identity and OIDC issuer in addition to checking `SHA256SUMS`; a checksum downloaded beside a tampered archive is not independent evidence. Full commands and rotation/recovery behavior are in [CI/CD § Keyless release signing](ci-cd.md#keyless-release-signing). Container-image provenance remains a separate deployment boundary. ([REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-keyless-github-release-signing))
+
 ### Container Image Scanning
 
 **Threat:** A deploy could promote a container with a fixable HIGH/CRITICAL vulnerability or an exception that has drifted beyond its reviewed artifact.
