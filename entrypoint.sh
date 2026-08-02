@@ -2543,12 +2543,16 @@ configure_consult_llm() {
         "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env}}}')" \
         "Claude Code"
 
-    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape). Keep the
-    # server behind the adapter's lazy `mcp` proxy so consult-llm-mcp starts only
-    # when the user explicitly asks to consult an external LLM.
+    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape). Adapter
+    # 2.15+ interprets a leading `!` as a command-backed secret and `!!` as a
+    # literal leading bang, so encode only Pi's copy; Claude receives raw env.
+    # Keep the server behind the adapter's lazy `mcp` proxy so consult-llm-mcp
+    # starts only when the user explicitly asks to consult an external LLM.
+    pi_env_obj=$(printf '%s' "$env_obj" | jq -c \
+        'with_entries(.value |= if type == "string" and startswith("!") then "!" + . else . end)')
     mkdir -p "$USER_HOME/.pi/agent"
     _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" \
-        "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
+        "$(jq -n --argjson env "$pi_env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
         "Pi"
 }
 configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"
