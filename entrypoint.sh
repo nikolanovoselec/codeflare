@@ -2334,7 +2334,7 @@ const required = [
   'npm:@juicesharp/rpiv-todo@2.1.0',
   'npm:pi-web-access@0.13.0',
   'npm:pi-mcp-adapter@2.13.0',
-  'npm:pi-goal-list-loop-audit@0.34.16',
+  'npm:@narumitw/pi-goal@0.43.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
 // every fresh container start until upstream ships a memory-safe Pi adapter.
@@ -2342,11 +2342,11 @@ const disabledPackageIds = new Set(['npm:context-mode']);
 const disabledPackages = [
   { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
 ];
-// Migration: hard-remove the deprecated third-party graphify wrapper from existing settings.
-// graphify is now the first-party graphify-native.ts extension; loading both registers the same
-// tools (graphify_query/path/explain) and Pi refuses to start. Unlike disabled packages this is
-// dropped and never re-added, so an upgrade from the @gaodes era loads cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify']);
+// Migration: hard-remove retired managed packages from existing settings.
+// The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
+// replaced by @narumitw/pi-goal and would otherwise keep loading from persisted user settings.
+// Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;

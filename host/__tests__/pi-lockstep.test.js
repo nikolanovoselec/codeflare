@@ -14,17 +14,17 @@ function writeJson(path, value) {
 }
 
 describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification', () => {
-  it('rejects a missing runtime-path artifact and accepts the expected artifact', () => {
+  it('rejects a missing @narumitw/pi-goal entrypoint artifact and accepts the expected artifact', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-goal-cache-'));
     try {
       const installedRoot = join(directory, 'installed');
       const runtimeRoot = join(directory, 'runtime');
-      const sourceDirectory = join(installedRoot, 'extensions', 'loops');
+      const sourceDirectory = join(installedRoot, 'src');
       mkdirSync(sourceDirectory, { recursive: true });
       mkdirSync(runtimeRoot);
-      const installedSource = join(sourceDirectory, 'goal.ts');
-      const runtimeSource = join(runtimeRoot, 'goal.ts');
-      writeFileSync(installedSource, 'export default function goal() {}\n');
+      const installedSource = join(sourceDirectory, 'index.ts');
+      const runtimeSource = join(runtimeRoot, 'index.ts');
+      writeFileSync(installedSource, 'export { default } from "./goal.js";\n');
       symlinkSync(installedSource, runtimeSource);
 
       const cacheDirectory = join(directory, 'cache');
@@ -35,7 +35,7 @@ describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verif
       const realSource = realpathSync(runtimeSource);
       const algorithm = getFips?.() ? 'sha256' : 'md5';
       const hash = createHash(algorithm).update(realSource).digest('hex').slice(0, 8);
-      const expectedArtifact = join(cacheDirectory, `loops-goal.${hash}.mjs`);
+      const expectedArtifact = join(cacheDirectory, `src-index.${hash}.mjs`);
       assert.equal(pathResult.stdout, `${expectedArtifact}\n`);
 
       const missing = spawnSync(process.execPath, [script, '--verify-jiti-cache', runtimeSource, cacheDirectory], {

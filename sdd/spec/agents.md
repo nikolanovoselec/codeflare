@@ -60,17 +60,18 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-### REQ-AGENT-111: Reviewed Goal Workflows in Pi Sessions
+### REQ-AGENT-111: Native Goal Workflow in Pi Sessions
 
-**Intent:** Pi sessions must provide durable goal, list, loop, and isolated-audit workflows without adding cold-start transpilation work.
+**Intent:** Pi sessions must provide session-scoped autonomous goal completion without taking ownership of Codeflare's custom subagents or adding cold-start transpilation work.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi's required package set includes one exact-pinned, integrity-locked Goal package. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
-2. The image warm-up loads Goal's package extension through the same installed path used by runtime sessions. <!-- @impl: Dockerfile::goal_source --> <!-- @manual -->
+1. Pi's required package set includes one exact-pinned, integrity-locked `@narumitw/pi-goal` package. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
+2. The image warm-up loads Goal's declared `src/index.ts` package entrypoint through the same installed path used by runtime sessions. <!-- @impl: Dockerfile::goal_source --> <!-- @manual -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the complete-image PR check; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
+4. The required and prewarmed package sets exclude `pi-goal-list-loop-audit`, and startup removes its persisted package setting, so Goal leaves Codeflare's custom Explore agent untouched and emits no glla ownership warning. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
 
 **Constraints:** Goal upgrades remain exact-pinned and pass normal review, lock regeneration, and complete-image verification.
 

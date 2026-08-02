@@ -84,7 +84,7 @@ Pi is warmed at Docker build time by running `pi --version`, which triggers V8 t
 - The package list is **derived** from the preseed `package.json`, so a version bump there warms the right set automatically.
 - The build is **fail-closed**: after warm-up, it requires a cache artifact for every local preseed extension and for Goal. <!-- @impl: Dockerfile::goal_hit -->
 
-    Local extensions are checked by cache filename (`extensions-<base>.<hash>.mjs`). A separate explicit Pi load warms Goal's installed entrypoint before its expected artifact is derived from the resolved source path and required to be a regular file ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-reviewed-goal-workflows-in-pi-sessions) AC2/AC3). An added extension, one modified into a non-loading state, a skipped extension, or a Pi CLI change that breaks warm-up therefore fails the build instead of silently regressing production startup.
+    Local extensions are checked by cache filename (`extensions-<base>.<hash>.mjs`). A separate explicit Pi load warms `@narumitw/pi-goal` from its installed `src/index.ts` entrypoint. Its expected artifact is derived from the resolved source path and must be a regular file ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC2/AC3). An added extension, one modified into a non-loading state, a skipped extension, or a Pi CLI change that breaks warm-up therefore fails the build instead of silently regressing production startup.
 
 ### OpenCode Database Pre-Initialization
 
