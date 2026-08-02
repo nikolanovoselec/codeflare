@@ -32,8 +32,8 @@ The root npm lane owns application Wrangler. Stress and container-image workflow
 | `container-image.yml` | `workflow_call` (from `deploy.yml`) | Reusable container build → Trivy scan → push, parameterized by registry (Cloudflare managed registry, or Docker Hub as connection-drop bypass). Tags images `in-<input-hash>` and **reuses the existing already-scanned image when inputs are unchanged**, skipping the multi-GB build+scan; a weekly hash salt bounds reuse at seven days. |
 | `test.yml` | PRs to `main` or `develop`, push to `main`, `merge_group`, `workflow_dispatch` + nightly schedule (all lanes) | Parallel path-filtered quality (lint, knip, audit, seed drift), typecheck, workflow-audit, bundle-size, coverage, test-suite, host, and dependency-review lanes. One fail-closed action runs four backend shards, a Node leg, three frontend shards, and landing. The required `test` summary fails failed/cancelled lanes and passes unaffected skipped lanes. |
 | `zizmor.yml` | PRs and pushes touching `.github/**` + `workflow_dispatch` | Records the workflow security audit as SARIF in code scanning, so the alert history is preserved. It only records — the blocking check is the `workflow-audit` lane in `test.yml`. Its zizmor version is pinned (the action defaults to `latest`, which floats the auditor). |
-| `codeql.yml` | Push to `main`, PRs to `main` or `develop`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF. Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
-| `fuzz.yml` | PRs to `main` or `develop`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
+| `codeql.yml` | Push to `main`, PRs to `main` or `develop`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF ([REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows)). Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
+| `fuzz.yml` | PRs to `main` or `develop`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations; [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing)) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
 | `stress-test.yml` | `workflow_dispatch` | k6 stress tests from `stress/` (API throughput, session lifecycle, storage operations, rate-limit validation) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
@@ -214,7 +214,7 @@ A file lost to a mis-shard, a stale exclude, or a worker dying mid-run fails the
 
 ### Property-Based Fuzz Tests
 
-**Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to `main` or `develop`, weekly, and manual dispatch.
+**Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to `main` or `develop`, weekly, and manual dispatch ([REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing)).
 **Local:** Default 1,000 iterations. Override with `FAST_CHECK_NUM_RUNS=50000`.
 
 | Suite | File | What it covers |

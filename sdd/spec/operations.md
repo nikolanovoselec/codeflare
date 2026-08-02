@@ -471,8 +471,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The fuzz workflow runs on PRs to `main` and `develop`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`. <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-018/019: protected branch required-check triggers) -->
+1. The fuzz workflow runs on PRs to `main` and `develop`. <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-018/019: protected branch required-check triggers) -->
 2. Fuzz testing uses fast-check with 50,000 iterations for property-based testing. <!-- @manual -->
+3. The fuzz workflow runs weekly (Sunday 04:00 UTC) and on `workflow_dispatch`. <!-- @manual -->
 
 **Constraints:**
 
@@ -482,7 +483,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated trigger contract; manual verification of the scheduled and dispatched run behavior.
+**Verification:** Automated protected-branch trigger contract for AC1; manual verification for AC2 and AC3.
 
 **Status:** Implemented
 
@@ -496,8 +497,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. A CodeQL static-analysis workflow runs on pushes to main, on PRs to `main` and `develop`, and on a weekly schedule. Results are uploaded to GitHub Security. <!-- @impl: .github/workflows/codeql.yml::analyze --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-018/019: protected branch required-check triggers) -->
+1. A CodeQL static-analysis workflow runs on pushes to main and on a weekly schedule, and uploads results to GitHub Security. <!-- @manual -->
 2. An OSSF Scorecard workflow runs a security-posture assessment on push to main and on a weekly schedule. <!-- @manual -->
+3. CodeQL runs on PRs to `main` and `develop`. <!-- @impl: .github/workflows/codeql.yml::analyze --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-018/019: protected branch required-check triggers) -->
 
 **Constraints:**
 
@@ -507,7 +509,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated CodeQL trigger contract; manual verification of SARIF upload and scheduled Scorecard behavior.
+**Verification:** Automated protected-branch CodeQL trigger contract for AC3; manual verification for AC1 and AC2.
 
 **Status:** Implemented
 
