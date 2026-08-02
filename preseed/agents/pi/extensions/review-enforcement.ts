@@ -194,13 +194,15 @@ async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string
   }
   if (goal.status !== "active") return;
 
-  const result = await requestGoalControl(pi, "pause", goal.id);
-  if (!result?.ok || result.goalId !== goal.id || result.status !== "paused") return;
   try {
     pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, { head, goalId: goal.id } satisfies ReviewGoalPause);
   } catch (error) {
-    await requestGoalControl(pi, "resume", goal.id);
-    notifyGoalBridgeFailure(ctx, `Could not record Goal pause for PR review: ${String(error)}`);
+    notifyGoalBridgeFailure(ctx, `Could not record Goal review ownership before pausing: ${String(error)}`);
+    return;
+  }
+  const result = await requestGoalControl(pi, "pause", goal.id);
+  if (!result?.ok || result.goalId !== goal.id || result.status !== "paused") {
+    clearReviewGoalPause(pi);
   }
 }
 

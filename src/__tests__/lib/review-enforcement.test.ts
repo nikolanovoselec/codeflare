@@ -539,7 +539,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-111: pauses an active Goal once at review launch and resumes the same Goal from the FIX reminder', async () => {
+  it('REQ-AGENT-112: pauses an active Goal once at review launch and resumes the same Goal from the FIX reminder', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -583,7 +583,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-111: transfers an owned pause to a replacement PR head and resumes after its FIX reminder', async () => {
+  it('REQ-AGENT-112: transfers an owned pause to a replacement PR head and resumes after its FIX reminder', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -632,7 +632,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-111: rolls back a paused Goal when replacement-head ownership cannot be recorded', async () => {
+  it('REQ-AGENT-112: rolls back a paused Goal when replacement-head ownership cannot be recorded', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -671,7 +671,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toBeNull();
   });
 
-  it('REQ-AGENT-111: retains failed rollback ownership and releases it after replacement-head review', async () => {
+  it('REQ-AGENT-112: retains failed rollback ownership and releases it after replacement-head review', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -732,7 +732,43 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toBeNull();
   });
 
-  it('REQ-AGENT-111: fails open when the Goal extension is unavailable', async () => {
+  it('REQ-AGENT-112: does not pause when review ownership cannot be recorded', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const staleHead = fixture.base;
+    appendSession(fixture.sessionFile,
+      {
+        type: 'custom',
+        id: nextId('goal-pause'),
+        customType: 'pr-boundary-goal-pause',
+        data: { head: staleHead, goalId: 'stale-goal' },
+      },
+      goalState('goal-1', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    const appendEntry = harness.pi.appendEntry;
+    harness.pi.appendEntry = (customType, data) => {
+      if (customType === 'pr-boundary-goal-pause'
+        && (data as { head?: string } | null)?.head === fixture.head) {
+        throw new Error('simulated ownership persistence failure');
+      }
+      appendEntry(customType, data);
+    };
+
+    await harness.emit('tool_result', boundaryEvent());
+
+    expect(harness.goalControlRequests).toEqual([]);
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-plan');
+    expect(harness.notifications.at(-1)).toContain('before pausing');
+    const entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toEqual({
+      head: staleHead,
+      goalId: 'stale-goal',
+    });
+  });
+
+  it('REQ-AGENT-112: fails open when the Goal extension is unavailable', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     harness.setGoalControlAvailable(false);
@@ -751,7 +787,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-111: keeps FIX delivery fail-open when Goal is removed during review', async () => {
+  it('REQ-AGENT-112: keeps FIX delivery fail-open when Goal is removed during review', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -782,7 +818,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
   });
 
-  it('REQ-AGENT-111: never resumes a Goal that the user reactivated after the boundary pause', async () => {
+  it('REQ-AGENT-112: never resumes a Goal that the user reactivated after the boundary pause', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -2133,7 +2169,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-041/REQ-AGENT-058: a merged PR neither consumes bypass nor writes acknowledgement', async () => {
+  it('REQ-AGENT-041/REQ-AGENT-058/REQ-AGENT-112: a merged PR releases Goal without consuming bypass or acknowledging', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,

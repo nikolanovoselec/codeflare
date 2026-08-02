@@ -60,7 +60,7 @@ const fixtureSource = `function registerGoalRuntime(pi: ExtensionAPI, options: G
 `;
 
 describe('REQ-AGENT-111: pi-goal review control patch', () => {
-  it('adds one idempotent session-bound pause/resume control contract', () => {
+  it('REQ-AGENT-111/REQ-AGENT-112: adds one idempotent session-bound pause/resume control contract', () => {
     const patched = patchPiGoalSource(fixtureSource);
 
     assert.match(patched, new RegExp(PATCH_MARKER));
@@ -77,7 +77,7 @@ describe('REQ-AGENT-111: pi-goal review control patch', () => {
     assert.equal(patchPiGoalSource(patched), patched);
   });
 
-  it('REQ-AGENT-111: suppresses only the bridge-owned resume prompt', async () => {
+  it('REQ-AGENT-112: suppresses only the bridge-owned resume prompt', async () => {
     const promptCalls = [];
     const Controller = executablePatchedController();
     const controller = new Controller({
@@ -94,7 +94,7 @@ describe('REQ-AGENT-111: pi-goal review control patch', () => {
     assert.deepEqual(promptCalls, [[{ session: 'user' }, 'resumed-goal', 'resumed-goal:paused']]);
   });
 
-  it('fails closed on package-version or source-layout drift', () => {
+  it('REQ-AGENT-111: fails closed on package-version or source-layout drift', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-review-control-'));
     mkdirSync(join(root, 'src'));
     writeFileSync(join(root, 'package.json'), '{"version":"0.43.0"}\n');
