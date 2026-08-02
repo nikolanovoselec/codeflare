@@ -9,7 +9,7 @@
     "@juicesharp/rpiv-todo": "2.1.0",
     "@narumitw/pi-goal": "0.43.0",
     "context-mode": "1.0.169",
-    "pi-mcp-adapter": "2.13.0",
+    "pi-mcp-adapter": "2.15.0",
     "pi-web-access": "0.13.0"
   },
   "devDependencies": {

@@ -232,7 +232,10 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. The Pi entrypoint-owned
+`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Because adapter 2.15+
+reserves a leading `!` for command-backed secrets, the entrypoint doubles that
+prefix only in Pi's generated env value so a provider key beginning with `!`
+remains literal; Claude's value is unchanged. The Pi entrypoint-owned
 `consult-llm` server entry is replaced on each start with `lifecycle: "lazy"`,
 removing the old always-on `keep-alive` / `directTools` fields while preserving
 unrelated user MCP servers in the same file ([REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).

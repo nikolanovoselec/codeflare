@@ -136,6 +136,20 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
     assert.ok(!('CONSULT_LLM_OPENAI_BACKEND' in env), 'API path sets no codex backend var');
   });
 
+  it('pi-mcp-adapter receives an escaped literal key when the provider key starts with bang', () => {
+    const h = buildHarness(baseTmp, { openaiKey: '!literal-key' });
+    assert.equal(
+      h.claudeJson.mcpServers['consult-llm'].env.OPENAI_API_KEY,
+      '!literal-key',
+      'Claude receives the provider key without adapter encoding',
+    );
+    assert.equal(
+      h.piMcp.mcpServers['consult-llm'].env.OPENAI_API_KEY,
+      '!!literal-key',
+      'Pi adapter receives its literal-leading-bang escape',
+    );
+  });
+
   // AC3: when both are present the subscription wins, but the key rides along as a fallback.
   it('codex auth + OpenAI key: codex-cli backend with the API key as fallback', () => {
     const h = buildHarness(baseTmp, { codexAuth: true, openaiKey: 'sk-openai' });
