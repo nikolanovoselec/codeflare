@@ -30,6 +30,31 @@ function runFunction(name, setup, invocation, env = {}) {
 }
 
 describe('entrypoint production helpers', () => {
+  it('REQ-AGENT-111 AC4: initializes Goal tool visibility once and preserves existing preferences', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+
+    const first = runFunction(
+      'configure_pi_goal_defaults',
+      '',
+      'configure_pi_goal_defaults',
+      { USER_HOME: fixture },
+    );
+    assert.equal(first.status, 0, first.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), { toolVisibility: 'after-first-goal' });
+
+    const userSettings = '{"toolVisibility":"always","continuationLimits":{"automaticTurns":7},"rpc":{"enabled":true}}';
+    writeFileSync(configPath, userSettings);
+    const second = runFunction(
+      'configure_pi_goal_defaults',
+      '',
+      'configure_pi_goal_defaults',
+      { USER_HOME: fixture },
+    );
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(configPath, 'utf8'), userSettings);
+  });
+
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'graphify-path-'));
     const source = join(fixture, 'tools/graphify');

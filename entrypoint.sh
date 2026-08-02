@@ -2280,6 +2280,16 @@ else
     update_sync_status "skipped" "$SYNC_ERROR"
 fi
 
+configure_pi_goal_defaults() {
+    local goal_config="${PI_GOAL_CONFIG_FILE:-$USER_HOME/.pi/agent/pi-goal.json}"
+    if [ -e "$goal_config" ]; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$goal_config")"
+    printf '{\n  "toolVisibility": "after-first-goal"\n}\n' > "$goal_config"
+    echo "[entrypoint] Pi Goal configured for capability-filtered tool activation"
+}
+
 warm_pi_npm_dependencies() {
     local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
     local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
@@ -2418,6 +2428,7 @@ update_pi_when_fast_start_disabled() {
 # MAIN EXECUTION), which leaves the terminal server gated in "warming up"
 # forever and no session can attach. A failed Pi warm-up must degrade, not
 # block startup. Same cold-start discipline as PR #364/#365.
+configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
 update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
 

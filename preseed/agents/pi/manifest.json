@@ -99,12 +99,6 @@
       "advanced"
     ]
   },
-  "pi-goal.json": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
   "extensions/graphify-native.ts": {
     "modes": [
       "default",

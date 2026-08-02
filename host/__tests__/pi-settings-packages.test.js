@@ -78,12 +78,6 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
     assert.equal(lock.packages['node_modules/pi-goal-list-loop-audit'], undefined);
   });
 
-  it('REQ-AGENT-111 AC4: reveals terminal tools when Goal starts under capability mode', () => {
-    const config = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/pi-goal.json'), 'utf-8'));
-    const manifest = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/manifest.json'), 'utf-8'));
-    assert.deepEqual(config, { toolVisibility: 'after-first-goal' });
-    assert.deepEqual(manifest['pi-goal.json']?.modes, ['default', 'advanced']);
-  });
 });
 
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
