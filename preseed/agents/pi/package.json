@@ -13,12 +13,12 @@
     "pi-web-access": "0.13.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "0.82.0",
-    "@earendil-works/pi-ai": "0.82.0",
-    "@earendil-works/pi-tui": "0.82.0"
+    "@earendil-works/pi-agent-core": "0.82.1",
+    "@earendil-works/pi-ai": "0.82.1",
+    "@earendil-works/pi-tui": "0.82.1"
   },
   "overrides": {
-    "@earendil-works/pi-coding-agent": "0.82.0",
+    "@earendil-works/pi-coding-agent": "0.82.1",
     "@hono/node-server": "2.0.12",
     "@mozilla/readability": "0.6.0",
     "brace-expansion": "5.0.8",
