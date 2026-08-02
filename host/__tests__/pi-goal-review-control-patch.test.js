@@ -7,9 +7,21 @@ import { describe, it } from 'node:test';
 import {
   CONTROL_CHANNEL,
   PATCH_MARKER,
+  patchPiGoalCommandsSource,
   patchPiGoalDirectory,
   patchPiGoalSource,
 } from '../../scripts/patch-pi-goal-review-control.mjs';
+
+const fixtureCommandsSource = `export class GoalCommandController {
+\tasync resumeGoal(ctx: StatusContext) {
+\t\tconst sent = await this.runtime.sendOwnedGoalPrompt(
+\t\t\tctx,
+\t\t\tresumedGoal.id,
+\t\t\tbuildResumePrompt(resumedGoal, stoppedStatus),
+\t\t);
+\t}
+}
+`;
 
 const fixtureSource = `function registerGoalRuntime(pi: ExtensionAPI, options: GoalOptions = {}) {
 \tconst runtime = new GoalRuntime(pi);
@@ -35,7 +47,11 @@ describe('REQ-AGENT-111: pi-goal review control patch', () => {
     assert.match(patched, new RegExp(CONTROL_CHANNEL.replaceAll(':', '\\:')));
     assert.match(patched, /commands\.pauseGoal\(ctx\)/);
     assert.match(patched, /request\.accepted\?\.\(\)/);
-    assert.match(patched, /await commands\.resumeGoal\(ctx\)/);
+    assert.match(patched, /await commands\.resumeGoal\(ctx, \{ sendPrompt: false \}\)/);
+    const patchedCommands = patchPiGoalCommandsSource(fixtureCommandsSource);
+    assert.match(patchedCommands, /options: \{ sendPrompt\?: boolean \} = \{\}/);
+    assert.match(patchedCommands, /options\.sendPrompt === false \|\| await this\.runtime\.sendOwnedGoalPrompt/);
+    assert.equal(patchPiGoalCommandsSource(patchedCommands), patchedCommands);
     assert.match(patched, /codeflareControlCtx = ctx/);
     assert.match(patched, /codeflareControlCtx = undefined/);
     assert.equal(patchPiGoalSource(patched), patched);
@@ -45,6 +61,7 @@ describe('REQ-AGENT-111: pi-goal review control patch', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-review-control-'));
     mkdirSync(join(root, 'src'));
     writeFileSync(join(root, 'package.json'), '{"version":"0.43.0"}\n');
+    writeFileSync(join(root, 'src/commands.ts'), fixtureCommandsSource);
     writeFileSync(join(root, 'src/goal.ts'), fixtureSource);
 
     patchPiGoalDirectory('0.43.0', root);

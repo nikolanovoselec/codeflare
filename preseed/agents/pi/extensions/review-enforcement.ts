@@ -174,11 +174,13 @@ async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string
   const goal = currentGoal(ctx);
   const owned = reviewGoalPause(ctx);
   if (!goal) return;
+  if (owned?.head === head && owned.goalId === goal.id) return;
   if (owned?.goalId === goal.id && goal.status === "paused") {
-    if (owned.head === head) return;
     try {
       pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, { head, goalId: goal.id } satisfies ReviewGoalPause);
     } catch (error) {
+      await requestGoalControl(pi, "resume", goal.id);
+      clearReviewGoalPause(pi);
       notifyGoalBridgeFailure(ctx, `Could not transfer Goal pause to the new PR head: ${String(error)}`);
     }
     return;
@@ -573,7 +575,7 @@ async function sendFixFollowUp(
   pr: PrState,
   range: string | undefined,
 ): Promise<void> {
-  const resumedGoal = await releaseReviewGoalPause(pi, ctx, pr.headRefOid);
+  await releaseReviewGoalPause(pi, ctx, pr.headRefOid);
   pi.sendMessage({
     customType: "pr-boundary-fix-follow-up",
     content: [
@@ -589,7 +591,7 @@ async function sendFixFollowUp(
     ].join("\n"),
     display: true,
     details: { head: pr.headRefOid, reviewRange: range },
-  }, resumedGoal ? { triggerTurn: false } : { deliverAs: "followUp", triggerTurn: true });
+  }, { deliverAs: "followUp", triggerTurn: true });
 }
 
 function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {

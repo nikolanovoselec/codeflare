@@ -5,12 +5,14 @@
 // run, and pi.sendUserMessage('/goal pause') is a model prompt rather than a
 // command invocation. The image-build patch therefore delegates directly to
 // pi-goal's own GoalCommandController so persistence, stale guards, accounting,
-// prompts, and tool policy remain owned by pi-goal.
+// and tool policy remain owned by pi-goal. Bridge-owned resume suppresses Goal's
+// extra continuation prompt because the PR FIX follow-up owns that next turn.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
+export const COMMANDS_PATCH_MARKER = 'CODEFLARE_SUPPRESS_RESUME_PROMPT';
 export const CONTROL_CHANNEL = 'codeflare:pi-goal:control';
 
 const CONTROL_BLOCK = `
@@ -59,7 +61,7 @@ const CONTROL_BLOCK = `
 \t\t}
 \t\ttry { request.accepted?.(); } catch {}
 \t\ttry {
-\t\t\tawait commands.resumeGoal(ctx);
+\t\t\tawait commands.resumeGoal(ctx, { sendPrompt: false });
 \t\t\tconst resumed = runtime.activeGoal;
 \t\t\trespond(Boolean(resumed && resumed.id !== goal.id && resumed.status === "active"), resumed?.id ?? goal.id, resumed?.status ?? "missing");
 \t\t} catch {
@@ -71,6 +73,35 @@ function replaceOnce(source, search, replacement, label) {
   const count = source.split(search).length - 1;
   if (count !== 1) throw new Error(`${label} anchor count ${count}; expected 1`);
   return source.replace(search, replacement);
+}
+
+export function patchPiGoalCommandsSource(source) {
+  if (source.includes(COMMANDS_PATCH_MARKER)) return source;
+  let patched = replaceOnce(
+    source,
+    '\tasync resumeGoal(ctx: StatusContext) {',
+    `\tasync resumeGoal(ctx: StatusContext, options: { sendPrompt?: boolean } = {}) { // ${COMMANDS_PATCH_MARKER}`,
+    'resume command signature',
+  );
+  patched = replaceOnce(
+    patched,
+    [
+      '\t\tconst sent = await this.runtime.sendOwnedGoalPrompt(',
+      '\t\t\tctx,',
+      '\t\t\tresumedGoal.id,',
+      '\t\t\tbuildResumePrompt(resumedGoal, stoppedStatus),',
+      '\t\t);',
+    ].join('\n'),
+    [
+      '\t\tconst sent = options.sendPrompt === false || await this.runtime.sendOwnedGoalPrompt(',
+      '\t\t\tctx,',
+      '\t\t\tresumedGoal.id,',
+      '\t\t\tbuildResumePrompt(resumedGoal, stoppedStatus),',
+      '\t\t);',
+    ].join('\n'),
+    'resume continuation prompt',
+  );
+  return patched;
 }
 
 export function patchPiGoalSource(source) {
@@ -99,18 +130,23 @@ export function patchPiGoalSource(source) {
 export function patchPiGoalDirectory(expectedVersion, directory) {
   if (!expectedVersion || !directory) throw new Error('expected version and package directory are required');
   const packageJsonPath = join(directory, 'package.json');
+  const commandsSourcePath = join(directory, 'src', 'commands.ts');
   const goalSourcePath = join(directory, 'src', 'goal.ts');
-  if (!existsSync(packageJsonPath) || !existsSync(goalSourcePath)) {
+  if (!existsSync(packageJsonPath) || !existsSync(commandsSourcePath) || !existsSync(goalSourcePath)) {
     throw new Error(`${directory}: pi-goal package layout is incomplete`);
   }
   const actualVersion = JSON.parse(readFileSync(packageJsonPath, 'utf8')).version;
   if (actualVersion !== expectedVersion) {
     throw new Error(`pi-goal ${actualVersion ?? 'missing'} != expected ${expectedVersion}`);
   }
-  const patched = patchPiGoalSource(readFileSync(goalSourcePath, 'utf8'));
-  writeFileSync(goalSourcePath, patched);
-  if (!readFileSync(goalSourcePath, 'utf8').includes(PATCH_MARKER)) {
-    throw new Error(`${goalSourcePath}: review control patch is missing`);
+  writeFileSync(
+    commandsSourcePath,
+    patchPiGoalCommandsSource(readFileSync(commandsSourcePath, 'utf8')),
+  );
+  writeFileSync(goalSourcePath, patchPiGoalSource(readFileSync(goalSourcePath, 'utf8')));
+  if (!readFileSync(commandsSourcePath, 'utf8').includes(COMMANDS_PATCH_MARKER)
+    || !readFileSync(goalSourcePath, 'utf8').includes(PATCH_MARKER)) {
+    throw new Error(`${directory}: review control patch is missing`);
   }
 }
 

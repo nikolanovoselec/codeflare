@@ -568,7 +568,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-fix-follow-up',
         details: { head: fixture.head, reviewRange: `${fixture.base}..${fixture.head}` },
       }),
-      options: { triggerTurn: false },
+      options: { deliverAs: 'followUp', triggerTurn: true },
     });
   });
 
@@ -612,10 +612,52 @@ describe('Pi review reminder and settled enforcement', () => {
       { action: 'pause', goalId: 'goal-1' },
       { action: 'resume', goalId: 'goal-1' },
     ]);
-    expect(harness.sent.at(-1)?.message).toMatchObject({
-      customType: 'pr-boundary-fix-follow-up',
-      details: { head: fixture.head },
+    expect(harness.sent.at(-1)).toMatchObject({
+      message: {
+        customType: 'pr-boundary-fix-follow-up',
+        details: { head: fixture.head },
+      },
+      options: { deliverAs: 'followUp', triggerTurn: true },
     });
+  });
+
+  it('REQ-AGENT-111: rolls back a paused Goal when replacement-head ownership cannot be recorded', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+
+    appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
+    write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
+    git(fixture.repo, 'add', 'src/review.ts');
+    git(fixture.repo, 'commit', '-m', 'replacement head');
+    fixture.head = git(fixture.repo, 'rev-parse', 'HEAD');
+    fixture.pr.headRefOid = fixture.head;
+    appendSession(fixture.sessionFile,
+      assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-2', 'bash'),
+    );
+    const appendEntry = harness.pi.appendEntry;
+    harness.pi.appendEntry = (customType, data) => {
+      if (customType === 'pr-boundary-goal-pause'
+        && (data as { head?: string } | null)?.head === fixture.head) {
+        throw new Error('simulated transfer persistence failure');
+      }
+      appendEntry(customType, data);
+    };
+
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
+
+    expect(harness.goalControlRequests).toEqual([
+      { action: 'pause', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
+    ]);
+    const entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toBeNull();
   });
 
   it('REQ-AGENT-111: fails open when the Goal extension is unavailable', async () => {
