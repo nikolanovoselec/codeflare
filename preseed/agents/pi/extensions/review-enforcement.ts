@@ -173,8 +173,17 @@ async function requestGoalControl(
 async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string): Promise<void> {
   const goal = currentGoal(ctx);
   const owned = reviewGoalPause(ctx);
-  if (!goal || goal.status !== "active") return;
-  if (owned?.head === head && owned.goalId === goal.id) return;
+  if (!goal) return;
+  if (owned?.goalId === goal.id && goal.status === "paused") {
+    if (owned.head === head) return;
+    try {
+      pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, { head, goalId: goal.id } satisfies ReviewGoalPause);
+    } catch (error) {
+      notifyGoalBridgeFailure(ctx, `Could not transfer Goal pause to the new PR head: ${String(error)}`);
+    }
+    return;
+  }
+  if (goal.status !== "active") return;
 
   const result = await requestGoalControl(pi, "pause", goal.id);
   if (!result?.ok || result.goalId !== goal.id || result.status !== "paused") return;

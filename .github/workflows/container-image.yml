@@ -104,7 +104,7 @@ jobs:
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh host/package.json host/package-lock.json host/tsconfig.json host/src openvscode preseed scripts/browser-ide-ui-state.py scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/verify-pi-lockstep.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh host/package.json host/package-lock.json host/tsconfig.json host/src openvscode preseed scripts/browser-ide-ui-state.py scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/verify-pi-lockstep.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
 
           # Guard: every COPY source in the Dockerfile must be covered by
           # HASHED_PATHS — otherwise the reuse gate could serve a stale image
@@ -113,7 +113,7 @@ jobs:
           while read -r src; do
             case "$src" in
               .cache-bust) ;; # represented by the cache-bust input
-              Dockerfile|entrypoint.sh|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|scripts/verify-pi-lockstep.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
+              Dockerfile|entrypoint.sh|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/verify-pi-lockstep.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
               *)
                 echo "::warning::COPY source '$src' not covered by the image input hash — disabling reuse for this run. Add it to HASHED_PATHS in container-image.yml."
                 NO_REUSE=1

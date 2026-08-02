@@ -572,6 +572,52 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
+  it('REQ-AGENT-111: transfers an owned pause to a replacement PR head and resumes after its FIX reminder', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+
+    appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
+    write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
+    git(fixture.repo, 'add', 'src/review.ts');
+    git(fixture.repo, 'commit', '-m', 'replacement head');
+    fixture.head = git(fixture.repo, 'rev-parse', 'HEAD');
+    fixture.pr.headRefOid = fixture.head;
+    appendSession(fixture.sessionFile,
+      assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-2', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
+    expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
+
+    appendSession(fixture.sessionFile,
+      assistantTool('code-2', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-2', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-2', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-2'),
+      notification('spec-2'),
+      notification('doc-2'),
+      triageMessage(),
+    );
+    await harness.emit('agent_end');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.goalControlRequests).toEqual([
+      { action: 'pause', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
+    ]);
+    expect(harness.sent.at(-1)?.message).toMatchObject({
+      customType: 'pr-boundary-fix-follow-up',
+      details: { head: fixture.head },
+    });
+  });
+
   it('REQ-AGENT-111: fails open when the Goal extension is unavailable', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);

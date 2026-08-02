@@ -92,6 +92,7 @@ describe('deployment container image input hash', () => {
       'scripts/browser-ide-ui-state.py',
       'scripts/materialize-agent-seed.mjs',
       'scripts/patch-context-mode-bundles.mjs',
+      'scripts/patch-pi-goal-review-control.mjs',
       'scripts/verify-pi-lockstep.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
@@ -117,9 +118,14 @@ describe('deployment container image input hash', () => {
     const scriptTag = imageHashResult().tag;
     assert.notEqual(scriptTag, productionTag);
 
+    write('scripts/patch-pi-goal-review-control.mjs', 'Goal control patch change\n');
+    commit('Goal patch change');
+    const goalPatchTag = imageHashResult().tag;
+    assert.notEqual(goalPatchTag, scriptTag);
+
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
-    assert.notEqual(imageHashResult().tag, scriptTag);
+    assert.notEqual(imageHashResult().tag, goalPatchTag);
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');
