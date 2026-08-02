@@ -2342,7 +2342,7 @@ const required = [
   'npm:@juicesharp/rpiv-advisor@2.1.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.1.0',
   'npm:@juicesharp/rpiv-todo@2.1.0',
-  'npm:pi-web-access@0.13.0',
+  'npm:pi-web-access@0.14.0',
   'npm:pi-mcp-adapter@2.15.0',
   'npm:@narumitw/pi-goal@0.43.0',
 ];
@@ -2557,17 +2557,11 @@ configure_consult_llm() {
 }
 configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"
 
-# Pi web-search workflow: skip the interactive browser-curator fallback.
-# pi-web-access's openCuratorBrowser has an upstream bug -- sendCuratorFallbackUpdate
-# is declared inside the try{} block but referenced from the sibling catch{} block
-# (github.com/nicobailon/pi-web-access issue #103; fix in PR #114, not yet released
-# to npm) -- so any web_search call crashes the WHOLE pi process with an uncaught
-# ReferenceError whenever the browser fails to open, which it always does here (no
-# GUI browser in a headless container; xdg-open exits non-zero). "auto-summary"
-# generates a synthesized answer directly without ever opening a browser, so the
-# buggy path is never reached -- and this is strictly correct for this environment
-# regardless of the bug, since a browser-approval UI could never functionally work
-# here anyway. pi-web-access resolves its OWN config dir independently of Pi's core
+# Pi web-search workflow: skip the interactive browser-curator path. Version 0.14
+# fixes the former curator fallback crash, but a browser-approval UI still cannot
+# function in this headless container. "auto-summary" generates the synthesized
+# answer directly without attempting to open a GUI browser. pi-web-access resolves
+# its OWN config dir independently of Pi's core
 # ~/.pi/agent/* -- its getWebSearchConfigDir() checks PI_CODING_AGENT_DIR first, then
 # XDG_CONFIG_HOME, defaulting to bare ~/.pi when neither is set (neither is set
 # here) -- verified against the installed package's actual path-resolution logic,
@@ -2577,7 +2571,7 @@ PI_WEB_SEARCH_JSON="$USER_HOME/.pi/web-search.json"
 if [ ! -f "$PI_WEB_SEARCH_JSON" ]; then
     mkdir -p "$(dirname "$PI_WEB_SEARCH_JSON")"
     printf '{\n  "workflow": "auto-summary"\n}\n' > "$PI_WEB_SEARCH_JSON"
-    echo "[entrypoint] Pi web-search workflow set to auto-summary (avoids upstream pi-web-access curator crash)"
+    echo "[entrypoint] Pi web-search workflow set to auto-summary (headless-safe)"
 fi
 
 # ---------------------------------------------------------------------------

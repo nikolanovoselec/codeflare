@@ -260,6 +260,12 @@
       "advanced"
     ]
   },
+  "skills/librarian/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "skills/pi-mcp-adapter/SKILL.md": {
     "modes": [
       "default",

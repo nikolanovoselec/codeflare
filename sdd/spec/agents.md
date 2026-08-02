@@ -2293,7 +2293,7 @@ None.
 
 ### REQ-AGENT-076: Pi Context-Mode Enablement and Tool-Extension Defaults
 
-**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable and crash-free out of the box: context-mode is disabled by default for Pi pending an upstream memory-safe adapter while explicit `/ctx on` remains available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to a workflow that never reaches an upstream `pi-web-access` crash path.
+**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable and crash-free out of the box: context-mode is disabled by default for Pi pending an upstream memory-safe adapter while explicit `/ctx on` remains available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
 
 **Applies To:** User
 
@@ -2324,6 +2324,33 @@ None.
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
 **Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-115: Pi web-access 0.14 skill compatibility
+
+**Intent:** Pi web research retains accurate tool guidance and the visible librarian workflow across the upstream 0.14 package boundary.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The owned `pi-web-access` skill documents the default `source_check` claim-verification tool. <!-- @impl: preseed/agents/pi/skills/pi-web-access/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (Pi agent seed (Pi-native files + transformed Claude content)) -->
+2. The owned `pi-web-access` skill directs callers to retrieve stored content as bounded `offset`/`limit` slices rather than claiming a full-result response. <!-- @impl: preseed/agents/pi/skills/pi-web-access/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (Pi agent seed (Pi-native files + transformed Claude content)) -->
+3. The former upstream `librarian` skill remains an owned Codeflare skill delivered in both Pi modes after upstream removes its bundled copy. <!-- @impl: preseed/agents/pi/skills/librarian/SKILL.md --> <!-- @impl: preseed/agents/pi/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (Pi agent seed (Pi-native files + transformed Claude content)) -->
+
+**Constraints:**
+
+- Codeflare owns the preserved librarian bytes and manifest entry; package installation no longer supplies a second copy.
+- `auto-summary` remains the default because the container is headless, not because the corrected 0.14 curator fallback still crashes.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
+
+**Verification:** Automated generated-seed behavior test.
 
 **Status:** Implemented
 
