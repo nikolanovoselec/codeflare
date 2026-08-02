@@ -8,10 +8,17 @@
 <p align="center">Governed engineering agents that build, test, review, deploy, and operate inside your own estate.</p>
 
 <p align="center">
+  <a href="https://github.com/nikolanovoselec/codeflare/releases/latest"><img src="https://img.shields.io/github/v/release/nikolanovoselec/codeflare?display_name=tag&amp;sort=semver" alt="Latest release"></a>
   <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/test.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/test.yml/badge.svg?branch=main" alt="PR Checks"></a>
   <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/codeql.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
-  <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/scorecard.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/scorecard.yml/badge.svg?branch=main" alt="OpenSSF Scorecard"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-59636e" alt="License: PolyForm Noncommercial 1.0.0"></a>
+  <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/fuzz.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/fuzz.yml/badge.svg?branch=main" alt="Property-based fuzzing"></a>
+</p>
+
+<p align="center">
+  <a href="#deployment"><img src="https://img.shields.io/badge/deployment-self--hosted-2563eb" alt="Self-hosted deployment"></a>
+  <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/tenancy-single--tenant-7c3aed" alt="Single-tenant architecture"></a>
+  <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/runtime-Workers%20%2B%20Containers-F38020?logo=cloudflare&amp;logoColor=white" alt="Cloudflare Workers and Containers"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-59636e" alt="PolyForm Noncommercial license"></a>
 </p>
 
 <p align="center">
