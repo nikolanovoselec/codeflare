@@ -58,7 +58,11 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
       const seed = join(sourceDirectory, 'agent-seed.generated.ts');
       const devDependencies = Object.fromEntries(piLibraries.map((dependency) => [dependency, '0.81.0']));
       writeJson(tools, { dependencies: { [piPackage]: '0.81.0' }, devDependencies });
-      writeJson(prewarm, { overrides: { [piPackage]: '0.81.0' }, devDependencies });
+      writeJson(prewarm, {
+        dependencies: { [piPackage]: '0.81.0' },
+        overrides: { [piPackage]: '0.81.0' },
+        devDependencies,
+      });
 
       const fakeNpm = join(binDirectory, 'npm');
       writeFileSync(fakeNpm, `#!/bin/sh\nset -eu\ncase "$*" in\n  "ci --no-audit --no-fund --silent") : ;;\n  "run generate:agent-seed") printf 'export const generated = true;\\n' > src/lib/agent-seed.generated.ts ;;\n  *) exit 64 ;;\nesac\n`);
@@ -71,6 +75,7 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
       const nextTools = readJson(tools);
       const nextPrewarm = readJson(prewarm);
       assert.equal(nextTools.dependencies[piPackage], '0.82.0');
+      assert.equal(nextPrewarm.dependencies[piPackage], '0.82.0');
       assert.equal(nextPrewarm.overrides[piPackage], '0.82.0');
       for (const dependency of piLibraries) {
         assert.equal(nextTools.devDependencies[dependency], '0.82.0');

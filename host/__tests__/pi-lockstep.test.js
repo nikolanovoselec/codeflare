@@ -75,7 +75,10 @@ describe('REQ-AGENT-001 AC6: Pi image lockstep fails closed', () => {
       const prewarm = join(directory, 'prewarm.json');
       const installed = join(directory, 'installed.json');
       writeJson(runtime, { dependencies: { '@earendil-works/pi-coding-agent': '0.82.0' } });
-      writeJson(prewarm, { overrides: { '@earendil-works/pi-coding-agent': '0.82.0' } });
+      writeJson(prewarm, {
+        dependencies: { '@earendil-works/pi-coding-agent': '0.82.0' },
+        overrides: { '@earendil-works/pi-coding-agent': '0.82.0' },
+      });
       writeJson(installed, { version: '0.82.0' });
 
       const result = spawnSync(process.execPath, [script, runtime, prewarm, installed], { encoding: 'utf8' });
@@ -85,21 +88,35 @@ describe('REQ-AGENT-001 AC6: Pi image lockstep fails closed', () => {
     }
   });
 
-  it('rejects prewarm and installed version drift independently', () => {
+  it('rejects prewarm dependency, override, and installed version drift independently', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-pi-lockstep-'));
     try {
       const runtime = join(directory, 'runtime.json');
       const prewarm = join(directory, 'prewarm.json');
       const installed = join(directory, 'installed.json');
       writeJson(runtime, { dependencies: { '@earendil-works/pi-coding-agent': '0.82.0' } });
-      writeJson(prewarm, { overrides: { '@earendil-works/pi-coding-agent': '0.81.0' } });
+      writeJson(prewarm, {
+        dependencies: { '@earendil-works/pi-coding-agent': '0.81.0' },
+        overrides: { '@earendil-works/pi-coding-agent': '0.82.0' },
+      });
       writeJson(installed, { version: '0.82.0' });
 
-      const prewarmDrift = spawnSync(process.execPath, [script, runtime, prewarm], { encoding: 'utf8' });
-      assert.notEqual(prewarmDrift.status, 0);
-      assert.match(prewarmDrift.stderr, /prewarm Pi SDK 0\.81\.0 != runtime 0\.82\.0/);
+      const dependencyDrift = spawnSync(process.execPath, [script, runtime, prewarm], { encoding: 'utf8' });
+      assert.notEqual(dependencyDrift.status, 0);
+      assert.match(dependencyDrift.stderr, /prewarm Pi SDK dependency 0\.81\.0 != runtime 0\.82\.0/);
 
-      writeJson(prewarm, { overrides: { '@earendil-works/pi-coding-agent': '0.82.0' } });
+      writeJson(prewarm, {
+        dependencies: { '@earendil-works/pi-coding-agent': '0.82.0' },
+        overrides: { '@earendil-works/pi-coding-agent': '0.81.0' },
+      });
+      const overrideDrift = spawnSync(process.execPath, [script, runtime, prewarm], { encoding: 'utf8' });
+      assert.notEqual(overrideDrift.status, 0);
+      assert.match(overrideDrift.stderr, /prewarm Pi SDK override 0\.81\.0 != runtime 0\.82\.0/);
+
+      writeJson(prewarm, {
+        dependencies: { '@earendil-works/pi-coding-agent': '0.82.0' },
+        overrides: { '@earendil-works/pi-coding-agent': '0.82.0' },
+      });
       writeJson(installed, { version: '0.81.0' });
       const installedDrift = spawnSync(process.execPath, [script, runtime, prewarm, installed], { encoding: 'utf8' });
       assert.notEqual(installedDrift.status, 0);

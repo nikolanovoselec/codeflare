@@ -27,7 +27,8 @@ export function updateNpmToolManifests(manifestPath, packageName, currentVersion
   if (packageName === PI_PACKAGE) {
     if (!piManifestPath) throw new Error('Pi runtime bumps require the prewarm manifest path');
     piManifest = readJson(piManifestPath);
-    assertVersion(piManifest.overrides?.[PI_PACKAGE], currentVersion, `prewarm ${PI_PACKAGE}`);
+    assertVersion(piManifest.dependencies?.[PI_PACKAGE], currentVersion, `prewarm dependency ${PI_PACKAGE}`);
+    assertVersion(piManifest.overrides?.[PI_PACKAGE], currentVersion, `prewarm override ${PI_PACKAGE}`);
     for (const dependency of PI_LIBRARIES) {
       assertVersion(manifest.devDependencies?.[dependency], currentVersion, dependency);
       assertVersion(piManifest.devDependencies?.[dependency], currentVersion, `prewarm ${dependency}`);
@@ -50,6 +51,7 @@ export function updateNpmToolManifests(manifestPath, packageName, currentVersion
   if (packageName === PI_PACKAGE) {
     const nextPiManifest = {
       ...piManifest,
+      dependencies: { ...piManifest.dependencies, [PI_PACKAGE]: nextVersion },
       overrides: { ...piManifest.overrides, [PI_PACKAGE]: nextVersion },
       devDependencies: Object.fromEntries(
         Object.entries(piManifest.devDependencies).map(([dependency, version]) => [
