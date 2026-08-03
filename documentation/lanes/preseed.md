@@ -258,7 +258,7 @@ Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. A verified downstream develop merge uses `event=push` because it changed the promotion PR head without creating a new PR. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap.
+No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. A verified downstream develop merge uses `event=push` because it changed the promotion PR head without creating a new PR. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ciBoundaryEvent --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
 After the final reviewer or CI launch, the root ends that turn immediately instead of foreground-waiting, sleeping, polling, resuming, or retrieving an in-flight agent. Native task notifications drive later turns. Public result retrieval is reserved for a terminal notification whose report is truncated or otherwise unavailable.
 

@@ -284,16 +284,12 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. A supported successful `gh pr merge` resolves the selected PR in the command repository and remains eligible only when GitHub reports it merged into `develop` with a full merge-commit SHA. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once) -->
-2. Bounded fresh-state retries resolve the open PR whose head branch is `develop` and whose base is `main` or `master`; launch requires that PR head to equal the merged commit exactly. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a develop merge stays inert until the downstream PR reports its merge commit) -->
+1. A supported successful `gh pr merge` resolves the selected PR in the command repository and remains eligible only when GitHub reports it merged into `develop` with a full merge-commit SHA. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once) -->
+2. Bounded fresh-state retries resolve the open PR whose head branch is `develop` and whose base is `main` or `master`; launch requires that PR head to equal the merged commit exactly. A stale result remains pending for settled or reload recovery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a develop merge stays pending until the downstream PR reports its merge commit) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: reload retains a stale develop merge until the downstream head matches) -->
 3. The verified downstream head uses the existing reviewer, CI, acknowledgement, FIX, persistence, and duplicate-recovery lifecycle, with CI monitoring receiving the equivalent head-changing `push` event. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ciBoundaryEvent --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once) -->
-4. Failed or unconfirmed commands, explicit cross-repository selectors, merges into another base, missing merge SHAs, absent downstream PRs, and stale downstream heads remain inert. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: successful merges outside develop stay inert) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a develop merge stays inert until the downstream PR reports its merge commit) -->
+4. Failed commands, explicit cross-repository selectors, merges into another base, and persistently stale downstream heads launch nothing. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: successful merges outside develop stay inert) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a persistently stale downstream PR remains inert after bounded retries) -->
 
-**Constraints:**
-
-- This is a post-command evidence boundary, not a pre-command merge gate.
-- Repository identity comes from the executable shell segment; `gh --repo` / `gh pr merge --repo` forms remain inert rather than crossing repository context.
-- Claude hook behavior remains unchanged.
+**Constraints:** This is post-command evidence, not a pre-command gate. Repository identity comes from the executable shell segment; cross-repository forms remain inert. Claude behavior is unchanged.
 
 **Priority:** P1
 
@@ -301,7 +297,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
-**Status:** Partial — implementation and behavioral coverage are present; exact-head CI is pending.
+**Status:** Implemented
 
 ---
 

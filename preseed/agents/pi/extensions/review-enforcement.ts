@@ -455,20 +455,25 @@ async function currentReview(
   return undefined;
 }
 
+const RETRYABLE_MERGE = Symbol("retryable-merge");
+type MergedPromotion = { repo: string; file: string; pr: PrState } | typeof RETRYABLE_MERGE;
+
 async function mergedDevelopPromotion(
   ctx: ReviewContext,
   dependencies: Dependencies,
   selector: string | undefined,
   preferredRepo: string,
-): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
+): Promise<MergedPromotion | undefined> {
   const context = boundaryContext(ctx, preferredRepo);
   if (!context) return undefined;
   const mergedPr = await dependencies.queryPr(context.repo, selector);
-  const mergeHead = mergedPr?.mergeCommit?.oid;
-  if (!isProtectedPr(mergedPr)
-    || mergedPr.state !== "MERGED"
-    || mergedPr.baseRefName !== "develop"
-    || !fullSha(mergeHead)) return undefined;
+  if (!mergedPr) return RETRYABLE_MERGE;
+  if (!isProtectedPr(mergedPr) || mergedPr.baseRefName !== "develop") return undefined;
+  if (mergedPr.state !== "MERGED") {
+    return mergedPr.state === "OPEN" ? RETRYABLE_MERGE : undefined;
+  }
+  const mergeHead = mergedPr.mergeCommit?.oid;
+  if (!fullSha(mergeHead)) return RETRYABLE_MERGE;
 
   const delays = dependencies.headRetryDelaysMs ?? [0, 250, 1_000];
   const sleep = dependencies.sleep ?? defaultSleep;
@@ -481,7 +486,7 @@ async function mergedDevelopPromotion(
       || promotion.headRefOid !== mergeHead) continue;
     return { ...context, pr: promotion };
   }
-  return undefined;
+  return RETRYABLE_MERGE;
 }
 
 type CiBoundaryEvent = "push" | "pr-create";
@@ -502,12 +507,14 @@ function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEven
   return event === "push" || event === "pr-create" ? event : undefined;
 }
 
+type BoundaryLaunch = { head: string; pauseGoal: boolean } | { retryable: true };
+
 async function launchBoundaryPlan(
   pi: ReviewPi,
   ctx: ReviewContext,
   dependencies: Dependencies,
   boundary: ClassifiedBoundary,
-): Promise<{ head: string; pauseGoal: boolean } | undefined> {
+): Promise<BoundaryLaunch | undefined> {
   const eventRepo = resolveShellInvocationRepo(boundary.invocation);
   if (!eventRepo) return undefined;
   const target = boundary.classification.event === "push"
@@ -516,13 +523,17 @@ async function launchBoundaryPlan(
   const revision = boundary.classification.event === "push"
     ? boundary.classification.pushSource ?? "HEAD"
     : "HEAD";
-  const review = boundary.classification.event === "pr-merge"
+  const mergePromotion = boundary.classification.event === "pr-merge"
     ? await mergedDevelopPromotion(
       ctx,
       dependencies,
       boundary.classification.mergeSelector,
       eventRepo,
     )
+    : undefined;
+  if (mergePromotion === RETRYABLE_MERGE) return { retryable: true };
+  const review = boundary.classification.event === "pr-merge"
+    ? mergePromotion
     : await currentReview(
       ctx,
       dependencies,
@@ -842,11 +853,13 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   let resumedWithoutBoundary = false;
   let deferredSettledRecoveryHead: string | undefined;
   let pendingGoalPauseHead: string | undefined;
+  let pendingMergeBoundary: ClassifiedBoundary | undefined;
 
   pi.on("session_start", (event) => {
     resumedWithoutBoundary = event?.reason === "resume";
     deferredSettledRecoveryHead = undefined;
     pendingGoalPauseHead = undefined;
+    pendingMergeBoundary = undefined;
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -855,8 +868,13 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const boundary = latestBoundary(event, ctx.cwd);
     if (!boundary) return;
     const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
+    if (launch && "retryable" in launch) {
+      pendingMergeBoundary = boundary;
+      return;
+    }
     pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     if (!launch) return;
+    pendingMergeBoundary = undefined;
     resumedWithoutBoundary = false;
     if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
     deferredSettledRecoveryHead = launch.head;
@@ -884,6 +902,21 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
+    if (pendingMergeBoundary) {
+      const boundary = pendingMergeBoundary;
+      const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
+      if (!launch || !("retryable" in launch)) {
+        pendingMergeBoundary = undefined;
+        pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+      }
+      if (launch && !("retryable" in launch)) {
+        resumedWithoutBoundary = false;
+        if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
+        deferredSettledRecoveryHead = launch.head;
+        return;
+      }
+    }
+
     const recoveryFile = rootSessionFile(ctx);
     if (resumedWithoutBoundary && recoveryFile) {
       const recoveryFacts = transcriptFacts(ctx, recoveryFile, []);
@@ -894,6 +927,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         const launch = boundary
           ? await launchBoundaryPlan(pi, ctx, dependencies, boundary)
           : undefined;
+        if (launch && "retryable" in launch) {
+          resumedWithoutBoundary = false;
+          pendingMergeBoundary = boundary;
+          return;
+        }
         if (launch) {
           resumedWithoutBoundary = false;
           if (launch.pauseGoal) pendingGoalPauseHead = launch.head;

@@ -291,7 +291,8 @@ function pushBoundary(words: ShellWords): { source?: string; target?: string; re
 }
 
 const GH_PR_MERGE_OPTIONS_WITH_VALUE = new Set([
-  "--body", "-b", "--body-file", "-F", "--match-head-commit", "--subject", "-s",
+  "--author-email", "-A", "--body", "-b", "--body-file", "-F",
+  "--match-head-commit", "--subject", "-t",
 ]);
 
 function prMergeSelector(words: ShellWords): string | undefined | false {

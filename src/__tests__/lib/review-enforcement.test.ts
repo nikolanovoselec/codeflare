@@ -1788,7 +1788,62 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
-  it('REQ-AGENT-121: a develop merge stays inert until the downstream PR reports its merge commit', async () => {
+  it('REQ-AGENT-121: a develop merge stays pending until the downstream PR reports its merge commit', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 766,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion: PrState = { ...fixture.pr, headRefOid: fixture.base };
+    let promotionQueries = 0;
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => {
+        if (target === '766') return mergedPr;
+        promotionQueries += 1;
+        return promotionQueries === 1 ? stalePromotion : fixture.pr;
+      },
+      headRetryDelaysMs: [0],
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 766 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-stale', 'bash', { command }),
+      toolResult('merge-stale', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-stale'));
+    expect(harness.sent).toEqual([]);
+    expect(harness.operations).not.toContain('append:pr-boundary-evaluated');
+
+    await harness.emit('agent_settled');
+    expect(promotionQueries).toBe(2);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      branch: 'develop',
+      prNumber: 761,
+      head: fixture.head,
+      ciEvent: 'push',
+    });
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+
+    await harness.emit('agent_settled');
+    expect(harness.sent).toHaveLength(1);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-121: a persistently stale downstream PR remains inert after bounded retries', async () => {
     const fixture = makeReviewFixture();
     const mergedPr: PrState = {
       state: 'MERGED',
@@ -1814,13 +1869,15 @@ describe('Pi review reminder and settled enforcement', () => {
     });
     const command = 'gh pr merge 766 --squash';
     appendSession(fixture.sessionFile,
-      assistantTool('merge-stale', 'bash', { command }),
-      toolResult('merge-stale', 'bash'),
+      assistantTool('merge-persistently-stale', 'bash', { command }),
+      toolResult('merge-persistently-stale', 'bash'),
     );
 
-    await harness.emit('tool_result', boundaryEvent(command, 'merge-stale'));
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-persistently-stale'));
+    await harness.emit('agent_settled');
 
     expect(harness.sent).toEqual([]);
+    expect(harness.operations).not.toContain('append:pr-boundary-evaluated');
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
@@ -2417,6 +2474,57 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+  });
+
+  it('REQ-AGENT-121: reload retains a stale develop merge until the downstream head matches', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion = { ...fixture.pr, headRefOid: fixture.base };
+    let promotionQueries = 0;
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-before-reload', 'bash', { command }),
+      toolResult('merge-before-reload', 'bash'),
+    );
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => {
+        if (target === '768') return mergedPr;
+        promotionQueries += 1;
+        return promotionQueries === 1 ? stalePromotion : fixture.pr;
+      },
+      headRetryDelaysMs: [0],
+      deferGoalPause: harness.deferGoalPause,
+    });
+
+    await harness.emit('session_start', { reason: 'resume' });
+    await harness.emit('agent_settled');
+    expect(harness.sent).toEqual([]);
+    expect(harness.operations).not.toContain('append:pr-boundary-evaluated');
+
+    await harness.emit('agent_settled');
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      boundaryToolUseId: 'merge-before-reload',
+      branch: 'develop',
+      prNumber: 761,
+      head: fixture.head,
+    });
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
   });
 
   it('REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary', async () => {
