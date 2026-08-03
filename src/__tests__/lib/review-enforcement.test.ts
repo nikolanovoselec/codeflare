@@ -9,7 +9,7 @@ import { rememberActiveRepo } from '../../../preseed/agents/pi/extensions/codefl
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type PrState = {
   state: 'OPEN' | 'CLOSED' | 'MERGED';
-  baseRefName: 'main' | 'master';
+  baseRefName: 'main' | 'master' | 'develop';
   headRefOid: string;
   headRefName: string;
   number: number;
@@ -1698,6 +1698,42 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
+  it('REQ-AGENT-036: PR creation targeting develop launches its review window', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr.baseRefName = 'develop';
+    const harness = await registerFixture(fixture);
+    const command = 'gh pr create --base develop --title review';
+    appendSession(fixture.sessionFile,
+      assistantTool('create-develop', 'bash', { command }),
+      toolResult('create-develop', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'create-develop'));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
+
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-develop', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-develop', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-develop', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      assistantTool('ci-develop', 'subagent', ciArgs(fixture.head)),
+      notification('code-develop'),
+      notification('spec-develop'),
+      notification('doc-develop'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({ customType: 'pr-boundary-fix-follow-up' }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
   it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
@@ -1752,6 +1788,7 @@ describe('Pi review reminder and settled enforcement', () => {
     const protectedBranch = makeReviewFixture();
     git(protectedBranch.repo, 'branch', 'protected-feature', protectedBranch.head);
     protectedBranch.pr.headRefName = 'protected-feature';
+    protectedBranch.pr.baseRefName = 'develop';
     const protectedHarness = await registerFixture(protectedBranch);
     const protectedCommand = 'git push origin protected-feature';
     appendSession(protectedBranch.sessionFile,
@@ -2208,6 +2245,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     const reloadedHarness = await registerFixture(fixture);
     appendSession(fixture.sessionFile, notification('spec-1'), triageMessage());
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
     await reloadedHarness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
@@ -2227,6 +2265,55 @@ describe('Pi review reminder and settled enforcement', () => {
     await postAckHarness.emit('agent_settled');
     expect(postAckHarness.sent).toEqual([]);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
+  });
+
+  it('REQ-AGENT-110 AC5: reload recovers one launch plan for a successful boundary whose live handler was missed', async () => {
+    const fixture = makeReviewFixture();
+    const command = [
+      'set -euo pipefail',
+      `cd "${fixture.repo}"`,
+      'git status --short',
+      'git push origin pi',
+    ].join('\n');
+    appendSession(fixture.sessionFile,
+      assistantTool('push-before-reload', 'bash', { command }),
+      toolResult('push-before-reload', 'bash'),
+    );
+
+    const reloadedHarness = await registerFixture(fixture);
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
+    await reloadedHarness.emit('agent_settled');
+    await reloadedHarness.emit('agent_settled');
+
+    expect(reloadedHarness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: expect.objectContaining({
+          boundaryToolUseId: 'push-before-reload',
+          head: fixture.head,
+        }),
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
+  it('REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr.state = 'CLOSED';
+    appendSession(fixture.sessionFile,
+      assistantTool('ineligible-push', 'bash', { command: 'git push origin pi' }),
+      toolResult('ineligible-push', 'bash'),
+    );
+    const initialHarness = await registerFixture(fixture);
+    await initialHarness.emit('tool_result', boundaryEvent('git push origin pi', 'ineligible-push'));
+    expect(initialHarness.sent).toEqual([]);
+
+    fixture.pr.state = 'OPEN';
+    const reloadedHarness = await registerFixture(fixture);
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
+    await reloadedHarness.emit('agent_settled');
+
+    expect(reloadedHarness.sent).toEqual([]);
   });
 
   it('REQ-AGENT-036: resumed sessions stay inert until a new eligible boundary', async () => {

@@ -14,10 +14,10 @@
 ## SDD opt-in is binary
 
 - **Vibe-coding** (no `sdd/`): `git push` + `gh pr create` proceed with NO review agents.
-- **SDD mode** (`sdd/` + `sdd/README.md`): review agents fire only on PR-boundary events targeting `main`/`master`. PRs into integration branches (`develop`, `staging`) defer until the integration→main PR opens.
+- **SDD mode** (`sdd/` + `sdd/README.md`): review agents fire only on PR-boundary events targeting `main`/`master`/`develop`. PRs into other integration branches such as `staging` defer until their PR to a protected base opens.
 
 ## Hard obligations
 
-- Do not auto-start CI monitoring after routine pushes. Invoke `ci-monitoring` only when the user explicitly asks, or when deploy/merge requires a fresh CI result.
+- Do not auto-start CI monitoring after non-boundary routine pushes. Invoke `ci-monitoring` for an eligible PR-boundary plan, when the user explicitly asks, or when deploy/merge requires a fresh CI result.
 - Never deploy to integration until every required CI run is green.
 - If CI monitoring is required by an explicit user request or deploy/merge gate, skipping `ci-monitoring` is HIGH `ci-monitoring-skill-not-invoked`.

@@ -68,7 +68,7 @@ export async function resolveCiMonitorRequest({ event, changed, repo, pr: reques
   if (
     !resolvedPr ||
     resolvedPr.state !== 'OPEN' ||
-    !['main', 'master'].includes(resolvedPr.baseRefName) ||
+    !['main', 'master', 'develop'].includes(resolvedPr.baseRefName) ||
     !Number.isInteger(resolvedPr.number) ||
     resolvedPr.number !== requestedPr ||
     !/^[0-9a-f]{40}$/i.test(resolvedPr.headRefOid ?? '')

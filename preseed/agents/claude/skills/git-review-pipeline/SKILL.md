@@ -10,35 +10,35 @@ Carries the detailed mechanics of the SDD-mode review pipeline. The core `git-wo
 
 ## PR-boundary trigger semantics (SDD mode)
 
-Review fires only on PRs that target `main` or `master`. PRs into an integration branch (`develop`, `staging`, etc.) are deferred until the integration branch's own PR-to-main opens or syncs - the cumulative review at that point covers everything that landed.
+Review fires on PRs that target `main`, `master`, or `develop`. PRs into any other integration branch (for example `staging`) defer until that branch opens or syncs a PR to one of those protected bases.
 
 | Action | PR base | What fires |
 |---|---|---|
 | `gh pr create --base main` | main | code-reviewer + spec-reviewer + doc-updater (full pipeline) |
-| `gh pr create --base develop` | develop | nothing (deferred) |
+| `gh pr create --base develop` | develop | full pipeline |
 | `git push` to a branch with open PR -> main | main | full pipeline (PR-sync) |
 | `git push` to a branch with open PR -> master | master | full pipeline (PR-sync) |
-| `git push` to a branch with open PR -> develop | develop | nothing (deferred - review fires when develop -> main PR opens or syncs) |
+| `git push` to a branch with open PR -> develop | develop | full pipeline (PR-sync) |
 | `git push` to a branch with no open PR | - | nothing (deferred until PR opens) |
-| `git push` to `develop` directly | - | nothing (caught by the develop -> main PR later) |
+| `git push` to `develop` directly without an open PR | - | nothing |
 | `git push` to `main`/`master` with no PR | - | nothing (user is expected to have branch protection on; if off, manual verification is on the user) |
 
-The cost model shifts from per-push (every commit pair burned a full review) to **per-main-bound PR** (one review at the moment the change is destined for `main`, one per push while that PR is open). Same coverage, ~10x fewer review tokens than per-push, ~2x fewer than per-any-PR.
+The cost model is per protected-base PR: one review when the PR opens and one per pushed head while it remains open.
 
 ## Recommended workflow
 
 ```
 feature --> PR --> develop --> PR --> main
-   ^                              ^
-   you push                       review fires
-   (no review yet)                at PR open + each sync push
+             ^                   ^
+             review fires        review fires
+             at open + sync      at open + sync
 ```
 
-Direct push to `develop` is fine; the develop -> main PR catches the cumulative diff. Direct push to `main` should be prevented at the GitHub layer (see Branch protection below) rather than worked around in-session.
+Protected `develop` should receive changes through PRs so each feature head gets its own boundary review. Direct push to `main` should be prevented at the GitHub layer (see Branch protection below) rather than worked around in-session.
 
-The `git-push-review-reminder.sh` PostToolUse hook enforces this: checks for `sdd/` + `sdd/README.md`, classifies the trigger (`gh pr create` -> poll gh for the just-created PR's base; `git push` -> `gh pr view` -> check state OPEN AND base IN (main, master)), and emits the three-agent directive only when the trigger fires. On non-SDD projects the hook exits silently and no agents are spawned.
+The `git-push-review-reminder.sh` PostToolUse hook enforces this: checks for `sdd/` + `sdd/README.md`, classifies the trigger (`gh pr create` -> poll gh for the just-created PR's base; `git push` -> `gh pr view` -> check state OPEN AND base IN (main, master, develop)), and emits the three-agent directive only when the trigger fires. On non-SDD projects the hook exits silently and no agents are spawned.
 
-The `enforce-review-spawn.sh` Stop hook is the safety net: calls `gh pr view` at turn end and blocks the turn from ending only if a PR-to-main has an un-acked HEAD with the required agents not spawned. Same base gate (main/master only).
+The `enforce-review-spawn.sh` Stop hook is the safety net: calls `gh pr view` at turn end and blocks the turn from ending only if a PR to `main`, `master`, or `develop` has an un-acked HEAD with the required agents not spawned. Same protected-base gate.
 
 Branch-tracking note: the hook's cheap-path `@{u}` short-circuit relies on the current branch having upstream tracking (`git rev-parse @{u}` must resolve). Vanilla `git clone https://github.com/owner/repo.git` sets this up automatically. If you manually create a branch with `git checkout -B <branch>` (no `--track`), repair tracking once with `git branch --set-upstream-to=origin/<branch> <branch>`. The hook still works without it (falls back to `gh pr view`), just pays an extra 200-500ms per Stop event.
 

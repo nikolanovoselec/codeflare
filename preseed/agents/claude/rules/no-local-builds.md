@@ -9,6 +9,6 @@ Resource-constrained container. CPU-intensive commands run locally can crash the
 - Linters: `eslint`, `oxlint`, `npm run lint`
 - Formatters: `prettier`, `gofmt` (on large repos)
 
-**Instead:** push to a branch and verify via CI (`gh run list`, `gh run view`). PR-boundary review enforcement starts the required reviewers when a PR to `main`/`master` is opened or updated; do not spawn review agents manually unless the user explicitly asks. To check syntax/logic before that point, read the code.
+**Instead:** push to a branch and verify via CI (`gh run list`, `gh run view`). PR-boundary review enforcement starts the required reviewers when a PR to `main`/`master`/`develop` is opened or updated; do not spawn review agents manually unless the user explicitly asks. To check syntax/logic before that point, read the code.
 
 **Override:** if user explicitly requests local execution, warn them about the freeze risk and only proceed on confirmation.

@@ -901,6 +901,34 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+### REQ-OPS-036: Develop-only main promotion
+
+**Intent:** Protected production branches accept promotion only from the reviewed `develop` branch, so feature branches cannot bypass the integration boundary.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. Pull requests targeting `main` or `master` receive a `Develop promotion source` status check. <!-- @impl: .github/workflows/promotion-source.yml::promotion-source --> <!-- @test: host/__tests__/promotion-source.test.js (REQ-OPS-036: protected main promotion source) -->
+2. The check succeeds only when the pull request head is the canonical repository's exact `develop` branch. <!-- @impl: .github/workflows/promotion-source.yml::promotion-source --> <!-- @test: host/__tests__/promotion-source.test.js (REQ-OPS-036: protected main promotion source) -->
+3. Each existing `main` or `master` ruleset requires the `Develop promotion source` status before merge. <!-- @manual: Inspect the active GitHub ruleset and confirm `Develop promotion source` is required without bypass. -->
+
+**Constraints:**
+
+- GitHub still permits creating other pull requests; the required status blocks their merge.
+- A fork branch named `develop` cannot satisfy the promotion check.
+- The validation command consumes pull-request metadata through environment variables and never executes branch or repository names as shell code.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** Automated workflow and validator behavior for AC1 and AC2; live ruleset inspection for AC3
+
+**Status:** Implemented
+
+---
+
 ### REQ-OPS-031: Trusted deployment container build cache
 
 **Intent:** Deployment can reuse trusted container build work without exposing mutable cache state to pull requests.

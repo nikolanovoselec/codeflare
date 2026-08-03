@@ -233,13 +233,26 @@ test('REQ-AGENT-068 AC1: a mismatched resolved PR number fails closed', async ()
   assert.equal(request, null);
 });
 
-test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integration PR events return no request', async () => {
+test('REQ-AGENT-068 AC1: develop-bound pushes resolve a CI monitor request', async () => {
+  const request = await resolveCiMonitorRequest({
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    pr: PR,
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
+    runner: async () => commandResult(openPr({ baseRefName: 'develop' })),
+  });
+
+  assert.deepEqual(request, expectedRequest());
+});
+
+test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, and closed PR events return no request', async () => {
   const cases = [
     ['unsupported event', { event: 'review', changed: true }, openPr()],
     ['unchanged push', { event: 'push', changed: false }, openPr()],
     ['no PR', { event: 'push', changed: true }, null],
     ['closed PR', { event: 'push', changed: true }, openPr({ state: 'CLOSED' })],
-    ['integration base', { event: 'push', changed: true }, openPr({ baseRefName: 'develop' })],
   ];
 
   for (const [name, event, pr] of cases) {

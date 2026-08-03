@@ -13,14 +13,14 @@ This skill explains how the root main session handles Pi's PR-boundary review in
 
 Use the `review-scope` skill as the canonical scope contract.
 
-SDD projects (`sdd/` + `sdd/README.md`) are reviewed only when work is headed to `main` or `master`. Draft PRs remain eligible. Integration-branch PRs defer review until their PR to `main`/`master`.
+SDD projects (`sdd/` + `sdd/README.md`) are reviewed when work is headed to `main`, `master`, or `develop`. Draft PRs remain eligible. PRs targeting any other integration branch defer review until their PR to one of those protected bases.
 
 The Pi extension emits one structured launch plan after a supported successful boundary and a follow-up naming every reviewer lane still needed for the current head. The plan has separate reviewer and CI waves. Passive startup, branch existence, child sessions, failed commands, and unsupported commands do not launch review.
 
 | Boundary | Review behavior |
 |---|---|
-| Successful explicit branch push, or implicit configured-branch push, whose exact destination and head have an open PR to `main`/`master` | Extension may name the required lanes |
-| Successful `gh pr create` whose resulting open PR targets `main`/`master` | Extension may name required lanes and an independent CI wave |
+| Successful explicit branch push, or implicit configured-branch push, whose exact destination and head have an open PR to `main`/`master`/`develop` | Extension may name the required lanes |
+| Successful `gh pr create` whose resulting open PR targets `main`/`master`/`develop` | Extension may name required lanes and an independent CI wave |
 | PR into `develop` / `staging` | Review deferred |
 | Push with no open protected-base PR | No PR-boundary review |
 | Branch deletion, tag/multi-ref push, or PR edit/update/merge | No PR-boundary review |

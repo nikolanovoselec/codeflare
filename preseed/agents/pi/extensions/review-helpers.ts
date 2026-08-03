@@ -19,13 +19,18 @@ type BoundarySurfaces = {
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
-  boundary?: { toolUseId: string; command: string };
+  boundary?: {
+    toolUseId: string;
+    command: string;
+    toolName: string;
+    toolArguments: Record<string, unknown>;
+  };
   reviewHead?: string;
   reviewRange?: string;
   reviewRepo?: string;
   reviewBranch?: string;
   reviewPrNumber?: number;
-  reviewBase?: "main" | "master";
+  reviewBase?: "main" | "master" | "develop";
   reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
@@ -588,7 +593,7 @@ type ReviewWindow = {
   repo?: string;
   branch?: string;
   prNumber?: number;
-  base?: "main" | "master";
+  base?: "main" | "master" | "develop";
   boundaryToolUseId?: string;
 };
 
@@ -604,7 +609,9 @@ function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
   const repo = typeof entry.details?.repo === "string" ? entry.details.repo : undefined;
   const branch = typeof entry.details?.branch === "string" ? entry.details.branch : undefined;
   const prNumber = Number.isInteger(entry.details?.prNumber) ? entry.details.prNumber : undefined;
-  const base = entry.details?.base === "main" || entry.details?.base === "master"
+  const base = entry.details?.base === "main"
+    || entry.details?.base === "master"
+    || entry.details?.base === "develop"
     ? entry.details.base
     : undefined;
   const boundaryToolUseId = typeof entry.details?.boundaryToolUseId === "string"
@@ -630,7 +637,12 @@ export function reviewTranscriptFacts(input: {
       for (const command of shellCommands(call)) {
         if (successfulToolIds.has(call.id) && classifyReviewBoundaryCommand(command).settled) {
           boundaryIndex = index;
-          boundary = { toolUseId: call.id, command };
+          boundary = {
+            toolUseId: call.id,
+            command,
+            toolName: String(call.name ?? ""),
+            toolArguments: call.arguments && typeof call.arguments === "object" ? call.arguments : {},
+          };
         }
       }
     }

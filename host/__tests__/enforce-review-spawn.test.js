@@ -473,18 +473,15 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     assert.equal(r.stdout, '');
   });
 
-  it('exits 0 silently when open PR targets develop (not main/master)', () => {
-    // Base gating: feature → develop PRs defer review until the
-    // develop → main PR opens. Even with un-acked PR HEAD and no
-    // agents spawned, this branch must not block.
+  it('blocks when open PR targets develop with un-acked HEAD and no agents spawned', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'develop'));
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'feature → develop PR must not trigger Stop-hook enforcement');
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.match(r.stdout, /code-reviewer/);
   });
 
   it('blocks when open PR targets main with un-acked HEAD and no agents spawned', () => {
