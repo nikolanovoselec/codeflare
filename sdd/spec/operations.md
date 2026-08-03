@@ -929,6 +929,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+### REQ-OPS-037: Develop direct fast-forward repairs
+
+**Intent:** Maintainers can repair the integration branch directly without weakening production promotion or allowing destructive history changes.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. The active `develop` ruleset permits direct pushes without a pull-request requirement. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm no pull_request rule. -->
+2. The active `develop` ruleset does not require pre-push status contexts. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm no required_status_checks rule. -->
+3. The active `develop` ruleset blocks branch deletion. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm the deletion rule. -->
+4. The active `develop` ruleset blocks non-fast-forward updates. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm the non_fast_forward rule. -->
+
+**Constraints:** Production promotion remains governed by [REQ-OPS-036](#req-ops-036-develop-only-main-promotion).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-036](#req-ops-036-develop-only-main-promotion)
+
+**Verification:** Live ruleset inspection
+
+**Status:** Implemented
+
+---
+
 ### REQ-OPS-031: Trusted deployment container build cache
 
 **Intent:** Deployment can reuse trusted container build work without exposing mutable cache state to pull requests.

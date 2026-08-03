@@ -583,9 +583,9 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 **Threat:** A release archive and checksum hosted together can both be replaced, while a stored signing key can be stolen or misused.
 
-**Mitigation:** [The dedicated release workflow](../../.github/workflows/sign-release.yml) uses GitHub OIDC to give Cosign a short-lived identity bound to this repository, immutable workflow path, and release tag. It verifies that the semantic-version tag is reachable from `main`, signs the deterministic archive and checksum manifest, and publishes provenance attestations. Container-image provenance remains separate.
+**Mitigation:** [The dedicated release workflow](../../.github/workflows/sign-release.yml) uses GitHub OIDC to give Cosign a short-lived identity bound to this repository, immutable workflow path, and triggering ref: the release tag for publication or `main` for recovery. `validate_release_source` separately verifies that the selected semantic-version tag is reachable from `main` before signing the deterministic archive and checksum manifest and publishing provenance attestations. Container-image provenance remains separate. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @impl: scripts/ci/sign-release.sh::validate_release_source -->
 
-**Verification:** Consumers verify the Sigstore workflow identity and OIDC issuer in addition to `SHA256SUMS`. Full commands and recovery behavior are in [CI/CD § Keyless release signing](ci-cd.md#keyless-release-signing).
+**Verification:** Consumers verify the Sigstore workflow identity and OIDC issuer in addition to `SHA256SUMS`. Full commands and recovery behavior are in [CI/CD § Keyless release signing](ci-cd.md#keyless-release-signing); [release-signing workflow tests](../../host/__tests__/release-signing-workflow.test.js) verify publication and recovery behavior.
 
 **Implements:** [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility), [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts).
 

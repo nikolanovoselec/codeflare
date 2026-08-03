@@ -8,6 +8,8 @@
 #     just-created PR's base; fire review only if base is main/master/develop
 #   - `gh pr edit ... --base main|master` retargets an existing PR to a
 #     protected base → PR-RETARGET candidate → fire review for current HEAD
+#   - synchronous `gh pr merge` into `develop` → verify and review the exact
+#     canonical downstream `develop → main/master` PR head
 #   - `git push` runs AND current branch has an open PR with base in
 #     (main, master, develop) → PR-SYNC trigger → fire review pipeline
 #   - `git push` runs AND open PR base is outside that set → DEFERRED →
@@ -67,7 +69,7 @@ INPUT=$(cat 2>/dev/null) || exit 0
 # cumulative blocking time over a long session.
 # ---------------------------------------------------------------------------
 case "$INPUT" in
-  *"git push"*|*"gh pr create"*|*"gh pr edit"*) ;; # candidate — fall through
+  *"git push"*|*"gh pr create"*|*"gh pr edit"*|*"gh pr merge"*) ;; # candidate — fall through
   *) exit 0 ;;
 esac
 
@@ -97,9 +99,33 @@ COMMAND=$(echo "$INPUT" | jq -r '
   end
 ' 2>/dev/null) || true
 
-# Classify the command. Direct gh pr create is unambiguous (PR-OPEN), and
-# protected-base gh pr edit is a PR-RETARGET. git push is conditional on
-# open-PR detection (PR-SYNC vs DEFERRED).
+TRIGGER=""
+MERGE_BOUNDARY_KEY=""
+MERGE_INFO=""
+if printf '%s' "$COMMAND" | grep -Eq '(^|[;&|])[[:space:]]*([^;&|]*[[:space:]])?gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'; then
+  . "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
+  MERGE_REPO=$(resolve_merge_command_repo "$COMMAND" "$PWD") || exit 0
+  cd "$MERGE_REPO" 2>/dev/null || exit 0
+  [ -d sdd ] && [ -f sdd/README.md ] || exit 0
+  MERGE_COMMON=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+  case "$MERGE_COMMON" in /*) ;; *) MERGE_COMMON="$MERGE_REPO/$MERGE_COMMON" ;; esac
+  MERGE_BOUNDARY_KEY=$(echo "$INPUT" | jq -r '.tool_use_id // empty' 2>/dev/null)
+  [ -n "$MERGE_BOUNDARY_KEY" ] || MERGE_BOUNDARY_KEY=$(printf '%s' "$COMMAND" | sha256sum | awk '{print $1}')
+  MERGE_INFO=$(resolve_develop_merge_boundary "$COMMAND" "$MERGE_COMMON" "$MERGE_BOUNDARY_KEY")
+  MERGE_STATUS=$?
+  [ "$MERGE_STATUS" -eq 0 ] || exit 0
+  [ "$(printf '%s' "$MERGE_INFO" | jq -r '.directiveEmitted')" = "false" ] || exit 0
+  TRIGGER="pr-merge"
+  CURRENT="develop"
+  PR_BASE=$(printf '%s' "$MERGE_INFO" | jq -r '.downstreamBase')
+  MERGE_PR_HEAD=$(printf '%s' "$MERGE_INFO" | jq -r '.downstreamHead')
+  ensure_develop_merge_head "$MERGE_PR_HEAD" || exit 0
+fi
+
+# Classify the command. Direct gh pr create is unambiguous (PR-OPEN), a
+# protected-base gh pr edit is a PR-RETARGET, and a synchronous merge is
+# authoritative only after exact downstream correlation. git push is
+# conditional on open-PR detection (PR-SYNC vs DEFERRED).
 #
 # Anchored regex (not substring): `git push` and `gh pr create` must
 # appear as actual command tokens, not as substrings inside echo
@@ -120,9 +146,10 @@ COMMAND=$(echo "$INPUT" | jq -r '
 # to ';' so the anchored regex catches a newline-separated push (parity with
 # enforce-review-spawn.sh, whose awk already recognizes \n before git push).
 COMMAND=$(printf '%s' "$COMMAND" | tr '\n\r' ';;')
-TRIGGER=""
 PR_EDIT_BASE=""
-if [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]; then
+if [ "$TRIGGER" = "pr-merge" ]; then
+  :
+elif [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]; then
   TRIGGER="pr-open"
 elif [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+edit([[:space:]][^\;\&\|]*)?[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]]|$|[\;\&\|]) ]]; then
   TRIGGER="pr-retarget"
@@ -383,7 +410,9 @@ if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
   # git-push path skips the gh query and has no PR_INFO, so the local-HEAD
   # resolution below is the normal case there.
   GH_PR_HEAD=""
-  if [ "$TRIGGER" = "git-push" ] && [ -n "${PR_INFO:-}" ]; then
+  if [ "$TRIGGER" = "pr-merge" ]; then
+    GH_PR_HEAD="$MERGE_PR_HEAD"
+  elif [ "$TRIGGER" = "git-push" ] && [ -n "${PR_INFO:-}" ]; then
     GH_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
   elif [ "$TRIGGER" = "git-push" ]; then
     GH_PR_HEAD="${CACHED_PR_HEAD:-}"
@@ -396,7 +425,9 @@ if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
   # guard below skips classification and leaves the all-three default. That
   # is the fail-closed direction; the branch exists so a missing helper is a
   # skipped optimisation rather than an unbound-variable abort.
-  if command -v resolve_review_head >/dev/null 2>&1; then
+  if [ "$TRIGGER" = "pr-merge" ]; then
+    CURRENT_PR_HEAD="$GH_PR_HEAD"
+  elif command -v resolve_review_head >/dev/null 2>&1; then
     CURRENT_PR_HEAD=$(resolve_review_head "$GH_PR_HEAD")
   else
     # Empty, not the raw gh head. Since the cached path now supplies GH_PR_HEAD
@@ -425,6 +456,7 @@ case "$TRIGGER" in
   pr-open)     CONTEXT="PR open" ;;
   pr-retarget) CONTEXT="PR retarget to main/master" ;;
   git-push)    CONTEXT="push to PR-tracked branch (PR-sync)" ;;
+  pr-merge)    CONTEXT="develop merge promotion" ;;
 esac
 
 needs_code=0; needs_spec=0; needs_doc=0
@@ -472,6 +504,9 @@ RUNNER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/codeflare-hooks/scripts/run-
 if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$CURRENT_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
   LANE_SCOPE="--range $LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD"
   DIRECTIVE="$DIRECTIVE Each lane reviews ONLY the incremental diff since the last reviewed head ($LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD), not the full PR diff."
+elif [ "$TRIGGER" = "pr-merge" ] && [ -n "$PR_BASE" ] && [ -n "$CURRENT_PR_HEAD" ]; then
+  LANE_SCOPE="--range origin/$PR_BASE..$CURRENT_PR_HEAD"
+  DIRECTIVE="$DIRECTIVE Each lane reviews the exact downstream PR head against origin/$PR_BASE."
 elif [ -n "$PR_BASE" ]; then
   LANE_SCOPE="--base $PR_BASE"
   DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against origin/$PR_BASE (no prior review base)."
@@ -491,5 +526,8 @@ DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root e
 # assert the directive carries no lane literal outside its Lanes: line.
 DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message and then END YOUR TURN. While the lanes are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. When no lane returned a finding, do not publish an empty table: state plainly that every lane came back clean, and name each lane with its turn count and its triage verdict from the runner telemetry, so a clean round is distinguishable from a round that did not happen. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. THEN fix every finding whose MINIMAL DECISION is to fix, in this same session, and state what you fixed and anything you deliberately left. Never ask permission to fix a legitimate finding."
 
+if [ "$TRIGGER" = "pr-merge" ]; then
+  merge_boundary_mark_directive "$MERGE_COMMON" "$MERGE_BOUNDARY_KEY" || exit 0
+fi
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
 exit 0

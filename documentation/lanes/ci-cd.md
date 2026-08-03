@@ -65,7 +65,7 @@ Each package version also appears in `entrypoint.sh`, pinned-version tests, and 
 
 Published `vMAJOR.MINOR.PATCH` releases receive a deterministic `codeflare-vMAJOR.MINOR.PATCH.tar.gz`, `SHA256SUMS`, and a `.sigstore.json` bundle for each file. The workflow delegates validation, archive construction, signing, and upload to the executable `scripts/ci/sign-release.sh` boundary, whose observable exits and artifacts are tested with controlled command dependencies. The signing job rejects drafts, malformed tags, and commits not reachable from `main`. A manual dispatch must run from `main`, accepts only an existing release tag, and reruns the same deterministic path, so recovery does not create or retarget releases.
 
-Cosign obtains a short-lived certificate from GitHub's OIDC identity; Codeflare stores no private signing key or signing password. GitHub artifact attestations independently bind the archive and checksum manifest to the repository, workflow, and source revision. This source-release evidence complements rather than replaces the container-image provenance created during deployment.
+Cosign obtains a short-lived certificate from GitHub's OIDC identity; Codeflare stores no private signing key or signing password. GitHub artifact attestations independently bind the archive and checksum manifest to the repository, workflow, and source revision. This source-release evidence complements rather than replaces the container-image provenance created during deployment. <!-- @impl: .github/workflows/sign-release.yml::sign -->
 
 After downloading all four assets from a release, verify the checksum and Sigstore bundles:
 
@@ -100,13 +100,11 @@ The non-default enterprise environments, account overrides, and dispatch procedu
 | Branch | Required checks | Bypass |
 |--------|-----------------|--------|
 | `main` | `test`, `CodeQL`, `Property-based fuzzing`, `Develop promotion source` | none |
-| `develop` | `test`, `CodeQL`, `Property-based fuzzing` | none |
+| `develop` | none before push; CI remains observable after push | none |
 
 GitHub rulesets [`13219234`](https://github.com/nikolanovoselec/codeflare/settings/rules/13219234) (`main`) and [`19216590`](https://github.com/nikolanovoselec/codeflare/settings/rules/19216590) (`develop`) are authoritative. Operators can verify their complete settings with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`.
 
-Both long-lived branches require squash-only pull requests, block deletion and non-fast-forward updates, dismiss stale reviews, and require the latest branch state to carry their complete check set. `main` additionally requires `Develop promotion source`, so GitHub may display a feature-to-main or fork-`develop` PR but cannot merge it. Neither ruleset requires an approving review because Codeflare currently has one maintainer; self-approval would add delay without independent assurance.
-
-`test.yml` has no `push` trigger for `develop`, so a locally authored commit cannot acquire the required checks and direct pushes are rejected. The former admin bypass and force-reset path are intentionally gone: synchronization must preserve protected history rather than using `git push -f origin main:develop`.
+`main` requires squash-only pull requests, blocks deletion and non-fast-forward updates, dismisses stale reviews, and requires the latest branch state to carry its complete check set. It additionally requires `Develop promotion source`, so GitHub may display a feature-to-main or fork-`develop` PR but cannot merge it. The active `develop` ruleset instead permits direct fast-forward pushes while blocking deletion and non-fast-forward updates ([REQ-OPS-037](../../sdd/spec/operations.md#req-ops-037-develop-direct-fast-forward-repairs)). CI remains observable after direct pushes where workflow triggers apply, and force-reset synchronization stays prohibited. Neither ruleset requires approving reviews because Codeflare currently has one maintainer; self-approval would add delay without independent assurance.
 
 Workflow references are SHA-pinned repository-wide (`sha_pinning_required`); a `uses:` on a tag or branch is rejected at the Actions level rather than caught in review.
 

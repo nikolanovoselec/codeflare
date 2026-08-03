@@ -192,6 +192,67 @@ describe('git-push-review-reminder.sh — PR-OPEN trigger (base-gated)', () => {
   });
 });
 
+describe('REQ-AGENT-121/122: downstream develop merge trigger', () => {
+  function mergeGh(cwd) {
+    const mergeOid = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    const binDir = join(cwd, 'merge-bin');
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
+case "$*" in
+  "repo view --json nameWithOwner") echo '{"nameWithOwner":"owner/repo"}' ;;
+  "pr view 768 --json number,state,baseRefName,headRefName,headRefOid,mergeCommit,url") echo '{"number":768,"state":"MERGED","baseRefName":"develop","headRefName":"feature","headRefOid":"${'b'.repeat(40)}","mergeCommit":{"oid":"${mergeOid}"},"url":"https://github.com/owner/repo/pull/768"}' ;;
+  "pr list --state open --head develop --json number,state,baseRefName,headRefName,headRefOid,headRepositoryOwner") echo '[{"number":761,"state":"OPEN","baseRefName":"main","headRefName":"develop","headRefOid":"${mergeOid}","headRepositoryOwner":{"login":"owner"}}]' ;;
+  *) echo "unexpected gh args: $*" >&2; exit 99 ;;
+esac
+`);
+    chmodSync(join(binDir, 'gh'), 0o755);
+    return binDir;
+  }
+
+  it('emits the normal directive for the exact downstream promotion head', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const r = runHookWithInput(cwd, {
+      tool_use_id: 'toolu_merge_ready',
+      tool_input: { command: 'gh pr merge 768 --squash' },
+    }, mergeGh(cwd));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /additionalContext/);
+    assert.match(r.stdout, /develop merge promotion/);
+    assert.match(r.stdout, /--range origin\/main\.\.[0-9a-f]{40}/);
+  });
+
+  it('uses a cd-prefixed merge command repository for every lookup', () => {
+    const repo = makeFixture();
+    withSdd(repo);
+    const outside = mkdtempSync(join(tmpdir(), 'pushrev-outside-'));
+    const r = runHookWithInput(outside, {
+      tool_use_id: 'toolu_merge_cd',
+      tool_input: { command: `cd "${repo}" && gh pr merge 768 --squash` },
+    }, mergeGh(repo));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /develop merge promotion/);
+  });
+
+  it('keeps auto-merge and explicit cross-repository forms inert', () => {
+    for (const command of [
+      'gh pr merge 768 --auto',
+      'gh pr merge 768 --disable-auto',
+      'gh pr merge 768 --repo owner/other',
+    ]) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHookWithInput(cwd, {
+        tool_use_id: `toolu_inert_${command.length}`,
+        tool_input: { command },
+      }, fakeGhFails(cwd));
+      assert.equal(r.status, 0, command);
+      assert.equal(r.stdout, '', command);
+      assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/, command);
+    }
+  });
+});
+
 describe('git-push-review-reminder.sh — PR-RETARGET trigger (protected-base gh pr edit)', () => {
   it('emits silent directive when gh pr edit retargets to main/master across flag forms', () => {
     for (const command of [

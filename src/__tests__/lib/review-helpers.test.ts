@@ -238,6 +238,8 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['gh pr merge --squash', { reminder: true, settled: true, event: 'pr-merge' }],
       ['gh pr merge 42 --repo owner/other', none],
       ['gh pr merge 42 -Rowner/other', none],
+      ['gh pr merge 42 --auto', none],
+      ['gh pr merge 42 --disable-auto', none],
       ['gh pr update-branch 42', none],
       ['git push origin --delete pi', none],
       ['git push origin :pi', none],

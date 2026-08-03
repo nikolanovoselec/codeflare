@@ -1523,6 +1523,17 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
   // git push line; without these matches the review pipeline silently
   // fails to arm. Spec-reviewer flagged the missing coverage as MEDIUM
   // because the named-incident behaviour was unverified by CI.
+  const ghMergedPromotion = (cwd) => {
+    const mergeOid = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    return `ARGS="$*"
+case "$ARGS" in
+  "repo view --json nameWithOwner") echo '{"nameWithOwner":"owner/repo"}' ;;
+  "pr view 394 --json number,state,baseRefName,headRefName,headRefOid,mergeCommit,url") echo '{"number":394,"state":"MERGED","baseRefName":"develop","headRefName":"feature","headRefOid":"${'b'.repeat(40)}","mergeCommit":{"oid":"${mergeOid}"},"url":"https://github.com/owner/repo/pull/394"}' ;;
+  "pr list --state open --head develop --json number,state,baseRefName,headRefName,headRefOid,headRepositoryOwner") echo '[{"number":761,"state":"OPEN","baseRefName":"main","headRefName":"develop","headRefOid":"${mergeOid}","headRepositoryOwner":{"login":"owner"}}]' ;;
+  *) echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2; exit 99 ;;
+esac`;
+  };
+
   const bashGhMerge = (
     ts = '2026-05-03T12:00:00.000Z',
     command = 'gh pr merge 394 --merge',
@@ -1541,10 +1552,10 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       timestamp: ts,
     });
 
-  it('blocks on Bash gh pr merge', () => {
+  it('REQ-AGENT-121: blocks on Bash gh pr merge', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const binDir = fakeGh(cwd, ghMergedPromotion(cwd));
     const t = writeTranscript(cwd, [bashGhMerge()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
@@ -1552,10 +1563,25 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       'Bash gh pr merge must trigger PUSH_LINE detection');
   });
 
+  it('suppresses duplicate merge work after the downstream head is acknowledged', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const transcript = writeTranscript(cwd, [bashGhMerge()]);
+    const first = runHook(cwd, { transcriptPath: transcript, binDir: fakeGh(cwd, ghMergedPromotion(cwd)) });
+    assert.match(first.stdout, /"decision"\s*:\s*"block"/);
+    const mergeOid = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    writeFileSync(join(cwd, '.git', 'sdd-last-ack-pr-head'), `${mergeOid}\n`);
+
+    const second = runHook(cwd, { transcriptPath: transcript, binDir: ghPoison(cwd) });
+    assert.equal(second.status, 0);
+    assert.equal(second.stdout, '');
+    assert.doesNotMatch(second.stderr, /POISON_GH_CALLED/);
+  });
+
   it('blocks on ctx_execute(language=shell) with gh pr merge', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const binDir = fakeGh(cwd, ghMergedPromotion(cwd));
     const t = writeTranscript(cwd, [
       ctxExecPush('2026-05-03T12:00:00.000Z', 'gh pr merge 394 --merge'),
     ]);
@@ -1568,7 +1594,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
   it('blocks on ctx_batch_execute with gh pr merge in commands array', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const binDir = fakeGh(cwd, ghMergedPromotion(cwd));
     const t = writeTranscript(cwd, [
       ctxBatchPush('2026-05-03T12:00:00.000Z', [
         { label: 'merge', command: 'gh pr merge 394 --merge' },
@@ -1583,7 +1609,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
   it('detects chained gh pr merge inside ctx_execute shell code', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const binDir = fakeGh(cwd, ghMergedPromotion(cwd));
     const t = writeTranscript(cwd, [
       ctxExecPush(
         '2026-05-03T12:00:00.000Z',
@@ -1593,6 +1619,20 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+
+  it('keeps auto-merge commands inert instead of exhausting a future merge boundary', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = ghPoison(cwd);
+    const t = writeTranscript(cwd, [bashGhMerge(
+      '2026-05-03T12:00:00.000Z',
+      'gh pr merge 394 --auto',
+    )]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
   });
 
   it('blocks on Bash gh pr edit protected-base retargets across flag forms', () => {

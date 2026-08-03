@@ -7,7 +7,9 @@
 #     transcript. Accepts false positives - they get filtered below.
 #
 #   Layer 2 (TRUTH) - `gh pr view <branch>` returns the current PR HEAD
-#     SHA. The PR HEAD SHA is the unfakeable signal at PR-boundary
+#     SHA. A synchronous merge into `develop` instead resolves the canonical
+#     downstream production PR and exact merge OID. The PR HEAD SHA is the
+#     unfakeable signal at PR-boundary
 #     scope: it changes only when a real push lands on the PR's source
 #     branch. The legacy reflog `update by push` truth layer is kept as
 #     a comment-anchored documentation reference (search "update by
@@ -352,7 +354,10 @@ ENVELOPE_CWD=$(echo "$PUSH_RECORD" | jq -r '.cwd // empty' 2>/dev/null)
 # shell form (handles `&&`, `\"`, etc.). The `..` recursive
 # descent finds the first command/code field anywhere in the record.
 COMMAND_TEXT=$(echo "$PUSH_RECORD" | jq -r '
-  [.. | objects | (.command? // .code?) | select(type=="string")] | .[0] // empty
+  [.. | objects | (.command? // .code?)
+    | select(type=="string")
+    | select(test("(^|[;&|])[[:space:]]*([^;&|]*[[:space:]])?(git[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+(merge|edit))([[:space:]]|$)"))]
+  | .[0] // empty
 ' 2>/dev/null)
 CD_PATH=$(printf '%s' "$COMMAND_TEXT" | awk '
   /^[[:space:]]*cd[[:space:]]+/ {
@@ -461,6 +466,24 @@ case "$GIT_COMMON_DIR" in /*) ;; *) GIT_COMMON_DIR="$REPO_DIR/$GIT_COMMON_DIR" ;
 ACK_FILE="$GIT_COMMON_DIR/sdd-last-ack-pr-head"
 COUNT_FILE="$GIT_COMMON_DIR/sdd-review-block-count"
 
+MERGE_OVERRIDE=0
+MERGE_COMMAND_TEXT=$(printf '%s' "$PUSH_RECORD" | jq -r '
+  [.. | strings | select(test("(^|[;&|])[[:space:]]*([^;&|]*[[:space:]])?gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)"))] | .[0] // empty
+' 2>/dev/null)
+if [ -n "$MERGE_COMMAND_TEXT" ]; then
+  . "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
+  MERGE_BOUNDARY_KEY=$(printf '%s' "$PUSH_RECORD" | jq -r '[.. | objects | .id? // empty] | .[0] // empty' 2>/dev/null)
+  [ -n "$MERGE_BOUNDARY_KEY" ] || MERGE_BOUNDARY_KEY=$(printf '%s:%s' "$PUSH_LINE" "$PUSH_RECORD" | sha256sum | awk '{print $1}')
+  MERGE_INFO=$(resolve_develop_merge_boundary "$MERGE_COMMAND_TEXT" "$GIT_COMMON_DIR" "$MERGE_BOUNDARY_KEY")
+  MERGE_STATUS=$?
+  [ "$MERGE_STATUS" -eq 0 ] || exit 0
+  MERGE_OVERRIDE=1
+  MERGE_PR_NUMBER=$(printf '%s' "$MERGE_INFO" | jq -r '.downstreamPr')
+  MERGE_PR_BASE=$(printf '%s' "$MERGE_INFO" | jq -r '.downstreamBase')
+  MERGE_PR_HEAD=$(printf '%s' "$MERGE_INFO" | jq -r '.downstreamHead')
+  ensure_develop_merge_head "$MERGE_PR_HEAD" || exit 0
+fi
+
 # Migration: clean up v4 timestamp checkpoint on first v5 run
 LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
 [ -f "$LEGACY_ACK" ] && rm -f "$LEGACY_ACK" 2>/dev/null
@@ -472,9 +495,13 @@ LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
 # pipeline fires when the PR opens (handled by git-push-review-reminder.sh
 # at PR-OPEN time). No open PR → no enforcement here.
 # ---------------------------------------------------------------------------
-CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
-[ -n "$CURRENT" ] || exit 0
-[ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD - skip
+if [ "$MERGE_OVERRIDE" = "1" ]; then
+  CURRENT="$MERGE_PR_NUMBER"
+else
+  CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+  [ -n "$CURRENT" ] || exit 0
+  [ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD - skip
+fi
 
 # ---------------------------------------------------------------------------
 # Cheap pre-check: skip the gh network call if all four conditions hold,
@@ -890,11 +917,9 @@ retroactive_ack_scan() {
     # pushes in the same turn would land its own SHA pair in the window
     # and `head -1` would pick the wrong (fetched, not pushed) SHA.
     #
-    # `gh pr merge` does NOT emit a `xxxxxxx..yyyyyyy` line at all (it
-    # prints "Merged pull request #N"), so this regex extracts nothing
-    # and the window is silently skipped. That is the right behaviour:
-    # the next normal `git push` to develop will absorb the merge diff
-    # into its cumulative review window via the running_ack chain.
+    # `gh pr merge` does not emit a `xxxxxxx..yyyyyyy` line, so retroactive
+    # push-window acknowledgement skips it. Its exact downstream head is
+    # handled by resolve_develop_merge_boundary before ambient branch state.
     local sha_short
     sha_short=$(awk -v s="$start" -v e="$end" 'NR >= s && NR < e' "$TRANSCRIPT" \
       | grep -oE '[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}[[:space:]]+[A-Za-z0-9_/-]+[[:space:]]+->[[:space:]]+[A-Za-z0-9_-]+' \
@@ -990,7 +1015,7 @@ if [ -n "$RETRO_SHA" ] && [ "$RETRO_SHA" != "$LAST_ACK_PR_HEAD" ]; then
   fi
 fi
 
-if [ -n "$LAST_ACK_PR_HEAD" ]; then
+if [ "$MERGE_OVERRIDE" != "1" ] && [ -n "$LAST_ACK_PR_HEAD" ]; then
   REMOTE_HEAD=$(git rev-parse "@{u}" 2>/dev/null)
   LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
   if [ -n "$REMOTE_HEAD" ] \
@@ -1003,18 +1028,24 @@ if [ -n "$LAST_ACK_PR_HEAD" ]; then
   fi
 fi
 
-if ! command -v gh >/dev/null 2>&1; then
-  exit 0  # gh missing → can't verify PR state → fail-safe exit
+if [ "$MERGE_OVERRIDE" = "1" ]; then
+  PR_STATE="OPEN"
+  CURRENT_PR_HEAD="$MERGE_PR_HEAD"
+  BASE_REF="$MERGE_PR_BASE"
+else
+  if ! command -v gh >/dev/null 2>&1; then
+    exit 0  # gh missing → can't verify PR state → fail-safe exit
+  fi
+
+  # Shared CLI invocation; see lib/gh-pr-state.sh for the contract
+  . "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
+  PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
+  [ -n "$PR_INFO" ] || exit 0
+
+  PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
+  CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+  BASE_REF=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
 fi
-
-# Shared CLI invocation; see lib/gh-pr-state.sh for the contract
-. "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
-PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
-[ -n "$PR_INFO" ] || exit 0
-
-PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
-CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
-BASE_REF=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
 
 # No open PR → exit 0 (deferred review)
 # MERGED/CLOSED with un-acked HEAD → record visibility finding but do
@@ -1185,7 +1216,11 @@ emit_block() {
 # The RANGE ends at the resolved head, the ACK still records the gh head.
 # Separating the two is what lets this agree with the nudge's classification
 # without ever acking a commit the PR does not carry.
-REVIEW_RANGE_HEAD=$(resolve_review_head "$CURRENT_PR_HEAD")
+if [ "$MERGE_OVERRIDE" = "1" ]; then
+  REVIEW_RANGE_HEAD="$CURRENT_PR_HEAD"
+else
+  REVIEW_RANGE_HEAD=$(resolve_review_head "$CURRENT_PR_HEAD")
+fi
 REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
 if . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null; then
   REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD")
@@ -1403,6 +1438,8 @@ if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$REVIEW_RANGE_HEAD" ] \
    && [ "$LAST_ACK_PR_HEAD" != "$REVIEW_RANGE_HEAD" ] \
    && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD" 2>/dev/null; then
   LANE_SCOPE=" --range $LAST_ACK_PR_HEAD..$REVIEW_RANGE_HEAD"
+elif [ "$MERGE_OVERRIDE" = "1" ] && [ -n "$BASE_REF" ] && [ -n "$REVIEW_RANGE_HEAD" ]; then
+  LANE_SCOPE=" --range origin/$BASE_REF..$REVIEW_RANGE_HEAD"
 elif [ -n "$BASE_REF" ]; then
   LANE_SCOPE=" --base $BASE_REF"
 else

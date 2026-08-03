@@ -608,11 +608,13 @@ Under enterprise mode, the response's `sessionMode` is always `'advanced'`. GET 
 
 ## LLM API Keys
 
-GET `/api/llm-keys` - returns masked keys (`****` + last 4 chars), never full keys.
-PUT `/api/llm-keys` - set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
-DELETE `/api/llm-keys` - removes all LLM keys from KV.
+| Method | Success contract | Enterprise response |
+|---|---|---|
+| GET `/api/llm-keys` | Returns masked keys (`****` + last 4 characters), never full keys. | `403` before KV access. |
+| PUT `/api/llm-keys` | Sets or clears keys from `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`; `null` deletes, omission leaves unchanged, and strings set values. Returns masked keys. With `ENCRYPTION_KEY`, values use AES-256-GCM before KV storage. | `403` before KV access. |
+| DELETE `/api/llm-keys` | Removes all LLM keys from KV. | `403` before KV access. |
 
-Enterprise deployments reject all three methods with `403` before accessing KV because per-user LLM-key management is unavailable ([REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) AC2).
+Enterprise deployments reject per-user LLM-key management under [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) AC2. <!-- @impl: src/routes/llm-keys.ts::app.use -->
 
 Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected only as `CODEFLARE_OPENAI_API_KEY` / `CODEFLARE_GEMINI_API_KEY`; `entrypoint.sh` maps them back to bare provider env names only inside the scoped `consult-llm-mcp` server config for Claude (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`). The LLM Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
 

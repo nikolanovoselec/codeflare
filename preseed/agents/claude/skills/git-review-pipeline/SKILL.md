@@ -20,7 +20,9 @@ Review fires on PRs that target `main`, `master`, or `develop`. PRs into any oth
 | `git push` to a branch with open PR -> master | master | full pipeline (PR-sync) |
 | `git push` to a branch with open PR -> develop | develop | full pipeline (PR-sync) |
 | `git push` to a branch with no open PR | - | nothing (deferred until PR opens) |
-| `git push` to `develop` directly without an open PR | - | nothing |
+| `git push` to `develop` while `develop → main/master` is open | main/master | full pipeline for the exact pushed head |
+| synchronous `gh pr merge` into `develop` | main/master | full pipeline after exact downstream-head verification |
+| `git push` to `develop` without an open production PR | - | nothing |
 | `git push` to `main`/`master` with no PR | - | nothing (user is expected to have branch protection on; if off, manual verification is on the user) |
 
 The cost model is per protected-base PR: one review when the PR opens and one per pushed head while it remains open.
@@ -34,11 +36,11 @@ feature --> PR --> develop --> PR --> main
              at open + sync      at open + sync
 ```
 
-Protected `develop` should receive changes through PRs so each feature head gets its own boundary review. Direct push to `main` should be prevented at the GitHub layer (see Branch protection below) rather than worked around in-session.
+The repository may permit direct fast-forward repairs on `develop`; deletion and non-fast-forward updates remain blocked. Direct push to `main` should be prevented at the GitHub layer (see Branch protection below) rather than worked around in-session.
 
-The `git-push-review-reminder.sh` PostToolUse hook enforces this: checks for `sdd/` + `sdd/README.md`, classifies the trigger (`gh pr create` -> poll gh for the just-created PR's base; `git push` -> `gh pr view` -> check state OPEN AND base IN (main, master, develop)), and emits the three-agent directive only when the trigger fires. On non-SDD projects the hook exits silently and no agents are spawned.
+The `git-push-review-reminder.sh` PostToolUse hook checks for `sdd/` + `sdd/README.md`, classifies PR creation and push boundaries, and verifies synchronous merges into `develop` against the exact canonical downstream production PR head before emitting the standard lane directive. Auto-merge and cross-repository forms remain inert. On non-SDD projects the hook exits silently and no agents are spawned.
 
-The `enforce-review-spawn.sh` Stop hook is the safety net: calls `gh pr view` at turn end and blocks the turn from ending only if a PR to `main`, `master`, or `develop` has an un-acked HEAD with the required agents not spawned. Same protected-base gate.
+The `enforce-review-spawn.sh` Stop hook is the safety net: it normally calls `gh pr view` at turn end for the current protected-base PR. For a verified merge into `develop`, it instead uses the persisted downstream PR and exact head, then reuses the same acknowledgement, triage, and FIX lifecycle.
 
 Branch-tracking note: the hook's cheap-path `@{u}` short-circuit relies on the current branch having upstream tracking (`git rev-parse @{u}` must resolve). Vanilla `git clone https://github.com/owner/repo.git` sets this up automatically. If you manually create a branch with `git checkout -B <branch>` (no `--track`), repair tracking once with `git branch --set-upstream-to=origin/<branch> <branch>`. The hook still works without it (falls back to `gh pr view`), just pays an extra 200-500ms per Stop event.
 

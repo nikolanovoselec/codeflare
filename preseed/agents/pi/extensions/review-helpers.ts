@@ -299,7 +299,8 @@ function prMergeSelector(words: ShellWords): string | undefined | false {
   let selector: string | undefined;
   for (let index = 3; index < words.length; index += 1) {
     const arg = words[index] ?? "";
-    if (arg === "--repo" || arg.startsWith("-R") || arg.startsWith("--repo=")) return false;
+    if (arg === "--auto" || arg === "--disable-auto"
+      || arg === "--repo" || arg.startsWith("-R") || arg.startsWith("--repo=")) return false;
     if (GH_PR_MERGE_OPTIONS_WITH_VALUE.has(arg)) {
       if (!words[index + 1]) return false;
       index += 1;
