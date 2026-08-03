@@ -118,12 +118,14 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
     throw new ValidationError(`Agent type '${body.agentType}' is not available in this deployment`);
   }
 
-  // Enterprise: an omitted agentType would fall back to claude-code at container
-  // start (routes/container/lifecycle.ts), which is never enterprise-selectable —
-  // stamp the first active coding agent instead so the stored session always
-  // carries an allowed agent (REQ-ENTERPRISE-003).
+  // An omitted agentType falls back to claude-code later in container lifecycle.
+  // Stamp an explicit allowed fallback whenever that implicit default is not
+  // selectable (enterprise policy or a reduced image), preventing a session
+  // from targeting a CLI the image does not contain.
   const agentType = body.agentType
-    ?? (isEnterpriseMode(c.env) ? (selectableAgents.find((a) => a !== 'bash') ?? 'bash') : undefined);
+    ?? (!selectableAgents.includes('claude-code')
+      ? (selectableAgents.find((agent) => agent !== 'bash') ?? 'bash')
+      : undefined);
 
   // Storage quota check — block session start if over quota. Enterprise users
   // are unlimited (custom tier, no storage cap), so the gate is skipped entirely.

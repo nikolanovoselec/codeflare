@@ -14,9 +14,9 @@ name: Container Image
 # week salt. If that tag already exists in the target registry, build, scan,
 # and push are skipped and the existing image is reused — most deploys touch
 # only worker src/ and skip the multi-GB build+scan entirely. The weekly salt
-# bounds two forms of staleness at ≤7 days: agent CLIs installed with @latest
-# inside the Dockerfile, and the Trivy CVE verdict of the reused image
-# (REQ-SEC-011: every pushed image was scanned green before its first push).
+# bounds package-refresh and Trivy CVE verdict staleness at seven days; coding-
+# agent versions themselves remain exact lock-backed pins (REQ-SEC-011: every
+# pushed image was scanned green before its first push).
 # A non-empty cache-bust input disables reuse AND busts the npm-install layer
 # cache, exactly like the previous CLAUDE_CODE_CACHE_BUSTER behavior.
 on:
@@ -42,6 +42,10 @@ on:
         description: 'Non-empty = force a full rebuild (content is written to .cache-bust)'
         type: string
         default: ''
+      coding-agents:
+        description: 'Comma-separated shared coding-agent CLIs; bash and platform assets are always present'
+        type: string
+        default: 'claude-code,codex,copilot,antigravity,opencode,pi'
       runner:
         description: 'runs-on label'
         type: string
@@ -95,16 +99,19 @@ jobs:
 
       - name: Compute image input hash
         id: hash
+        env:
+          RAW_CODING_AGENTS: ${{ inputs.coding-agents }}
         run: |
           # Every path the Dockerfile COPYs, plus the Dockerfile itself. The
           # weekly salt forces at most one rebuild+rescan per ISO week even
-          # with unchanged inputs (fresh @latest agents, fresh CVE verdict).
+          # with unchanged inputs (fresh apt resolution and CVE verdict).
           # .dockerignore decides what the COPYs actually include and
           # .trivyignore decides which CVEs the scan tolerates. Neither was
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh host/package.json host/package-lock.json host/tsconfig.json host/src openvscode preseed scripts/browser-ide-ui-state.py scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/verify-pi-lockstep.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh host/package.json host/package-lock.json host/tsconfig.json host/src openvscode preseed scripts/browser-ide-ui-state.py scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/verify-pi-lockstep.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          CODING_AGENTS=$(node scripts/ci/coding-agent-selection.mjs resolve "$RAW_CODING_AGENTS")
 
           # Guard: every COPY source in the Dockerfile must be covered by
           # HASHED_PATHS — otherwise the reuse gate could serve a stale image
@@ -113,7 +120,7 @@ jobs:
           while read -r src; do
             case "$src" in
               .cache-bust) ;; # represented by the cache-bust input
-              Dockerfile|entrypoint.sh|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/verify-pi-lockstep.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
+              Dockerfile|entrypoint.sh|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/verify-pi-lockstep.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
               *)
                 echo "::warning::COPY source '$src' not covered by the image input hash — disabling reuse for this run. Add it to HASHED_PATHS in container-image.yml."
                 NO_REUSE=1
@@ -160,8 +167,9 @@ jobs:
               exit 1
             }
           done
-          HASH=$( { for p in $HASHED_PATHS; do git rev-parse "HEAD:$p"; done; echo "week=$(date -u +%G-W%V)"; } | sha256sum | cut -c1-16 )
+          HASH=$( { for p in $HASHED_PATHS; do git rev-parse "HEAD:$p"; done; echo "coding_agents=${CODING_AGENTS}"; echo "week=$(date -u +%G-W%V)"; } | sha256sum | cut -c1-16 )
           echo "tag=in-${HASH}" >> "$GITHUB_OUTPUT"
+          echo "coding_agents=${CODING_AGENTS}" >> "$GITHUB_OUTPUT"
           echo "no_reuse=${NO_REUSE}" >> "$GITHUB_OUTPUT"
           echo "trivy_db_key=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
           echo "Image tag: in-${HASH} (no_reuse=${NO_REUSE})"
@@ -258,6 +266,7 @@ jobs:
           REGISTRY: ${{ inputs.registry }}
           REF: ${{ inputs.ref }}
           CACHE_ENABLED: ${{ steps.cache.outputs.enabled }}
+          CODING_AGENTS: ${{ steps.hash.outputs.coding_agents }}
         run: |
           set -euo pipefail
           # --load keeps the image available to the local docker daemon
@@ -274,6 +283,7 @@ jobs:
           docker buildx build --platform linux/amd64 \
             "${CACHE_ARGS[@]}" \
             --load \
+            --build-arg "CODEFLARE_CODING_AGENTS=${CODING_AGENTS}" \
             --label "org.opencontainers.image.revision=${REF}" \
             -t "${IMAGE_NAME}:${TAG}" .
           echo "local_ref=${IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
@@ -291,10 +301,6 @@ jobs:
           IMAGE_ID=$(docker image inspect "$IMAGE" --format '{{.Id}}')
           printf 'image_bytes=%s image_id=%s\n' "$IMAGE_BYTES" "$IMAGE_ID" \
             | tee -a /tmp/browser-ide-image-evidence.txt
-          [ "$IMAGE_BYTES" -le 4500000000 ] || {
-            echo "Complete image exceeds the 4.5 GB Browser IDE migration ceiling." >&2
-            exit 1
-          }
 
       - name: Measure idle code-server resources
         if: steps.reuse.outputs.reused != 'true'

@@ -32,9 +32,9 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
     );
   });
 
-  it('REQ-OPS-011 AC2 (precondition): agent CLI packages are present in the image for Claude Code, Codex, Antigravity, Copilot, OpenCode', () => {
-    // AC2 runtime verification requires a live container. This audit verifies
-    // that the lock-backed image tool manifest carries every required CLI.
+  it('REQ-OPS-011 AC2 (precondition): supported agent CLI packages remain in the locked image catalog', () => {
+    // AC2 runtime verification requires a live selected image. This audit
+    // verifies that its lock-backed source catalog still carries every option.
     for (const packageName of [
       '@anthropic-ai/claude-code',
       '@openai/codex',

@@ -163,6 +163,8 @@ The public path creates a private single-tenant instance in four steps:
 
 Deployment and setup provision everything inside the operator's account: the Worker and its KV control plane, the session container image, dedicated per-user R2 buckets, and the Cloudflare Access application. Session limits and container sizing are maintained in [Configuration](documentation/lanes/configuration.md#container-specs).
 
+To omit unused shared coding-agent CLIs from an environment's image, set its GitHub Actions variable `CODING_AGENTS` to a comma-separated subset of `claude-code,codex,copilot,antigravity,opencode,pi`; for example, `claude-code,codex,pi`. Unset preserves all agents. Bash, native IDE assets, and Pi's warmed Jiti runtime remain available as documented in [Configuration](documentation/lanes/configuration.md#container-environment).
+
 For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Without it, Codeflare cannot provide its KV credential-encryption and R2 SSE-C contracts. Users may also need their selected agent's subscription or credentials, and supported GitHub or Cloudflare connection flows require operator-registered OAuth applications.
 
 Production deployment belongs to GitHub Actions. Do not use `npm run deploy` as a substitute for the reviewed workflow.

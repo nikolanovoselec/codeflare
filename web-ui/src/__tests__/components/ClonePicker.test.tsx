@@ -244,14 +244,17 @@ describe('ClonePicker', () => {
     expect(screen.queryByTestId('clone-picker-agent-copilot')).not.toBeInTheDocument();
   });
 
-  it('ignores allowedAgents outside enterprise mode', () => {
+  it('renders only build-installed agents outside enterprise mode', () => {
     sessionStoreState.enterpriseMode = false;
-    sessionStoreState.allowedAgents = ['pi', 'bash'];
+    sessionStoreState.allowedAgents = ['claude-code', 'codex', 'pi', 'bash'];
 
     renderPicker();
 
     expect(screen.getByTestId('clone-picker-agent-claude-code')).toBeInTheDocument();
-    expect(screen.getByTestId('clone-picker-agent-copilot')).toBeInTheDocument();
+    expect(screen.getByTestId('clone-picker-agent-codex')).toBeInTheDocument();
+    expect(screen.getByTestId('clone-picker-agent-pi')).toBeInTheDocument();
+    expect(screen.getByTestId('clone-picker-agent-bash')).toBeInTheDocument();
+    expect(screen.queryByTestId('clone-picker-agent-copilot')).not.toBeInTheDocument();
   });
 
   it('a running-session row shows the session agent icon and a session-type subtitle', () => {

@@ -36,7 +36,9 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 The shared npm-tool set—agent CLIs, Bun, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp`—installs from `preseed/npm-tools/package.json` and its committed lock. `.cache-bust` still invalidates that layer on each deploy, but `npm ci` preserves reviewed registry integrity and transitive versions.
 
-Antigravity remains a checksum-verified installer outside npm. Browser Run MCP uses its own committed package lock. Weekly Shadow Pins updates each owning manifest and lock after the supply-chain cooldown.
+The environment-scoped GitHub variable `CODING_AGENTS` may narrow shared launchers to any non-empty subset of `claude-code,codex,copilot,antigravity,opencode,pi`; unset preserves all six. The build canonicalizes and hashes the set, prunes omitted npm agents in the install layer, and skips Antigravity's checksum-backed installer when omitted. Bash and shared non-agent tools remain. Native Pi/Claude IDE inventories and Pi's separate prewarm/Jiti layout are intentionally unaffected ([REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis)).
+
+Antigravity remains a checksum-verified installer outside npm when selected. Browser Run MCP uses its own committed package lock. Weekly Shadow Pins updates each owning manifest and lock after the supply-chain cooldown.
 
 **Known trade-off:** Long-lived sessions keep the image version they started with while a later reviewed image may carry newer CLIs. Version changes remain a compatibility risk, but they now pass PR checks and image smoke instead of entering an arbitrary deploy through mutable resolution.
 
@@ -251,13 +253,13 @@ The platform kills such a tick at the 15-minute alarm wall-time limit, which is 
 
 ## Claude Code Integration
 
-Terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI, restores a fixed unrestricted settings overlay on each launch, and runs every tool without approval.
+When `claude-code` is build-selected, terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI regardless of shared CLI selection, restores a fixed unrestricted settings overlay on each launch, and runs every tool without approval.
 
 **Auto-update control:** `DISABLE_AUTOUPDATER=1` prevents the CLI's internal auto-updater from running, avoiding startup delay. Updates happen at Docker build time via `.cache-bust` layer invalidation. When Fast Start is OFF, `DISABLE_AUTOUPDATER` is unset, allowing the CLI to update to latest on startup.
 
 ### Container Environment Variables
 
-**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `DISABLE_AUTOUPDATER=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
+**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `DISABLE_AUTOUPDATER=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`, and canonical `CODEFLARE_CODING_AGENTS` build evidence.
 
 **Prewarm readiness:** Detected by first PTY output -- as soon as the agent produces any terminal output, pre-warm is considered ready. The 20s hard timeout in `server.ts` remains as a safety net.
 

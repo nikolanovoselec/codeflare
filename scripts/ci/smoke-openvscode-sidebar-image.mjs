@@ -102,8 +102,14 @@ async function main() {
   await verifyConfigProjection();
   await verifyOpenVscodeSettings();
   await verifyUiStateHelper();
-  const claudeVersion = execFileSync('/usr/local/bin/claude', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
-  const piVersion = execFileSync('/usr/local/bin/pi', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
+  const { hasCodingAgent } = await import('file:///opt/codeflare/scripts/coding-agent-selection.mjs');
+  const selection = process.env.CODEFLARE_CODING_AGENTS;
+  const claudeVersion = hasCodingAgent(selection, 'claude-code')
+    ? execFileSync('/usr/local/bin/claude', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim()
+    : null;
+  const piVersion = hasCodingAgent(selection, 'pi')
+    ? execFileSync('/usr/local/bin/pi', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim()
+    : null;
 
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',

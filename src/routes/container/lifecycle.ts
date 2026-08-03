@@ -9,13 +9,14 @@ import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mo
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, ContainerError, BucketMigratingError, toError, toErrorMessage } from '../../lib/error-types';
+import { AppError, ContainerError, BucketMigratingError, ValidationError, toError, toErrorMessage } from '../../lib/error-types';
 import { isBucketMigrating } from '../../lib/r2-migration';
 import { getTierConfig, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionWithMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
+import { installedAgents } from '../../lib/agent-allowlist';
 import { containerLogger } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
 import type { Logger } from '../../lib/logger';
@@ -199,6 +200,10 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       billingStatus: user.billingStatus,
       billingPeriodEnd: user.billingPeriodEnd,
     });
+    const sessionAgent = sessionData.agentType ?? 'claude-code';
+    if (!installedAgents(c.env).includes(sessionAgent)) {
+      throw new ValidationError(`Agent type '${sessionAgent}' is not available in this deployment`);
+    }
 
     const containerId = getContainerId(bucketName, sessionId);
     const shortContainerId = containerId.substring(0, CONTAINER_ID_DISPLAY_LENGTH);

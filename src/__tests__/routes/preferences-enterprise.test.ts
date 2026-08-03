@@ -109,6 +109,16 @@ describe('Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-EN
     expect(body.lastAgentType).toBe('pi');
   });
 
+  it("REQ-OPS-038: lastAgentType is rejected when its CLI is omitted from the image", async () => {
+    const app = createApp({ CODING_AGENTS: 'claude-code,codex,pi' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lastAgentType: 'copilot' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   // ── AC4: flag-off regression ──
   it('flag-off: non-Pro SaaS user is still 400 for sessionMode=advanced when ENTERPRISE_MODE unset', async () => {
     const app = createApp({ SAAS_MODE: 'active' });

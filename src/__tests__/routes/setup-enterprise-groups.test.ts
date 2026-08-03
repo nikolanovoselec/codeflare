@@ -1110,6 +1110,20 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
       });
 
+      it('REQ-OPS-038: rejects a capable agent whose CLI is omitted from the image', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', CODING_AGENTS: 'pi' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ activeAgents: ['copilot'] })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
+      });
+
       it('REQ-ENTERPRISE-025: never writes the selection when the field is absent', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();

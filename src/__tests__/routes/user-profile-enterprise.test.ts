@@ -124,6 +124,14 @@ describe('GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002', () => {
     expect(body.allowedAgents).toEqual(['copilot', 'pi', 'bash']);
   });
 
+  it('REQ-OPS-038: allowedAgents lists only build-installed agents plus bash', async () => {
+    const app = createApp({ CODING_AGENTS: 'claude-code,codex,pi' });
+    const res = await app.request('/user');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { allowedAgents: string[] };
+    expect(body.allowedAgents).toEqual(['claude-code', 'codex', 'pi', 'bash']);
+  });
+
   it('flag-off: allowedAgents lists all seven agents', async () => {
     mockKV._set('setup:active_agents', ['pi']);
     const app = createApp();

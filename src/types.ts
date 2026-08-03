@@ -48,6 +48,10 @@ interface CoreEnv {
   // Configurable log level (debug | info | warn | error)
   LOG_LEVEL?: string;
 
+  // Build-installed coding-agent CLIs, canonical comma-separated AgentType values.
+  // Bash is always available and is not listed. Unset preserves the full catalog.
+  CODING_AGENTS?: string;
+
   // Optional worker name override for forks (set via wrangler.toml [vars] or GitHub Actions)
   CLOUDFLARE_WORKER_NAME?: string;
 

@@ -199,6 +199,7 @@ jobs:
       ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       worker_name: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
       cache_bust: ${{ vars.CLAUDE_CODE_CACHE_BUSTER == 'active' && github.sha || '' }}
+      coding_agents: ${{ vars.CODING_AGENTS || 'claude-code,codex,copilot,antigravity,opencode,pi' }}
       registry: ${{ inputs.registry || 'cloudflare' }}
     steps:
       # Expression values reach the shell only via env (git refs may contain
@@ -217,11 +218,13 @@ jobs:
           REF: ${{ github.event.workflow_run.head_sha || github.sha }}
           WORKER: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
           REGISTRY: ${{ inputs.registry || 'cloudflare' }}
+          CODING_AGENTS: ${{ vars.CODING_AGENTS || 'claude-code,codex,copilot,antigravity,opencode,pi' }}
         run: |
           echo "environment: ${ENV_NAME}"
           echo "ref:         ${REF}"
           echo "worker:      ${WORKER}"
           echo "registry:    ${REGISTRY}"
+          echo "agents:      ${CODING_AGENTS}"
 
   build-worker:
     name: Build worker assets
@@ -332,6 +335,7 @@ jobs:
       ref: ${{ needs.prepare.outputs.ref }}
       worker-name: ${{ needs.prepare.outputs.worker_name }}
       cache-bust: ${{ needs.prepare.outputs.cache_bust }}
+      coding-agents: ${{ needs.prepare.outputs.coding_agents }}
       runner: ${{ vars.RUNNER || 'ubuntu-latest' }}
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
@@ -555,6 +559,7 @@ jobs:
           VAR_SAAS_MODE: ${{ vars.SAAS_MODE }}
           VAR_SAAS_EXTRA_IDPS: ${{ vars.SAAS_EXTRA_IDPS }}
           VAR_ENTERPRISE_MODE: ${{ vars.ENTERPRISE_MODE }}
+          VAR_CODING_AGENTS: ${{ needs.prepare.outputs.coding_agents }}
           VAR_OAUTH_CLIENT_ID: ${{ (vars.SAAS_MODE == 'active' || vars.ONBOARDING_LANDING_PAGE == 'active') && secrets.OAUTH_CLIENT_ID || '' }}
         run: |
           # Optional --var flags are assembled in bash from env (never inline
@@ -567,6 +572,7 @@ jobs:
             [ -n "$VAR_SAAS_MODE" ] && args+=(--var "SAAS_MODE:${VAR_SAAS_MODE}")
             [ -n "$VAR_SAAS_EXTRA_IDPS" ] && args+=(--var "SAAS_EXTRA_IDPS:${VAR_SAAS_EXTRA_IDPS}")
             [ -n "$VAR_ENTERPRISE_MODE" ] && args+=(--var "ENTERPRISE_MODE:${VAR_ENTERPRISE_MODE}")
+            args+=(--var "CODING_AGENTS:${VAR_CODING_AGENTS}")
             [ -n "$VAR_OAUTH_CLIENT_ID" ] && args+=(--var "OAUTH_CLIENT_ID:${VAR_OAUTH_CLIENT_ID}")
             npx wrangler deploy --name "${WORKER_NAME}" "${args[@]}"
           }

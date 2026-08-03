@@ -13,13 +13,12 @@ interface ClonePickerNewSessionProps {
 // (the same agent-type chooser the dashboard New Session dialog renders).
 // Selecting an agent creates a new session that clones the target repo at start.
 const ClonePickerNewSession: Component<ClonePickerNewSessionProps> = (props) => {
-  // Enterprise mode shows only the wizard-activated agents delivered by GET
-  // /api/user (REQ-ENTERPRISE-003), same resolver as the CreateSession dialog;
-  // the static list is the stale-client fallback until that response hydrates.
+  // GET /api/user resolves build-installed and enterprise-policy availability.
+  // Enterprise keeps its static safe fallback until profile hydration.
   const agentOptions = () => {
-    if (!sessionStore.enterpriseMode) return AGENT_OPTIONS;
-    const allowed = sessionStore.allowedAgents ?? ENTERPRISE_AGENT_TYPES;
-    return AGENT_OPTIONS.filter((a) => allowed.includes(a.type));
+    const allowed = sessionStore.allowedAgents
+      ?? (sessionStore.enterpriseMode ? ENTERPRISE_AGENT_TYPES : null);
+    return allowed ? AGENT_OPTIONS.filter((agent) => allowed.includes(agent.type)) : AGENT_OPTIONS;
   };
 
   return (

@@ -18,12 +18,13 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
 
   const lastAgentType = () => sessionStore.preferences.lastAgentType;
 
-  // Enterprise mode shows only the wizard-activated agents; otherwise the full
-  // set. Falsy enterpriseMode ⇒ unchanged (all AGENT_OPTIONS render).
+  // The hydrated deployment allowlist includes both build-installed and
+  // enterprise-policy filtering. Before hydration, enterprise mode uses its
+  // safe static universe while other deployments retain the full catalog.
   const agentOptions = () => {
-    if (!sessionStore.enterpriseMode) return AGENT_OPTIONS;
-    const allowed = sessionStore.allowedAgents ?? ENTERPRISE_AGENT_TYPES;
-    return AGENT_OPTIONS.filter((a) => allowed.includes(a.type));
+    const allowed = sessionStore.allowedAgents
+      ?? (sessionStore.enterpriseMode ? ENTERPRISE_AGENT_TYPES : null);
+    return allowed ? AGENT_OPTIONS.filter((agent) => allowed.includes(agent.type)) : AGENT_OPTIONS;
   };
 
   // Compute fixed position from anchor button rect — dialog opens BELOW the button.

@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, it } from 'node:test';
+import { parse as parseYaml } from 'yaml';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const selectorPath = join(ROOT, 'scripts/ci/coding-agent-selection.mjs');
+const deploy = parseYaml(readFileSync(join(ROOT, '.github/workflows/deploy.yml'), 'utf8'));
+const containerWorkflow = parseYaml(readFileSync(join(ROOT, '.github/workflows/container-image.yml'), 'utf8'));
+const dockerfile = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
+
+const ALL_AGENTS = 'claude-code,codex,copilot,antigravity,opencode,pi';
+
+async function selector() {
+  return import(`file://${selectorPath}?test=${Date.now()}-${Math.random()}`);
+}
+
+describe('REQ-OPS-038: deployment coding-agent selection', () => {
+  it('defaults to every coding agent and canonicalizes a configured subset', async () => {
+    const { resolveCodingAgents } = await selector();
+    assert.equal(resolveCodingAgents(undefined), ALL_AGENTS);
+    assert.equal(resolveCodingAgents(' pi,claude-code,codex '), 'claude-code,codex,pi');
+    assert.equal(resolveCodingAgents('codex,codex'), 'codex');
+  });
+
+  it('rejects empty explicit sets and unknown agent names', async () => {
+    const { resolveCodingAgents } = await selector();
+    assert.throws(() => resolveCodingAgents(' , '), /at least one coding agent/i);
+    assert.throws(() => resolveCodingAgents('claude-code,gemini'), /unknown coding agent.*gemini/i);
+  });
+
+  it('derives an npm manifest containing only selected coding agents plus shared tools', async () => {
+    const { selectedNpmManifest } = await selector();
+    const manifest = JSON.parse(readFileSync(join(ROOT, 'preseed/npm-tools/package.json'), 'utf8'));
+    const selected = selectedNpmManifest(manifest, 'claude-code,codex,pi');
+
+    assert.equal(selected.dependencies['@anthropic-ai/claude-code'], manifest.dependencies['@anthropic-ai/claude-code']);
+    assert.equal(selected.dependencies['@openai/codex'], manifest.dependencies['@openai/codex']);
+    assert.equal(selected.dependencies['@earendil-works/pi-coding-agent'], manifest.dependencies['@earendil-works/pi-coding-agent']);
+    assert.equal(selected.dependencies.bun, manifest.dependencies.bun);
+    assert.equal(selected.dependencies['context-mode'], manifest.dependencies['context-mode']);
+    assert.equal(selected.dependencies['chrome-devtools-mcp'], manifest.dependencies['chrome-devtools-mcp']);
+    assert.equal(selected.dependencies['@github/copilot'], undefined);
+    assert.equal(selected.dependencies['opencode-ai'], undefined);
+    assert.deepEqual(manifest.dependencies['@github/copilot'], '1.0.75', 'the source manifest must not be mutated');
+  });
+
+  it('fails closed at the selector CLI boundary', () => {
+    const result = spawnSync(process.execPath, [selectorPath, 'resolve', 'pi,unknown'], { encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /unknown coding agent.*unknown/i);
+  });
+
+  it('passes the environment-scoped selection through deployment and image identity', () => {
+    assert.equal(deploy.jobs.prepare.outputs.coding_agents, "${{ vars.CODING_AGENTS || 'claude-code,codex,copilot,antigravity,opencode,pi' }}");
+    assert.equal(deploy.jobs.container.with['coding-agents'], '${{ needs.prepare.outputs.coding_agents }}');
+
+    assert.equal(containerWorkflow.on.workflow_call.inputs['coding-agents'].default, ALL_AGENTS);
+    const hashStep = containerWorkflow.jobs.image.steps.find((step) => step.name === 'Compute image input hash');
+    assert.match(hashStep.run, /coding-agent-selection\.mjs resolve/);
+    assert.match(hashStep.run, /coding_agents=/);
+    const buildStep = containerWorkflow.jobs.image.steps.find((step) => step.name === 'Build container image');
+    assert.match(buildStep.run, /--build-arg "CODEFLARE_CODING_AGENTS=\$\{CODING_AGENTS\}"/);
+    const packagedSmoke = containerWorkflow.jobs.image.steps.find((step) => step.name === 'Verify packaged native Pi Chat and official Claude');
+    assert.match(packagedSmoke.run, /image_bytes=/, 'image size remains observable deployment evidence');
+    assert.doesNotMatch(packagedSmoke.run, /IMAGE_BYTES.*-le|image exceeds/i, 'image size must not block deployment');
+  });
+
+  it('prunes omitted shared CLIs in their install layer while preserving Pi prewarm', () => {
+    assert.match(dockerfile, /ARG CODEFLARE_CODING_AGENTS=/);
+    assert.match(dockerfile, /coding-agent-selection\.mjs select-manifest/);
+    assert.match(dockerfile, /npm prune --omit=dev --ignore-scripts --no-audit --no-fund/);
+    assert.match(dockerfile, /coding-agent-selection\.mjs has "\$CODEFLARE_CODING_AGENTS" antigravity/);
+    assert.match(dockerfile, /COPY preseed\/agents\/pi\/package\.json preseed\/agents\/pi\/package-lock\.json \/opt\/codeflare\/pi-agent\/npm\//);
+    assert.match(
+      dockerfile,
+      /timeout 240 \/opt\/codeflare\/pi-agent\/npm\/node_modules\/\.bin\/pi -p "warm"/,
+      'path-correct Jiti warming must not depend on the optional shared Pi launcher',
+    );
+  });
+});
