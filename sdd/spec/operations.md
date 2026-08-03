@@ -967,16 +967,37 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Empty or unknown selections fail before image construction. <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (rejects empty explicit sets and unknown agent names) -->
 4. Equivalent selections produce one canonical image identity. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
 5. Different selected sets produce different image identities. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
-6. Selected lock-backed npm agent launchers are installed and omitted npm agent launchers are absent. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) --> <!-- @manual: Inspect packaged-image agentVersions evidence for a reduced deployment. -->
-7. The Antigravity launcher is installed only when selected. <!-- @impl: Dockerfile::ANTIGRAVITY_INSTALLER_SHA256 --> <!-- @test: host/__tests__/coding-agent-selection.test.js (prunes omitted shared CLIs in their install layer while preserving Pi prewarm) --> <!-- @manual: Inspect packaged-image agentVersions evidence for a reduced deployment. -->
 
 **Constraints:** Package versions remain exact, lock-backed or checksum-pinned inputs governed by normal bump review.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
+**Dependencies:** [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image)
 
-**Verification:** Automated selector and image-identity tests; reduced complete-image deployment evidence
+**Verification:** Automated selector and image-identity tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-040: Selected coding-agent packaging
+
+**Intent:** The image packages exactly the shared coding-agent launchers selected by the operator.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Selected lock-backed npm agent launchers are installed and omitted npm agent launchers are absent. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) --> <!-- @manual: Inspect packaged-image agentVersions evidence for a reduced deployment. -->
+2. The Antigravity launcher is installed only when selected. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @manual: Inspect packaged-image agentVersions evidence for selections with and without Antigravity. -->
+
+**Constraints:** Every packaged launcher remains exact-version lock-backed or checksum-pinned.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-038](#req-ops-038-build-selected-coding-agent-clis), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
+
+**Verification:** Automated manifest tests and reduced complete-image deployment evidence
 
 **Status:** Implemented
 
@@ -991,10 +1012,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Shared non-agent npm tools remain installed for every valid selection. <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) -->
-2. Pi extension startup remains prewarmed even when the shared Pi launcher is omitted. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @test: host/__tests__/coding-agent-selection.test.js (prunes omitted shared CLIs in their install layer while preserving Pi prewarm) -->
+2. Pi extension startup remains prewarmed even when the shared Pi launcher is omitted. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @manual: Run complete-image smoke for a selection without Pi and inspect prewarm evidence. -->
 3. Native Pi and official Claude Browser IDE inventories remain packaged for every selection. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Run complete-image smoke for a reduced selection and inspect native inventory evidence. -->
-4. Packaged-image verification starts every selected launcher and rejects every omitted launcher that remains on the shared path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) --> <!-- @manual: Run a reduced deployment image smoke. -->
-5. Deployment records complete-image byte size as evidence without rejecting an image against a fixed byte ceiling. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (passes the environment-scoped selection through deployment and image identity) -->
+4. Packaged-image verification starts every selected launcher. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
+5. Packaged-image verification rejects an omitted launcher that remains on the shared path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
+6. Deployment records complete-image byte size as evidence without rejecting an image against a fixed byte ceiling. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Inspect image_bytes in complete-image deployment evidence. -->
 
 **Constraints:** Selection affects shared coding-agent launchers only; prewarm and native IDE assets remain platform-owned.
 

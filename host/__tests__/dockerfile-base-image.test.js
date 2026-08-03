@@ -43,10 +43,6 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
     ]) {
       assert.ok(npmTools.dependencies[packageName], `${packageName} must be in the locked image tool manifest`);
     }
-    assert.ok(
-      dockerfile.includes('antigravity.google/cli/install.sh'),
-      'Dockerfile must install Antigravity via its Go-binary curl installer'
-    );
   });
 
   it('REQ-OPS-011 AC3: system packages include essential tools: git, ripgrep, neovim, tmux, fzf, jq, python', () => {

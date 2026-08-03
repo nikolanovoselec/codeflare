@@ -524,28 +524,49 @@ export function reviewTranscriptFacts(input: {
   entries?: Record<string, any>[];
   requiredLanes: ReviewLane[];
   ciHead?: string;
+  reviewHead?: string;
 }): TranscriptFacts {
   const entries = input.entries ?? readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));
+  const boundaries = new Map<string, { index: number; value: NonNullable<TranscriptFacts["boundary"]> }>();
   let boundaryIndex = -1;
   let boundary: TranscriptFacts["boundary"];
   entries.forEach((entry, index) => {
     for (const call of toolCalls(entry)) {
       for (const command of shellCommands(call)) {
         if (successfulToolIds.has(call.id) && classifyReviewBoundaryCommand(command).settled) {
-          boundaryIndex = index;
-          boundary = {
+          const value = {
             toolUseId: call.id,
             command,
             toolName: String(call.name ?? ""),
             toolArguments: call.arguments && typeof call.arguments === "object" ? call.arguments : {},
           };
+          boundaries.set(call.id, { index, value });
+          boundaryIndex = index;
+          boundary = value;
         }
       }
     }
   });
+  const windows = entries.map(reviewWindow).filter((candidate) => candidate?.boundaryToolUseId
+    && boundaries.has(candidate.boundaryToolUseId));
+  const latestHasWindow = windows.some((candidate) => candidate?.boundaryToolUseId === boundary?.toolUseId);
+  const latestWasEvaluated = entries.some((entry) => entry.customType === "pr-boundary-evaluated"
+    && entry.data?.toolUseId === boundary?.toolUseId);
+  const reviewHead = input.reviewHead
+    ?? (latestHasWindow || latestWasEvaluated ? windows.at(-1)?.head : undefined);
+  const selectedWindow = reviewHead
+    ? windows.find((candidate) => candidate?.head === reviewHead)
+    : undefined;
+  const selectedBoundary = selectedWindow?.boundaryToolUseId
+    ? boundaries.get(selectedWindow.boundaryToolUseId)
+    : undefined;
+  if (selectedBoundary) {
+    boundaryIndex = selectedBoundary.index;
+    boundary = selectedBoundary.value;
+  }
 
   const lanes = Object.fromEntries(ALL_REVIEW_LANES.map((lane) => [lane, { state: "missing" }])) as Record<ReviewLane, LaneFact>;
   if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, triageComplete: false, closedNotified: false, lanes };

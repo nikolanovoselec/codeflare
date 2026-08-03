@@ -610,6 +610,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent());
 
     expect(harness.goalControlRequests).toEqual([]);
+    expect(harness.sent).toHaveLength(1);
     expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-plan');
     await harness.emit('agent_end');
     expect(harness.goalControlRequests).toEqual([]);
@@ -635,6 +636,13 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
       expect(ackHead(fixture.repo)).toBe(fixture.base);
     }
+
+    appendSession(fixture.sessionFile,
+      assistantTool('ci-log', 'bash', { command: 'gh run view 123 --log-failed' }),
+      toolResult('ci-log', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('gh run view 123 --log-failed', 'ci-log'));
+    expect(harness.sent.filter(({ message }) => message.customType === 'pr-boundary-launch-plan')).toHaveLength(1);
 
     appendSession(fixture.sessionFile, triageMessage());
     await harness.emit('agent_end');

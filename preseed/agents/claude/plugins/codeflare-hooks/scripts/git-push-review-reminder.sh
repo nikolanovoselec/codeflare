@@ -24,11 +24,8 @@
 #
 # The triage table is Pi's shape verbatim (REVIEW_TRIAGE_HEADER/DIVIDER in
 # extensions/review-helpers.ts), so both runtimes publish one comparable
-# artifact. Pi additionally ends the turn after the table and fixes in a
-# separate follow-up, because settled enforcement injects that follow-up for
-# it. Claude has no such injector -- ending the turn here would strand the
-# fixes until the user asked again -- so the fix runs in the same turn,
-# immediately after the table is published.
+# artifact. Both runtimes end the triage turn without mutations; Pi settled
+# enforcement and Claude's Stop hook then inject the separate FIX follow-up.
 #
 # Vibe-coding mode: if sdd/ does not exist, emits nothing. Zero friction.
 #
@@ -119,6 +116,8 @@ case "$LAST_ACK_PR_HEAD" in
   *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
 esac
 [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] || exit 0
+PLAN_FILE="$GIT_DIR/sdd-review-plan-pr-$PR_NUMBER"
+[ "$(cat "$PLAN_FILE" 2>/dev/null)" != "$CURRENT_PR_HEAD" ] || exit 0
 
 # ---------------------------------------------------------------------------
 # Lane classification - emit a directive naming ONLY the required lanes
@@ -213,7 +212,8 @@ DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root e
 # user's to see, and a silent round makes an autofix look like an unexplained
 # edit. Lane names are deliberately not written here: several emission tests
 # assert the directive carries no lane literal outside its Lanes: line.
-DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message and then END YOUR TURN. While the lanes are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. When no lane returned a finding, do not publish an empty table: state plainly that every lane came back clean, and name each lane with its turn count and its triage verdict from the runner telemetry, so a clean round is distinguishable from a round that did not happen. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. THEN fix every finding whose MINIMAL DECISION is to fix, in this same session, and state what you fixed and anything you deliberately left. Never ask permission to fix a legitimate finding."
+DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message and then END YOUR TURN. While the lanes are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. When no lane returned a finding, do not publish an empty table: state plainly that every lane came back clean, and name each lane with its turn count and its triage verdict from the runner telemetry, so a clean round is distinguishable from a round that did not happen. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. After publishing the table, make no file or Git changes and end the turn immediately. The Stop hook acknowledges this head and injects the separate FIX directive next turn."
 
+printf '%s\n' "$CURRENT_PR_HEAD" > "$PLAN_FILE" 2>/dev/null || true
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
 exit 0

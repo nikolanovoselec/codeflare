@@ -507,6 +507,13 @@ async function launchBoundaryPlan(
   }
   const ackHead = readAck(review.repo, review.pr.number);
   const range = reviewRange({ repo: review.repo, ackHead: priorAckHead, head: review.pr.headRefOid });
+  const existing = transcriptFacts(ctx, review.file, [], undefined, review.pr.headRefOid);
+  if (existing.reviewHead === review.pr.headRefOid
+    && existing.reviewRange === range
+    && existing.reviewRepo === review.repo
+    && existing.reviewBranch === review.pr.headRefName
+    && existing.reviewPrNumber === review.pr.number
+    && existing.reviewBase === review.pr.baseRefName) return undefined;
   const requiredLanes = reviewsEnabled && !skipReview
     ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
     : [];
@@ -704,12 +711,14 @@ function transcriptFacts(
   file: string,
   requiredLanes: ReviewLane[],
   ciHead?: string,
+  reviewHead?: string,
 ) {
   return reviewTranscriptFacts({
     sessionFile: file,
     entries: liveEntries(ctx),
     requiredLanes,
     ciHead,
+    reviewHead,
   });
 }
 

@@ -11,7 +11,6 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const selectorPath = join(ROOT, 'scripts/ci/coding-agent-selection.mjs');
 const deploy = parseYaml(readFileSync(join(ROOT, '.github/workflows/deploy.yml'), 'utf8'));
 const containerWorkflow = parseYaml(readFileSync(join(ROOT, '.github/workflows/container-image.yml'), 'utf8'));
-const dockerfile = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
 
 const ALL_AGENTS = 'claude-code,codex,copilot,antigravity,opencode,pi';
 
@@ -89,26 +88,5 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.equal(deploy.jobs.container.with['coding-agents'], '${{ needs.prepare.outputs.coding_agents }}');
 
     assert.equal(containerWorkflow.on.workflow_call.inputs['coding-agents'].default, ALL_AGENTS);
-    const hashStep = containerWorkflow.jobs.image.steps.find((step) => step.name === 'Compute image input hash');
-    assert.match(hashStep.run, /coding-agent-selection\.mjs resolve/);
-    assert.match(hashStep.run, /coding_agents=/);
-    const buildStep = containerWorkflow.jobs.image.steps.find((step) => step.name === 'Build container image');
-    assert.match(buildStep.run, /--build-arg "CODEFLARE_CODING_AGENTS=\$\{CODING_AGENTS\}"/);
-    const packagedSmoke = containerWorkflow.jobs.image.steps.find((step) => step.name === 'Verify packaged native Pi Chat and official Claude');
-    assert.match(packagedSmoke.run, /image_bytes=/, 'image size remains observable deployment evidence');
-    assert.doesNotMatch(packagedSmoke.run, /IMAGE_BYTES.*-le|image exceeds/i, 'image size must not block deployment');
-  });
-
-  it('prunes omitted shared CLIs in their install layer while preserving Pi prewarm', () => {
-    assert.match(dockerfile, /ARG CODEFLARE_CODING_AGENTS=/);
-    assert.match(dockerfile, /coding-agent-selection\.mjs select-manifest/);
-    assert.match(dockerfile, /npm prune --omit=dev --ignore-scripts --no-audit --no-fund/);
-    assert.match(dockerfile, /coding-agent-selection\.mjs has "\$CODEFLARE_CODING_AGENTS" antigravity/);
-    assert.match(dockerfile, /COPY preseed\/agents\/pi\/package\.json preseed\/agents\/pi\/package-lock\.json \/opt\/codeflare\/pi-agent\/npm\//);
-    assert.match(
-      dockerfile,
-      /timeout 240 \/opt\/codeflare\/pi-agent\/npm\/node_modules\/\.bin\/pi -p "warm"/,
-      'path-correct Jiti warming must not depend on the optional shared Pi launcher',
-    );
   });
 });

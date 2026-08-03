@@ -158,6 +158,20 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     });
   }
 
+  it('does not repeat the launch reminder for the same unacknowledged head', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main' });
+
+    const first = runHook(cwd, 'git push origin HEAD', binDir);
+    const repeated = runHook(cwd, 'gh run view 123 --log-failed', binDir);
+
+    assert.match(first.stdout, /hookSpecificOutput/);
+    assert.match(first.stdout, /separate FIX directive next turn/);
+    assert.doesNotMatch(first.stdout, /THEN fix every finding/);
+    assert.equal(repeated.stdout, '');
+  });
+
   it('stays inert when the authoritative PR head is already acknowledged', () => {
     const cwd = makeFixture();
     withSdd(cwd);

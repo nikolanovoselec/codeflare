@@ -186,7 +186,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     };
   }
 
-  it('REQ-AGENT-123 AC7: rejects starting a persisted session whose CLI is omitted from the image', async () => {
+  it('REQ-AGENT-123 AC5: rejects starting a persisted session whose CLI is omitted from the image', async () => {
     const app = createTestApp({ CODING_AGENTS: 'claude-code,codex,pi' });
     mockKV._set('session:codeflare-test-example-com:test-session', {
       id: 'test-session',

@@ -13,7 +13,10 @@ const getSetupStatusMock = vi.fn();
 const getUserMock = vi.fn();
 const getOnboardingConfigMock = vi.fn();
 const getAuthStatusMock = vi.fn();
-const { setEnterpriseModeSpy } = vi.hoisted(() => ({ setEnterpriseModeSpy: vi.fn() }));
+const { setAllowedAgentsSpy, setEnterpriseModeSpy } = vi.hoisted(() => ({
+  setAllowedAgentsSpy: vi.fn(),
+  setEnterpriseModeSpy: vi.fn(),
+}));
 
 vi.mock('../../api/client', () => ({
   getSetupStatus: (...args: unknown[]) => getSetupStatusMock(...args),
@@ -35,7 +38,7 @@ vi.mock('../../stores/session', () => ({
     stopAllPolling: vi.fn(),
     setEnterpriseMode: setEnterpriseModeSpy,
     setSaasMode: vi.fn(),
-    setAllowedAgents: vi.fn(),
+    setAllowedAgents: setAllowedAgentsSpy,
   },
 }));
 
@@ -78,6 +81,22 @@ beforeEach(() => {
 afterEach(() => {
   Object.defineProperty(window, 'location', { configurable: true, writable: true, value: originalLocation });
   cleanup();
+});
+
+describe('REQ-AGENT-124: legacy profile agent fallback', () => {
+  it.each([
+    [true, ['copilot', 'pi', 'bash']],
+    [false, ['antigravity', 'claude-code', 'codex', 'copilot', 'opencode', 'pi', 'bash']],
+  ] as const)('hydrates a legacy profile without allowedAgents (enterprise=%s)', async (enterpriseMode, expected) => {
+    getUserMock.mockResolvedValue({
+      email: 'legacy@example.com', authenticated: true, bucketName: 'b', role: 'user',
+      saasMode: false, enterpriseMode, onboardingComplete: true, accessTier: 'advanced',
+    });
+
+    render(() => <App />);
+
+    await waitFor(() => expect(setAllowedAgentsSpy).toHaveBeenCalledWith(expected));
+  });
 });
 
 describe('REQ-ENTERPRISE-008 AC5: enterprise first-login routing', () => {

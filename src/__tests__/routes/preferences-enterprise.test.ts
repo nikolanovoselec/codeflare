@@ -109,7 +109,7 @@ describe('Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-EN
     expect(body.lastAgentType).toBe('pi');
   });
 
-  it("REQ-AGENT-123 AC6: lastAgentType is rejected when its CLI is omitted from the image", async () => {
+  it("REQ-AGENT-123 AC4: lastAgentType is rejected when its CLI is omitted from the image", async () => {
     const app = createApp({ CODING_AGENTS: 'claude-code,codex,pi' });
     const res = await app.request('/preferences', {
       method: 'PATCH',

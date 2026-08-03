@@ -123,8 +123,8 @@ export interface SessionState {
   bucketMigrationPercent: number | null;
   enterpriseMode: boolean;
   saasMode: boolean;
-  /** REQ-ENTERPRISE-003: creation-selectable agents from GET /api/user; null until
-   * hydrated (the CreateSession dialog falls back to its static enterprise list). */
+  /** Creation-selectable agents from GET /api/user; null only before hydration.
+   * App supplies the legacy deployment-mode fallback when the field is absent. */
   allowedAgents: AgentType[] | null;
 }
 
