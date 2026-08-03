@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -275,12 +275,23 @@ function isChildSession(ctx: ReviewContext, file: string | undefined): boolean {
   }
 }
 
+function gitMetadataDirectory(repo: string): string {
+  const dotGit = join(repo, ".git");
+  try {
+    if (statSync(dotGit).isDirectory()) return dotGit;
+    const pointer = /^gitdir:\s*(.+)$/i.exec(readFileSync(dotGit, "utf8").trim())?.[1];
+    return pointer ? resolve(repo, pointer) : dotGit;
+  } catch {
+    return dotGit;
+  }
+}
+
 function ackPath(repo: string): string {
-  return join(repo, ".git", "sdd-last-ack-pr-head");
+  return join(gitMetadataDirectory(repo), "sdd-last-ack-pr-head");
 }
 
 function countPath(repo: string): string {
-  return join(repo, ".git", "sdd-review-block-count");
+  return join(gitMetadataDirectory(repo), "sdd-review-block-count");
 }
 
 function readAck(repo: string): string | undefined {

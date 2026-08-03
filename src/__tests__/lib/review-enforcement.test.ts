@@ -91,6 +91,10 @@ function git(repo: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
 }
 
+function gitMetadataDirectory(repo: string): string {
+  return git(repo, 'rev-parse', '--absolute-git-dir');
+}
+
 function write(repo: string, relativePath: string, contents: string): void {
   const path = join(repo, relativePath);
   mkdirSync(dirname(path), { recursive: true });
@@ -276,7 +280,7 @@ function makeReviewFixture(options: { child?: boolean; changedPath?: string } = 
   git(repo, 'add', '--', options.changedPath ?? 'src/review.ts', 'sdd/spec/boundary.md');
   git(repo, 'commit', '-m', 'review boundary');
   const head = git(repo, 'rev-parse', 'HEAD');
-  writeFileSync(join(repo, '.git/sdd-last-ack-pr-head'), `${base}\n`, 'utf8');
+  writeFileSync(join(gitMetadataDirectory(repo), 'sdd-last-ack-pr-head'), `${base}\n`, 'utf8');
 
   const sessionFile = join(repo, 'session.jsonl');
   const header = {
@@ -295,6 +299,29 @@ function makeReviewFixture(options: { child?: boolean; changedPath?: string } = 
     head,
     sessionFile,
     pr: { state: 'OPEN', baseRefName: 'main', headRefOid: head, headRefName: 'pi', number: 42 },
+  };
+}
+
+function makeLinkedReviewFixture(): ReturnType<typeof makeReviewFixture> {
+  const source = makeReviewFixture();
+  const parent = tempRoot('pi-review-linked-parent-');
+  const repo = join(parent, 'linked');
+  const branch = 'linked-pi';
+  git(source.repo, 'worktree', 'add', '-qb', branch, repo, source.head);
+  const sessionFile = join(repo, 'session.jsonl');
+  writeFileSync(sessionFile, `${JSON.stringify({
+    type: 'session',
+    version: 3,
+    id: nextId('session'),
+    timestamp: '2026-07-12T11:59:00.000Z',
+    cwd: repo,
+  })}\n`, 'utf8');
+  writeFileSync(join(gitMetadataDirectory(repo), 'sdd-last-ack-pr-head'), `${source.base}\n`, 'utf8');
+  return {
+    ...source,
+    repo,
+    sessionFile,
+    pr: { ...source.pr, headRefName: branch },
   };
 }
 
@@ -445,7 +472,7 @@ function boundaryEvent(command = 'git push origin pi', toolCallId = 'push-1') {
 }
 
 function ackHead(repo: string): string {
-  return readFileSync(join(repo, '.git/sdd-last-ack-pr-head'), 'utf8').trim();
+  return readFileSync(join(gitMetadataDirectory(repo), 'sdd-last-ack-pr-head'), 'utf8').trim();
 }
 
 afterEach(() => {
@@ -1080,6 +1107,41 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
+  it('REQ-AGENT-036/REQ-AGENT-063: resolves fail-fast multiline push and PR-create boundaries', async () => {
+    const commands = [
+      'set -euo pipefail\ncd "REPO"\ngit push origin pi',
+      'set -euo pipefail\ncd "REPO"\ngh pr create --base main --head pi --title review',
+    ];
+
+    for (const [index, template] of commands.entries()) {
+      const fixture = makeReviewFixture();
+      const sessionRoot = dirname(fixture.repo);
+      const queriedRepos: string[] = [];
+      const harness = await registerFixture(fixture, sessionRoot, (repo) => {
+        queriedRepos.push(repo);
+      });
+      const command = template.replace('REPO', fixture.repo);
+      const toolUseId = `fail-fast-multiline-${index}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+
+      expect(queriedRepos).toEqual([fixture.repo]);
+      expect(harness.sent).toHaveLength(1);
+      expect(harness.sent[0]?.message.details).toMatchObject({
+        ...boundaryIdentity(fixture, toolUseId),
+        head: fixture.head,
+        ackHead: fixture.base,
+        reviewRange: `${fixture.base}..${fixture.head}`,
+        requiredLanes: ALL_LANES,
+        ciEvent: index === 0 ? 'push' : 'pr-create',
+      });
+    }
+  });
+
   it('REQ-AGENT-036/REQ-AGENT-068: default mode resolves the repository from a cd-prefixed boundary', async () => {
     const fixture = makeReviewFixture();
     const sessionRoot = dirname(fixture.repo);
@@ -1339,6 +1401,49 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
+  it('REQ-AGENT-036/REQ-AGENT-055: persists acknowledgement in a linked worktree git directory', async () => {
+    const fixture = makeLinkedReviewFixture();
+    const harness = await registerFixture(fixture, dirname(fixture.repo));
+    const command = `set -euo pipefail\ncd "${fixture.repo}"\ngit push origin ${fixture.pr.headRefName}`;
+    appendSession(fixture.sessionFile,
+      assistantTool('linked-push', 'bash', { command }),
+      toolResult('linked-push', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'linked-push'));
+    appendSession(fixture.sessionFile,
+      assistantTool('code-linked', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-linked', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-linked', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-linked'),
+      notification('spec-linked'),
+      notification('doc-linked'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_end');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-fix-follow-up');
+  });
+
+  it('REQ-AGENT-041: persists settled retry counts in a linked worktree git directory', async () => {
+    const fixture = makeLinkedReviewFixture();
+    const harness = await registerFixture(fixture, dirname(fixture.repo));
+    const command = `set -euo pipefail\ncd "${fixture.repo}"\ngit push origin ${fixture.pr.headRefName}`;
+    appendSession(fixture.sessionFile,
+      assistantTool('linked-retry', 'bash', { command }),
+      toolResult('linked-retry', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'linked-retry'));
+    await harness.emit('agent_settled');
+    await harness.emit('agent_settled');
+
+    expect(readFileSync(join(gitMetadataDirectory(fixture.repo), 'sdd-review-block-count'), 'utf8')).toBe(`${fixture.head}:1\n`);
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-follow-up');
+  });
+
   it('REQ-AGENT-036/REQ-AGENT-063: pairs a batch boundary with its command repository', async () => {
     const ambient = makeReviewFixture();
     const boundary = makeReviewFixture();
@@ -1440,6 +1545,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     for (const [index, command] of [
       `cd "${pipelineOther.repo}"; git push origin pi`,
+      `set -e\nset +e\ncd "${pipelineOther.repo}"\ngit push origin pi`,
       `cd /missing || git push origin pi`,
       `true || cd "${pipelineOther.repo}" && git push origin pi`,
     ].entries()) {
