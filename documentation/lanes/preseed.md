@@ -527,6 +527,7 @@ state, records the full-SHA checkpoint, and emits one FIX follow-up; settled enf
 the idempotent fallback, and only that separate turn applies accepted findings. Delayed
 terminal evidence may acknowledge its reviewed head after reload or newer unpublished work
 only while that head remains authoritative.
+
 If the live result handler never evaluated a persisted successful boundary, the first settled pass after reload emits its missing initial plan once; a live-evaluated ineligible boundary remains inert. Already-launched unfinished or replaced work is requested again only by a later supported boundary. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
 This implements
