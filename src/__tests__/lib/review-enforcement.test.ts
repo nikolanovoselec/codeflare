@@ -28,10 +28,11 @@ type TestContext = {
   ui: { notify(message: string): void; setStatus(): void; clearStatus(): void };
 };
 type PlannedReviewEnforcement = {
+  PR_LOOKUP_FAILED: symbol;
   registerReviewEnforcement(
     pi: TestPi,
     dependencies: {
-      queryPr(repo: string, target?: string): Promise<PrState | undefined>;
+      queryPr(repo: string, target?: string): Promise<PrState | undefined | symbol>;
       queryHead?(repo: string, revision?: string): Promise<string | undefined>;
       queryBranch?(repo: string): Promise<string | undefined>;
       sleep?(delayMs: number): Promise<void>;
@@ -47,7 +48,7 @@ type PlannedReviewEnforcement = {
       options: { cwd: string; encoding: 'utf8'; timeout: number },
     ) => Promise<{ stdout: string }>,
     target?: string,
-  ): Promise<PrState | undefined>;
+  ): Promise<PrState | undefined | symbol>;
 };
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
@@ -1732,7 +1733,11 @@ describe('Pi review reminder and settled enforcement', () => {
       'pr', 'view', '42', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit',
     ]);
 
-    await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBeUndefined();
+    const { PR_LOOKUP_FAILED } = await plannedEnforcement();
+    await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBe(PR_LOOKUP_FAILED);
+    await expect(queryPr(repo, async () => Promise.reject(Object.assign(new Error('missing'), {
+      stderr: 'no pull requests found for branch "pi"',
+    })))).resolves.toBeUndefined();
   });
 
   it('REQ-AGENT-036 + REQ-AGENT-080 AC6: an unpublished local commit emits no launch plan without a boundary', async () => {
@@ -1782,6 +1787,29 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.sent).toEqual([]);
       expect(ackHead(fixture.repo)).toBe(fixture.base);
     }
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-063: retries transient PR lookup failures', async () => {
+    const fixture = makeReviewFixture();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    const delays: number[] = [];
+    let queries = 0;
+    const { PR_LOOKUP_FAILED, registerReviewEnforcement } = await plannedEnforcement();
+    registerReviewEnforcement(harness.pi, {
+      queryPr: async () => (++queries === 1 ? PR_LOOKUP_FAILED : fixture.pr),
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      headRetryDelaysMs: [0, 10, 20],
+    });
+    appendSession(fixture.sessionFile,
+      assistantTool('transient-pr-lookup', 'bash', { command: 'git status --short' }),
+      toolResult('transient-pr-lookup', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'transient-pr-lookup'));
+
+    expect(queries).toBe(2);
+    expect(delays).toEqual([10]);
+    expect(harness.sent).toHaveLength(1);
   });
 
   it('REQ-AGENT-036/REQ-AGENT-063: checks an absent matching PR only once', async () => {
@@ -2240,6 +2268,8 @@ describe('Pi review reminder and settled enforcement', () => {
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(readFileSync(join(fixture.repo, '.git/sdd-review-ack-pr-42'), 'utf8').trim()).toBe(fixture.head);
+    expect(readFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), 'utf8').trim()).toBe(fixture.base);
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(true);
     harness.sent.splice(0);
     await harness.emit('agent_settled');

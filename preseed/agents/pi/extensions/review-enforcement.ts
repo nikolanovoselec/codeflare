@@ -35,8 +35,11 @@ type PrState = {
   mergeCommit?: { oid: string } | null;
 };
 
+export const PR_LOOKUP_FAILED = Symbol("pr-lookup-failed");
+type PrLookup = PrState | undefined | typeof PR_LOOKUP_FAILED;
+
 type Dependencies = {
-  queryPr(repo: string, target?: string): Promise<PrState | undefined>;
+  queryPr(repo: string, target?: string): Promise<PrLookup>;
   queryHead?(repo: string, revision?: string): Promise<string | undefined>;
   queryBranch?(repo: string): Promise<string | undefined>;
   sleep?(delayMs: number): Promise<void>;
@@ -457,6 +460,7 @@ async function currentReview(
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
     const pr = await dependencies.queryPr(context.repo, branch);
+    if (pr === PR_LOOKUP_FAILED) continue;
     if (!isProtectedPr(pr) || pr.headRefName !== branch) return undefined;
     if (head === pr.headRefOid) return { ...context, pr };
   }
@@ -757,7 +761,8 @@ async function acknowledgeCompletedReview(
   if (!context) return false;
   const classification = classifyReviewBoundaryCommand(preview.boundary.command);
   const reviewedPr = await dependencies.queryPr(context.repo, preview.reviewBranch);
-  if (!isEnforcedPr(reviewedPr)
+  if (reviewedPr === PR_LOOKUP_FAILED
+    || !isEnforcedPr(reviewedPr)
     || reviewedPr.number !== preview.reviewPrNumber
     || reviewedPr.baseRefName !== preview.reviewBase
     || reviewedPr.headRefName !== preview.reviewBranch
@@ -881,7 +886,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const context = boundaryContext(ctx, preview.reviewRepo);
     if (!context) return;
     const pr = await dependencies.queryPr(context.repo, preview.reviewBranch);
-    if (!isProtectedPr(pr)
+    if (pr === PR_LOOKUP_FAILED
+      || !isProtectedPr(pr)
       || pr.number !== preview.reviewPrNumber
       || pr.baseRefName !== preview.reviewBase
       || pr.headRefName !== preview.reviewBranch
@@ -1016,7 +1022,7 @@ export async function queryPr(
   repo: string,
   runner: QueryPrRunner = execFileAsync,
   target?: string,
-): Promise<PrState | undefined> {
+): Promise<PrLookup> {
   try {
     const args = ["pr", "view", ...(target ? [target] : []), "--json", "state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit"];
     const { stdout } = await runner(
@@ -1026,8 +1032,11 @@ export async function queryPr(
     );
     const value = JSON.parse(String(stdout)) as PrState;
     return isProtectedPr(value) ? value : undefined;
-  } catch {
-    return undefined;
+  } catch (error) {
+    const stderr = String((error as { stderr?: unknown })?.stderr ?? "");
+    return /no pull requests found|could not resolve to a pullrequest/i.test(stderr)
+      ? undefined
+      : PR_LOOKUP_FAILED;
   }
 }
 

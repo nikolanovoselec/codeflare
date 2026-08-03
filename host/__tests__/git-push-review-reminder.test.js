@@ -102,13 +102,10 @@ describe('git-push-review-reminder.sh — pre-filter', () => {
 });
 
 describe('git-push-review-reminder.sh — substring false-positive guard', () => {
-  // Regression for the bug class shared with enforce-review-spawn.sh
-  // PUSH_LINE: substring match `*"git push"*` triggers on commit
-  // messages or echo strings that mention `git push` as text. The
-  // fix anchors `git push` to start-of-command or after a shell
-  // separator. Without this guard, `git commit -m "...git push..."`
-  // emits a spurious PR-SYNC directive.
-  it('does NOT classify a git commit whose message body mentions "git push"', () => {
+  // Candidate detection follows the executable command, not words in its
+  // arguments. A git commit is a candidate regardless of its message, while
+  // echo and similarly quoted examples remain inert.
+  it('classifies git commit from executable position regardless of message text', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
@@ -118,8 +115,7 @@ describe('git-push-review-reminder.sh — substring false-positive guard', () =>
       binDir,
     );
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'commit message containing "git push" must not classify as a push trigger');
+    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
   });
 
   it('does NOT classify an echo whose argument mentions "git push"', () => {
@@ -196,7 +192,7 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
   // fix: the hook must classify identically regardless of which tool
   // surfaced the command.
 
-  it('classifies git push from ctx_execute shell code (PR-SYNC)', () => {
+  it('evaluates authoritative state for git push from ctx_execute shell code', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
@@ -208,11 +204,10 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/,
       'ctx_execute shell shape must fire the review directive');
-    assert.match(r.stdout, /SDD push to PR-tracked branch/,
-      'must classify as PR-sync');
+    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
   });
 
-  it('classifies gh pr create from ctx_execute shell code (PR-OPEN)', () => {
+  it('evaluates authoritative state for gh pr create from ctx_execute shell code', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
@@ -228,8 +223,7 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
     );
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/);
-    assert.match(r.stdout, /SDD PR open/,
-      'must classify as PR-open trigger');
+    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
   });
 
   it('ignores ctx_execute with non-shell language even if code mentions git push', () => {
@@ -272,7 +266,7 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
       'ctx_batch_execute shape must fire the review directive when any command is git push');
   });
 
-  it('classifies gh pr create from ctx_batch_execute commands[].command', () => {
+  it('evaluates authoritative state for gh pr create from ctx_batch_execute', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
@@ -288,13 +282,13 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
       binDir,
     );
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /SDD PR open/);
+    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
   });
 
-  it('does not classify ctx_batch_execute when no command contains git push or gh pr create', () => {
+  it('classifies read-only git commands from ctx_batch_execute', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGhFails(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
     const r = runHookWithInput(
       cwd,
       {
@@ -308,12 +302,10 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
       binDir,
     );
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
+    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
   });
 
-  it('does not classify a commit message in ctx_execute code that mentions git push', () => {
-    // Substring-vs-anchored-regex parity check: the false-positive guard
-    // that exists for Bash must hold for ctx_execute too.
+  it('classifies git commit from ctx_execute regardless of message text', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
@@ -328,8 +320,7 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
       binDir,
     );
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'commit message containing "git push" must not trigger via ctx_execute either');
+    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
   });
 });
 

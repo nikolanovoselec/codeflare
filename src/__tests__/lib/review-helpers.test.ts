@@ -215,6 +215,8 @@ describe('Claude-equivalent review boundary helpers', () => {
       ["printf '%s' 'git push origin pi'", none],
       ["printf '%s' 'gh pr merge 42'", none],
       ['cat <<EOF\ngit push origin pi\nEOF', none],
+      ["cat <<'END-1'\ngit push origin pi\nEND-1", none],
+      ['cat <<ONE <<TWO\ngit push origin pi\nONE\ngh pr merge 42\nTWO\ngit status', candidate],
       ['cat <<EOF\ngit push origin pi\nEOF\ngit status', candidate],
       ['printf done', none],
     ];
