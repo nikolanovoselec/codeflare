@@ -21,17 +21,34 @@ function vulnerability(overrides = {}) {
   };
 }
 
-function report(results = [{
-  Target: 'usr/local/bin/lazygit',
-  Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0' })],
-}]) {
+function braceExpansionVulnerability(overrides = {}) {
+  return {
+    VulnerabilityID: 'CVE-2026-69152',
+    PkgName: 'brace-expansion',
+    InstalledVersion: '5.0.5',
+    FixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
+    Severity: 'HIGH',
+    ...overrides,
+  };
+}
+
+function report(results = [
+  {
+    Target: 'usr/local/bin/lazygit',
+    Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0' })],
+  },
+  {
+    Target: 'Node.js',
+    Vulnerabilities: [braceExpansionVulnerability()],
+  },
+]) {
   return { Results: results };
 }
 
 describe('Trivy bounded exception gate', () => {
-  it('accepts only the remaining reviewed lazygit x/text finding', () => {
+  it('accepts only the reviewed lazygit and agent-CLI findings', () => {
     assert.deepEqual(validateTrivyResult(report()), {
-      accepted: ['usr/local/bin/lazygit@v0.37.0'],
+      accepted: ['usr/local/bin/lazygit@v0.37.0', 'Node.js@5.0.5'],
     });
   });
 
@@ -91,6 +108,21 @@ describe('Trivy bounded exception gate', () => {
     ];
     for (const result of cases) {
       assert.throws(() => validateTrivyResult(report([result])), /unexpected HIGH\/CRITICAL finding/);
+    }
+  });
+
+  it('rejects drift in the reviewed agent-CLI finding', () => {
+    const cases = [
+      { Target: 'other', Vulnerabilities: [braceExpansionVulnerability()] },
+      { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability({ InstalledVersion: '5.0.6' })] },
+      { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability({ FixedVersion: '5.0.9' })] },
+      { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability({ Severity: 'CRITICAL' })] },
+    ];
+    for (const changed of cases) {
+      assert.throws(
+        () => validateTrivyResult(report([report().Results[0], changed])),
+        /unexpected HIGH\/CRITICAL finding/,
+      );
     }
   });
 

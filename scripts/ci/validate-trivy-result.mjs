@@ -16,6 +16,19 @@ const REVIEWED_FINDINGS = [
     fixedVersion: '0.39.0',
     severity: 'HIGH',
   },
+  {
+    // Reviewed from integration deployment 30847836723 at head a05cf374 and
+    // image sha256:324dc992f5d65aa9ab597a382ca6d35bd0629bfd502f809369547760dd767e3f.
+    // Trivy reports this vendored agent-CLI package under its Node.js target.
+    // The expansion-count DoS remains confined to the session owner's own CLI
+    // process. Remove when the upstream-built CLI includes brace-expansion 5.0.9.
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-69152',
+    packageName: 'brace-expansion',
+    installedVersion: '5.0.5',
+    fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
+    severity: 'HIGH',
+  },
 ];
 
 function findingKey(finding) {
