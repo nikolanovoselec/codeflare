@@ -108,6 +108,7 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 
 - Pausing aborts the active Goal turn through pi-goal's supported controller.
+- Once ownership is recorded, the exact persisted paused Goal confirms it even when the bridge response is unavailable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113: retains release ownership when the exact Goal persists paused despite a failed pause response) -->
 
 **Priority:** P1
 
@@ -1930,10 +1931,10 @@ None.
 **Acceptance Criteria:**
 
 1. Only successful supported shell tool results expose commands to boundary classification. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces) -->
-2. Boundary classification recognizes protected-base PR creation, explicit single-branch pushes, and implicit bare `git push`, remote-only, and `HEAD` forms, including Git `-C`. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
-3. Only executable shell commands trigger boundaries; quoted text and heredoc bodies do not. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
-4. Branch deletion, tag-only, mirror, dry-run, follow-tag, multi-ref, or otherwise ambiguous pushes and PR edit, update, or merge commands do not trigger boundary work. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
-5. A forced single-branch push remains eligible for the same exact branch-and-head validation as its non-forced form. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
+2. Boundary classification recognizes protected-base PR creation, explicit single-branch pushes, and implicit bare `git push`, remote-only, and `HEAD` forms, including Git `-C`. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
+3. Commands are recognized only at executable shell command boundaries, so quoted marker text never triggers a boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
+4. Branch deletion, tag-only, mirror, dry-run, follow-tag, multi-ref, or otherwise ambiguous pushes and PR edit, update, or merge commands do not trigger boundary work. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
+5. A forced single-branch push remains eligible for the same exact branch-and-head validation as its non-forced form. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
 6. Multiline shell boundaries carry a preceding `cd` only while parent-shell `errexit` is active; disabling `errexit`, positional arguments, pipelines, and background execution leave the repository uncertain and inert. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: resolves fail-fast multiline push and PR-create boundaries) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: preserves cwd only across deterministic parent-shell segments) -->
 
 **Constraints:**
@@ -2351,6 +2352,30 @@ None.
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
 **Verification:** Automated generated-seed behavior test.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-116: Heredoc-safe PR-boundary classification
+
+**Intent:** Shell heredocs must never turn example or payload text into a protected-branch review boundary.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Heredoc bodies never expose embedded boundary-looking commands to classification. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
+2. Punctuation-bearing heredoc delimiters match exactly. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
+3. Multiple heredoc bodies are consumed in declaration order. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
+
+**Constraints:** Supported shell surfaces remain defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing)
+
+**Verification:** Automated review-helper tests
 
 **Status:** Implemented
 

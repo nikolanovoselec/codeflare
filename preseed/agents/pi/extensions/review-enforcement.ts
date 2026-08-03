@@ -201,9 +201,10 @@ async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string
     return;
   }
   const result = await requestGoalControl(pi, "pause", goal.id);
-  if (!result?.ok || result.goalId !== goal.id || result.status !== "paused") {
-    clearReviewGoalPause(pi);
-  }
+  const persistedGoal = currentGoal(ctx);
+  const bridgeConfirmed = result?.ok && result.goalId === goal.id && result.status === "paused";
+  const persistenceConfirmed = persistedGoal?.id === goal.id && persistedGoal.status === "paused";
+  if (!bridgeConfirmed && !persistenceConfirmed) clearReviewGoalPause(pi);
 }
 
 function ownsReviewGoalPause(ctx: ReviewContext, head: string): boolean {

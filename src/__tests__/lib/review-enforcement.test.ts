@@ -337,6 +337,7 @@ function makeHarness(repo: string, sessionFile: string): {
   notifications: string[];
   operations: string[];
   setGoalControlAvailable(available: boolean): void;
+  setGoalPauseResponseSucceeds(succeeds: boolean): void;
   setGoalResumeSucceeds(succeeds: boolean): void;
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
   emit(event: string, payload?: unknown): Promise<void>;
@@ -348,6 +349,7 @@ function makeHarness(repo: string, sessionFile: string): {
   const operations: string[] = [];
   let activeTools = ['read', 'bash'];
   let goalControlAvailable = true;
+  let goalPauseResponseSucceeds = true;
   let goalResumeSucceeds = true;
   let liveEntries: Record<string, unknown>[] | undefined;
   const allTools = [
@@ -371,6 +373,11 @@ function makeHarness(repo: string, sessionFile: string): {
           || typeof request.respond !== 'function') return;
         goalControlRequests.push({ action: request.action, goalId: request.goalId });
         request.accepted?.();
+        if (request.action === 'pause' && !goalPauseResponseSucceeds) {
+          appendSession(sessionFile, goalState(request.goalId, 'paused'));
+          request.respond({ ok: false, goalId: request.goalId, status: 'paused' });
+          return;
+        }
         const succeeded = request.action === 'pause' || goalResumeSucceeds;
         request.respond({
           ok: succeeded,
@@ -432,6 +439,7 @@ function makeHarness(repo: string, sessionFile: string): {
     notifications,
     operations,
     setGoalControlAvailable: (available) => { goalControlAvailable = available; },
+    setGoalPauseResponseSucceeds: (succeeds) => { goalPauseResponseSucceeds = succeeds; },
     setGoalResumeSucceeds: (succeeds) => { goalResumeSucceeds = succeeds; },
     setLiveEntries: (entries) => { liveEntries = entries; },
     emit: async (event, payload = {}) => {
@@ -618,6 +626,42 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     });
+  });
+
+  it('REQ-AGENT-112/REQ-AGENT-113: retains release ownership when the exact Goal persists paused despite a failed pause response', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    harness.setGoalPauseResponseSucceeds(false);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-persisted-pause', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-persisted-pause', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-persisted-pause'));
+
+    expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
+    const entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause')
+      .at(-1)?.data).toEqual({ head: fixture.head, goalId: 'goal-1' });
+
+    appendSession(fixture.sessionFile,
+      assistantTool('code-persisted', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-persisted', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-persisted', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-persisted'),
+      notification('spec-persisted'),
+      notification('doc-persisted'),
+      triageMessage(),
+    );
+    await harness.emit('agent_end');
+
+    expect(harness.goalControlRequests).toEqual([
+      { action: 'pause', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
+    ]);
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-fix-follow-up');
   });
 
   it('REQ-AGENT-112: transfers an owned pause to a replacement PR head and resumes after its FIX reminder', async () => {
