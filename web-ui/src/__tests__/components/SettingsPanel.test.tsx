@@ -798,6 +798,12 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(titleSpan).toHaveTextContent('LLM API Keys');
     });
 
+    it('REQ-AGENT-118 AC3: hides LLM key management in enterprise mode', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} enterpriseMode={true} />);
+
+      expect(screen.queryByTestId('accordion-header-llm')).not.toBeInTheDocument();
+    });
+
     it('renders OpenAI and Gemini provider rows', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-llm'));

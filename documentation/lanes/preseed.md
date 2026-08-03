@@ -80,6 +80,8 @@ For reviewer-bearing PR boundaries, `review-enforcement.ts` emits the review lau
 
 Review completion requests resume immediately before the matching acknowledged `pr-boundary-fix-follow-up`. If a manual resume wins that request race, authoritative non-paused state clears stale ownership without a false error. PR closure requests resume during closure handling, and a failed replacement-head ownership write may request rollback. CI and individual reviewer notifications never request resume. Missing control, Goal replacement, and independent reactivation remain fail-open ([REQ-AGENT-113](../../sdd/spec/agents.md#req-agent-113-review-owned-goal-release) AC1-AC7; [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) AC5-AC6).
 
+Missing-launch settled recovery emits at most five follow-ups for one unreviewed head, stores its count in resolved Git metadata for linked worktrees, and resets only for a different head ([REQ-AGENT-119](../../sdd/spec/agents.md#req-agent-119-settled-review-follow-up-accounting)).
+
 For an open, non-bypassed review, the first settled recovery defers when no reviewer or CI launch is recorded, preventing a recovery message from duplicating the initial plan. Duplicate boundaries do not duplicate the pause, and a replacement PR head transfers ownership of the existing pause instead of stranding it on the superseded head. If that transfer cannot be persisted, the bridge requests rollback; successful rollback clears ownership, while failed rollback retains recoverable ownership for the replacement head's FIX release ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads) AC1-AC7).
 
 `@juicesharp/rpiv-todo` is pinned at 2.1.0; the session-isolation correction shipped upstream in 2.0.0 and remains intact: task state is keyed by Pi session ID and context-free rendering stays bound to the foreground slot. The temporary [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) source override that mirrored this fix while npm was at 1.20.0 is retired — no postinstall guard or payload remains, and a host test guards that the pin names the reviewed release ([REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)).
@@ -1306,6 +1308,8 @@ Pi CI is not part of review completion or acknowledgement. After either eligible
 - [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) - PR-Boundary Command Parsing
 - [REQ-AGENT-116](../../sdd/spec/agents.md#req-agent-116-heredoc-safe-pr-boundary-classification) - Heredoc-safe PR-boundary classification
 - [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) - Non-disruptive review-owned Goal control
+- [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) - Enterprise consult-LLM unavailability
+- [REQ-AGENT-119](../../sdd/spec/agents.md#req-agent-119-settled-review-follow-up-accounting) - Settled review follow-up accounting
 - [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
 - [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) - consult-llm Invocation and Model-Selection Behavior
 - [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring

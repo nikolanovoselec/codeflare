@@ -113,10 +113,10 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.CODEFLARE_GEMINI_API_KEY).toBeUndefined();
   });
 
-  // REQ-AGENT-031 AC7: enterprise mode routes models through the AI Gateway BYOK;
+  // REQ-AGENT-118 AC1: enterprise mode routes models through the AI Gateway BYOK;
   // per-user LLM keys do not exist there, so NEITHER the namespaced nor the bare
   // names are injected even when keys somehow remain in DO state.
-  it('REQ-AGENT-031 AC7: injects no LLM keys in enterprise mode', () => {
+  it('REQ-AGENT-118 AC1: injects no LLM keys in enterprise mode', () => {
     const state = baseState();
     const s = state as unknown as { _openaiApiKey: string | null; _geminiApiKey: string | null };
     s._openaiApiKey = 'sk-openai';

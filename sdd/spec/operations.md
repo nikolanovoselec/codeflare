@@ -255,9 +255,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The OSSF Scorecard workflow runs on push to main and weekly. <!-- @manual -->
 2. Scorecard results are uploaded to GitHub Security. <!-- @manual -->
-3. A manual dispatch scans only the repository default branch; a non-default dispatch records an explicit successful no-op instead of invoking Scorecard's unsupported branch path. <!-- @impl: .github/workflows/scorecard.yml::unsupported-ref --> <!-- @impl: .github/workflows/scorecard.yml::scorecard --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
-4. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
-5. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+3. A manual dispatch on the repository default branch runs Scorecard. <!-- @impl: .github/workflows/scorecard.yml::scorecard --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
+4. A non-default manual dispatch records an explicit successful no-op instead of invoking Scorecard's unsupported branch path. <!-- @impl: .github/workflows/scorecard.yml::unsupported-ref --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
+5. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+6. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
 
 **Constraints:**
 
@@ -559,8 +560,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. For non-Pi packages, the shared manifest updater changes only the requested dependency after an exact current-value match. <!-- @impl: scripts/update-npm-tool-manifests.mjs::updateNpmToolManifests --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-033: lock-backed npm bump manifest updates) -->
-2. Npm-tool bump jobs regenerate and commit each changed manifest's owning lock through one lifecycle-safe helper. <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-033 AC2: npm bump jobs regenerate locks through the lifecycle-safe helper) -->
-3. Every shared npm-cooldown caller opens a bump only for a strictly newer numeric semantic version; equal or older candidates skip, and malformed versions fail closed. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
+2. Npm-tool bump jobs regenerate and commit each changed manifest's owning lock through one lifecycle-safe helper. <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) -->
+3. Every shared npm-cooldown caller opens a bump for a strictly newer numeric semantic version. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
+4. Equal or older npm-cooldown candidates do not open a bump. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
+5. Malformed npm-cooldown candidates fail before mutation. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
 
 **Constraints:** Package updates remain subject to the configured supply-chain cooldown and normal PR review.
 
@@ -842,33 +845,57 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-034: Keyless GitHub release signing
+### REQ-OPS-034: GitHub release signing eligibility
 
-**Intent:** Every published source release provides downloadable artifacts whose origin, exact source revision, and post-publication integrity can be verified without Codeflare storing a long-lived signing key.
+**Intent:** Release signing must accept only published or explicitly recovered source releases that belong to protected `main`.
 
-**Applies To:** Release consumer
+**Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. Publishing a GitHub release signs it automatically; an explicit tag input can safely recover or repeat signing for an existing release. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (signs published releases and supports an explicit recovery dispatch) -->
-2. Signing fails unless the release tag has the exact `vMAJOR.MINOR.PATCH` form, names an existing non-draft release, and resolves to a commit reachable from `main`; recovery dispatches must themselves run from `main`. <!-- @impl: .github/workflows/sign-release.yml::Validate release source --> <!-- @test: host/__tests__/release-signing-workflow.test.js (binds signing to a validated semantic-version tag reachable from main) -->
-3. The workflow creates a deterministic, tag-prefixed source archive and SHA-256 manifest from the validated tag commit. <!-- @impl: .github/workflows/sign-release.yml::Build deterministic release archive --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
-4. GitHub OIDC supplies short-lived keyless identity to Sigstore Cosign, which signs both the archive and checksum manifest and emits self-contained Sigstore bundles; no repository signing key or password is read. <!-- @impl: .github/workflows/sign-release.yml::Sign release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
-5. GitHub build-provenance attestations bind both release assets to the release workflow, repository, and exact source revision. <!-- @impl: .github/workflows/sign-release.yml::Attest release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (publishes GitHub provenance for the exact archive and checksum manifest) -->
-6. The archive, checksum manifest, and both `.sigstore.json` bundles are uploaded to the matching GitHub release only after signing and attestation succeed. <!-- @impl: .github/workflows/sign-release.yml::Upload signed release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
+1. Publishing a GitHub release starts signing automatically. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing) -->
+2. An explicit tag input can recover or repeat signing for an existing release. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing) -->
+3. Signing accepts only an exact semantic-version tag that names an existing non-draft release reachable from `main`. <!-- @impl: scripts/ci/sign-release.sh::validate_release_source --> <!-- @test: host/__tests__/release-signing-workflow.test.js (accepts only an existing semantic release reachable from main) -->
+4. Recovery signing accepts dispatches only from `main`. <!-- @impl: scripts/ci/sign-release.sh::validate_release_source --> <!-- @test: host/__tests__/release-signing-workflow.test.js (accepts only an existing semantic release reachable from main) -->
 
-**Constraints:**
-
-- Release signing is separate from deployment container provenance; neither substitutes for the other.
-- Workflow dependencies and the Cosign release are immutable pins reviewed in source.
-- The job alone receives least-privilege `contents: write`, `id-token: write`, and `attestations: write`; repository-wide permissions remain read-only.
-- A repeated recovery dispatch deterministically replaces only the four assets owned by this workflow.
+**Constraints:** Repeated recovery signs the same validated tag commit.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-OPS-019](#req-ops-019-security-posture-scanning-workflows)
 
-**Verification:** Automated workflow contract test and an observed signing run on a published release.
+**Verification:** Automated release-boundary tests and an observed signing run on a published release
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-035: Keyless signed release artifacts
+
+**Intent:** Every eligible source release provides artifacts whose origin, exact source revision, and post-publication integrity can be verified without a stored signing key.
+
+**Applies To:** Release consumer
+
+**Acceptance Criteria:**
+
+1. The validated tag commit produces a deterministic, tag-prefixed source archive and checksum manifest. <!-- @impl: scripts/ci/sign-release.sh::build_release_assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (builds deterministic assets, signs both, and uploads the owned set) -->
+2. Signing uses short-lived GitHub OIDC identity and reads no repository signing key or password. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing) -->
+3. The archive and checksum manifest receive self-contained Sigstore bundles. <!-- @impl: scripts/ci/sign-release.sh::sign_release_assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (builds deterministic assets, signs both, and uploads the owned set) -->
+4. GitHub build-provenance attestations bind both release assets to the release workflow, repository, and exact source revision. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing) -->
+5. The archive, checksum manifest, and both bundles upload to the matching release only after signing and attestation succeed. <!-- @impl: scripts/ci/sign-release.sh::upload_release_assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (builds deterministic assets, signs both, and uploads the owned set) -->
+
+**Constraints:**
+
+- Release signing is separate from deployment container provenance; neither substitutes for the other.
+- Workflow dependencies and the Cosign release are immutable pins reviewed in source.
+- The signing job alone receives least-privilege write, identity, and attestation permissions; repository-wide permissions remain read-only.
+- A repeated recovery dispatch replaces only the four assets owned by this workflow.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-034](#req-ops-034-github-release-signing-eligibility)
+
+**Verification:** Automated artifact-boundary tests and an observed signing run on a published release
 
 **Status:** Implemented
 

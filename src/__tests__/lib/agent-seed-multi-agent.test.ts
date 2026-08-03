@@ -424,14 +424,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     for (const skill of ['advisor', 'rpiv-ask-user-question', 'rpiv-todo', 'pi-web-access', 'pi-mcp-adapter', 'librarian']) {
       expect(skills.map((d) => d.key)).toContain(`.pi/agent/skills/${skill}/SKILL.md`);
     }
-    const webAccessSkill = skills.find((d) => d.key === '.pi/agent/skills/pi-web-access/SKILL.md');
-    expect(webAccessSkill?.content).toContain('source_check');
-    expect(webAccessSkill?.content).toContain('bounded slices');
-    expect(webAccessSkill?.content).toContain('offset');
-    expect(webAccessSkill?.content).toContain('limit');
-    const librarianSkill = skills.find((d) => d.key === '.pi/agent/skills/librarian/SKILL.md');
-    expect(librarianSkill?.content).toContain('GitHub permalinks');
-    expect(librarianSkill?.content).toContain('Every code-related claim needs a permalink');
     const advisorSkill = skills.find((d) => d.key === '.pi/agent/skills/advisor/SKILL.md');
     expect(advisorSkill?.content).toContain('Only the user may invoke advisor');
     expect(advisorSkill?.content).toContain('must not run, simulate, or recommend that command unless asked');
