@@ -36,6 +36,7 @@ type PlannedReviewEnforcement = {
       queryPushBranch?(repo: string, branch: string, remote?: string): Promise<string | undefined>;
       sleep?(delayMs: number): Promise<void>;
       headRetryDelaysMs?: number[];
+      deferGoalPause?(task: () => void | Promise<void>): void;
     },
   ): void | Promise<void>;
   queryPr(
