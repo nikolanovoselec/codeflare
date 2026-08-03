@@ -779,7 +779,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("agent_end", async (_event, ctx) => {
     const pauseHead = pendingGoalPauseHead;
     pendingGoalPauseHead = undefined;
-    if (!pauseHead) {
+    const goal = currentGoal(ctx);
+    const owned = reviewGoalPause(ctx);
+    const needsGoalPause = goal?.status === "active"
+      || Boolean(owned?.goalId === goal?.id && goal?.status === "paused");
+    if (!pauseHead || !needsGoalPause) {
       if (!resumedWithoutBoundary) await acknowledgeCompletedReview(pi, ctx, dependencies);
       return;
     }
