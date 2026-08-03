@@ -16,7 +16,12 @@ type BoundarySurfaces = {
   pushRemote?: string;
 };
 type TranscriptFacts = {
-  boundary?: { toolUseId: string; command: string };
+  boundary?: {
+    toolUseId: string;
+    command: string;
+    toolName: string;
+    toolArguments: Record<string, unknown>;
+  };
   reviewHead?: string;
   reviewRange?: string;
   reviewRepo?: string;
@@ -508,7 +513,12 @@ describe('native Pi transcript review facts', () => {
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
-    expect(facts.boundary).toEqual({ toolUseId: 'push-old', command: 'git push origin pi' });
+    expect(facts.boundary).toEqual({
+      toolUseId: 'push-old',
+      command: 'git push origin pi',
+      toolName: 'bash',
+      toolArguments: { command: 'git push origin pi' },
+    });
     expect(facts.lanes).toEqual({
       'code-reviewer': { state: 'terminal', toolUseId: 'code-old' },
       'spec-reviewer': { state: 'missing' },

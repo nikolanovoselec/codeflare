@@ -19,7 +19,12 @@ type BoundarySurfaces = {
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
-  boundary?: { toolUseId: string; command: string };
+  boundary?: {
+    toolUseId: string;
+    command: string;
+    toolName: string;
+    toolArguments: Record<string, unknown>;
+  };
   reviewHead?: string;
   reviewRange?: string;
   reviewRepo?: string;
@@ -632,7 +637,12 @@ export function reviewTranscriptFacts(input: {
       for (const command of shellCommands(call)) {
         if (successfulToolIds.has(call.id) && classifyReviewBoundaryCommand(command).settled) {
           boundaryIndex = index;
-          boundary = { toolUseId: call.id, command };
+          boundary = {
+            toolUseId: call.id,
+            command,
+            toolName: String(call.name ?? ""),
+            toolArguments: call.arguments && typeof call.arguments === "object" ? call.arguments : {},
+          };
         }
       }
     }

@@ -2267,6 +2267,36 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
+  it('REQ-AGENT-110 AC5: reload recovers one launch plan for a successful boundary whose live handler was missed', async () => {
+    const fixture = makeReviewFixture();
+    const command = [
+      'set -euo pipefail',
+      `cd "${fixture.repo}"`,
+      'git status --short',
+      'git push origin pi',
+    ].join('\n');
+    appendSession(fixture.sessionFile,
+      assistantTool('push-before-reload', 'bash', { command }),
+      toolResult('push-before-reload', 'bash'),
+    );
+
+    const reloadedHarness = await registerFixture(fixture);
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
+    await reloadedHarness.emit('agent_settled');
+    await reloadedHarness.emit('agent_settled');
+
+    expect(reloadedHarness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: expect.objectContaining({
+          boundaryToolUseId: 'push-before-reload',
+          head: fixture.head,
+        }),
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
   it('REQ-AGENT-036: resumed sessions stay inert until a new eligible boundary', async () => {
     const fixture = makeReviewFixture();
     const initialHarness = await registerFixture(fixture);

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-03
 
+- **A successful Pi boundary cannot disappear when its live result handler is missed** ([REQ-AGENT-110](agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up) AC5 added; remains Implemented). Settled enforcement correlates the latest persisted successful boundary with its launch-plan identity and, after reload, emits the absent initial plan exactly once. Existing correlated plans remain inert, so recovery neither fabricates a new boundary nor duplicates reviewer or CI launches.
+
 - **PR-boundary review now protects integration PRs, and production promotion accepts only canonical `develop`** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1–AC3, [REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring) AC1, and [REQ-AGENT-074](agents.md#req-agent-074-pi-settled-review-handoff) AC7 amended; [REQ-AGENT-120](agents.md#req-agent-120-claude-protected-base-review-boundaries) and [REQ-OPS-036](operations.md#req-ops-036-develop-only-main-promotion) added; all Implemented). Pi and Claude now launch their review/CI boundary for open PRs targeting `develop` as well as `main` or `master`, including matching pushes and cached PR state. Pi keeps the `develop` base in its persisted review window through triage, acknowledgement, reload recovery, and exactly one FIX handoff. A dedicated required status rejects every `main`/`master` promotion unless its head is the canonical repository's exact `develop` branch; GitHub still permits opening feature or fork-`develop` PRs, but branch protection prevents their merge.
 
 ## 2026-08-02
