@@ -227,6 +227,11 @@ async function releaseReviewGoalPause(pi: ReviewPi, ctx: ReviewContext, head: st
     clearReviewGoalPause(pi);
     return true;
   }
+  const persistedGoal = currentGoal(ctx);
+  if (persistedGoal?.id !== owned.goalId || persistedGoal.status !== "paused") {
+    clearReviewGoalPause(pi);
+    return false;
+  }
   notifyGoalBridgeFailure(ctx, "Could not resume Goal after PR review; review ownership was retained. Use /goal resume after resolving its current state.");
   return false;
 }
@@ -705,10 +710,12 @@ async function acknowledgeCompletedReview(
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   let resumedWithoutBoundary = false;
   let deferredSettledRecoveryHead: string | undefined;
+  let pendingGoalPauseHead: string | undefined;
 
   pi.on("session_start", (event) => {
     resumedWithoutBoundary = event?.reason === "resume";
     deferredSettledRecoveryHead = undefined;
+    pendingGoalPauseHead = undefined;
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -749,9 +756,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       : [];
     const ciEvent = ciBoundaryEvent(boundary.classification.event);
     if (requiredLanes.length === 0 && !ciEvent) return;
-    if (requiredLanes.length > 0) {
-      await pauseGoalForReview(pi, ctx, review.pr.headRefOid);
-    }
+    if (requiredLanes.length > 0) pendingGoalPauseHead = review.pr.headRefOid;
 
     sendLaunchMessage(pi, {
       phase: "plan",
@@ -767,6 +772,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_end", async (_event, ctx) => {
+    const pauseHead = pendingGoalPauseHead;
+    pendingGoalPauseHead = undefined;
+    if (pauseHead) await pauseGoalForReview(pi, ctx, pauseHead);
     if (resumedWithoutBoundary) return;
     await acknowledgeCompletedReview(pi, ctx, dependencies);
   });
