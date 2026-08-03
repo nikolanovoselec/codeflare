@@ -497,7 +497,7 @@ The generated file is output, never a second ownership source.
 
 `/review` remains separate from PR-boundary review: the command reviews a user-chosen
 scope, while `review-enforcement.ts` handles supported root-session boundaries for
-SDD PRs targeting `main`/`master`/`develop`. Both use `review-scope`: PR-boundary review and
+SDD PRs targeting `main`/`master`/`develop` ([REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions)). Both use `review-scope`: PR-boundary review and
 `/review --diff` inspect changed hunks plus direct invalidations; `/review --all`
 and `/sdd clean --all` are exhaustive.
 

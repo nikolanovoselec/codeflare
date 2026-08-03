@@ -1718,6 +1718,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-develop', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-develop', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-develop', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      assistantTool('ci-develop', 'subagent', ciArgs(fixture.head)),
       notification('code-develop'),
       notification('spec-develop'),
       notification('doc-develop'),
