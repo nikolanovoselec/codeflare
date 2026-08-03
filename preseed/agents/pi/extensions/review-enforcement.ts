@@ -76,6 +76,7 @@ const MAX_BLOCKS = 5;
 const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const REVIEW_GOAL_PAUSE_ENTRY_TYPE = "pr-boundary-goal-pause";
+const BOUNDARY_EVALUATED_ENTRY_TYPE = "pr-boundary-evaluated";
 const GOAL_CONTROL_CHANNEL = "codeflare:pi-goal:control";
 
 type GoalSnapshot = { id: string; status: string };
@@ -108,6 +109,12 @@ function currentGoal(ctx: ReviewContext): GoalSnapshot | undefined {
     ))
     .at(-1);
   return entry ? goalSnapshot(entry) : undefined;
+}
+
+function boundaryWasEvaluated(ctx: ReviewContext, toolUseId: string): boolean {
+  return sessionEntries(ctx).some((entry) => entry?.type === "custom"
+    && entry.customType === BOUNDARY_EVALUATED_ENTRY_TYPE
+    && entry.data?.toolUseId === toolUseId);
 }
 
 function reviewGoalPause(ctx: ReviewContext): ReviewGoalPause | undefined {
@@ -810,6 +817,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const boundary = latestBoundary(event, ctx.cwd);
     if (!boundary) return;
     const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
+    pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     if (!launch) return;
     resumedWithoutBoundary = false;
     if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
@@ -839,10 +847,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
   pi.on("agent_settled", async (_event, ctx) => {
     const recoveryFile = rootSessionFile(ctx);
-    if (recoveryFile) {
+    if (resumedWithoutBoundary && recoveryFile) {
       const recoveryFacts = transcriptFacts(ctx, recoveryFile, []);
       if (recoveryFacts.boundary
-        && recoveryFacts.reviewBoundaryToolUseId !== recoveryFacts.boundary.toolUseId) {
+        && recoveryFacts.reviewBoundaryToolUseId !== recoveryFacts.boundary.toolUseId
+        && !boundaryWasEvaluated(ctx, recoveryFacts.boundary.toolUseId)) {
         const boundary = persistedBoundary(ctx, recoveryFile);
         const launch = boundary
           ? await launchBoundaryPlan(pi, ctx, dependencies, boundary)

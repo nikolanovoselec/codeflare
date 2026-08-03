@@ -2297,6 +2297,25 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
+  it('REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr.state = 'CLOSED';
+    appendSession(fixture.sessionFile,
+      assistantTool('ineligible-push', 'bash', { command: 'git push origin pi' }),
+      toolResult('ineligible-push', 'bash'),
+    );
+    const initialHarness = await registerFixture(fixture);
+    await initialHarness.emit('tool_result', boundaryEvent('git push origin pi', 'ineligible-push'));
+    expect(initialHarness.sent).toEqual([]);
+
+    fixture.pr.state = 'OPEN';
+    const reloadedHarness = await registerFixture(fixture);
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
+    await reloadedHarness.emit('agent_settled');
+
+    expect(reloadedHarness.sent).toEqual([]);
+  });
+
   it('REQ-AGENT-036: resumed sessions stay inert until a new eligible boundary', async () => {
     const fixture = makeReviewFixture();
     const initialHarness = await registerFixture(fixture);
