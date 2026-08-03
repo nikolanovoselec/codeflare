@@ -78,6 +78,8 @@ const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const REVIEW_GOAL_PAUSE_ENTRY_TYPE = "pr-boundary-goal-pause";
 const BOUNDARY_EVALUATED_ENTRY_TYPE = "pr-boundary-evaluated";
+const MERGE_RETRY_ENTRY_TYPE = "pr-boundary-merge-retry";
+const MAX_MERGE_ATTEMPTS = 3;
 const GOAL_CONTROL_CHANNEL = "codeflare:pi-goal:control";
 
 type GoalSnapshot = { id: string; status: string };
@@ -116,6 +118,20 @@ function boundaryWasEvaluated(ctx: ReviewContext, toolUseId: string): boolean {
   return sessionEntries(ctx).some((entry) => entry?.type === "custom"
     && entry.customType === BOUNDARY_EVALUATED_ENTRY_TYPE
     && entry.data?.toolUseId === toolUseId);
+}
+
+function retainRetryableMerge(
+  pi: ReviewPi,
+  ctx: ReviewContext,
+  boundary: { toolUseId: string },
+): boolean {
+  const attempts = sessionEntries(ctx).filter((entry) => entry?.type === "custom"
+    && entry.customType === MERGE_RETRY_ENTRY_TYPE
+    && entry.data?.toolUseId === boundary.toolUseId).length + 1;
+  pi.appendEntry(MERGE_RETRY_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+  if (attempts < MAX_MERGE_ATTEMPTS) return true;
+  pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+  return false;
 }
 
 function reviewGoalPause(ctx: ReviewContext): ReviewGoalPause | undefined {
@@ -480,11 +496,11 @@ async function mergedDevelopPromotion(
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
     const promotion = await dependencies.queryPr(context.repo, "develop");
+    if (!promotion) continue;
     if (!isEnforcedPr(promotion)
       || (promotion.baseRefName !== "main" && promotion.baseRefName !== "master")
-      || promotion.headRefName !== "develop"
-      || promotion.headRefOid !== mergeHead) continue;
-    return { ...context, pr: promotion };
+      || promotion.headRefName !== "develop") return undefined;
+    if (promotion.headRefOid === mergeHead) return { ...context, pr: promotion };
   }
   return RETRYABLE_MERGE;
 }
@@ -869,7 +885,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!boundary) return;
     const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
     if (launch && "retryable" in launch) {
-      pendingMergeBoundary = boundary;
+      pendingMergeBoundary = retainRetryableMerge(pi, ctx, boundary) ? boundary : undefined;
       return;
     }
     pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
@@ -905,15 +921,17 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (pendingMergeBoundary) {
       const boundary = pendingMergeBoundary;
       const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
-      if (!launch || !("retryable" in launch)) {
+      if (launch && "retryable" in launch) {
+        pendingMergeBoundary = retainRetryableMerge(pi, ctx, boundary) ? boundary : undefined;
+      } else {
         pendingMergeBoundary = undefined;
         pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
-      }
-      if (launch && !("retryable" in launch)) {
-        resumedWithoutBoundary = false;
-        if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
-        deferredSettledRecoveryHead = launch.head;
-        return;
+        if (launch) {
+          resumedWithoutBoundary = false;
+          if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
+          deferredSettledRecoveryHead = launch.head;
+          return;
+        }
       }
     }
 
@@ -929,7 +947,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
           : undefined;
         if (launch && "retryable" in launch) {
           resumedWithoutBoundary = false;
-          pendingMergeBoundary = boundary;
+          pendingMergeBoundary = boundary && retainRetryableMerge(pi, ctx, boundary)
+            ? boundary
+            : undefined;
           return;
         }
         if (launch) {

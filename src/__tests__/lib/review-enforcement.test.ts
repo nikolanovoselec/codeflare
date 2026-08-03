@@ -1788,6 +1788,68 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
+  it('REQ-AGENT-121: a develop merge reuses acknowledgement and FIX handoff exactly once', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => target === '768' ? mergedPr : fixture.pr,
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-lifecycle', 'bash', { command }),
+      toolResult('merge-lifecycle', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-lifecycle'));
+    expect(harness.sent[0]?.message.details).toMatchObject({ ciEvent: 'push', prNumber: 761 });
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-merge', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-merge', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-merge', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      assistantTool('ci-merge', 'subagent', {
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: `repo=owner/repo pr=761 head=${fixture.head}`,
+      }),
+      notification('code-merge'),
+      notification('spec-merge'),
+      notification('doc-merge'),
+      notification('ci-merge'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_end');
+    await harness.emit('agent_end');
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-fix-follow-up',
+        details: { head: fixture.head, reviewRange: `${fixture.base}..${fixture.head}` },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
   it('REQ-AGENT-121: a develop merge stays pending until the downstream PR reports its merge commit', async () => {
     const fixture = makeReviewFixture();
     fixture.pr = {
@@ -1875,10 +1937,112 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent(command, 'merge-persistently-stale'));
     await harness.emit('agent_settled');
+    expect(harness.operations).not.toContain('append:pr-boundary-evaluated');
+    await harness.emit('agent_settled');
 
     expect(harness.sent).toEqual([]);
-    expect(harness.operations).not.toContain('append:pr-boundary-evaluated');
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-merge-retry')).toHaveLength(3);
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-121: structurally ineligible downstream PRs are evaluated without later retries', async () => {
+    for (const [index, promotion] of [
+      { state: 'CLOSED', baseRefName: 'main', headRefName: 'develop' },
+      { state: 'OPEN', baseRefName: 'develop', headRefName: 'develop' },
+      { state: 'OPEN', baseRefName: 'main', headRefName: 'feature/not-develop' },
+    ].entries()) {
+      const fixture = makeReviewFixture();
+      const mergedPr: PrState = {
+        state: 'MERGED',
+        baseRefName: 'develop',
+        headRefOid: fixture.base,
+        headRefName: 'feature/review-fix',
+        number: 768,
+        mergeCommit: { oid: fixture.head },
+      };
+      const downstream = {
+        ...fixture.pr,
+        ...promotion,
+        headRefOid: fixture.head,
+        number: 761,
+      } as PrState;
+      let promotionQueries = 0;
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async (_repo, target) => {
+          if (target === '768') return mergedPr;
+          promotionQueries += 1;
+          return downstream;
+        },
+        deferGoalPause: harness.deferGoalPause,
+      });
+      const command = 'gh pr merge 768 --squash';
+      const toolUseId = `merge-ineligible-${index}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+      await harness.emit('agent_settled');
+
+      expect(promotionQueries).toBe(1);
+      expect(harness.sent).toEqual([]);
+      expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+    }
+  });
+
+  it('REQ-AGENT-121: transient source lookup states stop after three recovery attempts', async () => {
+    const fixtureSources: Array<PrState | undefined> = [
+      undefined,
+      {
+        state: 'OPEN',
+        baseRefName: 'develop',
+        headRefOid: 'a'.repeat(40),
+        headRefName: 'feature/review-fix',
+        number: 768,
+      },
+      {
+        state: 'MERGED',
+        baseRefName: 'develop',
+        headRefOid: 'a'.repeat(40),
+        headRefName: 'feature/review-fix',
+        number: 768,
+        mergeCommit: null,
+      },
+    ];
+    for (const [index, source] of fixtureSources.entries()) {
+      const fixture = makeReviewFixture();
+      let sourceQueries = 0;
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async () => {
+          sourceQueries += 1;
+          return source;
+        },
+        headRetryDelaysMs: [0],
+        deferGoalPause: harness.deferGoalPause,
+      });
+      const command = 'gh pr merge 768 --squash';
+      const toolUseId = `merge-transient-${index}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+      await harness.emit('agent_settled');
+      await harness.emit('agent_settled');
+      await harness.emit('agent_settled');
+
+      expect(sourceQueries).toBe(3);
+      expect(harness.sent).toEqual([]);
+      expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-merge-retry')).toHaveLength(3);
+      expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+    }
   });
 
   it('REQ-AGENT-121: successful merges outside develop stay inert', async () => {
