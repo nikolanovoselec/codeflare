@@ -42,6 +42,7 @@ function report(results = [
     Vulnerabilities: [
       braceExpansionVulnerability(),
       braceExpansionVulnerability({ InstalledVersion: '5.0.7' }),
+      braceExpansionVulnerability({ InstalledVersion: '5.0.7' }),
     ],
   },
 ]) {
@@ -118,7 +119,13 @@ describe('Trivy bounded exception gate', () => {
     assert.throws(
       () => validateTrivyResult(report([
         report().Results[0],
-        { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability()] },
+        {
+          Target: 'Node.js',
+          Vulnerabilities: [
+            braceExpansionVulnerability(),
+            braceExpansionVulnerability({ InstalledVersion: '5.0.7' }),
+          ],
+        },
       ])),
       /missing reviewed finding.*5\.0\.7/s,
     );

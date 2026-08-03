@@ -30,16 +30,17 @@ const REVIEWED_FINDINGS = [
     severity: 'HIGH',
   },
   {
-    // Deployment 30849615814 at head a2fc364 and image
-    // sha256:432f2c4c53a38efd78ce7304147512feb0d45c0063dd94c6fbe26c99f46e55b2
-    // exposed this second exact tuple after the 5.0.5 tuple was accepted.
-    // Remove when the image no longer contains brace-expansion 5.0.7.
+    // Deployment 30849615814 at head a2fc364 first exposed this tuple; complete
+    // scan 30850703965 at head fc9d3df and image
+    // sha256:d49c09b199af57af6bc435360a4fffab86f3a4920030318ec50bbd5b03a013aa
+    // proved that it occurs twice. Remove when that exact multiplicity changes.
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-69152',
     packageName: 'brace-expansion',
     installedVersion: '5.0.7',
     fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
     severity: 'HIGH',
+    occurrences: 2,
   },
 ];
 
@@ -59,8 +60,11 @@ export function validateTrivyResult(report) {
     throw new Error('Trivy report must contain a Results array');
   }
 
-  const expected = new Map(REVIEWED_FINDINGS.map((finding) => [findingKey(finding), finding]));
-  const seen = new Set();
+  const expected = new Map(REVIEWED_FINDINGS.map((finding) => [
+    findingKey(finding),
+    { finding, occurrences: finding.occurrences ?? 1 },
+  ]));
+  const seen = new Map();
   const findings = [];
 
   for (const result of report.Results) {
@@ -93,19 +97,22 @@ export function validateTrivyResult(report) {
         severity: vulnerability.Severity,
       };
       const key = findingKey(finding);
-      if (!expected.has(key) || seen.has(key)) {
+      const reviewed = expected.get(key);
+      const occurrences = seen.get(key) ?? 0;
+      if (!reviewed || occurrences >= reviewed.occurrences) {
         findings.push(
           `unexpected HIGH/CRITICAL finding: ${finding.vulnerabilityId} ${finding.packageName} `
           + `${finding.installedVersion} -> ${finding.fixedVersion} at ${finding.target}`,
         );
       } else {
-        seen.add(key);
+        seen.set(key, occurrences + 1);
       }
     }
   }
 
-  for (const [key, finding] of expected) {
-    if (!seen.has(key)) {
+  for (const [key, reviewed] of expected) {
+    if ((seen.get(key) ?? 0) < reviewed.occurrences) {
+      const { finding } = reviewed;
       findings.push(
         `missing reviewed finding: ${finding.vulnerabilityId} ${finding.packageName} `
         + `${finding.installedVersion} at ${finding.target}; remove or re-review the exception`,
