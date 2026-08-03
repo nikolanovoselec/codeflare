@@ -293,7 +293,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-122](#req-agent-122-pi-downstream-merge-retry-and-recovery)
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan)
 
 **Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
@@ -308,16 +308,18 @@ Multi-agent support, preseed system, and session modes.
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. A stale exact-shape downstream PR remains pending for bounded fresh-state retries, settled handling, and reload recovery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: a develop merge stays pending until the downstream PR reports its merge commit) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: reload retains a stale develop merge until the downstream head matches) -->
-2. Retryable lookup, open-source, missing-merge-SHA, and persistently stale states stop after three attempts. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121/REQ-AGENT-122: transient source lookup states stop after three recovery attempts) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: a persistently stale downstream PR remains inert after bounded retries) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: retry accounting remains bounded across repeated reloads) -->
-3. Unavailable retry accounting stops retention and recovery lookups immediately. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::stopExhaustedMergeRecovery --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: unreadable retry accounting prevents a resumed recovery lookup) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: unavailable retry accounting fails closed in the active runtime) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: persisted exhaustion prevents reload lookups when terminal evaluation cannot be written) -->
-4. Terminal exhaustion records evaluation without launching work when persistence is writable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: retry accounting remains bounded across repeated reloads) -->
+1. A stale exact-shape downstream PR remains pending through bounded fresh-state and settled retries. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: a develop merge stays pending until the downstream PR reports its merge commit) -->
+2. Reload restores pending recovery until the downstream head matches or recovery terminates. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: reload retains a stale develop merge until the downstream head matches) -->
+3. Retryable lookup, open-source, missing-merge-SHA, and persistently stale states stop after three attempts. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121/REQ-AGENT-122: transient source lookup states stop after three recovery attempts) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: a persistently stale downstream PR remains inert after bounded retries) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: retry accounting remains bounded across repeated reloads) -->
+4. Unavailable retry accounting stops active-runtime retention immediately. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: unavailable retry accounting fails closed in the active runtime) -->
+5. Unreadable or exhausted persisted accounting prevents reload recovery lookups. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::stopExhaustedMergeRecovery --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: unreadable retry accounting prevents a resumed recovery lookup) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: persisted exhaustion prevents reload lookups when terminal evaluation cannot be written) -->
+6. Terminal exhaustion records evaluation without launching work when persistence is writable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: retry accounting remains bounded across repeated reloads) -->
 
 **Constraints:** Retry state is keyed by boundary tool-use ID and reuses the downstream boundary defined by REQ-AGENT-121.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan)
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-121](#req-agent-121-pi-downstream-boundary-after-develop-merge)
 
 **Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
