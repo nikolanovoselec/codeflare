@@ -203,6 +203,54 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+### REQ-AGENT-118: Enterprise consult-LLM unavailability
+
+**Intent:** Enterprise users must use managed AI Gateway routes without receiving the per-user LLM-key or consult-LLM surface.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Enterprise sessions receive no per-user LLM provider keys. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-118 AC1: injects no LLM keys in enterprise mode) -->
+2. Enterprise users cannot access LLM-key management through the API. <!-- @impl: src/routes/llm-keys.ts::app --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (enterprise mode (REQ-AGENT-118 AC2)) -->
+3. Enterprise users do not see LLM-key management in Settings. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-AGENT-118 AC3: hides LLM key management in enterprise mode) -->
+
+**Constraints:** Enterprise models route through the managed AI Gateway instead.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
+
+**Verification:** Automated container, route, and Settings tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-119: Settled review follow-up accounting
+
+**Intent:** Missing PR-boundary launch recovery must be bounded per head and remain stable across linked worktrees.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
+2. Linked worktrees persist the follow-up count in their resolved Git metadata directory. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::gitMetadataDirectory --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: persists settled retry counts in a linked worktree git directory) -->
+3. A different head starts a fresh follow-up count. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
+
+**Constraints:** Accounting never acknowledges an unreviewed head.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces)
+
+**Verification:** Automated Pi review-enforcement tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 **Intent:** Users must be able to choose which AI agent to use when creating a session.
@@ -1100,7 +1148,7 @@ None.
 
 ### REQ-AGENT-031: consult-llm Key Isolation, Subscription Backend, and Multi-Agent Parity
 
-**Intent:** Stored LLM API keys must reach the `consult-llm-mcp` MCP server WITHOUT leaking into the coding agents' general environment (where the latest Pi/opencode/antigravity auto-detect them as their own provider credentials and silently drain the user's API account), must prefer the user's subscription over per-call API billing, and must be available identically to Claude Code and Pi — while being entirely absent in enterprise mode, where models route through the managed AI Gateway BYOK.
+**Intent:** Stored LLM API keys must reach the `consult-llm-mcp` MCP server WITHOUT leaking into the coding agents' general environment (where the latest Pi/opencode/antigravity auto-detect them as their own provider credentials and silently drain the user's API account), must prefer the user's subscription over per-call API billing, and must be available identically to Claude Code and Pi.
 
 **Applies To:** User
 
@@ -1112,7 +1160,6 @@ None.
 4. Per provider the entrypoint prefers the subscription over the API key: OpenAI uses the Codex CLI backend when the user is logged into Codex, passing the API key only as a fallback; otherwise it uses the API key. Gemini always uses the API key. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, subscription backend, Pi parity, enterprise gate)) -->
 5. The `consult-llm` tooling is scoped to Claude Code and Pi only; no other agent receives the skill or MCP server. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
 6. Claude and Pi consult-llm skills implement the invocation and model-selection behavior in [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior). <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- @manual -->
-7. In enterprise mode the entire LLM-keys-and-consult-llm surface is unavailable: the keys are not injected (AC1 suppressed), the `/api/llm-keys` routes return 403 on every method, the Settings "LLM API Keys" section is hidden. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, subscription backend, Pi parity, enterprise gate)) -->
 
 **Constraints:**
 
@@ -1455,7 +1502,7 @@ None.
 
 ### REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
 
-**Intent:** Review enforcement needs only explicit user-controlled bypasses and bounded fail-open behavior. A bypass acknowledges the exact validated open-PR boundary head so settled recovery cannot launch reviewers for that head.
+**Intent:** Review enforcement accepts only explicit user-controlled bypasses. A bypass acknowledges the exact validated open-PR boundary head so settled recovery cannot launch reviewers for that head.
 
 **Applies To:** User
 
@@ -1466,8 +1513,6 @@ None.
 3. Only a finalized user message after the latest boundary containing `skip review` or `skip verification` is recognized as a transcript bypass. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary) -->
 4. A recognized post-boundary user bypass emits no reviewer reminder and acknowledges the exact validated open PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: an explicit post-boundary user bypass acknowledges the exact PR head) -->
 5. Child sessions never consume the sentinel, write acknowledgement, or mutate the block counter. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
-6. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`; linked worktrees persist that counter in their resolved Git metadata directory. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::gitMetadataDirectory --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: persists settled retry counts in a linked worktree git directory) -->
-7. A different head starts a fresh follow-up count. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
 
 **Constraints:**
 
@@ -1961,7 +2006,8 @@ None.
 3. Commands are recognized only at executable shell command boundaries, so quoted marker text never triggers a boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
 4. Branch deletion, tag-only, mirror, dry-run, follow-tag, multi-ref, or otherwise ambiguous pushes and PR edit, update, or merge commands do not trigger boundary work. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
 5. A forced single-branch push remains eligible for the same exact branch-and-head validation as its non-forced form. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
-6. Multiline shell boundaries carry a preceding `cd` only while parent-shell `errexit` is active; disabling `errexit`, positional arguments, pipelines, and background execution leave the repository uncertain and inert. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: resolves fail-fast multiline push and PR-create boundaries) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: preserves cwd only across deterministic parent-shell segments) -->
+6. Multiline shell boundaries carry a preceding `cd` while parent-shell `errexit` remains active. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: resolves fail-fast multiline push and PR-create boundaries) -->
+7. Disabling `errexit`, positional arguments, pipelines, and background execution leave a multiline repository transition uncertain and inert. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: preserves cwd only across deterministic parent-shell segments) -->
 
 **Constraints:**
 
@@ -2364,8 +2410,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. The owned `pi-web-access` skill documents the default `source_check` claim-verification tool. <!-- @impl: preseed/agents/pi/skills/pi-web-access/SKILL.md::source_check --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (Pi agent seed (Pi-native files + transformed Claude content)) -->
-2. The owned `pi-web-access` skill directs callers to retrieve stored content as bounded `offset`/`limit` slices rather than claiming a full-result response. <!-- @impl: preseed/agents/pi/skills/pi-web-access/SKILL.md::get_search_content --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (Pi agent seed (Pi-native files + transformed Claude content)) -->
+1. The owned `pi-web-access` skill documents the default `source_check` claim-verification tool. <!-- @impl: preseed/agents/pi/skills/pi-web-access/SKILL.md::source_check --> <!-- @manual -->
+2. The owned `pi-web-access` skill directs callers to retrieve stored content as bounded `offset`/`limit` slices rather than claiming a full-result response. <!-- @impl: preseed/agents/pi/skills/pi-web-access/SKILL.md::get_search_content --> <!-- @manual -->
 3. The former upstream `librarian` skill remains an owned Codeflare skill delivered in both Pi modes after upstream removes its bundled copy. <!-- @impl: preseed/agents/pi/skills/librarian/SKILL.md::Librarian --> <!-- @impl: preseed/agents/pi/manifest.json::skills/librarian/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (Pi agent seed (Pi-native files + transformed Claude content)) -->
 
 **Constraints:**
@@ -2377,7 +2423,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated generated-seed behavior test.
+**Verification:** Automated generated-seed delivery test for AC3; direct skill review for AC1 and AC2.
 
 **Status:** Implemented
 

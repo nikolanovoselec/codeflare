@@ -587,7 +587,7 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 **Verification:** Consumers verify the Sigstore workflow identity and OIDC issuer in addition to `SHA256SUMS`. Full commands and recovery behavior are in [CI/CD § Keyless release signing](ci-cd.md#keyless-release-signing).
 
-**Implements:** [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-keyless-github-release-signing).
+**Implements:** [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility), [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts).
 
 ### Container Image Scanning
 

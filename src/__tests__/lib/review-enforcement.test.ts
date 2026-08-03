@@ -1557,7 +1557,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-fix-follow-up');
   });
 
-  it('REQ-AGENT-041: persists settled retry counts in a linked worktree git directory', async () => {
+  it('REQ-AGENT-041/REQ-AGENT-119: persists settled retry counts in a linked worktree git directory', async () => {
     const fixture = makeLinkedReviewFixture();
     const harness = await registerFixture(fixture, dirname(fixture.repo));
     const command = `set -euo pipefail\ncd "${fixture.repo}"\ngit push origin ${fixture.pr.headRefName}`;
@@ -2413,7 +2413,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
-  it('REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it', async () => {
+  it('REQ-AGENT-041/REQ-AGENT-119: blocks five times then latches GIVEUP for the same head without acknowledging it', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
