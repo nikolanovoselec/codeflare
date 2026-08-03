@@ -98,6 +98,14 @@ describe('REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing', () => {
       steps['Attest release assets'].with['subject-path'],
       'release-assets/codeflare-v*.tar.gz\nrelease-assets/SHA256SUMS\n',
     );
+    const serializedWorkflow = JSON.stringify(workflow);
+    assert.doesNotMatch(serializedWorkflow, /\$\{\{\s*secrets\./);
+    assert.doesNotMatch(serializedWorkflow, /COSIGN_PASSWORD|PRIVATE_KEY|SIGNING_KEY/);
+
+    const stepNames = job.steps.map((step) => step.name);
+    assert.ok(stepNames.indexOf('Sign release assets') < stepNames.indexOf('Attest release assets'));
+    assert.ok(stepNames.indexOf('Attest release assets') < stepNames.indexOf('Upload signed release assets'));
+    assert.equal(steps['Upload signed release assets'].if, undefined);
   });
 
   it('accepts only an existing semantic release reachable from main', () => {

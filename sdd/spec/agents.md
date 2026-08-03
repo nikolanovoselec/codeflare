@@ -236,7 +236,7 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
-2. Linked worktrees persist the follow-up count in their resolved Git metadata directory. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::gitMetadataDirectory --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: persists settled retry counts in a linked worktree git directory) -->
+2. Linked worktrees preserve the follow-up count across settled checks. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::gitMetadataDirectory --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: persists settled retry counts in a linked worktree git directory) -->
 3. A different head starts a fresh follow-up count. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
 
 **Constraints:** Accounting never acknowledges an unreviewed head.
