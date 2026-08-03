@@ -2911,6 +2911,33 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-evaluated')).toHaveLength(0);
   });
 
+  it('REQ-AGENT-121: unreadable retry accounting prevents a resumed recovery lookup', async () => {
+    const fixture = makeReviewFixture();
+    let queries = 0;
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async () => {
+        queries += 1;
+        return undefined;
+      },
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-unreadable-reload', 'bash', { command }),
+      toolResult('merge-unreadable-reload', 'bash'),
+    );
+    harness.setSessionReadFails(true);
+
+    await harness.emit('session_start', { reason: 'resume' });
+    await harness.emit('agent_settled');
+
+    expect(queries).toBe(0);
+    expect(harness.sent).toEqual([]);
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+  });
+
   it('REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary', async () => {
     const fixture = makeReviewFixture();
     fixture.pr.state = 'CLOSED';
