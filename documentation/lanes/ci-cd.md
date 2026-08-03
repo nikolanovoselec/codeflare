@@ -46,7 +46,9 @@ Additional details:
 
 **`bump-shadow-pins.yml`:** Tracks context-mode, graphify, checksum-backed Docker binaries and uv, the shared npm-tools tree (agent CLIs, Bun, `consult-llm-mcp`, `chrome-devtools-mcp`), Browser Run MCP's dedicated lock, every Pi preseed npm pin, the vendored Impeccable bundle, code-server plus its Code gitlink, Antigravity, and the pinned `actionlint` and `zizmor` binaries.
 
-Each bump opens its own PR. Shared npm cooldown candidates pass through one strict numeric-semver comparator before any branch is created: a candidate older than or equal to the current pin is a normal skip, while malformed versions fail closed. This prevents a recently pinned release from being downgraded merely because the cooldown's newest eligible release is older ([REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation) AC8). Npm bump jobs update the owning manifest and delegate committed-lock regeneration to `scripts/regenerate-npm-package-lock.mjs`, which suppresses lifecycle scripts and reapplies bounded integrity corrections ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence)). Pi changes additionally regenerate the embedded seed because the committed payload differs deliberately from flattened runtime npm layout; runtime-agent bumps move both the direct prewarm dependency and its override so npm cannot retain a stale peer resolution ([REQ-OPS-025](../../sdd/spec/operations.md#req-ops-025-pi-preseed-bump-artifact-coherence)).
+Each bump opens its own PR. Shared npm cooldown candidates pass through one strict numeric-semver comparator before any branch is created: a candidate older than or equal to the current pin is a normal skip, while malformed versions fail closed. This prevents a recently pinned release from being downgraded merely because the cooldown's newest eligible release is older ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence) AC3).
+
+Npm bump jobs update the owning manifest and delegate committed-lock regeneration to `scripts/regenerate-npm-package-lock.mjs`, which suppresses lifecycle scripts and reapplies bounded integrity corrections ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence) AC2). Pi changes additionally regenerate the embedded seed because the committed payload differs deliberately from flattened runtime npm layout; runtime-agent bumps move both the direct prewarm dependency and its override so npm cannot retain a stale peer resolution ([REQ-OPS-025](../../sdd/spec/operations.md#req-ops-025-pi-preseed-bump-artifact-coherence)).
 
 Checksum jobs either resolve authoritative release digests or deliberately invalidate the old digest for review. Actionlint resolves `checksums.txt`; SilverBullet verifies its release archive, extracts the matching native service worker, and updates the Docker pin plus `src/routes/vault/native-sw.ts` atomically.
 
@@ -98,6 +100,8 @@ The non-default enterprise environments, account overrides, and dispatch procedu
 |--------|-----------------|--------|
 | `main` | `test`, `CodeQL`, `Property-based fuzzing` | none |
 | `develop` | `test`, `CodeQL`, `Property-based fuzzing` | none |
+
+GitHub rulesets [`13219234`](https://github.com/nikolanovoselec/codeflare/settings/rules/13219234) (`main`) and [`19216590`](https://github.com/nikolanovoselec/codeflare/settings/rules/19216590) (`develop`) are authoritative. Operators can verify their complete settings with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`.
 
 Both long-lived branches require squash-only pull requests, block deletion and non-fast-forward updates, dismiss stale reviews, and require the latest branch state to carry all three checks. Neither ruleset requires an approving review because Codeflare currently has one maintainer; self-approval would add delay without independent assurance.
 

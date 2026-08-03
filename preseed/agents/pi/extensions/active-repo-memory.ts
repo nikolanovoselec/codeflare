@@ -60,6 +60,7 @@ function commandInvocations(command: string, cwd: string): ShellInvocation[] {
       const words = segment.command.split(/\s+/).slice(1);
       for (let index = 0; index < words.length; index += 1) {
         const word = words[index] ?? "";
+        if (word === "--") break;
         if (word === "+e" || (word === "+o" && words[index + 1] === "errexit")) errexit = false;
         if ((word.startsWith("-") && !word.startsWith("--") && word.includes("e"))
           || (word === "-o" && words[index + 1] === "errexit")) errexit = true;

@@ -310,7 +310,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Cause:** Images with `pi-web-access` before 0.14 combined the default interactive `summary-review` workflow with a headless container and an upstream fallback error, so failure to open the curator browser could crash Pi.
 
-**Fix:** Redeploy an image with `pi-web-access` 0.14 or later, which fixes the fallback error. Codeflare still creates `~/.pi/web-search.json` with `{"workflow": "auto-summary"}` when absent because browser approval cannot function headlessly; an existing user choice remains untouched.
+**Fix:** Redeploy an image with [pi-web-access 0.14](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) or later, which fixes the fallback error. Codeflare still creates `~/.pi/web-search.json` with `{"workflow": "auto-summary"}` when absent because browser approval cannot function headlessly; an existing user choice remains untouched.
 
 ## Common Failure Modes
 

@@ -581,9 +581,13 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 ### Keyless source-release identity
 
-GitHub source releases are signed by [the dedicated release workflow](../../.github/workflows/sign-release.yml), not by a private key stored in repository secrets. GitHub OIDC gives Cosign a short-lived certificate bound to this repository, the immutable workflow path, and the release tag. The workflow first proves that the semantic-version tag resolves to a commit reachable from `main`, then signs both its deterministic archive and checksum manifest and publishes GitHub provenance attestations for the same files.
+**Threat:** A release archive and checksum hosted together can both be replaced, while a stored signing key can be stolen or misused.
 
-Consumers must verify the Sigstore bundle's workflow identity and OIDC issuer in addition to checking `SHA256SUMS`; a checksum downloaded beside a tampered archive is not independent evidence. Full commands and rotation/recovery behavior are in [CI/CD § Keyless release signing](ci-cd.md#keyless-release-signing). Container-image provenance remains a separate deployment boundary. ([REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-keyless-github-release-signing))
+**Mitigation:** [The dedicated release workflow](../../.github/workflows/sign-release.yml) uses GitHub OIDC to give Cosign a short-lived identity bound to this repository, immutable workflow path, and release tag. It verifies that the semantic-version tag is reachable from `main`, signs the deterministic archive and checksum manifest, and publishes provenance attestations. Container-image provenance remains separate.
+
+**Verification:** Consumers verify the Sigstore workflow identity and OIDC issuer in addition to `SHA256SUMS`. Full commands and recovery behavior are in [CI/CD § Keyless release signing](ci-cd.md#keyless-release-signing).
+
+**Implements:** [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-keyless-github-release-signing).
 
 ### Container Image Scanning
 
