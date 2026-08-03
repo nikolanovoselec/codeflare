@@ -1907,7 +1907,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
-  it('REQ-AGENT-121: a develop merge stays pending until the downstream PR reports its merge commit', async () => {
+  it('REQ-AGENT-122: a develop merge stays pending until the downstream PR reports its merge commit', async () => {
     const fixture = makeReviewFixture();
     fixture.pr = {
       ...fixture.pr,
@@ -1962,7 +1962,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-121: a persistently stale downstream PR remains inert after bounded retries', async () => {
+  it('REQ-AGENT-122: a persistently stale downstream PR remains inert after bounded retries', async () => {
     const fixture = makeReviewFixture();
     const mergedPr: PrState = {
       state: 'MERGED',
@@ -2051,7 +2051,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-121: transient source lookup states stop after three recovery attempts', async () => {
+  it('REQ-AGENT-121/REQ-AGENT-122: transient source lookup states stop after three recovery attempts', async () => {
     const fixtureSources: Array<PrState | undefined> = [
       undefined,
       {
@@ -2110,7 +2110,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-121: unavailable retry accounting fails closed in the active runtime', async () => {
+  it('REQ-AGENT-122: unavailable retry accounting fails closed in the active runtime', async () => {
     for (const mode of ['read', 'write'] as const) {
       const fixture = makeReviewFixture();
       let sourceQueries = 0;
@@ -2741,7 +2741,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
-  it('REQ-AGENT-121: reload retains a stale develop merge until the downstream head matches', async () => {
+  it('REQ-AGENT-122: reload retains a stale develop merge until the downstream head matches', async () => {
     const fixture = makeReviewFixture();
     fixture.pr = {
       ...fixture.pr,
@@ -2792,7 +2792,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
   });
 
-  it('REQ-AGENT-121: retry accounting remains bounded across repeated reloads', async () => {
+  it('REQ-AGENT-122: retry accounting remains bounded across repeated reloads', async () => {
     const fixture = makeReviewFixture();
     const mergedPr: PrState = {
       state: 'MERGED',
@@ -2850,7 +2850,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-evaluated')).toHaveLength(1);
   });
 
-  it('REQ-AGENT-121: persisted exhaustion prevents reload lookups when terminal evaluation cannot be written', async () => {
+  it('REQ-AGENT-122: persisted exhaustion prevents reload lookups when terminal evaluation cannot be written', async () => {
     const fixture = makeReviewFixture();
     const mergedPr: PrState = {
       state: 'MERGED',
@@ -2911,7 +2911,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-evaluated')).toHaveLength(0);
   });
 
-  it('REQ-AGENT-121: unreadable retry accounting prevents a resumed recovery lookup', async () => {
+  it('REQ-AGENT-122: unreadable retry accounting prevents a resumed recovery lookup', async () => {
     const fixture = makeReviewFixture();
     let queries = 0;
     const { registerReviewEnforcement } = await plannedEnforcement();
