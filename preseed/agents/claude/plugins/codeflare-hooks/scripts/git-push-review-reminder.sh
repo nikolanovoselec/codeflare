@@ -2,17 +2,16 @@
 # PostToolUse hook — triggers the review lanes at the PR boundary.
 # ONLY on projects that have opted into SDD by running /sdd init.
 #
-# Trigger model (PR-boundary, gated on PR target = main/master):
+# Trigger model (PR-boundary, gated on PR target = main/master/develop):
 #
 #   - `gh pr create ...` runs → PR-OPEN candidate → query gh for the
-#     just-created PR's base; fire review only if base is main/master
+#     just-created PR's base; fire review only if base is main/master/develop
 #   - `gh pr edit ... --base main|master` retargets an existing PR to a
 #     protected base → PR-RETARGET candidate → fire review for current HEAD
 #   - `git push` runs AND current branch has an open PR with base in
-#     (main, master) → PR-SYNC trigger → fire review pipeline
-#   - `git push` runs AND open PR base is NOT main/master (e.g.
-#     feature → develop) → DEFERRED → skip silently. Review fires
-#     when the integration branch's own PR-to-main is open and pushed.
+#     (main, master, develop) → PR-SYNC trigger → fire review pipeline
+#   - `git push` runs AND open PR base is outside that set → DEFERRED →
+#     skip silently
 #   - `git push` runs AND current branch has no open PR → DEFERRED →
 #     skip silently
 #
@@ -276,25 +275,22 @@ if [ "$TRIGGER" = "git-push" ]; then
     *) exit 0 ;;   # deferred (any branch, including main with no PR)
   esac
 
-  # Gate on PR target: only PRs landing on main/master fire review.
-  # feature → develop defers; develop → main fires.
+  # Gate on PR target: PRs landing on main, master, or develop fire review.
   # Empty PR_BASE (transient gh quirk where state was parsed but
   # baseRefName wasn't) fails open to enforcement — parity with
   # enforce-review-spawn.sh, where the same fail-open policy was
   # added in 7580b15. Better to over-review than silently let an
   # unreviewed PR-to-main slip through on a parsing edge case.
   case "$PR_BASE" in
-    main|master|"") ;;
+    main|master|develop|"") ;;
     *) exit 0 ;;
   esac
 fi
 
 # ---------------------------------------------------------------------------
 # PR-OPEN base gate — `gh pr create` just landed; query gh to learn the
-# new PR's base branch. If base is not main/master, defer (the PR's own
-# next push will hit PR-SYNC and re-evaluate; if the user merges
-# feature → develop without further pushes, review fires later when
-# the develop → main PR opens or syncs).
+# new PR's base branch. If base is not main/master/develop, defer (the PR's
+# own next push will hit PR-SYNC and re-evaluate).
 #
 # One-time 200-500ms cost per PR creation; not on the per-push hot path.
 # Fail-safe: if gh missing or transient failure, default to firing
@@ -309,7 +305,7 @@ fi
 # returns the now-existing PR's state and base regardless of how it
 # was opened. Stop hook (enforce-review-spawn.sh) is the universal
 # safety net: it runs `gh pr view` at turn end and enforces on any
-# un-acked PR HEAD with a main/master base.
+# un-acked PR HEAD with a main/master/develop base.
 if [ "$TRIGGER" = "pr-retarget" ]; then
   CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
   [ -n "$CURRENT" ] || exit 0
@@ -328,14 +324,14 @@ if [ "$TRIGGER" = "pr-open" ]; then
     PR_BASE_OPEN=$(echo "$PR_INFO_OPEN" | jq -r '.baseRefName // empty' 2>/dev/null)
     if [ -n "$PR_BASE_OPEN" ]; then
       case "$PR_BASE_OPEN" in
-        main|master) ;;
+        main|master|develop) ;;
         *) exit 0 ;;
       esac
     fi
     # If base couldn't be determined (transient gh failure), fall
     # through and emit. The Stop hook re-checks at turn end with the
     # authoritative gh call and will under-block if the base is
-    # actually develop, so this is fail-open in the right direction.
+    # outside the protected-base set, so this is fail-open in the right direction.
   fi
 fi
 

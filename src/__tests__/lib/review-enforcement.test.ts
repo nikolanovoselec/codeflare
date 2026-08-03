@@ -9,7 +9,7 @@ import { rememberActiveRepo } from '../../../preseed/agents/pi/extensions/codefl
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type PrState = {
   state: 'OPEN' | 'CLOSED' | 'MERGED';
-  baseRefName: 'main' | 'master';
+  baseRefName: 'main' | 'master' | 'develop';
   headRefOid: string;
   headRefName: string;
   number: number;
@@ -1698,6 +1698,22 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
+  it('REQ-AGENT-036: PR creation targeting develop launches its review window', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr.baseRefName = 'develop';
+    const harness = await registerFixture(fixture);
+    const command = 'gh pr create --base develop --title review';
+    appendSession(fixture.sessionFile,
+      assistantTool('create-develop', 'bash', { command }),
+      toolResult('create-develop', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'create-develop'));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
+  });
+
   it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
@@ -1752,6 +1768,7 @@ describe('Pi review reminder and settled enforcement', () => {
     const protectedBranch = makeReviewFixture();
     git(protectedBranch.repo, 'branch', 'protected-feature', protectedBranch.head);
     protectedBranch.pr.headRefName = 'protected-feature';
+    protectedBranch.pr.baseRefName = 'develop';
     const protectedHarness = await registerFixture(protectedBranch);
     const protectedCommand = 'git push origin protected-feature';
     appendSession(protectedBranch.sessionFile,

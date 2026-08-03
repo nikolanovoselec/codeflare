@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-03
+
+- **PR-boundary review now protects integration PRs, and production promotion accepts only `develop`** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1–AC3 and [REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring) AC1 amended; [REQ-AGENT-120](agents.md#req-agent-120-claude-protected-base-review-boundaries) and [REQ-OPS-036](operations.md#req-ops-036-develop-only-main-promotion) added; all Implemented). Pi and Claude now launch their review/CI boundary for open PRs targeting `develop` as well as `main` or `master`, including matching pushes and cached PR state. A dedicated required status rejects every `main`/`master` promotion whose head branch is not exactly `develop`; GitHub still permits opening those PRs, but branch protection prevents their merge.
+
 ## 2026-08-02
 
 - **Pi PR boundaries now survive fail-fast multiline shells and linked worktrees** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7, [REQ-AGENT-041](agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC6, [REQ-AGENT-063](agents.md#req-agent-063-pr-boundary-command-parsing) AC6 amended, and [REQ-AGENT-116](agents.md#req-agent-116-heredoc-safe-pr-boundary-classification) added; all remain Implemented). A successful `set -euo pipefail` block previously lost repository certainty when `cd` and `git push` or `gh pr create` were separated by a newline, so no launch plan was emitted. The parser now carries cwd only while parent-shell `errexit` is active, stops interpreting options at `set --`, and remains inert for unsafe transitions; acknowledgement and retry state also resolve linked worktrees' `.git` pointer instead of writing beneath the pointer file.

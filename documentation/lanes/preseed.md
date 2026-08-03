@@ -1181,7 +1181,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 ### Resetting Review-Spawn Checkpoints
 
-The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
+The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`. PR creation and push boundaries target `main`, `master`, or `develop`; the legacy retarget surface remains limited to `main` and `master`.
 
 The same script is additionally registered under `PreToolUse` (empty matcher, all tools) as the mid-turn triage gate ([REQ-AGENT-104](../../sdd/spec/agents.md#req-agent-104-review-acknowledgement-requires-a-published-verdict) AC7). Once every review lane spawned in the transcript has a completed notification and no canonical triage table follows the last of them, every tool except `Read`, `TaskOutput`, `TaskGet`, `TaskList`, and `AskUserQuestion` is refused with a one-line reminder until the table is published.
 
@@ -1216,7 +1216,7 @@ Pi uses the supported command grammar in
 
 For an explicit push, Pi resolves the pushed source ref and queries the destination branch's PR. For a bare or `HEAD` push, it asks Git for the configured push branch of the checked-out branch; a remote-only command scopes that lookup to its named remote. Each implicit form pairs the resolved destination with local `HEAD`. Repository resolution comes from the exact executable shell segment: deterministic parent-shell `cd` changes propagate, pipeline cwd changes do not, and unresolved conditional cwd changes fail closed.
 
-A launch follows only when that branch and full SHA match the authoritative open PR head targeting `main` or `master`. Branch deletion, tags, dry-run/follow-tag, ambiguous or multi-ref pushes, PR edit/update/merge commands, failed commands, quoted examples, child sessions, passive startup, detached HEAD, and integration-bound PRs are inert; a forced single-branch push still requires the same exact branch-and-head match ([REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing)).
+A launch follows only when that branch and full SHA match the authoritative open PR head targeting `main`, `master`, or `develop`. Branch deletion, tags, dry-run/follow-tag, ambiguous or multi-ref pushes, PR edit/update/merge commands, failed commands, quoted examples, child sessions, passive startup, detached HEAD, and PRs targeting any other integration branch are inert; a forced single-branch push still requires the same exact branch-and-head match ([REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing)).
 <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo -->
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->

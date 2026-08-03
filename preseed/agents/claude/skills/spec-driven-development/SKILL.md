@@ -218,7 +218,7 @@ Conservative JUDGMENT auto-resolution rules live in the `sdd-clean` skill (that'
 
 Once `sdd/` exists, the workflow runs automatically:
 
-- At PR-boundary events for PRs targeting `main` or `master` (PR open OR push to a branch with such a PR open), all required reviewers run **in parallel** and return structured reports without writing files. The root persists deferred findings and applies fixes.
+- At PR-boundary events for PRs targeting `main`, `master`, or `develop` (PR open OR push to a branch with such a PR open), all required reviewers run **in parallel** and return structured reports without writing files. The root persists deferred findings and applies fixes.
 - Both `sdd/`-lane agents detect `sdd/` exists → SDD-strict mode.
 - **Layout detection:** `test -d sdd/spec` → nested (canonical); else flat (legacy, in migration window). Skills' file globs branch on this detection. `sdd/config.yml` lives at `sdd/spec/config.yml` (nested) or `sdd/config.yml` (flat).
 - Both agents read `config.yml` → know whether to be interactive/auto/unleashed.
@@ -226,7 +226,7 @@ Once `sdd/` exists, the workflow runs automatically:
 
 If `sdd/` doesn't exist, `spec-reviewer` exits silently. `doc-updater` runs in `docs-only` mode.
 
-**SDLC requirements for autonomous review:** the pipeline gates on PR base = `main` or `master`. PRs into intermediate integration branches (`develop`, `staging`) are deferred until the integration branch's PR-to-`main` opens or syncs. Trunk-based projects using a different default branch name get no review (v1 hardcoded gate). `gh` CLI must be installed + authenticated. Upstream tracking on the working branch must resolve (`git rev-parse @{u}`). Strongly recommended: GitHub branch protection on `main` requiring PR before merge.
+**SDLC requirements for autonomous review:** the pipeline gates on PR base = `main`, `master`, or `develop`. PRs into other integration branches (for example `staging`) are deferred until that branch opens or syncs a PR to one of those bases. Trunk-based projects using another base name get no review. `gh` CLI must be installed + authenticated. Upstream tracking on the working branch must resolve (`git rev-parse @{u}`). Strongly recommended: GitHub branch protection on `main` requiring PR before merge.
 
 The hooks fail-safe in the right direction: if `gh` is missing or transiently fails, the Stop hook errs toward enforcement; the PostToolUse directive errs toward emission. Either way, the user can invoke review agents manually via the Task tool.
 

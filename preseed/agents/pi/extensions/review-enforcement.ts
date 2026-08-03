@@ -27,7 +27,7 @@ import { scopeContract } from "./review-scope";
 
 type PrState = {
   state: "OPEN" | "CLOSED" | "MERGED";
-  baseRefName: "main" | "master";
+  baseRefName: "main" | "master" | "develop";
   headRefOid: string;
   headRefName: string;
   number: number;
@@ -245,7 +245,7 @@ function isProtectedPr(pr: PrState | undefined): pr is PrState {
   return Boolean(
     pr
     && ["OPEN", "CLOSED", "MERGED"].includes(pr.state)
-    && (pr.baseRefName === "main" || pr.baseRefName === "master")
+    && (pr.baseRefName === "main" || pr.baseRefName === "master" || pr.baseRefName === "develop")
     && fullSha(pr.headRefOid),
   );
 }

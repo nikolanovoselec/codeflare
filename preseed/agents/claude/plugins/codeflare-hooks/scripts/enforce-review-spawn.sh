@@ -19,14 +19,12 @@
 #     HEAD SHA whose review pipeline completed. A PR is un-acknowledged
 #     iff CURRENT_PR_HEAD ≠ LAST_ACK_PR_HEAD.
 #
-# Trigger semantics (PR-boundary, gated on PR target = main/master):
+# Trigger semantics (PR-boundary, gated on PR target = main/master/develop):
 #
 #   - No open PR for current branch → exit 0 (deferred; the review
 #     fires when the PR opens)
-#   - Open PR + base ∉ (main, master) → exit 0 (deferred; the
-#     integration branch's own PR-to-main carries the cumulative
-#     review). Feature → develop PRs do not fire; develop → main
-#     PRs do.
+#   - Open PR + base outside (main, master, develop) → exit 0 (deferred).
+#   - Open PR + base in (main, master, develop) enters enforcement.
 #   - Open PR + CURRENT_PR_HEAD == LAST_ACK → exit 0 (already reviewed
 #     at this state)
 #   - Open PR + CURRENT_PR_HEAD ≠ LAST_ACK → enforce: require
@@ -1038,8 +1036,8 @@ fi
 [ "$PR_STATE" = "OPEN" ] || exit 0
 [ -n "$CURRENT_PR_HEAD" ] || exit 0
 
-# Gate on PR target: only PRs landing on main/master trigger the review
-# pipeline. Feature → develop defers until the develop → main PR.
+# Gate on PR target: PRs landing on main, master, or develop trigger the
+# review pipeline.
 #
 # Empty BASE_REF (transient gh / jq failure between successful state
 # parse and base parse - rare but possible) is treated as fail-CLOSED:
@@ -1047,7 +1045,7 @@ fi
 # when truth is uncertain than to silently let an unreviewed PR-to-main
 # slip through.
 case "$BASE_REF" in
-  main|master|"") ;;
+  main|master|develop|"") ;;
   *) exit 0 ;;
 esac
 

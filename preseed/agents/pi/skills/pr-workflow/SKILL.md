@@ -18,7 +18,7 @@ PR review and CI monitoring are separate.
 
 ## Mandatory boundary stop
 
-After a successful protected-base PR creation, or a push to a branch that already has an open PR targeting `main`/`master`, **end the current assistant turn immediately**. Becoming idle is what delivers the extension's queued `deliverAs: "followUp"` boundary launch plan. Other pushes and PR commands are not boundaries.
+After a successful protected-base PR creation, or a push to a branch that already has an open PR targeting `main`/`master`/`develop`, **end the current assistant turn immediately**. Becoming idle is what delivers the extension's queued `deliverAs: "followUp"` boundary launch plan. Other pushes and PR commands are not boundaries.
 
 After the Git command succeeds:
 
@@ -53,7 +53,7 @@ The next turn begins when the queued launch plan arrives. Execute that supplied 
    git push -u origin HEAD
    ```
 
-7. If that push updated a branch with an open PR to `main`/`master`, report the push result and **stop the current turn**. Otherwise continue to step 8.
+7. If that push updated a branch with an open PR to `main`/`master`/`develop`, report the push result and **stop the current turn**. Otherwise continue to step 8.
 8. In a later turn, create the PR and report its URL.
 9. **Stop the current turn immediately after PR creation.** Do not search for, recreate, or retrigger the boundary plan.
 10. When the queued PR-creation launch plan starts the next turn, launch all listed reviewers with `run_in_background: true`, `inherit_context: false`, and the exact supplied `review_range` marker in every prompt.
@@ -61,7 +61,7 @@ The next turn begins when the queued launch plan arrives. Execute that supplied 
 12. Wait for every named reviewer, then publish one consolidated triage without changing files or Git state. End the turn immediately after triage so agent-end enforcement can acknowledge the reviewed head from live session state; settled enforcement is the fallback.
 13. In the next turn started by the queued FIX follow-up, apply only the accepted minimal fixes unless the latest user instruction says to wait or not autofix. Only the root main session may commit or push those fixes.
 
-No open PR targeting `main`/`master`, or no JSON request from the resolver, means no automatic CI monitor. Do not relaunch an aborted monitor automatically. A later extension-issued boundary plan or explicit user request is the only other launch path.
+No open PR targeting `main`/`master`/`develop`, or no JSON request from the resolver, means no automatic CI monitor. Do not relaunch an aborted monitor automatically. A later extension-issued boundary plan or explicit user request is the only other launch path.
 
 ## Body template
 
