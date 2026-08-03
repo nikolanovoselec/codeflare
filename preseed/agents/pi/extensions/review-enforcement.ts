@@ -41,6 +41,7 @@ type Dependencies = {
   queryPushBranch?(repo: string, branch: string, remote?: string): Promise<string | undefined>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
+  deferGoalPause?(task: () => void | Promise<void>): void;
 };
 
 type ReviewContext = {
@@ -404,6 +405,10 @@ function reviewEnabled(repo: string): boolean {
 
 function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function defaultDeferGoalPause(task: () => void | Promise<void>): void {
+  setTimeout(() => { void task(); }, 0);
 }
 
 async function currentReview(
@@ -774,9 +779,18 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("agent_end", async (_event, ctx) => {
     const pauseHead = pendingGoalPauseHead;
     pendingGoalPauseHead = undefined;
-    if (pauseHead) await pauseGoalForReview(pi, ctx, pauseHead);
-    if (resumedWithoutBoundary) return;
-    await acknowledgeCompletedReview(pi, ctx, dependencies);
+    if (!pauseHead) {
+      if (!resumedWithoutBoundary) await acknowledgeCompletedReview(pi, ctx, dependencies);
+      return;
+    }
+    (dependencies.deferGoalPause ?? defaultDeferGoalPause)(async () => {
+      try {
+        await pauseGoalForReview(pi, ctx, pauseHead);
+        if (!resumedWithoutBoundary) await acknowledgeCompletedReview(pi, ctx, dependencies);
+      } catch {
+        // Optional Goal control must not create an unhandled detached failure.
+      }
+    });
   });
 
   pi.on("agent_settled", async (_event, ctx) => {

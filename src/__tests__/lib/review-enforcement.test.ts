@@ -341,6 +341,8 @@ function makeHarness(repo: string, sessionFile: string): {
   setGoalResumeRaceActive(goalId: string | undefined): void;
   setGoalResumeSucceeds(succeeds: boolean): void;
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
+  deferGoalPause(task: () => void | Promise<void>): void;
+  flushGoalPauses(): Promise<void>;
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
@@ -348,6 +350,7 @@ function makeHarness(repo: string, sessionFile: string): {
   const goalControlRequests: Array<{ action: string; goalId: string }> = [];
   const notifications: string[] = [];
   const operations: string[] = [];
+  const deferredGoalPauses: Array<() => void | Promise<void>> = [];
   let activeTools = ['read', 'bash'];
   let goalControlAvailable = true;
   let goalPauseResponseSucceeds = true;
@@ -450,6 +453,10 @@ function makeHarness(repo: string, sessionFile: string): {
     setGoalResumeRaceActive: (goalId) => { goalResumeRaceActive = goalId; },
     setGoalResumeSucceeds: (succeeds) => { goalResumeSucceeds = succeeds; },
     setLiveEntries: (entries) => { liveEntries = entries; },
+    deferGoalPause: (task) => { deferredGoalPauses.push(task); },
+    flushGoalPauses: async () => {
+      for (const task of deferredGoalPauses.splice(0)) await task();
+    },
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
@@ -473,6 +480,7 @@ async function registerFixture(
       observePush?.(repo, branch, remote);
       return branch;
     },
+    deferGoalPause: harness.deferGoalPause,
   });
   return harness;
 }
@@ -585,7 +593,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114: queues the review plan before pausing the Goal after the boundary turn ends', async () => {
+  it('REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -600,6 +608,8 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.goalControlRequests).toEqual([]);
     expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-plan');
     await harness.emit('agent_end');
+    expect(harness.goalControlRequests).toEqual([]);
+    await harness.flushGoalPauses();
     expect(harness.goalControlRequests).toEqual([{
       action: 'pause',
       goalId: 'goal-1',
@@ -650,6 +660,8 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-resume-race'));
     await harness.emit('agent_end');
+    expect(harness.goalControlRequests).toEqual([]);
+    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       assistantTool('code-resume-race', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
@@ -690,6 +702,8 @@ describe('Pi review reminder and settled enforcement', () => {
 
     expect(harness.goalControlRequests).toEqual([]);
     await harness.emit('agent_end');
+    expect(harness.goalControlRequests).toEqual([]);
+    await harness.flushGoalPauses();
     expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
     const entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>);
@@ -724,6 +738,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
@@ -749,6 +764,7 @@ describe('Pi review reminder and settled enforcement', () => {
       triageMessage(),
     );
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
     expect(harness.goalControlRequests).toEqual([
@@ -774,6 +790,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
@@ -796,6 +813,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([
       { action: 'pause', goalId: 'goal-1' },
@@ -815,6 +833,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     const originalHead = fixture.head;
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
@@ -839,6 +858,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     let entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toEqual({
@@ -894,6 +914,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([]);
     expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-plan');
@@ -917,6 +938,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([]);
     expect(harness.sent.at(-1)).toEqual({
@@ -935,6 +957,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
@@ -967,6 +990,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       goalState('goal-2', 'active'),
@@ -999,6 +1023,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       goalState('goal-1', 'active'),
@@ -2430,6 +2455,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     harness.sent.splice(0);
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     fixture.pr.state = 'MERGED';
