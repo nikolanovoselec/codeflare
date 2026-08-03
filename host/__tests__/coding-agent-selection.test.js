@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
+import { verifySelectedAgentLaunchers } from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const selectorPath = join(ROOT, 'scripts/ci/coding-agent-selection.mjs');
@@ -20,7 +21,8 @@ async function selector() {
 
 describe('REQ-OPS-038: deployment coding-agent selection', () => {
   it('defaults to every coding agent and canonicalizes a configured subset', async () => {
-    const { resolveCodingAgents } = await selector();
+    const { CODING_AGENTS, CODING_AGENT_COMMANDS, resolveCodingAgents } = await selector();
+    assert.deepEqual(Object.keys(CODING_AGENT_COMMANDS), CODING_AGENTS);
     assert.equal(resolveCodingAgents(undefined), ALL_AGENTS);
     assert.equal(resolveCodingAgents(' pi,claude-code,codex '), 'claude-code,codex,pi');
     assert.equal(resolveCodingAgents('codex,codex'), 'codex');
@@ -46,6 +48,34 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.equal(selected.dependencies['@github/copilot'], undefined);
     assert.equal(selected.dependencies['opencode-ai'], undefined);
     assert.deepEqual(manifest.dependencies['@github/copilot'], '1.0.75', 'the source manifest must not be mutated');
+  });
+
+  it('the packaged-image smoke starts selected launchers and requires omitted launchers to be absent', async () => {
+    const commands = {
+      'claude-code': { path: '/agents/claude', args: ['--version'] },
+      codex: { path: '/agents/codex', args: ['--version'] },
+      copilot: { path: '/agents/copilot', args: ['--version'] },
+      pi: { path: '/agents/pi', args: ['--version'] },
+    };
+    const present = new Set(['/agents/claude', '/agents/codex', '/agents/pi']);
+    const inspected = [];
+    const started = [];
+    const versions = await verifySelectedAgentLaunchers('claude-code,codex,pi', {
+      commands,
+      hasCodingAgent: (selection, agent) => selection.split(',').includes(agent),
+      inspectPath: async (path) => {
+        inspected.push(path);
+        if (!present.has(path)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      },
+      run: (path) => {
+        started.push(path);
+        return `${path} 1.0.0\n`;
+      },
+    });
+
+    assert.deepEqual(inspected, Object.values(commands).map(({ path }) => path));
+    assert.deepEqual(started, ['/agents/claude', '/agents/codex', '/agents/pi']);
+    assert.equal(versions.copilot, null);
   });
 
   it('fails closed at the selector CLI boundary', () => {

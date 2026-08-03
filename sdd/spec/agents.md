@@ -341,8 +341,9 @@ Multi-agent support, preseed system, and session modes.
 2. Invalid agent types are rejected at session creation. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 3. The selected agent type is persisted in the session record. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
 4. The UI defaults to the agent type used in the user's most recent session. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
-5. When `agentType` is not specified, the session defaults to `claude-code` when installed; otherwise it records the first selectable coding agent or Bash. Enterprise policy remains governed by [REQ-ENTERPRISE-003](enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC3. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC8: an omitted agentType falls back to the first installed coding agent) -->
+5. When `agentType` is not specified, the session defaults to `claude-code` when installed; otherwise it records the first selectable coding agent or Bash. Enterprise policy remains governed by [REQ-ENTERPRISE-003](enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC3. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC5: an omitted agentType falls back to the first installed coding agent) -->
 6. The session-creation UI renders a `beta` badge on agents in preview status: `antigravity` and `opencode` carry the badge; all other agents (Claude Code, Codex, Copilot, Pi, Bash) render without one. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (Agent type selection) -->
+7. Session creation rejects a valid agent type whose shared launcher is omitted from the deployment image. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC7: omitted agentType '%s' is rejected) -->
 
 **Constraints:**
 
@@ -354,6 +355,34 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-123: Installed-agent runtime availability
+
+**Intent:** Users can select and start only agents whose shared launchers exist in the deployed image.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Runtime availability intersects build-installed agents with any narrower deployment policy. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-123 AC1: enterprise and build allowlists are intersected) -->
+2. Malformed installed-agent configuration resolves to Bash only. <!-- @impl: src/lib/agent-allowlist.ts::installedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-123 AC2: malformed configuration fails closed to bash) -->
+3. The user profile publishes the resolved creation set. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (REQ-AGENT-123 AC3: allowedAgents lists only build-installed agents plus bash) -->
+4. The New Session dialog withholds choices before profile hydration and then renders only the resolved set. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::agentOptions --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (withholds every agent choice until /api/user hydrates) --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only build-installed agents outside enterprise mode) -->
+5. The clone-into-new-session surface withholds choices before profile hydration and then renders only the resolved set. <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::agentOptions --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (withholds new-session agent choices until /api/user hydrates) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only build-installed agents outside enterprise mode) -->
+6. Last-agent preference writes reject an agent whose launcher is omitted. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (REQ-AGENT-123 AC6: lastAgentType is rejected when its CLI is omitted from the image) -->
+7. Starting a persisted session whose launcher is omitted fails before container startup. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-AGENT-123 AC7: rejects starting a persisted session whose CLI is omitted from the image) -->
+
+**Constraints:** Bash remains available because it requires no coding-agent package. The deployment workflow is the authoritative producer of valid installed-agent configuration; runtime parsing fails closed as defense in depth.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-OPS-038](operations.md#req-ops-038-build-selected-coding-agent-clis), [REQ-ENTERPRISE-003](enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode)
+
+**Verification:** Automated API, profile, persisted-session, and pre-/post-hydration UI tests
 
 **Status:** Implemented
 

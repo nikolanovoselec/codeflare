@@ -2,7 +2,7 @@ import { Component, For, Show, createSignal, createEffect, onMount, onCleanup } 
 import Icon from './Icon';
 import type { AgentType, TabConfig } from '../types';
 import { sessionStore } from '../stores/session';
-import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../lib/agent-catalog';
+import { AGENT_OPTIONS } from '../lib/agent-catalog';
 import '../styles/create-session-dialog.css';
 
 interface CreateSessionDialogProps {
@@ -18,13 +18,11 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
 
   const lastAgentType = () => sessionStore.preferences.lastAgentType;
 
-  // The hydrated deployment allowlist includes both build-installed and
-  // enterprise-policy filtering. Before hydration, enterprise mode uses its
-  // safe static universe while other deployments retain the full catalog.
+  // Withhold choices until GET /api/user supplies the deployment allowlist;
+  // showing the full catalog during hydration could expose an omitted CLI.
   const agentOptions = () => {
-    const allowed = sessionStore.allowedAgents
-      ?? (sessionStore.enterpriseMode ? ENTERPRISE_AGENT_TYPES : null);
-    return allowed ? AGENT_OPTIONS.filter((agent) => allowed.includes(agent.type)) : AGENT_OPTIONS;
+    const allowed = sessionStore.allowedAgents;
+    return allowed ? AGENT_OPTIONS.filter((agent) => allowed.includes(agent.type)) : [];
   };
 
   // Compute fixed position from anchor button rect — dialog opens BELOW the button.

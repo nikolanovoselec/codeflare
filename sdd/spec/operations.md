@@ -316,7 +316,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The container base image is a glibc-based Node.js 24 distribution (Debian bookworm-slim). <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011: Container base image is Debian bookworm-slim) --> <!-- @manual -->
-2. Every agent CLI selected for the deployment starts without crashes. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC2 (precondition): supported agent CLI packages remain in the locked image catalog) --> <!-- @manual: Build the selected image and start each offered agent. -->
+2. Every agent CLI selected for the deployment starts without crashes. <!-- @manual: Build the selected image and start each offered agent. -->
 3. Essential developer tools for terminal-based workflows are pre-installed. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC3: system packages include essential tools: git, ripgrep, neovim, tmux, fzf, jq, python) --> <!-- @manual -->
 
 **Constraints:** None.
@@ -956,28 +956,53 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-038: Build-selected coding-agent CLIs
 
-**Intent:** Operators can reduce a deployment image to the coding-agent CLIs they offer without breaking Pi's warmed runtime, native IDE assets, or session selection safety.
+**Intent:** An operator can build a smaller deployment image containing only the shared coding-agent launchers that environment offers.
 
-**Applies To:** Operator, User
+**Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. An environment-scoped deployment value selects any non-empty subset of the supported coding agents, and an absent value preserves the full set. Unknown values fail before image construction. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
-2. The image installs and exposes only selected shared coding-agent CLIs while retaining shared non-agent tools, Pi's prewarm/Jiti layout, and native IDE inventories. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
-3. Canonically different selected sets produce different image identities; equivalent order and whitespace produce one identity. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
-4. Session creation, last-agent preference writes, and every session-creation UI expose only the intersection of installed agents and other deployment policy. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::agentOptions --> <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::agentOptions --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC8: installed agentType '%s' is accepted) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (REQ-OPS-038: allowedAgents lists only build-installed agents plus bash) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (REQ-OPS-038: lastAgentType is rejected when its CLI is omitted from the image) --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only build-installed agents outside enterprise mode) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only build-installed agents outside enterprise mode) -->
-5. Starting a persisted session whose CLI is omitted from the image is rejected before container startup. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-OPS-038: rejects starting a persisted session whose CLI is omitted from the image) -->
-6. Bash remains selectable because it needs no coding-agent package. <!-- @impl: src/lib/agent-allowlist.ts::installedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC8: installed agentType '%s' is accepted) -->
-7. Malformed runtime configuration fails closed to Bash rather than exposing a CLI that may be absent. <!-- @impl: src/lib/agent-allowlist.ts::installedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC8: malformed configuration fails closed to bash) -->
-8. Deployment records complete-image byte size as evidence without rejecting an image against a fixed byte ceiling. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
+1. An environment-scoped deployment value selects a non-empty subset of supported coding agents. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
+2. An absent selection preserves the full supported coding-agent set. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) -->
+3. Empty or unknown selections fail before image construction. <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (rejects empty explicit sets and unknown agent names) -->
+4. Equivalent selections produce one canonical image identity. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
+5. Different selected sets produce different image identities. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
+6. Selected lock-backed npm agent launchers are installed and omitted npm agent launchers are absent. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) --> <!-- @manual: Inspect packaged-image agentVersions evidence for a reduced deployment. -->
+7. The Antigravity launcher is installed only when selected. <!-- @impl: Dockerfile::ANTIGRAVITY_INSTALLER_SHA256 --> <!-- @test: host/__tests__/coding-agent-selection.test.js (prunes omitted shared CLIs in their install layer while preserving Pi prewarm) --> <!-- @manual: Inspect packaged-image agentVersions evidence for a reduced deployment. -->
 
-**Constraints:** Native Pi and official Claude Browser IDE inventories remain packaged independently of shared CLI selection. Pi prewarm and path-correct Jiti caches are never pruned by this feature.
+**Constraints:** Package versions remain exact, lock-backed or checksum-pinned inputs governed by normal bump review.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
 
-**Verification:** Automated selector, image-identity, API-boundary, persisted-session, and UI behavioral tests; complete-image deployment verification
+**Verification:** Automated selector and image-identity tests; reduced complete-image deployment evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-039: Reduced-image capability preservation
+
+**Intent:** Reducing shared agent launchers does not remove unrelated tools or platform-owned fast-start and Browser IDE capabilities.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Shared non-agent npm tools remain installed for every valid selection. <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) -->
+2. Pi extension startup remains prewarmed even when the shared Pi launcher is omitted. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @test: host/__tests__/coding-agent-selection.test.js (prunes omitted shared CLIs in their install layer while preserving Pi prewarm) -->
+3. Native Pi and official Claude Browser IDE inventories remain packaged for every selection. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Run complete-image smoke for a reduced selection and inspect native inventory evidence. -->
+4. Packaged-image verification starts every selected launcher and rejects every omitted launcher that remains on the shared path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) --> <!-- @manual: Run a reduced deployment image smoke. -->
+5. Deployment records complete-image byte size as evidence without rejecting an image against a fixed byte ceiling. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (passes the environment-scoped selection through deployment and image identity) -->
+
+**Constraints:** Selection affects shared coding-agent launchers only; prewarm and native IDE assets remain platform-owned.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-038](#req-ops-038-build-selected-coding-agent-clis), [REQ-IDE-005](browser-ide.md#req-ide-005-selected-native-ide-agent)
+
+**Verification:** Automated manifest and packaged-smoke behavior tests; complete-image deployment evidence
 
 **Status:** Implemented
 

@@ -124,7 +124,7 @@ describe('GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002', () => {
     expect(body.allowedAgents).toEqual(['copilot', 'pi', 'bash']);
   });
 
-  it('REQ-OPS-038: allowedAgents lists only build-installed agents plus bash', async () => {
+  it('REQ-AGENT-123 AC3: allowedAgents lists only build-installed agents plus bash', async () => {
     const app = createApp({ CODING_AGENTS: 'claude-code,codex,pi' });
     const res = await app.request('/user');
     expect(res.status).toBe(200);

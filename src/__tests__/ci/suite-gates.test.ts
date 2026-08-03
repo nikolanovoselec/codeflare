@@ -129,6 +129,7 @@ function captureDockerBuildArguments(command: string, cacheEnabled: boolean, lab
         ...process.env,
         PATH: `${bin}:${process.env.PATH ?? ''}`,
         CACHE_ENABLED: String(cacheEnabled),
+        CODING_AGENTS: 'claude-code,codex,copilot,antigravity,opencode,pi',
         DOCKER_ARGS_FILE: argsFile,
         GITHUB_OUTPUT: githubOutput,
         GITHUB_REPOSITORY: 'owner/codeflare',

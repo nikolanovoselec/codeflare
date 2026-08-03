@@ -16,7 +16,7 @@
  * AC5. An absent/malformed/incapable stored selection resolves to the full enterprise set.
  * AC6. flag-off regression: all seven agents are accepted 201 when CODING_AGENTS is unset.
  * AC7. flag-off regression: the stored selection is ignored and nothing is stamped.
- * AC8. The build-installed CODING_AGENTS set is enforced in every deployment mode; malformed values fail closed to bash.
+ * REQ-AGENT-123. The build-installed CODING_AGENTS set is enforced in every deployment mode; malformed values fail closed to bash.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
@@ -124,7 +124,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
 
   describe('build-installed coding agents', () => {
     it.each(['claude-code', 'codex', 'pi', 'bash'])(
-      "AC8: installed agentType '%s' is accepted",
+      "REQ-AGENT-123 AC1: installed agentType '%s' is accepted",
       async (agentType) => {
         const app = createApp({ CODING_AGENTS: 'claude-code,codex,pi' });
         const res = await app.request('/sessions', {
@@ -137,7 +137,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
     );
 
     it.each(['copilot', 'antigravity', 'opencode'])(
-      "AC8: omitted agentType '%s' is rejected",
+      "REQ-AGENT-002 AC7: omitted agentType '%s' is rejected",
       async (agentType) => {
         const app = createApp({ CODING_AGENTS: 'claude-code,codex,pi' });
         const res = await app.request('/sessions', {
@@ -149,7 +149,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       },
     );
 
-    it('AC8: an omitted agentType falls back to the first installed coding agent', async () => {
+    it('REQ-AGENT-002 AC5: an omitted agentType falls back to the first installed coding agent', async () => {
       const app = createApp({ CODING_AGENTS: 'codex,pi' });
       const res = await app.request('/sessions', {
         method: 'POST',
@@ -161,7 +161,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(body.session.agentType).toBe('codex');
     });
 
-    it('AC8: malformed configuration fails closed to bash', async () => {
+    it('REQ-AGENT-123 AC2: malformed configuration fails closed to bash', async () => {
       const app = createApp({ CODING_AGENTS: 'pi,unknown' });
       for (const agentType of ['pi', 'claude-code']) {
         const res = await app.request('/sessions', {
@@ -179,7 +179,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
       expect(bash.status).toBe(201);
     });
 
-    it('AC8: enterprise and build allowlists are intersected', async () => {
+    it('REQ-AGENT-123 AC1: enterprise and build allowlists are intersected', async () => {
       mockKV._set('setup:active_agents', ['copilot', 'pi']);
       const app = createApp({ ENTERPRISE_MODE: 'active', CODING_AGENTS: 'claude-code,pi' });
       const pi = await app.request('/sessions', {

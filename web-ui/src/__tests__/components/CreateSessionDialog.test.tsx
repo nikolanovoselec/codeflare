@@ -33,7 +33,7 @@ describe('CreateSessionDialog', () => {
   beforeEach(() => {
     sessionStoreState.preferences = { lastAgentType: undefined };
     sessionStoreState.enterpriseMode = false;
-    sessionStoreState.allowedAgents = null;
+    sessionStoreState.allowedAgents = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
   });
 
   afterEach(() => {
@@ -502,11 +502,10 @@ describe('CreateSessionDialog', () => {
     });
   });
 
-  // REQ-ENTERPRISE-003 / REQ-OPS-038: GET /api/user carries the resolved
-  // deployment allowlist. Enterprise mode has a static gateway-capable fallback
-  // until hydration; every mode honors a hydrated build-installed subset.
+  // REQ-ENTERPRISE-003 / REQ-AGENT-123: GET /api/user carries the resolved
+  // deployment allowlist. Choices stay withheld until that response hydrates.
   describe('Deployment agent allowlist', () => {
-    it('renders all 7 agents when enterpriseMode is false (default, unchanged)', () => {
+    it('renders all 7 agents when the hydrated deployment allows the full set', () => {
       sessionStoreState.enterpriseMode = false;
       render(() => (
         <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
@@ -546,25 +545,14 @@ describe('CreateSessionDialog', () => {
       expect(screen.queryByTestId('csd-agent-copilot')).not.toBeInTheDocument();
     });
 
-    it('falls back to the static enterprise list until /api/user hydrates', () => {
-      sessionStoreState.enterpriseMode = true;
+    it('withholds every agent choice until /api/user hydrates', () => {
+      sessionStoreState.allowedAgents = null;
       render(() => (
         <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
       ));
 
       const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
-      expect(buttons).toHaveLength(3);
-
-      // Allowlisted agents present.
-      expect(screen.getByTestId('csd-agent-copilot')).toBeInTheDocument();
-      expect(screen.getByTestId('csd-agent-pi')).toBeInTheDocument();
-      expect(screen.getByTestId('csd-agent-bash')).toBeInTheDocument();
-
-      // Non-allowlisted agents hidden (Claude Code now excluded).
-      expect(screen.queryByTestId('csd-agent-claude-code')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('csd-agent-antigravity')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('csd-agent-codex')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('csd-agent-opencode')).not.toBeInTheDocument();
+      expect(buttons).toHaveLength(0);
     });
   });
 });

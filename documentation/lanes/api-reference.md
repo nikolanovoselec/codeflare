@@ -127,7 +127,7 @@ The pre-Hono, pre-auth 400 keeps the full default security-header set; every oth
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1, [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC4, [REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis) AC4 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`, `allowedAgents` — the build-installed, policy-filtered creation set) |
+| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1, [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC4, [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability) AC3 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`, `allowedAgents` — the build-installed, policy-filtered creation set) |
 | POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC2 | Mark guided setup as visited (sets KV flag) |
 | GET | `/api/user/r2-status` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC3 | R2 credential status for current user |
 | POST | `/api/user/ensure-r2-token` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC4, AC6 | Create scoped R2 token if missing (rate limited) |
@@ -367,7 +367,7 @@ Each runs only when its field is present in the request body, so unrelated recon
 - `configure_strict_egress` — writes `setup:strict_egress` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
 - `configure_r2_sse` — writes `setup:r2_sse_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
 - `configure_downloads_disabled` — writes `setup:downloads_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable)
-- `configure_active_agents` — validates the selection against build-installed, gateway-capable coding agents (rejects empty, non-capable, or omitted CLIs) and writes `setup:active_agents` as a JSON array. [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis)
+- `configure_active_agents` — validates the selection against build-installed, gateway-capable coding agents (rejects empty, non-capable, or omitted CLIs) and writes `setup:active_agents` as a JSON array. [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability)
 
 **Step 7 -- `finalize`**
 
@@ -548,7 +548,7 @@ In SaaS mode, returns empty arrays - admin enters everything manually.
 {"adminUsers": ["alice@example.com"], "allowedUsers": ["bob@example.com"]}
 ```
 
-Under `ENTERPRISE_MODE` the response additionally carries the stored enterprise configuration for wizard round-trip (Access groups, route catalog, masked token flags, toggles) plus `activeAgents` (the stored coding-agent selection intersected with installed CLIs, or every installed capable agent when absent/invalid) and `configurableAgents` (the build-installed subset of the governable `copilot`, `pi` universe); both agent fields are omitted outside enterprise mode ([REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis)).
+Under `ENTERPRISE_MODE` the response additionally carries the stored enterprise configuration for wizard round-trip (Access groups, route catalog, masked token flags, toggles) plus `activeAgents` (the stored coding-agent selection intersected with installed CLIs, or every installed capable agent when absent/invalid) and `configurableAgents` (the build-installed subset of the governable `copilot`, `pi` universe); both agent fields are omitted outside enterprise mode ([REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability)).
 
 ```json
 {"adminUsers": ["alice@example.com"], "allowedUsers": [], "activeAgents": ["pi"], "configurableAgents": ["copilot", "pi"]}

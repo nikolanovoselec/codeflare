@@ -28,14 +28,14 @@ const ENTERPRISE_AGENTS = ['copilot', 'pi', 'bash'] as const satisfies readonly 
  * deactivating it would remove nothing — it stays always-on. */
 export const CONFIGURABLE_ENTERPRISE_AGENTS: readonly AgentType[] = ENTERPRISE_AGENTS.filter((a) => a !== 'bash');
 
-const CODING_AGENT_TYPES = AgentTypeSchema.options.filter((agent) => agent !== 'bash');
+const CODING_AGENT_TYPES = new Set<string>(AgentTypeSchema.options.filter((agent) => agent !== 'bash'));
 
 /** Resolve build-installed agents in canonical schema order. Invalid external
  * configuration fails closed to bash; an absent value preserves all agents. */
 export function installedAgents(env: Pick<Env, 'CODING_AGENTS'> | undefined): readonly AgentType[] {
   if (env?.CODING_AGENTS === undefined) return AgentTypeSchema.options;
   const requested = env.CODING_AGENTS.split(',').map((value) => value.trim()).filter(Boolean);
-  if (requested.length === 0 || requested.some((value) => !CODING_AGENT_TYPES.includes(value as AgentType))) {
+  if (requested.length === 0 || requested.some((value) => !CODING_AGENT_TYPES.has(value))) {
     return ['bash'];
   }
   const selected = new Set(requested);

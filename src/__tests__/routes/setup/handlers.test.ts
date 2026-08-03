@@ -507,7 +507,7 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.activeAgents).toEqual(['copilot', 'pi']);
     });
 
-    it('REQ-OPS-038: GET /prefill hides capable agents omitted from the image', async () => {
+    it('REQ-ENTERPRISE-025 AC1: GET /prefill hides capable agents omitted from the image', async () => {
       mockKV._store.set('setup:active_agents', '["copilot"]');
       const app = createApp({ ENTERPRISE_MODE: 'active', CODING_AGENTS: 'claude-code,pi' } as Partial<Env>);
       const res = await app.request('/setup/prefill');

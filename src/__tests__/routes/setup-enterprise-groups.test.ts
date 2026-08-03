@@ -1110,7 +1110,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:active_agents', expect.anything());
       });
 
-      it('REQ-OPS-038: rejects a capable agent whose CLI is omitted from the image', async () => {
+      it('REQ-ENTERPRISE-025 AC3: rejects a capable agent whose CLI is omitted from the image', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active', CODING_AGENTS: 'pi' });
         mockFullSuccessFlow();
 

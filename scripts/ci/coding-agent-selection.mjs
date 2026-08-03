@@ -11,6 +11,15 @@ export const CODING_AGENTS = Object.freeze([
   'pi',
 ]);
 
+export const CODING_AGENT_COMMANDS = Object.freeze({
+  'claude-code': Object.freeze({ path: '/usr/local/bin/claude', args: ['--version'] }),
+  codex: Object.freeze({ path: '/usr/local/bin/codex', args: ['--version'] }),
+  copilot: Object.freeze({ path: '/usr/local/bin/copilot', args: ['--version'] }),
+  antigravity: Object.freeze({ path: '/usr/local/bin/agy', args: ['--version'] }),
+  opencode: Object.freeze({ path: '/usr/local/bin/opencode', args: ['--version'] }),
+  pi: Object.freeze({ path: '/usr/local/bin/pi', args: ['--version'] }),
+});
+
 const NPM_AGENT_PACKAGES = Object.freeze({
   'claude-code': '@anthropic-ai/claude-code',
   codex: '@openai/codex',
