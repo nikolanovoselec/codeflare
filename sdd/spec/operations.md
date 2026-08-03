@@ -559,7 +559,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Zizmor and actionlint bumps update only their validated non-workflow pin manifest, allowing the least-privilege GitHub Actions token to push their branches without workflow-write permission. <!-- @impl: scripts/ci/workflow-tool-pins.mjs::updateWorkflowToolPin --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::zizmor --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @test: host/__tests__/workflow-tool-pins.test.js (REQ-OPS-041: least-privilege workflow-tool pin updates) -->
+1. Zizmor and actionlint bumps update only their validated non-workflow pin manifest, allowing the least-privilege GitHub Actions token to push their branches without workflow-write permission. <!-- @impl: scripts/ci/workflow-tool-pins.mjs::updateWorkflowToolPin --> <!-- @impl: scripts/ci/workflow-tool-pins.mjs::stageDefaultManifest --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::zizmor --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @test: host/__tests__/workflow-tool-pins.test.js (REQ-OPS-041: least-privilege workflow-tool pin updates) -->
 
 **Constraints:** GitHub Actions referenced through `uses:` remain pinned directly to immutable commits in workflow files.
 

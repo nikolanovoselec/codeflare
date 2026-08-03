@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,8 +62,15 @@ export function updateWorkflowToolPin(path, tool, expectedVersion, nextVersion, 
   writeFileSync(path, `${JSON.stringify(updated, null, 2)}\n`);
 }
 
+function stageDefaultManifest() {
+  const staged = spawnSync('git', ['add', '--', DEFAULT_PATH], { encoding: 'utf8' });
+  if (staged.status !== 0) {
+    throw new Error(`could not stage ${DEFAULT_PATH}: ${staged.stderr.trim() || `git exited ${staged.status}`}`);
+  }
+}
+
 function usage() {
-  return 'usage: workflow-tool-pins.mjs get <tool> <version|sha256> [path] | update <tool> <expected-version> <next-version> <sha256> [path]';
+  return 'usage: workflow-tool-pins.mjs get <tool> <version|sha256> [path] | github-output <tool> [path] | update <tool> <expected-version> <next-version> <sha256> [path] | update-and-stage <tool> <expected-version> <next-version> <sha256>';
 }
 
 function main(argv) {
@@ -73,10 +81,22 @@ function main(argv) {
     process.stdout.write(`${readWorkflowToolPin(resolve(path), tool)[field]}\n`);
     return;
   }
+  if (command === 'github-output' && args.length <= 1) {
+    const [path = DEFAULT_PATH] = args;
+    const pin = readWorkflowToolPin(resolve(path), tool);
+    process.stdout.write(`version=${pin.version}\nsha256=${pin.sha256}\n`);
+    return;
+  }
   if (command === 'update' && args.length >= 3 && args.length <= 4) {
     const [expectedVersion, nextVersion, nextSha256, path = DEFAULT_PATH] = args;
     updateWorkflowToolPin(resolve(path), tool, expectedVersion, nextVersion, nextSha256);
     process.stdout.write(`${path}\n`);
+    return;
+  }
+  if (command === 'update-and-stage' && args.length === 3) {
+    const [expectedVersion, nextVersion, nextSha256] = args;
+    updateWorkflowToolPin(resolve(DEFAULT_PATH), tool, expectedVersion, nextVersion, nextSha256);
+    stageDefaultManifest();
     return;
   }
   throw new Error(usage());

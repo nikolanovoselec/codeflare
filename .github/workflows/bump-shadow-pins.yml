@@ -2317,9 +2317,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          PIN_FILE=$(node scripts/ci/workflow-tool-pins.mjs update zizmor "$CUR" "$LAT" "$SHA")
-
-          git add -- "$PIN_FILE"
+          node scripts/ci/workflow-tool-pins.mjs update-and-stage zizmor "$CUR" "$LAT" "$SHA"
           if git diff --cached --quiet; then
             echo "Nothing changed - aborting."
             exit 1
@@ -2451,9 +2449,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          PIN_FILE=$(node scripts/ci/workflow-tool-pins.mjs update actionlint "$CUR" "$LAT" "$SHA")
-
-          git add -- "$PIN_FILE"
+          node scripts/ci/workflow-tool-pins.mjs update-and-stage actionlint "$CUR" "$LAT" "$SHA"
           if git diff --cached --quiet; then
             echo "Nothing changed - aborting."
             exit 1

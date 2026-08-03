@@ -424,9 +424,7 @@ jobs:
 
       - name: Resolve the zizmor pin
         id: zizmor-pin
-        run: |
-          echo "version=$(node scripts/ci/workflow-tool-pins.mjs get zizmor version)" >> "$GITHUB_OUTPUT"
-          echo "sha256=$(node scripts/ci/workflow-tool-pins.mjs get zizmor sha256)" >> "$GITHUB_OUTPUT"
+        run: node scripts/ci/workflow-tool-pins.mjs github-output zizmor >> "$GITHUB_OUTPUT"
 
       - name: Run zizmor (checksum-pinned binary)
         # zizmor.yml uploads SARIF to code scanning and is informational by
@@ -480,9 +478,7 @@ jobs:
 
       - name: Resolve the actionlint pin
         id: actionlint-pin
-        run: |
-          echo "version=$(node scripts/ci/workflow-tool-pins.mjs get actionlint version)" >> "$GITHUB_OUTPUT"
-          echo "sha256=$(node scripts/ci/workflow-tool-pins.mjs get actionlint sha256)" >> "$GITHUB_OUTPUT"
+        run: node scripts/ci/workflow-tool-pins.mjs github-output actionlint >> "$GITHUB_OUTPUT"
 
       - name: Run actionlint (checksum-pinned binary)
         # Catches workflow-file errors GitHub only surfaces as jobless

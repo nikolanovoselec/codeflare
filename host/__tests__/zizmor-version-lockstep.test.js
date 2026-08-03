@@ -19,15 +19,12 @@ const pinPath = join(ROOT, '.github', 'workflow-tool-pins.json');
 const pinScript = join(ROOT, 'scripts', 'ci', 'workflow-tool-pins.mjs');
 const pins = JSON.parse(readFileSync(pinPath, 'utf8'));
 
-describe('zizmor version lockstep', () => {
-  it('exposes the validated shared version and checksum through the executable boundary', () => {
-    const version = spawnSync(process.execPath, [pinScript, 'get', 'zizmor', 'version', pinPath], { encoding: 'utf8' });
-    const sha256 = spawnSync(process.execPath, [pinScript, 'get', 'zizmor', 'sha256', pinPath], { encoding: 'utf8' });
+describe('zizmor pin manifest', () => {
+  it('emits one validated GitHub Actions output contract for both consumers', () => {
+    const output = spawnSync(process.execPath, [pinScript, 'github-output', 'zizmor', pinPath], { encoding: 'utf8' });
 
-    assert.equal(version.status, 0, version.stderr);
-    assert.equal(sha256.status, 0, sha256.stderr);
-    assert.equal(version.stdout, `${pins.zizmor.version}\n`);
-    assert.equal(sha256.stdout, `${pins.zizmor.sha256}\n`);
+    assert.equal(output.status, 0, output.stderr);
+    assert.equal(output.stdout, `version=${pins.zizmor.version}\nsha256=${pins.zizmor.sha256}\n`);
   });
 
   it('pins the action itself to a digest, not a floating tag', () => {
