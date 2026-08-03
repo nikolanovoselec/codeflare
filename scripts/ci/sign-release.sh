@@ -40,7 +40,7 @@ sign_release_assets() {
   local asset
   for asset in "release-assets/codeflare-$RELEASE_TAG.tar.gz" release-assets/SHA256SUMS; do
     test -f "$asset"
-    cosign sign-blob --yes --bundle "$asset.sigstore.json" "$asset"
+    env -u COSIGN_PASSWORD cosign sign-blob --yes --bundle "$asset.sigstore.json" "$asset"
   done
 }
 
