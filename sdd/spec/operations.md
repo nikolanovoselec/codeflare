@@ -948,7 +948,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-036](#req-ops-036-develop-only-main-promotion)
 
-**Verification:** Live ruleset inspection
+**Verification:** Manual check
 
 **Status:** Implemented
 

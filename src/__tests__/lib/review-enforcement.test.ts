@@ -1466,7 +1466,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: pairs a batch boundary with its command repository', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063: pairs the latest batch candidate with its command repository', async () => {
     const ambient = makeReviewFixture();
     const boundary = makeReviewFixture();
     const { registerReviewEnforcement } = await plannedEnforcement();
@@ -1497,10 +1497,10 @@ describe('Pi review reminder and settled enforcement', () => {
       isError: false,
     });
 
-    expect(queriedRepos).toEqual([boundary.repo]);
+    expect(queriedRepos).toEqual([ambient.repo]);
     expect(harness.sent[0]?.message.details).toMatchObject({
-      ...boundaryIdentity(boundary, 'batch-cross-repo'),
-      head: boundary.head,
+      ...boundaryIdentity(ambient, 'batch-cross-repo'),
+      head: ambient.head,
     });
   });
 
@@ -1782,6 +1782,29 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.sent).toEqual([]);
       expect(ackHead(fixture.repo)).toBe(fixture.base);
     }
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-063: checks an absent matching PR only once', async () => {
+    const fixture = makeReviewFixture();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    const delays: number[] = [];
+    let queries = 0;
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    registerReviewEnforcement(harness.pi, {
+      queryPr: async () => { queries += 1; return undefined; },
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      headRetryDelaysMs: [0, 10, 20],
+    });
+    appendSession(fixture.sessionFile,
+      assistantTool('read-only-no-pr', 'bash', { command: 'git status --short' }),
+      toolResult('read-only-no-pr', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'read-only-no-pr'));
+
+    expect(queries).toBe(1);
+    expect(delays).toEqual([]);
+    expect(harness.sent).toEqual([]);
   });
 
   it('REQ-AGENT-058 + REQ-AGENT-080 AC6: an eligible pushed boundary emits one authoritative launch plan', async () => {
@@ -2133,7 +2156,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(reloadedHarness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-036: resumed sessions stay inert until a new eligible boundary', async () => {
+  it('REQ-AGENT-036: resumed sessions evaluate a new authoritative candidate once', async () => {
     const fixture = makeReviewFixture();
     const initialHarness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -2152,28 +2175,17 @@ describe('Pi review reminder and settled enforcement', () => {
     await resumedHarness.emit('session_start', { reason: 'resume' });
 
     await resumedHarness.emit('tool_result', boundaryEvent('git switch pi', 'switch-1'));
-    await resumedHarness.emit('agent_end');
-    await resumedHarness.emit('agent_settled');
-
-    expect(prQueries).toBe(0);
-    expect(resumedHarness.sent).toEqual([]);
-    expect(ackHead(fixture.repo)).toBe(fixture.base);
-    expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
-
-    appendSession(fixture.sessionFile,
-      assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
-      toolResult('push-2', 'bash'),
-    );
-    await resumedHarness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
 
     expect(prQueries).toBe(1);
     expect(resumedHarness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
-        details: expect.objectContaining({ boundaryToolUseId: 'push-2', head: fixture.head }),
+        details: expect.objectContaining({ boundaryToolUseId: 'switch-1', head: fixture.head }),
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
   });
 
   it('REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head', async () => {
@@ -2218,7 +2230,7 @@ describe('Pi review reminder and settled enforcement', () => {
           ...boundaryIdentity(fixture, 'create-1'),
           head: fixture.head,
           ackHead: fixture.head,
-          reviewRange: undefined,
+          reviewRange: `${fixture.base}..${fixture.head}`,
           scope: diffScope(),
           requiredLanes: [],
           launchWaves: launchWaves([], true),

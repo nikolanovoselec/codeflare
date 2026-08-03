@@ -457,7 +457,7 @@ async function currentReview(
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
     const pr = await dependencies.queryPr(context.repo, branch);
-    if (!isProtectedPr(pr) || pr.headRefName !== branch) continue;
+    if (!isProtectedPr(pr) || pr.headRefName !== branch) return undefined;
     if (head === pr.headRefOid) return { ...context, pr };
   }
   return undefined;
