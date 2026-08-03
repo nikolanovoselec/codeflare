@@ -830,7 +830,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!successful(event)) return;
     rememberActiveRepoFromToolResult(event, ctx.cwd);
     const boundary = latestBoundary(event, ctx.cwd);
-    if (!boundary) return;
+    if (!boundary || boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
     const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary, resumedWithoutBoundary);
     pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     if (!launch) return;
