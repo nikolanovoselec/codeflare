@@ -345,6 +345,7 @@ function makeHarness(repo: string, sessionFile: string): {
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
   setSessionReadFails(fails: boolean): void;
   setAppendEntryFails(fails: boolean): void;
+  setAppendEntryFailureType(customType: string | undefined): void;
   deferGoalPause(task: () => void | Promise<void>): void;
   flushGoalPauses(): Promise<void>;
   emit(event: string, payload?: unknown): Promise<void>;
@@ -363,6 +364,7 @@ function makeHarness(repo: string, sessionFile: string): {
   let liveEntries: Record<string, unknown>[] | undefined;
   let sessionReadFails = false;
   let appendEntryFails = false;
+  let appendEntryFailureType: string | undefined;
   const allTools = [
     { name: 'read', description: 'Read files' },
     { name: 'bash', description: 'Run shell commands' },
@@ -403,7 +405,7 @@ function makeHarness(repo: string, sessionFile: string): {
       },
     },
     appendEntry: (customType, data) => {
-      if (appendEntryFails) throw new Error('append failed');
+      if (appendEntryFails || customType === appendEntryFailureType) throw new Error('append failed');
       operations.push(`append:${customType}`);
       appendSession(sessionFile, {
         type: 'custom',
@@ -465,6 +467,7 @@ function makeHarness(repo: string, sessionFile: string): {
     setLiveEntries: (entries) => { liveEntries = entries; },
     setSessionReadFails: (fails) => { sessionReadFails = fails; },
     setAppendEntryFails: (fails) => { appendEntryFails = fails; },
+    setAppendEntryFailureType: (customType) => { appendEntryFailureType = customType; },
     deferGoalPause: (task) => { deferredGoalPauses.push(task); },
     flushGoalPauses: async () => {
       for (const task of deferredGoalPauses.splice(0)) await task();
@@ -2845,6 +2848,67 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(sourceQueries).toBe(3);
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-merge-retry')).toHaveLength(3);
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-evaluated')).toHaveLength(1);
+  });
+
+  it('REQ-AGENT-121: persisted exhaustion prevents reload lookups when terminal evaluation cannot be written', async () => {
+    const fixture = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion: PrState = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      headRefOid: fixture.base,
+      number: 761,
+    };
+    let sourceQueries = 0;
+    const registerFailingHarness = async () => {
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      harness.setAppendEntryFailureType('pr-boundary-evaluated');
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async (_repo, target) => {
+          if (target === '768') {
+            sourceQueries += 1;
+            return mergedPr;
+          }
+          return stalePromotion;
+        },
+        headRetryDelaysMs: [0],
+        deferGoalPause: harness.deferGoalPause,
+      });
+      return harness;
+    };
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-evaluation-failure', 'bash', { command }),
+      toolResult('merge-evaluation-failure', 'bash'),
+    );
+
+    const initialHarness = await registerFailingHarness();
+    await initialHarness.emit('tool_result', boundaryEvent(command, 'merge-evaluation-failure'));
+    await initialHarness.emit('agent_settled');
+    await initialHarness.emit('agent_settled');
+    for (let reload = 1; reload <= 2; reload += 1) {
+      const harness = await registerFailingHarness();
+      await harness.emit('session_start', { reason: 'resume' });
+      await harness.emit('agent_settled');
+      expect(harness.sent, `reload ${reload}`).toEqual([]);
+    }
+
+    const entries = readFileSync(fixture.sessionFile, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(sourceQueries).toBe(3);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-merge-retry')).toHaveLength(3);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-evaluated')).toHaveLength(0);
   });
 
   it('REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary', async () => {

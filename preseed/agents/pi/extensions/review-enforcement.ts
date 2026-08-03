@@ -124,13 +124,35 @@ function boundaryWasEvaluated(ctx: ReviewContext, toolUseId: string): boolean {
     && entry.data?.toolUseId === toolUseId);
 }
 
+function mergeRetryAttempts(ctx: ReviewContext, toolUseId: string): number | undefined {
+  const entries = readableSessionEntries(ctx);
+  return entries?.filter((entry) => entry?.type === "custom"
+    && entry.customType === MERGE_RETRY_ENTRY_TYPE
+    && entry.data?.toolUseId === toolUseId).length;
+}
+
+function stopExhaustedMergeRecovery(
+  pi: ReviewPi,
+  ctx: ReviewContext,
+  boundary: { toolUseId: string },
+): boolean {
+  const attempts = mergeRetryAttempts(ctx, boundary.toolUseId);
+  if (attempts !== undefined && attempts < MAX_MERGE_ATTEMPTS) return false;
+  try {
+    pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+  } catch {
+    // Unavailable accounting still stops another network lookup in this runtime.
+  }
+  return true;
+}
+
 function retainRetryableMerge(
   pi: ReviewPi,
   ctx: ReviewContext,
   boundary: { toolUseId: string },
 ): boolean {
-  const entries = readableSessionEntries(ctx);
-  if (!entries) {
+  const priorAttempts = mergeRetryAttempts(ctx, boundary.toolUseId);
+  if (priorAttempts === undefined) {
     try {
       pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     } catch {
@@ -138,9 +160,7 @@ function retainRetryableMerge(
     }
     return false;
   }
-  const attempts = entries.filter((entry) => entry?.type === "custom"
-    && entry.customType === MERGE_RETRY_ENTRY_TYPE
-    && entry.data?.toolUseId === boundary.toolUseId).length + 1;
+  const attempts = priorAttempts + 1;
   try {
     pi.appendEntry(MERGE_RETRY_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
   } catch {
@@ -946,6 +966,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("agent_settled", async (_event, ctx) => {
     if (pendingMergeBoundary) {
       const boundary = pendingMergeBoundary;
+      if (stopExhaustedMergeRecovery(pi, ctx, boundary)) {
+        pendingMergeBoundary = undefined;
+        return;
+      }
       const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
       if (launch && "retryable" in launch) {
         pendingMergeBoundary = retainRetryableMerge(pi, ctx, boundary) ? boundary : undefined;
@@ -968,6 +992,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         && recoveryFacts.reviewBoundaryToolUseId !== recoveryFacts.boundary.toolUseId
         && !boundaryWasEvaluated(ctx, recoveryFacts.boundary.toolUseId)) {
         const boundary = persistedBoundary(ctx, recoveryFile);
+        if (boundary && stopExhaustedMergeRecovery(pi, ctx, boundary)) {
+          resumedWithoutBoundary = false;
+          return;
+        }
         const launch = boundary
           ? await launchBoundaryPlan(pi, ctx, dependencies, boundary)
           : undefined;
