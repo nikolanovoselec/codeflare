@@ -343,6 +343,8 @@ function makeHarness(repo: string, sessionFile: string): {
   setGoalResumeRaceActive(goalId: string | undefined): void;
   setGoalResumeSucceeds(succeeds: boolean): void;
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
+  setSessionReadFails(fails: boolean): void;
+  setAppendEntryFails(fails: boolean): void;
   deferGoalPause(task: () => void | Promise<void>): void;
   flushGoalPauses(): Promise<void>;
   emit(event: string, payload?: unknown): Promise<void>;
@@ -359,6 +361,8 @@ function makeHarness(repo: string, sessionFile: string): {
   let goalResumeRaceActive: string | undefined;
   let goalResumeSucceeds = true;
   let liveEntries: Record<string, unknown>[] | undefined;
+  let sessionReadFails = false;
+  let appendEntryFails = false;
   const allTools = [
     { name: 'read', description: 'Read files' },
     { name: 'bash', description: 'Run shell commands' },
@@ -399,6 +403,7 @@ function makeHarness(repo: string, sessionFile: string): {
       },
     },
     appendEntry: (customType, data) => {
+      if (appendEntryFails) throw new Error('append failed');
       operations.push(`append:${customType}`);
       appendSession(sessionFile, {
         type: 'custom',
@@ -431,11 +436,14 @@ function makeHarness(repo: string, sessionFile: string): {
     isIdle: () => true,
     sessionManager: {
       getSessionFile: () => sessionFile,
-      getEntries: () => liveEntries ?? readFileSync(sessionFile, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as Record<string, unknown>)
-        .filter((entry) => entry.type !== 'session'),
+      getEntries: () => {
+        if (sessionReadFails) throw new Error('session read failed');
+        return liveEntries ?? readFileSync(sessionFile, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .filter((entry) => entry.type !== 'session');
+      },
     },
     ui: {
       notify: (message) => { notifications.push(message); },
@@ -455,6 +463,8 @@ function makeHarness(repo: string, sessionFile: string): {
     setGoalResumeRaceActive: (goalId) => { goalResumeRaceActive = goalId; },
     setGoalResumeSucceeds: (succeeds) => { goalResumeSucceeds = succeeds; },
     setLiveEntries: (entries) => { liveEntries = entries; },
+    setSessionReadFails: (fails) => { sessionReadFails = fails; },
+    setAppendEntryFails: (fails) => { appendEntryFails = fails; },
     deferGoalPause: (task) => { deferredGoalPauses.push(task); },
     flushGoalPauses: async () => {
       for (const task of deferredGoalPauses.splice(0)) await task();
@@ -1788,6 +1798,50 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
+  it('REQ-AGENT-121: a cd-prefixed merge binds every PR lookup to its executable-segment repository', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const outside = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const queriedRepos: string[] = [];
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(outside.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (repo, target) => {
+        queriedRepos.push(repo);
+        return target === '768' ? mergedPr : fixture.pr;
+      },
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = `cd "${fixture.repo}" && gh pr merge 768 --squash`;
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-cd', 'bash', { command }),
+      toolResult('merge-cd', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-cd'));
+
+    expect(queriedRepos).toEqual([fixture.repo, fixture.repo]);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      repo: fixture.repo,
+      branch: 'develop',
+      prNumber: 761,
+      head: fixture.head,
+    });
+  });
+
   it('REQ-AGENT-121: a develop merge reuses acknowledgement and FIX handoff exactly once', async () => {
     const fixture = makeReviewFixture();
     fixture.pr = {
@@ -2012,6 +2066,14 @@ describe('Pi review reminder and settled enforcement', () => {
         number: 768,
         mergeCommit: null,
       },
+      {
+        state: 'MERGED',
+        baseRefName: 'develop',
+        headRefOid: 'a'.repeat(40),
+        headRefName: 'feature/review-fix',
+        number: 768,
+        mergeCommit: { oid: 'deadbeef' },
+      },
     ];
     for (const [index, source] of fixtureSources.entries()) {
       const fixture = makeReviewFixture();
@@ -2042,6 +2104,42 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.sent).toEqual([]);
       expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-merge-retry')).toHaveLength(3);
       expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+    }
+  });
+
+  it('REQ-AGENT-121: unavailable retry accounting fails closed in the active runtime', async () => {
+    for (const mode of ['read', 'write'] as const) {
+      const fixture = makeReviewFixture();
+      let sourceQueries = 0;
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async () => {
+          sourceQueries += 1;
+          return undefined;
+        },
+        headRetryDelaysMs: [0],
+        deferGoalPause: harness.deferGoalPause,
+      });
+      const command = 'gh pr merge 768 --squash';
+      const toolUseId = `merge-accounting-${mode}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+      if (mode === 'read') harness.setSessionReadFails(true);
+      else harness.setAppendEntryFails(true);
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+      harness.setSessionReadFails(false);
+      harness.setAppendEntryFails(false);
+      await harness.emit('agent_settled');
+
+      expect(sourceQueries, mode).toBe(1);
+      expect(harness.sent, mode).toEqual([]);
+      if (mode === 'read') {
+        expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+      }
     }
   });
 
@@ -2689,6 +2787,64 @@ describe('Pi review reminder and settled enforcement', () => {
       head: fixture.head,
     });
     expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+  });
+
+  it('REQ-AGENT-121: retry accounting remains bounded across repeated reloads', async () => {
+    const fixture = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion: PrState = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      headRefOid: fixture.base,
+      number: 761,
+    };
+    let sourceQueries = 0;
+    const registerReloadHarness = async () => {
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async (_repo, target) => {
+          if (target === '768') {
+            sourceQueries += 1;
+            return mergedPr;
+          }
+          return stalePromotion;
+        },
+        headRetryDelaysMs: [0],
+        deferGoalPause: harness.deferGoalPause,
+      });
+      return harness;
+    };
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-reload-bound', 'bash', { command }),
+      toolResult('merge-reload-bound', 'bash'),
+    );
+
+    const initialHarness = await registerReloadHarness();
+    await initialHarness.emit('tool_result', boundaryEvent(command, 'merge-reload-bound'));
+    for (let attempt = 2; attempt <= 4; attempt += 1) {
+      const reloadedHarness = await registerReloadHarness();
+      await reloadedHarness.emit('session_start', { reason: 'resume' });
+      await reloadedHarness.emit('agent_settled');
+      expect(reloadedHarness.sent, `reload ${attempt}`).toEqual([]);
+    }
+
+    const entries = readFileSync(fixture.sessionFile, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(sourceQueries).toBe(3);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-merge-retry')).toHaveLength(3);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-evaluated')).toHaveLength(1);
   });
 
   it('REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary', async () => {

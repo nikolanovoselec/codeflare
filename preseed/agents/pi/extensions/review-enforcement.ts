@@ -86,12 +86,16 @@ type GoalSnapshot = { id: string; status: string };
 type ReviewGoalPause = { head: string; goalId: string };
 type GoalControlResult = { ok: boolean; goalId: string; status: string };
 
-function sessionEntries(ctx: ReviewContext): Record<string, any>[] {
+function readableSessionEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
   try {
     return ctx.sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries?.() ?? [];
   } catch {
-    return [];
+    return undefined;
   }
+}
+
+function sessionEntries(ctx: ReviewContext): Record<string, any>[] {
+  return readableSessionEntries(ctx) ?? [];
 }
 
 function goalSnapshot(entry: Record<string, any>): GoalSnapshot | undefined {
@@ -125,12 +129,34 @@ function retainRetryableMerge(
   ctx: ReviewContext,
   boundary: { toolUseId: string },
 ): boolean {
-  const attempts = sessionEntries(ctx).filter((entry) => entry?.type === "custom"
+  const entries = readableSessionEntries(ctx);
+  if (!entries) {
+    try {
+      pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+    } catch {
+      // Unavailable accounting must stop this runtime from retaining the boundary.
+    }
+    return false;
+  }
+  const attempts = entries.filter((entry) => entry?.type === "custom"
     && entry.customType === MERGE_RETRY_ENTRY_TYPE
     && entry.data?.toolUseId === boundary.toolUseId).length + 1;
-  pi.appendEntry(MERGE_RETRY_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+  try {
+    pi.appendEntry(MERGE_RETRY_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+  } catch {
+    try {
+      pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+    } catch {
+      // Unavailable persistence must stop this runtime from retaining the boundary.
+    }
+    return false;
+  }
   if (attempts < MAX_MERGE_ATTEMPTS) return true;
-  pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+  try {
+    pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+  } catch {
+    // The persisted retry count still proves exhaustion when reads recover.
+  }
   return false;
 }
 
