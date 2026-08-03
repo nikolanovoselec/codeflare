@@ -197,6 +197,7 @@ jobs:
               - 'scripts/browser-ide-ui-state.py'
             workflows:
               - '.github/**'
+              - 'scripts/ci/workflow-tool-pins.mjs'
 
   quality:
     name: Quality (lint / knip / audit)

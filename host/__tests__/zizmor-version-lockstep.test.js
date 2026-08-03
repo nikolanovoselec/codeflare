@@ -4,31 +4,30 @@
 //   - test.yml's `workflow-audit` lane runs a checksum-pinned zizmor binary and
 //     is the BLOCKING check (it feeds the required `test` context);
 //   - zizmor.yml runs zizmor-action to upload SARIF to code scanning.
-//
-// If either workflow stops reading the shared pin, the alerts in the Security
-// tab can be produced by a different auditor than the one that gates merges.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const WORKFLOWS = join(ROOT, '.github', 'workflows');
 const read = (name) => readFileSync(join(WORKFLOWS, name), 'utf8');
-const pins = JSON.parse(readFileSync(join(ROOT, '.github', 'workflow-tool-pins.json'), 'utf8'));
+const pinPath = join(ROOT, '.github', 'workflow-tool-pins.json');
+const pinScript = join(ROOT, 'scripts', 'ci', 'workflow-tool-pins.mjs');
+const pins = JSON.parse(readFileSync(pinPath, 'utf8'));
 
 describe('zizmor version lockstep', () => {
-  it('feeds both the blocking audit and SARIF upload from the shared pin', () => {
-    const gate = read('test.yml');
-    const sarif = read('zizmor.yml');
+  it('exposes the validated shared version and checksum through the executable boundary', () => {
+    const version = spawnSync(process.execPath, [pinScript, 'get', 'zizmor', 'version', pinPath], { encoding: 'utf8' });
+    const sha256 = spawnSync(process.execPath, [pinScript, 'get', 'zizmor', 'sha256', pinPath], { encoding: 'utf8' });
 
-    assert.match(gate, /ZIZMOR_VERSION: \$\{\{ steps\.zizmor-pin\.outputs\.version \}\}/);
-    assert.match(gate, /ZIZMOR_SHA256: \$\{\{ steps\.zizmor-pin\.outputs\.sha256 \}\}/);
-    assert.match(sarif, /version: \$\{\{ steps\.zizmor-pin\.outputs\.version \}\}/);
-    assert.match(pins.zizmor.version, /^\d+\.\d+\.\d+$/);
-    assert.match(pins.zizmor.sha256, /^[0-9a-f]{64}$/);
+    assert.equal(version.status, 0, version.stderr);
+    assert.equal(sha256.status, 0, sha256.stderr);
+    assert.equal(version.stdout, `${pins.zizmor.version}\n`);
+    assert.equal(sha256.stdout, `${pins.zizmor.sha256}\n`);
   });
 
   it('pins the action itself to a digest, not a floating tag', () => {

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const TOOLS = Object.freeze(['zizmor', 'actionlint']);
 const VERSION = /^\d+\.\d+\.\d+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-const DEFAULT_PATH = resolve('.github/workflow-tool-pins.json');
+const DEFAULT_PATH = '.github/workflow-tool-pins.json';
 
 function validatePins(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -76,6 +76,7 @@ function main(argv) {
   if (command === 'update' && args.length >= 3 && args.length <= 4) {
     const [expectedVersion, nextVersion, nextSha256, path = DEFAULT_PATH] = args;
     updateWorkflowToolPin(resolve(path), tool, expectedVersion, nextVersion, nextSha256);
+    process.stdout.write(`${path}\n`);
     return;
   }
   throw new Error(usage());
