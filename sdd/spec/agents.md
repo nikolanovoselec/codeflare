@@ -229,14 +229,14 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-119: Settled review follow-up accounting
 
-**Intent:** Missing PR-boundary launch recovery must be bounded per head and remain stable across linked worktrees.
+**Intent:** Missing PR-boundary launch recovery must be bounded independently for each PR head in a normal checkout.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
-2. Linked worktrees preserve the follow-up count across settled checks. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::gitMetadataDirectory --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: persists settled retry counts in a linked worktree git directory) -->
+2. Follow-up counts are isolated by PR number. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::statePath --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055: keeps acknowledgements isolated by pull request) -->
 3. A different head starts a fresh follow-up count. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-119: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
 
 **Constraints:** Accounting never acknowledges an unreviewed head.
@@ -251,25 +251,24 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-### REQ-AGENT-120: Claude protected-base review boundaries
+### REQ-AGENT-120: Claude authoritative branch review boundary
 
-**Intent:** Claude Code applies the same PR-open and PR-sync review boundary to `develop` that it applies to production branches.
+**Intent:** Claude checks authoritative PR state for the checked-out branch after successful Git or GitHub CLI activity instead of interpreting command-specific push or merge syntax.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Creating an open PR targeting `main`, `master`, or `develop` emits the review directive. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::pr-open --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — PR-OPEN trigger (base-gated)) -->
-2. Pushing a branch whose open PR targets `main`, `master`, or `develop` emits the review directive. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::git-push --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — PR-SYNC trigger (base-gated)) -->
-3. Before its access-preserving circuit breaker is exhausted, an eligible unacknowledged pushed head targeting any of those three bases prevents root-response completion. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BASE_REF --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating) -->
-4. After five blocked completion attempts for the same head, the access-preserving circuit breaker releases completion. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::emit_block --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh - 5-strike circuit breaker GIVEUP state) -->
-5. A synchronous merge into `develop` reuses the same directive and Stop lifecycle only after [REQ-AGENT-121](#req-agent-121-downstream-boundary-after-develop-merge) verifies the exact downstream head. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::MERGE_OVERRIDE --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (REQ-AGENT-121: blocks on Bash gh pr merge) -->
+1. An executable `git` or `gh` command is a boundary candidate regardless of its subcommand or options. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::COMMAND --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::PUSH_LINE --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — authoritative checked-out branch state) -->
+2. A candidate emits or enforces review only when the checked-out branch has an open `main`, `master`, or `develop` PR whose authoritative head exactly equals local `HEAD`. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::CURRENT_PR_HEAD --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating) -->
+3. Detached HEAD, nonstandard worktrees, absent PRs, non-protected bases, malformed metadata, and remote heads not synchronized locally remain inert. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::GIT_DIR --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::GIT_DIR --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — authoritative checked-out branch state) -->
+4. Before its access-preserving circuit breaker is exhausted, an eligible unacknowledged head prevents root-response completion. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::emit_block --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — 5-strike circuit breaker / REQ-AGENT-044 (review-agent discipline enforcement)) -->
 
-**Constraints:** `gh pr edit --base` retarget classification remains unchanged.
+**Constraints:** Command parsing detects only executable `git` or `gh` command position; GitHub PR state and exact local-head equality decide eligibility.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-122](#req-agent-122-per-pr-review-checkpoints)
 
 **Verification:** Automated Claude hook behavior tests
 
@@ -277,27 +276,25 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-### REQ-AGENT-121: Downstream boundary after develop merge
+<a id="req-agent-121-downstream-boundary-after-develop-merge"></a>
+### REQ-AGENT-121: Checked-out branch boundary synchronization
 
-**Intent:** A successful Pi- or Claude-side merge into `develop` must review the resulting authoritative `develop → main/master` head even though GitHub advances `develop` without a local `git push`.
+**Intent:** Pi and Claude must discover review work from the synchronized checked-out branch, including `develop` after the user switches to and updates it following a merge.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Boundary classification recognizes supported synchronous `gh pr merge` selector and option forms in the executable-segment repository. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::parse_gh_pr_merge_selector --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
-2. Auto-merge, explicit cross-repository, foreign-URL, and ambiguous merge forms remain inert. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prMergeSelector --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::parse_gh_pr_merge_selector --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (REQ-AGENT-121/122: downstream develop merge trigger) -->
-3. The selected source PR remains eligible only when GitHub reports it merged into `develop` with a full merge-commit SHA. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::resolve_develop_merge_boundary --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
-4. The downstream PR must be open, target `main` or `master`, use the canonical repository's `develop` branch, and report the source merge commit as its exact head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::resolve_develop_merge_boundary --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: structurally ineligible downstream PRs are evaluated without later retries) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
-5. An exact verified downstream head emits the runtime's standard review boundary plan or directive. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::pr-merge --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (REQ-AGENT-121/122: downstream develop merge trigger) -->
-6. Pi maps CI monitoring for the verified merge to the equivalent head-changing `push` event. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ciBoundaryEvent --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once) -->
-7. The verified merge reuses each runtime's existing reviewer correlation, triage acknowledgement, FIX handoff, and duplicate suppression. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::MERGE_OVERRIDE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a develop merge reuses acknowledgement and FIX handoff exactly once) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (REQ-AGENT-121: blocks on Bash gh pr merge) -->
+1. Any successful executable `git` or `gh` command requests an authoritative check for the command repository's checked-out branch. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::COMMAND --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: treats executable git and gh commands as authoritative branch-state candidates) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — authoritative checked-out branch state) -->
+2. The checked-out branch name and local full `HEAD` are resolved without deriving a source or destination from command arguments. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::gh_pr_state --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: verifies only the checked-out branch and rejects detached HEAD) -->
+3. Review launches only for an open protected-base PR whose branch and authoritative head exactly equal the checked-out branch and local `HEAD`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: checks authoritative current-branch state after any git or gh command) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating) -->
+4. An already acknowledged authoritative head remains inert, so ordinary Git and GitHub CLI commands cannot duplicate review or CI. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::LAST_ACK_PR_HEAD --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert) -->
 
-**Constraints:** This is post-command evidence, not a pre-command gate. Repository identity comes from the executable shell segment; unsupported merge forms remain inert.
+**Constraints:** The user workflow uses a normal checked-out branch. Detached HEAD and linked-worktree execution are unsupported and inert.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-120](#req-agent-120-claude-protected-base-review-boundaries)
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection)
 
 **Verification:** Automated Pi and Claude boundary behavior tests
 
@@ -305,28 +302,27 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-### REQ-AGENT-122: Downstream merge retry and recovery
+<a id="req-agent-122-downstream-merge-retry-and-recovery"></a>
+### REQ-AGENT-122: Per-PR review checkpoints
 
-**Intent:** Transient downstream merge evidence must recover across settled handling and reloads without unbounded GitHub lookups or duplicate boundary work.
+**Intent:** Feature and integration PR reviews must retain independent incremental checkpoints without bookkeeping failures crashing either runtime.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A stale exact-shape downstream PR remains pending through bounded fresh-state and settled retries. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::mergedDevelopPromotion --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::resolve_develop_merge_boundary --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: a develop merge stays pending until the downstream PR reports its merge commit) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
-2. Reload restores pending recovery until the downstream head matches or recovery terminates. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::MERGE_OVERRIDE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: reload retains a stale develop merge until the downstream head matches) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
-3. Retryable lookup, open-source, missing-merge-SHA, and persistently stale states stop after three attempts. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::retry_merge_boundary --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121/REQ-AGENT-122: transient source lookup states stop after three recovery attempts) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
-4. Unavailable retry accounting stops active-runtime retention immediately. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::write_merge_boundary_state --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: unavailable retry accounting fails closed in the active runtime) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
-5. Unreadable or exhausted persisted accounting prevents reload recovery lookups. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::stopExhaustedMergeRecovery --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::resolve_develop_merge_boundary --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: unreadable retry accounting prevents a resumed recovery lookup) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
-6. Terminal exhaustion records evaluation without launching work when persistence is writable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::terminal_merge_boundary --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: retry accounting remains bounded across repeated reloads) --> <!-- @test: host/__tests__/gh-pr-state.test.js (REQ-AGENT-121/122: Claude downstream develop merge boundary) -->
+1. Acknowledgement and enforcement counters are keyed by PR number in the normal checkout's Git metadata directory. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::statePath --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::ACK_FILE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055: keeps acknowledgements isolated by pull request) -->
+2. The acknowledgement for one PR never suppresses review of another PR at the same repository head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::readAck --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::ACK_FILE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055: keeps acknowledgements isolated by pull request) -->
+3. Invalid, missing, non-directory, or unwritable bookkeeping paths remain inert or release enforcement without throwing through the runtime. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledge --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::GIT_DIR -->
+4. A valid legacy repository-global acknowledgement remains readable as a migration fallback, while new writes use only the PR-specific checkpoint. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::readAck --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::LAST_ACK_PR_HEAD -->
 
-**Constraints:** Retry state is keyed by boundary tool-use identity in runtime-owned persistence and reuses the downstream boundary defined by [REQ-AGENT-121](#req-agent-121-downstream-boundary-after-develop-merge).
+**Constraints:** Checkpoints do not support detached or linked worktrees. Accounting never acknowledges an unreviewed head.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-121](#req-agent-121-downstream-boundary-after-develop-merge)
+**Dependencies:** [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-119](#req-agent-119-bounded-settled-review-follow-ups)
 
-**Verification:** Automated Pi and Claude recovery behavior tests
+**Verification:** Automated Pi and Claude review-enforcement tests
 
 **Status:** Implemented
 
@@ -1374,31 +1370,25 @@ None.
 
 ### REQ-AGENT-036: PR-Boundary Review Trigger Conditions
 
-**Intent:** Pi review reacts only when the root opens a protected-base PR, completes an exact protected-PR branch push, or completes a verified merge into `develop` whose merge commit becomes the exact head of an open `develop → main/master` PR. Every other Git or PR command remains inert.
+**Intent:** Pi evaluates authoritative review state after successful Git or GitHub CLI activity in the root session and launches only for an unacknowledged exact head of the checked-out branch's open protected-base PR.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Successful root PR creation requests review only when the resulting PR is open and targets `main`, `master`, or `develop`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: PR creation targeting develop launches its review window) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window) -->
-2. A successful explicit single-branch push requests review only when its source SHA and destination branch exactly name an open protected-base PR head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: launches only for the branch actually pushed to an open protected PR) -->
-3. A successful bare, remote-only, or `HEAD` push requests review only when Git's effective push branch for the selected remote and local `HEAD` exactly name an open protected-base PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryBranch --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPushBranch --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: resolves implicit pushes from the configured push destination) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: resolves a remote-only push through the production configured-push fallback) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: resolves Git configured push destinations without parsing Git config) -->
-4. Failed commands, detached HEAD, unresolved push refs, branch deletion, tag-only or ambiguous pushes, PR edit/update commands, and merge commands not proven eligible by [REQ-AGENT-121](#req-agent-121-downstream-boundary-after-develop-merge) request no boundary work. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: resolves implicit pushes from the configured push destination) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: resolves Git configured push destinations without parsing Git config) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: PR edit, update, and unconfirmed merge commands do not launch boundary work) -->
+1. Successful executable `git` and `gh` commands request one authoritative branch-state evaluation. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: treats executable git and gh commands as authoritative branch-state candidates) -->
+2. Evaluation resolves the checked-out branch and local full `HEAD`, then queries that branch's PR without deriving refs from command arguments. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryBranch --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: verifies only the checked-out branch and rejects detached HEAD) -->
+3. Review launches only when the PR is open, targets `main`, `master`, or `develop`, names the checked-out branch, and reports local `HEAD` as its exact head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: checks authoritative current-branch state after any git or gh command) -->
+4. Failed commands, quoted examples, absent PRs, detached HEAD, nonstandard worktrees, unsynchronized remote heads, and acknowledged heads request no work. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert) -->
 5. Root and nested SDD layouts suppress review only while transition is true and the active triage queue contains an open item. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 6. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
-7. Each boundary is paired with its exact executable shell segment and Git root resolved through deterministic `cd … &&`, fail-fast multiline `cd`, explicit tool cwd, or Git `-C`; ambient session cwd, non-fail-fast cwd changes, or later active-repository changes cannot redirect that boundary. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: resolves fail-fast multiline push and PR-create boundaries) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: preserves cwd only across deterministic parent-shell segments) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: binds compound-shell pushes to their exact repository segment) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: binds git -C review and acknowledgement to the boundary repository) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: pairs a batch boundary with its command repository) -->
+7. Each candidate remains paired with its executable shell segment and resolved repository. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: binds git -C review and acknowledgement to the boundary repository) -->
 
-**Constraints:**
-
-- Command parsing is defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing).
-- Uncertain conditional cwd changes remain inert rather than selecting a repository.
-- Draft protected-base PRs remain eligible.
-- Explicit single-branch pushes never cross checkout boundaries; implicit push forms resolve eligibility from Git's effective push branch for the event repository's checked-out branch and the command's selected remote.
-- Downstream merge boundaries are defined by [REQ-AGENT-121](#req-agent-121-downstream-boundary-after-develop-merge).
+**Constraints:** Command parsing is only candidate detection as defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection). Eligibility comes from authoritative branch and PR state. Draft protected-base PRs remain eligible.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing)
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-122](#req-agent-122-per-pr-review-checkpoints)
 
 **Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
@@ -1969,7 +1959,7 @@ None.
 
 **Constraints:**
 
-- Pi has no hard pre-command merge gate; only a post-command develop merge proven under [REQ-AGENT-121](#req-agent-121-downstream-boundary-after-develop-merge) is a merge boundary.
+- Pi has no merge-command gate; after a merge, review is discovered only from synchronized checked-out-branch state under [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization).
 
 **Priority:** P1
 
@@ -2075,27 +2065,22 @@ None.
 
 ---
 
-### REQ-AGENT-063: PR-Boundary Command Parsing
+<a id="req-agent-063-pr-boundary-command-parsing"></a>
+### REQ-AGENT-063: PR-Boundary Candidate Detection
 
-**Intent:** Pi recognizes protected-base PR creation, safe explicit and implicit branch pushes, and post-command develop merges across supported shell tool-result surfaces, without treating examples or unrelated Git operations as boundaries.
+**Intent:** Pi identifies executable Git and GitHub CLI activity across supported shell tool-result surfaces without interpreting subcommands, flags, selectors, or refspecs as eligibility evidence.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Only successful supported shell tool results expose commands to boundary classification. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces) -->
-2. Boundary classification recognizes protected-base PR creation, supported `gh pr merge` forms, explicit single-branch pushes, and implicit bare `git push`, remote-only, and `HEAD` forms, including Git `-C`. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
-3. Commands are recognized only at executable shell command boundaries, so quoted marker text never triggers a boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
-4. Branch deletion, tag-only, mirror, dry-run, follow-tag, multi-ref, or otherwise ambiguous pushes, PR edit/update commands, and explicit cross-repository merge forms do not trigger boundary work. A classified merge still requires [REQ-AGENT-121](#req-agent-121-downstream-boundary-after-develop-merge) post-command evidence. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
-5. A forced single-branch push remains eligible for the same exact branch-and-head validation as its non-forced form. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
-6. Multiline shell boundaries carry a preceding `cd` while parent-shell `errexit` remains active. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: resolves fail-fast multiline push and PR-create boundaries) -->
-7. Disabling `errexit`, positional arguments, pipelines, and background execution leave a multiline repository transition uncertain and inert. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: preserves cwd only across deterministic parent-shell segments) -->
+1. Only successful supported shell tool results expose commands to candidate detection. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces) -->
+2. Any executable `git` or `gh` command is a candidate regardless of its subcommand, options, or arguments. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: treats executable git and gh commands as authoritative branch-state candidates) -->
+3. Commands are recognized only at executable shell command boundaries, so quoted text and heredoc bodies remain inert. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::executableShellSegments --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: treats executable git and gh commands as authoritative branch-state candidates) -->
+4. Candidate detection never decides PR eligibility; [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization) performs the authoritative branch-and-head check. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: checks authoritative current-branch state after any git or gh command) -->
+5. Supported shell surfaces are Bash, shell `ctx_execute`, and `ctx_batch_execute`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces) -->
 
-**Constraints:**
-
-- Supported shell surfaces are Bash, shell `ctx_execute`, and `ctx_batch_execute`.
-- Successful eligible `gh pr create`, `git push`, and verified `gh pr merge` commands are launch and settled boundaries.
-- Claude hook grammar remains unchanged.
+**Constraints:** Candidate detection is intentionally broad and cheap. GitHub PR state, the checked-out branch, and exact local-head equality are the only eligibility evidence.
 
 **Priority:** P1
 
@@ -2523,11 +2508,11 @@ None.
 2. Punctuation-bearing heredoc delimiters match exactly. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
 3. Multiple heredoc bodies are consumed in declaration order. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms) -->
 
-**Constraints:** Supported shell surfaces remain defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing).
+**Constraints:** Supported shell surfaces remain defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing)
+**Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection)
 
 **Verification:** Automated review-helper tests
 
@@ -2548,7 +2533,7 @@ None.
 3. An eligible default-mode boundary emits a CI-only plan from its effective repository context. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewEnabled --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
 4. Transcript correlation recognizes a matching exact-head `ci-monitor` call independently from reviewer state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-068: recognizes one matching CI launch independently of reviewer completion) -->
 5. After the final launch, the plan ends the turn without foreground waiting, polling, resuming, or retrieving in-flight agents; native terminal notifications drive later turns. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110: emits one plan before settled recovery) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current head emits a CI-only plan) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071/REQ-AGENT-074: requests missing reviewers together without duplicating unmatched public calls) -->
-6. Only a boundary plan emitted after an eligible push, protected-base PR creation, or verified downstream develop merge authorizes reviewer launches; unpublished local commits do not. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-058 + REQ-AGENT-080 AC6: an eligible pushed boundary emits one authoritative launch plan) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036 + REQ-AGENT-080 AC6: an unpublished local commit emits no launch plan without a boundary) -->
+6. Only a boundary plan emitted for an unacknowledged authoritative checked-out-branch PR head authorizes reviewer launches; unpublished or unsynchronized local commits do not. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-058 + REQ-AGENT-080 AC6: an eligible pushed boundary emits one authoritative launch plan) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036 + REQ-AGENT-080 AC6: an unpublished local commit emits no launch plan without a boundary) -->
 
 **Constraints:**
 

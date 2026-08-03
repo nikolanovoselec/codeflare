@@ -19,12 +19,9 @@ The Pi extension emits one structured launch plan after a supported successful b
 
 | Boundary | Review behavior |
 |---|---|
-| Successful explicit branch push, or implicit configured-branch push, whose exact destination and head have an open PR to `main`/`master`/`develop` | Extension may name the required lanes |
-| Successful `gh pr create` whose resulting open PR targets `main`/`master`/`develop` | Extension may name required lanes and an independent CI wave |
-| Successful supported merge into `develop` whose merge commit exactly heads an open `develop` → `main`/`master` PR | Extension may name required lanes and an independent CI wave for the downstream PR |
+| Successful executable `git` or `gh` command while the checked-out branch and local `HEAD` exactly match a new open PR head targeting `main`/`master`/`develop` | Extension may name required lanes and an independent CI wave |
+| Checked-out branch already acknowledged, unsynchronized with its PR, detached, or without an open protected-base PR | No PR-boundary review |
 | PR into `staging` or another non-protected integration branch | Review deferred |
-| Push with no open protected-base PR | No PR-boundary review |
-| Branch deletion, tag/multi-ref push, PR edit/update, or unconfirmed/non-`develop` merge | No PR-boundary review |
 
 ## Root main-session action
 
@@ -54,7 +51,7 @@ Do not act on a subset of required reviewer outputs. Wait until every required r
 
 ## Claude behavior
 
-Claude's hook-driven review pipeline is unchanged. Its own lane ordering, checkpoints, bypasses, and enforcement remain governed by the Claude rules and hooks; the Pi session-scoped flow above does not replace or reinterpret them.
+Claude uses the same authoritative checked-out-branch and per-PR checkpoint model. Its own lane ordering, bypasses, and Stop enforcement remain governed by the Claude rules and hooks.
 
 ## Branch-protection note
 

@@ -12,13 +12,13 @@ Use this when the user asks to open a PR.
 
 PR review and CI monitoring are separate.
 
-- The Pi boundary extension emits one ordered launch plan after an eligible push, protected-base PR creation, or verified downstream develop merge. Its first wave names any required SDD reviewers; its second wave names independent CI when eligible.
+- The Pi boundary extension emits one ordered launch plan when successful `git` or `gh` activity exposes an unacknowledged exact PR head for the checked-out branch. Its first wave names any required SDD reviewers; its second wave names independent CI when eligible.
 - The root main session follows that plan exactly once: all named reviewers together through public background `subagent` calls without inherited context, then the resolver's zero-or-one CI request unchanged once.
 - Reviewer agents and the CI agent are report-only. They never fix, commit, push, or launch each other. The root main session alone owns follow-up edits and Git writes.
 
 ## Mandatory boundary stop
 
-After a successful protected-base PR creation, a push to a branch that already has an open PR targeting `main`/`master`/`develop`, or a supported merge into `develop` whose merge commit exactly heads an open `develop` → `main`/`master` PR, **end the current assistant turn immediately**. Becoming idle is what delivers the extension's queued `deliverAs: "followUp"` boundary launch plan. Other pushes and PR commands are not boundaries.
+After successful `git` or `gh` activity leaves the checked-out branch at an unacknowledged exact head of an open PR targeting `main`/`master`/`develop`, **end the current assistant turn immediately**. Becoming idle is what delivers the extension's queued `deliverAs: "followUp"` boundary launch plan. Other pushes and PR commands are not boundaries.
 
 After the Git command succeeds:
 

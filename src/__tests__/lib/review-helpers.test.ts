@@ -196,67 +196,27 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms', async () => {
+  it('REQ-AGENT-063/REQ-AGENT-116: treats executable git and gh commands as authoritative branch-state candidates', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
-    const push = {
-      reminder: true,
-      settled: true,
-      event: 'push' as const,
-      pushSource: 'refs/heads/pi',
-      pushTarget: 'pi',
-    };
-    const inferredPush = { reminder: true, settled: true, event: 'push' as const };
-    const originPush = { ...inferredPush, pushRemote: 'origin' };
+    const candidate = { reminder: true, settled: true, event: 'push' as const };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
-      ['git push origin pi', push],
-      ['CI=1 git push origin pi', push],
-      ['env GH_TOKEN=x git push origin pi', push],
-      ['MESSAGE="review later" git push origin pi', push],
+      ['git push origin pi', candidate],
+      ['git push origin 0123456789012345678901234567890123456789:develop', candidate],
+      ['git status --short', candidate],
+      ['git switch develop && git pull --ff-only', candidate],
+      ['gh pr create --base main --title review', candidate],
+      ['gh pr merge 42 --squash', candidate],
+      ['gh pr merge 42 --auto', candidate],
+      ['gh pr view 42', candidate],
+      ['CI=1 git push origin pi', candidate],
+      ['env GH_TOKEN=x gh pr view', candidate],
+      ['printf done; git status --short', candidate],
       ["printf '%s' 'git push origin pi'", none],
+      ["printf '%s' 'gh pr merge 42'", none],
       ['cat <<EOF\ngit push origin pi\nEOF', none],
-      ['cat <<EOF\ngit push origin pi\nEOF\ngit push origin pi', push],
-      ["printf '%s' 'example <<EOF'\ngit push origin pi", push],
-      ['cat <<EOF-TEXT\ngit push origin pi\nEOF-TEXT', none],
-      ['cat <<A <<B\nfirst\nA\ngit push origin pi\nB\ngit push origin pi', push],
-      ['printf done; git push origin pi', push],
-      ['git push origin HEAD:refs/heads/pi', { ...push, pushSource: 'HEAD' }],
-      ['git push', inferredPush],
-      ['git push origin', originPush],
-      ['git push origin HEAD', originPush],
-      ['git push -u origin HEAD', originPush],
-      ['git push --repo origin HEAD', originPush],
-      ['git push --repo=origin HEAD', originPush],
-      ['gh pr create --base main --title review', { reminder: true, settled: true, event: 'pr-create' }],
-      ['gh pr edit 42 --base master', none],
-      ['gh pr edit 42 --base main && git push origin pi', push],
-      ['gh pr merge 42 --squash', { reminder: true, settled: true, event: 'pr-merge', mergeSelector: '42' }],
-      ['gh pr merge 42 -s', { reminder: true, settled: true, event: 'pr-merge', mergeSelector: '42' }],
-      ['gh pr merge -s 42', { reminder: true, settled: true, event: 'pr-merge', mergeSelector: '42' }],
-      ['gh pr merge -t review 42', { reminder: true, settled: true, event: 'pr-merge', mergeSelector: '42' }],
-      ['gh pr merge 42 -A bot@example.com', { reminder: true, settled: true, event: 'pr-merge', mergeSelector: '42' }],
-      ['gh pr merge --squash', { reminder: true, settled: true, event: 'pr-merge' }],
-      ['gh pr merge 42 --repo owner/other', none],
-      ['gh pr merge 42 -Rowner/other', none],
-      ['gh pr merge 42 --auto', none],
-      ['gh pr merge 42 --disable-auto', none],
-      ['gh pr update-branch 42', none],
-      ['git push origin --delete pi', none],
-      ['git push origin :pi', none],
-      ['git push --repo', none],
-      ['git push --all origin', none],
-      ['git push --mirror origin', none],
-      ['git push --tags origin', none],
-      ['git push --force origin pi', push],
-      ['git push --force-with-lease origin pi', push],
-      ['git push --dry-run origin pi', none],
-      ['git push --follow-tags origin pi', none],
-      ['git push -fu origin pi', push],
-      ['git push origin +pi', push],
-      ['git push origin pi other', none],
-      ['git push origin refs/tags/v1:refs/heads/pi', none],
-      ['git push origin pi:HEAD', none],
-      ['git -C /tmp/repo push origin pi', push],
+      ['cat <<EOF\ngit push origin pi\nEOF\ngit status', candidate],
+      ['printf done', none],
     ];
 
     expect(cases.map(([command, expected]) => [command, classifyReviewBoundaryCommand(command), expected]))

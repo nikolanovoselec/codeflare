@@ -8,15 +8,11 @@ export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPO
 export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-merge";
+export type ReviewBoundaryEvent = "push";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: ReviewBoundaryEvent;
-  pushSource?: string;
-  pushTarget?: string;
-  pushRemote?: string;
-  mergeSelector?: string;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
@@ -208,143 +204,11 @@ function commandWords(command: string): ShellWords[] {
   });
 }
 
-function gitSubcommandIndex(words: ShellWords): number | undefined {
-  if (words[0] !== "git") return undefined;
-  let index = 1;
-  while (words[index] === "-C" && words[index + 1]) index += 2;
-  return index < words.length ? index : undefined;
-}
-
-function gitSubcommand(words: ShellWords): string | undefined {
-  const index = gitSubcommandIndex(words);
-  return index === undefined ? undefined : words[index];
-}
-
-const PUSH_OPTIONS_WITH_VALUE = new Set(["--exec", "--push-option", "--receive-pack", "-o"]);
-const UNSUPPORTED_PUSH_OPTIONS = new Set([
-  "--all", "--delete", "--dry-run", "--follow-tags", "--mirror", "--prune", "--tags", "-d", "-n",
-]);
-
-function branchRef(value: string): string | undefined {
-  if (!value || value === "HEAD") return undefined;
-  if (value.startsWith("refs/heads/")) return value.slice("refs/heads/".length) || undefined;
-  if (value.startsWith("refs/") || value.includes("*") || value.startsWith(":")) return undefined;
-  return value;
-}
-
-function pushBoundary(words: ShellWords): { source?: string; target?: string; remote?: string } | undefined {
-  const subcommandIndex = gitSubcommandIndex(words);
-  if (subcommandIndex === undefined || words[subcommandIndex] !== "push") return undefined;
-  const positionals: string[] = [];
-  const args = words.slice(subcommandIndex + 1);
-  let optionRemote: string | undefined;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] ?? "";
-    if (UNSUPPORTED_PUSH_OPTIONS.has(arg)
-      || /^-[^-]*[dn]/.test(arg)
-      || [...UNSUPPORTED_PUSH_OPTIONS].some((option) => arg.startsWith(`${option}=`))) {
-      return undefined;
-    }
-    if (arg === "--repo") {
-      optionRemote = args[index + 1];
-      if (!optionRemote) return undefined;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--repo=")) {
-      optionRemote = arg.slice("--repo=".length) || undefined;
-      if (!optionRemote) return undefined;
-      continue;
-    }
-    if (PUSH_OPTIONS_WITH_VALUE.has(arg)) {
-      index += 1;
-      continue;
-    }
-    if (arg === "--") {
-      positionals.push(...args.slice(index + 1));
-      break;
-    }
-    if (arg.startsWith("-")) continue;
-    positionals.push(arg);
-  }
-  const remote = optionRemote ?? positionals[0];
-  const refspecs = optionRemote ? positionals : positionals.slice(1);
-  if (refspecs.length === 0) return remote ? { remote } : {};
-  if (refspecs.length !== 1) return undefined;
-  const refspec = refspecs[0] ?? "";
-  if (refspec === "HEAD") return remote ? { remote } : {};
-  const normalizedRefspec = refspec.startsWith("+") ? refspec.slice(1) : refspec;
-  if (!normalizedRefspec || normalizedRefspec.startsWith(":")) return undefined;
-  const separator = normalizedRefspec.indexOf(":");
-  const sourceRaw = separator === -1 ? normalizedRefspec : normalizedRefspec.slice(0, separator);
-  const targetRaw = separator === -1 ? normalizedRefspec : normalizedRefspec.slice(separator + 1);
-  if (!sourceRaw || !targetRaw || targetRaw === "HEAD") return undefined;
-  const sourceBranch = sourceRaw === "HEAD" ? undefined : branchRef(sourceRaw);
-  const source = sourceRaw === "HEAD"
-    ? "HEAD"
-    : sourceBranch
-      ? `refs/heads/${sourceBranch}`
-      : undefined;
-  const target = branchRef(targetRaw);
-  if (!source || !target) return undefined;
-  return { source, target };
-}
-
-const GH_PR_MERGE_OPTIONS_WITH_VALUE = new Set([
-  "--author-email", "-A", "--body", "-b", "--body-file", "-F",
-  "--match-head-commit", "--subject", "-t",
-]);
-
-function prMergeSelector(words: ShellWords): string | undefined | false {
-  let selector: string | undefined;
-  for (let index = 3; index < words.length; index += 1) {
-    const arg = words[index] ?? "";
-    if (arg === "--auto" || arg === "--disable-auto"
-      || arg === "--repo" || arg.startsWith("-R") || arg.startsWith("--repo=")) return false;
-    if (GH_PR_MERGE_OPTIONS_WITH_VALUE.has(arg)) {
-      if (!words[index + 1]) return false;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("-")) continue;
-    if (selector) return false;
-    selector = arg;
-  }
-  return selector;
-}
-
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  let boundary: BoundarySurfaces = { reminder: false, settled: false };
-  for (const words of commandWords(command)) {
-    if (gitSubcommand(words) === "push") {
-      const push = pushBoundary(words);
-      if (push) {
-        boundary = {
-          reminder: true,
-          settled: true,
-          event: "push",
-          ...(push.source ? { pushSource: push.source } : {}),
-          ...(push.target ? { pushTarget: push.target } : {}),
-          ...(!push.target && push.remote ? { pushRemote: push.remote } : {}),
-        };
-      }
-    }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
-      boundary = { reminder: true, settled: true, event: "pr-create" };
-    }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
-      const mergeSelector = prMergeSelector(words);
-      if (mergeSelector !== false) {
-        boundary = {
-          reminder: true,
-          settled: true,
-          event: "pr-merge",
-          ...(mergeSelector ? { mergeSelector } : {}),
-        };
-      }
-    }
-  }
-  return boundary;
+  const candidate = commandWords(command).some((words) => words[0] === "git" || words[0] === "gh");
+  return candidate
+    ? { reminder: true, settled: true, event: "push" }
+    : { reminder: false, settled: false };
 }
 
 function firstExisting(paths: string[]): string | undefined {
