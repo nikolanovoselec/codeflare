@@ -315,7 +315,7 @@ Multi-agent support, preseed system, and session modes.
 5. Unreadable or exhausted persisted accounting prevents reload recovery lookups. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::stopExhaustedMergeRecovery --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: unreadable retry accounting prevents a resumed recovery lookup) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: persisted exhaustion prevents reload lookups when terminal evaluation cannot be written) -->
 6. Terminal exhaustion records evaluation without launching work when persistence is writable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::retainRetryableMerge --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-122: retry accounting remains bounded across repeated reloads) -->
 
-**Constraints:** Retry state is keyed by boundary tool-use ID and reuses the downstream boundary defined by REQ-AGENT-121.
+**Constraints:** Retry state is keyed by boundary tool-use ID and reuses the downstream boundary defined by [REQ-AGENT-121](#req-agent-121-pi-downstream-boundary-after-develop-merge).
 
 **Priority:** P1
 
