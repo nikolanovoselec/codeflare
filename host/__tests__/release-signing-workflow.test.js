@@ -46,7 +46,7 @@ fi
 exit 2
 `);
   writeFileSync(join(bin, 'cosign'), `#!/bin/sh
-printf '%s\\n' "$*" >> "$FAKE_COMMAND_LOG"
+printf '%s password=%s\\n' "$*" "\${COSIGN_PASSWORD-unset}" >> "$FAKE_COMMAND_LOG"
 while [ "$#" -gt 0 ]; do
   if [ "$1" = '--bundle' ]; then shift; printf 'bundle\\n' > "$1"; exit 0; fi
   shift
@@ -98,10 +98,6 @@ describe('REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing', () => {
       steps['Attest release assets'].with['subject-path'],
       'release-assets/codeflare-v*.tar.gz\nrelease-assets/SHA256SUMS\n',
     );
-    const serializedWorkflow = JSON.stringify(workflow);
-    assert.doesNotMatch(serializedWorkflow, /\$\{\{\s*secrets\./);
-    assert.doesNotMatch(serializedWorkflow, /COSIGN_PASSWORD|PRIVATE_KEY|SIGNING_KEY/);
-
     const stepNames = job.steps.map((step) => step.name);
     assert.ok(stepNames.indexOf('Sign release assets') < stepNames.indexOf('Attest release assets'));
     assert.ok(stepNames.indexOf('Attest release assets') < stepNames.indexOf('Upload signed release assets'));
@@ -136,6 +132,7 @@ describe('REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing', () => {
       RELEASE_TAG: 'v1.2.3',
       RELEASE_COMMIT: '1'.repeat(40),
       FAKE_COMMAND_LOG: commandLog,
+      COSIGN_PASSWORD: 'repository-secret',
     };
     const built = execute(cwd, bin, 'build', env);
     assert.equal(built.status, 0, built.stderr);
@@ -158,7 +155,12 @@ describe('REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing', () => {
     const uploaded = execute(cwd, bin, 'upload', env);
     assert.equal(uploaded.status, 0, uploaded.stderr);
     const commands = readFileSync(commandLog, 'utf8').trim().split('\n');
-    assert.equal(commands.filter((line) => line.startsWith('sign-blob ')).length, 2);
+    const signingCommands = commands.filter((line) => line.startsWith('sign-blob '));
+    assert.equal(signingCommands.length, 2);
+    for (const command of signingCommands) {
+      assert.match(command, / password=unset$/);
+      assert.doesNotMatch(command, /(?:^| )--key(?: |$)/);
+    }
     assert.equal(commands.at(-1), [
       'release upload v1.2.3',
       'release-assets/SHA256SUMS',
