@@ -139,9 +139,10 @@ describe('Trivy bounded exception gate', () => {
     }
   });
 
-  it('reports every unrelated HIGH or CRITICAL finding together', () => {
+  it('reports every unexpected and missing finding together', () => {
     const input = report([
-      ...report().Results,
+      report().Results[0],
+      { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability()] },
       {
         Target: 'usr/bin/other',
         Vulnerabilities: [
@@ -152,7 +153,9 @@ describe('Trivy bounded exception gate', () => {
     ]);
     assert.throws(
       () => validateTrivyResult(input),
-      (error) => error.message.includes('CVE-2099-0001') && error.message.includes('CVE-2099-0002'),
+      (error) => error.message.includes('CVE-2099-0001')
+        && error.message.includes('CVE-2099-0002')
+        && error.message.includes('missing reviewed finding: CVE-2026-69152 brace-expansion 5.0.7'),
     );
   });
 
