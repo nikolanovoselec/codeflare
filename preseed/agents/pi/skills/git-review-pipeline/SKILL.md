@@ -21,9 +21,10 @@ The Pi extension emits one structured launch plan after a supported successful b
 |---|---|
 | Successful explicit branch push, or implicit configured-branch push, whose exact destination and head have an open PR to `main`/`master`/`develop` | Extension may name the required lanes |
 | Successful `gh pr create` whose resulting open PR targets `main`/`master`/`develop` | Extension may name required lanes and an independent CI wave |
-| PR into `develop` / `staging` | Review deferred |
+| Successful supported merge into `develop` whose merge commit exactly heads an open `develop` → `main`/`master` PR | Extension may name required lanes and an independent CI wave for the downstream PR |
+| PR into `staging` or another non-protected integration branch | Review deferred |
 | Push with no open protected-base PR | No PR-boundary review |
-| Branch deletion, tag/multi-ref push, or PR edit/update/merge | No PR-boundary review |
+| Branch deletion, tag/multi-ref push, PR edit/update, or unconfirmed/non-`develop` merge | No PR-boundary review |
 
 ## Root main-session action
 

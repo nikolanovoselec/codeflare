@@ -13,6 +13,7 @@ type PrState = {
   headRefOid: string;
   headRefName: string;
   number: number;
+  mergeCommit?: { oid: string } | null;
 };
 type SentMessage = {
   message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean };
@@ -342,6 +343,9 @@ function makeHarness(repo: string, sessionFile: string): {
   setGoalResumeRaceActive(goalId: string | undefined): void;
   setGoalResumeSucceeds(succeeds: boolean): void;
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
+  setSessionReadFails(fails: boolean): void;
+  setAppendEntryFails(fails: boolean): void;
+  setAppendEntryFailureType(customType: string | undefined): void;
   deferGoalPause(task: () => void | Promise<void>): void;
   flushGoalPauses(): Promise<void>;
   emit(event: string, payload?: unknown): Promise<void>;
@@ -358,6 +362,9 @@ function makeHarness(repo: string, sessionFile: string): {
   let goalResumeRaceActive: string | undefined;
   let goalResumeSucceeds = true;
   let liveEntries: Record<string, unknown>[] | undefined;
+  let sessionReadFails = false;
+  let appendEntryFails = false;
+  let appendEntryFailureType: string | undefined;
   const allTools = [
     { name: 'read', description: 'Read files' },
     { name: 'bash', description: 'Run shell commands' },
@@ -398,6 +405,7 @@ function makeHarness(repo: string, sessionFile: string): {
       },
     },
     appendEntry: (customType, data) => {
+      if (appendEntryFails || customType === appendEntryFailureType) throw new Error('append failed');
       operations.push(`append:${customType}`);
       appendSession(sessionFile, {
         type: 'custom',
@@ -430,11 +438,14 @@ function makeHarness(repo: string, sessionFile: string): {
     isIdle: () => true,
     sessionManager: {
       getSessionFile: () => sessionFile,
-      getEntries: () => liveEntries ?? readFileSync(sessionFile, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as Record<string, unknown>)
-        .filter((entry) => entry.type !== 'session'),
+      getEntries: () => {
+        if (sessionReadFails) throw new Error('session read failed');
+        return liveEntries ?? readFileSync(sessionFile, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .filter((entry) => entry.type !== 'session');
+      },
     },
     ui: {
       notify: (message) => { notifications.push(message); },
@@ -454,6 +465,9 @@ function makeHarness(repo: string, sessionFile: string): {
     setGoalResumeRaceActive: (goalId) => { goalResumeRaceActive = goalId; },
     setGoalResumeSucceeds: (succeeds) => { goalResumeSucceeds = succeeds; },
     setLiveEntries: (entries) => { liveEntries = entries; },
+    setSessionReadFails: (fails) => { sessionReadFails = fails; },
+    setAppendEntryFails: (fails) => { appendEntryFails = fails; },
+    setAppendEntryFailureType: (customType) => { appendEntryFailureType = customType; },
     deferGoalPause: (task) => { deferredGoalPauses.push(task); },
     flushGoalPauses: async () => {
       for (const task of deferredGoalPauses.splice(0)) await task();
@@ -1132,7 +1146,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: PR edit, update, and merge commands do not launch boundary work', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063: PR edit, update, and unconfirmed merge commands do not launch boundary work', async () => {
     for (const [index, command] of [
       'gh pr edit 42 --base main',
       'gh pr update-branch 42',
@@ -1734,6 +1748,436 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
+  it('REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 766,
+      mergeCommit: { oid: fixture.head },
+    };
+    const queries: Array<string | undefined> = [];
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => {
+        queries.push(target);
+        return target === '766' ? mergedPr : target === 'develop' ? fixture.pr : undefined;
+      },
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 766 --squash --match-head-commit deadbeef';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-develop', 'bash', { command }),
+      toolResult('merge-develop', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-develop'));
+
+    expect(queries).toEqual(['766', 'develop']);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: {
+          ...boundaryIdentity(fixture, 'merge-develop'),
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          scope: diffScope(),
+          requiredLanes: ALL_LANES,
+          launchWaves: launchWaves(ALL_LANES, true),
+          ciEvent: 'push',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
+  it('REQ-AGENT-121: a cd-prefixed merge binds every PR lookup to its executable-segment repository', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const outside = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const queriedRepos: string[] = [];
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(outside.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (repo, target) => {
+        queriedRepos.push(repo);
+        return target === '768' ? mergedPr : fixture.pr;
+      },
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = `cd "${fixture.repo}" && gh pr merge 768 --squash`;
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-cd', 'bash', { command }),
+      toolResult('merge-cd', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-cd'));
+
+    expect(queriedRepos).toEqual([fixture.repo, fixture.repo]);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      repo: fixture.repo,
+      branch: 'develop',
+      prNumber: 761,
+      head: fixture.head,
+    });
+  });
+
+  it('REQ-AGENT-121: a develop merge reuses acknowledgement and FIX handoff exactly once', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => target === '768' ? mergedPr : fixture.pr,
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-lifecycle', 'bash', { command }),
+      toolResult('merge-lifecycle', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-lifecycle'));
+    expect(harness.sent[0]?.message.details).toMatchObject({ ciEvent: 'push', prNumber: 761 });
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-merge', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-merge', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-merge', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      assistantTool('ci-merge', 'subagent', {
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: `repo=owner/repo pr=761 head=${fixture.head}`,
+      }),
+      notification('code-merge'),
+      notification('spec-merge'),
+      notification('doc-merge'),
+      notification('ci-merge'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_end');
+    await harness.emit('agent_end');
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-fix-follow-up',
+        details: { head: fixture.head, reviewRange: `${fixture.base}..${fixture.head}` },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
+  it('REQ-AGENT-122: a develop merge stays pending until the downstream PR reports its merge commit', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 766,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion: PrState = { ...fixture.pr, headRefOid: fixture.base };
+    let promotionQueries = 0;
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => {
+        if (target === '766') return mergedPr;
+        promotionQueries += 1;
+        return promotionQueries === 1 ? stalePromotion : fixture.pr;
+      },
+      headRetryDelaysMs: [0],
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 766 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-stale', 'bash', { command }),
+      toolResult('merge-stale', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-stale'));
+    expect(harness.sent).toEqual([]);
+    expect(harness.operations).not.toContain('append:pr-boundary-evaluated');
+
+    await harness.emit('agent_settled');
+    expect(promotionQueries).toBe(2);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      branch: 'develop',
+      prNumber: 761,
+      head: fixture.head,
+      ciEvent: 'push',
+    });
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+
+    await harness.emit('agent_settled');
+    expect(harness.sent).toHaveLength(1);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-122: a persistently stale downstream PR remains inert after bounded retries', async () => {
+    const fixture = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 766,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion: PrState = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      headRefOid: fixture.base,
+      number: 761,
+    };
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => target === '766' ? mergedPr : stalePromotion,
+      headRetryDelaysMs: [0],
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 766 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-persistently-stale', 'bash', { command }),
+      toolResult('merge-persistently-stale', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-persistently-stale'));
+    await harness.emit('agent_settled');
+    expect(harness.operations).not.toContain('append:pr-boundary-evaluated');
+    await harness.emit('agent_settled');
+
+    expect(harness.sent).toEqual([]);
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-merge-retry')).toHaveLength(3);
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-121: structurally ineligible downstream PRs are evaluated without later retries', async () => {
+    for (const [index, promotion] of [
+      { state: 'CLOSED', baseRefName: 'main', headRefName: 'develop' },
+      { state: 'OPEN', baseRefName: 'develop', headRefName: 'develop' },
+      { state: 'OPEN', baseRefName: 'main', headRefName: 'feature/not-develop' },
+    ].entries()) {
+      const fixture = makeReviewFixture();
+      const mergedPr: PrState = {
+        state: 'MERGED',
+        baseRefName: 'develop',
+        headRefOid: fixture.base,
+        headRefName: 'feature/review-fix',
+        number: 768,
+        mergeCommit: { oid: fixture.head },
+      };
+      const downstream = {
+        ...fixture.pr,
+        ...promotion,
+        headRefOid: fixture.head,
+        number: 761,
+      } as PrState;
+      let promotionQueries = 0;
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async (_repo, target) => {
+          if (target === '768') return mergedPr;
+          promotionQueries += 1;
+          return downstream;
+        },
+        deferGoalPause: harness.deferGoalPause,
+      });
+      const command = 'gh pr merge 768 --squash';
+      const toolUseId = `merge-ineligible-${index}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+      await harness.emit('agent_settled');
+
+      expect(promotionQueries).toBe(1);
+      expect(harness.sent).toEqual([]);
+      expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+    }
+  });
+
+  it('REQ-AGENT-121/REQ-AGENT-122: transient source lookup states stop after three recovery attempts', async () => {
+    const fixtureSources: Array<PrState | undefined> = [
+      undefined,
+      {
+        state: 'OPEN',
+        baseRefName: 'develop',
+        headRefOid: 'a'.repeat(40),
+        headRefName: 'feature/review-fix',
+        number: 768,
+      },
+      {
+        state: 'MERGED',
+        baseRefName: 'develop',
+        headRefOid: 'a'.repeat(40),
+        headRefName: 'feature/review-fix',
+        number: 768,
+        mergeCommit: null,
+      },
+      {
+        state: 'MERGED',
+        baseRefName: 'develop',
+        headRefOid: 'a'.repeat(40),
+        headRefName: 'feature/review-fix',
+        number: 768,
+        mergeCommit: { oid: 'deadbeef' },
+      },
+    ];
+    for (const [index, source] of fixtureSources.entries()) {
+      const fixture = makeReviewFixture();
+      let sourceQueries = 0;
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async () => {
+          sourceQueries += 1;
+          return source;
+        },
+        headRetryDelaysMs: [0],
+        deferGoalPause: harness.deferGoalPause,
+      });
+      const command = 'gh pr merge 768 --squash';
+      const toolUseId = `merge-transient-${index}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+      await harness.emit('agent_settled');
+      await harness.emit('agent_settled');
+      await harness.emit('agent_settled');
+
+      expect(sourceQueries).toBe(3);
+      expect(harness.sent).toEqual([]);
+      expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-merge-retry')).toHaveLength(3);
+      expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+    }
+  });
+
+  it('REQ-AGENT-122: unavailable retry accounting fails closed in the active runtime', async () => {
+    for (const mode of ['read', 'write'] as const) {
+      const fixture = makeReviewFixture();
+      let sourceQueries = 0;
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async () => {
+          sourceQueries += 1;
+          return undefined;
+        },
+        headRetryDelaysMs: [0],
+        deferGoalPause: harness.deferGoalPause,
+      });
+      const command = 'gh pr merge 768 --squash';
+      const toolUseId = `merge-accounting-${mode}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+      if (mode === 'read') harness.setSessionReadFails(true);
+      else harness.setAppendEntryFails(true);
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+      harness.setSessionReadFails(false);
+      harness.setAppendEntryFails(false);
+      await harness.emit('agent_settled');
+
+      expect(sourceQueries, mode).toBe(1);
+      expect(harness.sent, mode).toEqual([]);
+      if (mode === 'read') {
+        expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+      }
+    }
+  });
+
+  it('REQ-AGENT-121: successful merges outside develop stay inert', async () => {
+    const fixture = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'main',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 766,
+      mergeCommit: { oid: fixture.head },
+    };
+    const queries: Array<string | undefined> = [];
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => {
+        queries.push(target);
+        return mergedPr;
+      },
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 766 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-main', 'bash', { command }),
+      toolResult('merge-main', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-main'));
+
+    expect(queries).toEqual(['766']);
+    expect(harness.sent).toEqual([]);
+  });
+
   it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
@@ -1881,7 +2325,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await expect(pending).resolves.toEqual(pr);
     expect(observed).toEqual({
       command: 'gh',
-      args: ['pr', 'view', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft'],
+      args: ['pr', 'view', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit'],
       options: { cwd: repo, encoding: 'utf8', timeout: 10_000 },
     });
     let targetedArgs: string[] | undefined;
@@ -1890,7 +2334,7 @@ describe('Pi review reminder and settled enforcement', () => {
       return { stdout: JSON.stringify(pr) };
     }, '42');
     expect(targetedArgs).toEqual([
-      'pr', 'view', '42', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft',
+      'pr', 'view', '42', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit',
     ]);
 
     await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBeUndefined();
@@ -2295,6 +2739,203 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+  });
+
+  it('REQ-AGENT-122: reload retains a stale develop merge until the downstream head matches', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion = { ...fixture.pr, headRefOid: fixture.base };
+    let promotionQueries = 0;
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-before-reload', 'bash', { command }),
+      toolResult('merge-before-reload', 'bash'),
+    );
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => {
+        if (target === '768') return mergedPr;
+        promotionQueries += 1;
+        return promotionQueries === 1 ? stalePromotion : fixture.pr;
+      },
+      headRetryDelaysMs: [0],
+      deferGoalPause: harness.deferGoalPause,
+    });
+
+    await harness.emit('session_start', { reason: 'resume' });
+    await harness.emit('agent_settled');
+    expect(harness.sent).toEqual([]);
+    expect(harness.operations).not.toContain('append:pr-boundary-evaluated');
+
+    await harness.emit('agent_settled');
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      boundaryToolUseId: 'merge-before-reload',
+      branch: 'develop',
+      prNumber: 761,
+      head: fixture.head,
+    });
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
+  });
+
+  it('REQ-AGENT-122: retry accounting remains bounded across repeated reloads', async () => {
+    const fixture = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion: PrState = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      headRefOid: fixture.base,
+      number: 761,
+    };
+    let sourceQueries = 0;
+    const registerReloadHarness = async () => {
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async (_repo, target) => {
+          if (target === '768') {
+            sourceQueries += 1;
+            return mergedPr;
+          }
+          return stalePromotion;
+        },
+        headRetryDelaysMs: [0],
+        deferGoalPause: harness.deferGoalPause,
+      });
+      return harness;
+    };
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-reload-bound', 'bash', { command }),
+      toolResult('merge-reload-bound', 'bash'),
+    );
+
+    const initialHarness = await registerReloadHarness();
+    await initialHarness.emit('tool_result', boundaryEvent(command, 'merge-reload-bound'));
+    for (let attempt = 2; attempt <= 4; attempt += 1) {
+      const reloadedHarness = await registerReloadHarness();
+      await reloadedHarness.emit('session_start', { reason: 'resume' });
+      await reloadedHarness.emit('agent_settled');
+      expect(reloadedHarness.sent, `reload ${attempt}`).toEqual([]);
+    }
+
+    const entries = readFileSync(fixture.sessionFile, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(sourceQueries).toBe(3);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-merge-retry')).toHaveLength(3);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-evaluated')).toHaveLength(1);
+  });
+
+  it('REQ-AGENT-122: persisted exhaustion prevents reload lookups when terminal evaluation cannot be written', async () => {
+    const fixture = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 768,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion: PrState = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      headRefOid: fixture.base,
+      number: 761,
+    };
+    let sourceQueries = 0;
+    const registerFailingHarness = async () => {
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      harness.setAppendEntryFailureType('pr-boundary-evaluated');
+      await registerReviewEnforcement(harness.pi, {
+        queryPr: async (_repo, target) => {
+          if (target === '768') {
+            sourceQueries += 1;
+            return mergedPr;
+          }
+          return stalePromotion;
+        },
+        headRetryDelaysMs: [0],
+        deferGoalPause: harness.deferGoalPause,
+      });
+      return harness;
+    };
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-evaluation-failure', 'bash', { command }),
+      toolResult('merge-evaluation-failure', 'bash'),
+    );
+
+    const initialHarness = await registerFailingHarness();
+    await initialHarness.emit('tool_result', boundaryEvent(command, 'merge-evaluation-failure'));
+    await initialHarness.emit('agent_settled');
+    await initialHarness.emit('agent_settled');
+    for (let reload = 1; reload <= 2; reload += 1) {
+      const harness = await registerFailingHarness();
+      await harness.emit('session_start', { reason: 'resume' });
+      await harness.emit('agent_settled');
+      expect(harness.sent, `reload ${reload}`).toEqual([]);
+    }
+
+    const entries = readFileSync(fixture.sessionFile, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(sourceQueries).toBe(3);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-merge-retry')).toHaveLength(3);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-evaluated')).toHaveLength(0);
+  });
+
+  it('REQ-AGENT-122: unreadable retry accounting prevents a resumed recovery lookup', async () => {
+    const fixture = makeReviewFixture();
+    let queries = 0;
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async () => {
+        queries += 1;
+        return undefined;
+      },
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 768 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-unreadable-reload', 'bash', { command }),
+      toolResult('merge-unreadable-reload', 'bash'),
+    );
+    harness.setSessionReadFails(true);
+
+    await harness.emit('session_start', { reason: 'resume' });
+    await harness.emit('agent_settled');
+
+    expect(queries).toBe(0);
+    expect(harness.sent).toEqual([]);
+    expect(harness.operations.filter((operation) => operation === 'append:pr-boundary-evaluated')).toHaveLength(1);
   });
 
   it('REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary', async () => {
