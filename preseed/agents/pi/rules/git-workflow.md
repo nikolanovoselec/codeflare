@@ -36,7 +36,7 @@ After the final launch, end the turn immediately. Do not run `sleep`, foreground
 4. Wait for all required reviewers; CI is independent. In a tool-free response after every required reviewer has a correlated successful native notification or public result retrieval, publish one table with `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. Reject unsupported proposals, make no file or Git changes, and end the turn immediately.
 5. Agent-end enforcement acknowledges the reviewed head from live session state and queues the FIX follow-up; settled enforcement is the fallback. In that separate turn, apply only the accepted minimal fixes unless approval was requested.
 
-A plan may contain reviewers, CI, or both. Vibe-coding repositories receive eligible CI only. No request is returned when launch order is unresolved, cwd is absent, or no PR targets `main`/`master`. Never relaunch an aborted monitor automatically.
+A plan may contain reviewers, CI, or both. Vibe-coding repositories receive eligible CI only. No request is returned when launch order is unresolved, cwd is absent, or no PR targets `main`/`master`/`develop`. Never relaunch an aborted monitor automatically.
 
 With `sdd/` and `sdd/README.md`, plans list required report-only lanes for work headed to `main`/`master`/`develop`; otherwise no reviewers launch. The root alone evaluates findings and writes files or Git state. Reload never authorizes duplicate work.
 

@@ -910,13 +910,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Pull requests targeting `main` or `master` receive a `Develop promotion source` status check. <!-- @impl: .github/workflows/promotion-source.yml::promotion-source --> <!-- @test: host/__tests__/promotion-source.test.js (REQ-OPS-036: protected main promotion source) -->
-2. The check succeeds only when the pull request head branch is exactly `develop`. <!-- @impl: .github/workflows/promotion-source.yml::promotion-source --> <!-- @test: host/__tests__/promotion-source.test.js (REQ-OPS-036: protected main promotion source) -->
+2. The check succeeds only when the pull request head is the canonical repository's exact `develop` branch. <!-- @impl: .github/workflows/promotion-source.yml::promotion-source --> <!-- @test: host/__tests__/promotion-source.test.js (REQ-OPS-036: protected main promotion source) -->
 3. Each existing `main` or `master` ruleset requires the `Develop promotion source` status before merge. <!-- @manual: Inspect the active GitHub ruleset and confirm `Develop promotion source` is required without bypass. -->
 
 **Constraints:**
 
 - GitHub still permits creating other pull requests; the required status blocks their merge.
-- The validation command consumes pull-request metadata through environment variables and never executes branch names as shell code.
+- A fork branch named `develop` cannot satisfy the promotion check.
+- The validation command consumes pull-request metadata through environment variables and never executes branch or repository names as shell code.
 
 **Priority:** P0
 

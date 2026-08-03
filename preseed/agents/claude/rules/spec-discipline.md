@@ -3,7 +3,7 @@
 Applies when `sdd/` exists. Inert otherwise.
 
 **Trigger:**
-- PR-boundary event (PR opens or syncs against `main`/`master`) → spec-reviewer fires.
+- PR-boundary event (PR opens or syncs against `main`/`master`/`develop`) → spec-reviewer fires.
 - `/sdd clean` invocation.
 - Any `/sdd init` / `/sdd edit` / `/sdd add` invocation.
 

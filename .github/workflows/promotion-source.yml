@@ -17,8 +17,14 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           if [ "$HEAD_REF" != "develop" ]; then
             echo "::error::Pull requests to $BASE_REF must originate from develop."
+            exit 1
+          fi
+          if [ "$HEAD_REPO" != "$REPOSITORY" ]; then
+            echo "::error::Pull requests to $BASE_REF must originate from develop in the canonical repository."
             exit 1
           fi

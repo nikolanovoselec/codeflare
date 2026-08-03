@@ -14,10 +14,16 @@ const workflow = parseYaml(
 const job = workflow.jobs['promotion-source'];
 const validationStep = job.steps.at(-1);
 
-function validate(base, head) {
+function validate(base, head, headRepo = 'owner/repo', repository = 'owner/repo') {
   return spawnSync('bash', ['-euo', 'pipefail', '-c', validationStep.run], {
     encoding: 'utf8',
-    env: { ...process.env, BASE_REF: base, HEAD_REF: head },
+    env: {
+      ...process.env,
+      BASE_REF: base,
+      HEAD_REF: head,
+      HEAD_REPO: headRepo,
+      REPOSITORY: repository,
+    },
   });
 }
 
@@ -29,7 +35,11 @@ describe('REQ-OPS-036: protected main promotion source', () => {
 
       const rejected = validate(base, 'feature/direct-main');
       assert.equal(rejected.status, 1, `${base} accepted a non-develop source`);
-      assert.match(rejected.stderr, /must originate from develop/);
+      assert.match(rejected.stdout, /must originate from develop/);
+
+      const forkDevelop = validate(base, 'develop', 'fork-owner/repo');
+      assert.equal(forkDevelop.status, 1, `${base} accepted a fork's develop branch`);
+      assert.match(forkDevelop.stdout, /canonical repository/);
     }
   });
 
@@ -39,5 +49,7 @@ describe('REQ-OPS-036: protected main promotion source', () => {
     assert.equal(job.name, 'Develop promotion source');
     assert.equal(validationStep.env.BASE_REF, '${{ github.base_ref }}');
     assert.equal(validationStep.env.HEAD_REF, '${{ github.head_ref }}');
+    assert.equal(validationStep.env.HEAD_REPO, '${{ github.event.pull_request.head.repo.full_name }}');
+    assert.equal(validationStep.env.REPOSITORY, '${{ github.repository }}');
   });
 });
