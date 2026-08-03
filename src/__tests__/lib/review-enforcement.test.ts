@@ -1712,6 +1712,25 @@ describe('Pi review reminder and settled enforcement', () => {
 
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
+
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-develop', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-develop', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-develop', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-develop'),
+      notification('spec-develop'),
+      notification('doc-develop'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({ customType: 'pr-boundary-fix-follow-up' }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
   });
 
   it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
@@ -2225,6 +2244,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     const reloadedHarness = await registerFixture(fixture);
     appendSession(fixture.sessionFile, notification('spec-1'), triageMessage());
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
     await reloadedHarness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);

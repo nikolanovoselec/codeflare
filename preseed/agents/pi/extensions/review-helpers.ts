@@ -25,7 +25,7 @@ export type TranscriptFacts = {
   reviewRepo?: string;
   reviewBranch?: string;
   reviewPrNumber?: number;
-  reviewBase?: "main" | "master";
+  reviewBase?: "main" | "master" | "develop";
   reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
@@ -588,7 +588,7 @@ type ReviewWindow = {
   repo?: string;
   branch?: string;
   prNumber?: number;
-  base?: "main" | "master";
+  base?: "main" | "master" | "develop";
   boundaryToolUseId?: string;
 };
 
@@ -604,7 +604,9 @@ function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
   const repo = typeof entry.details?.repo === "string" ? entry.details.repo : undefined;
   const branch = typeof entry.details?.branch === "string" ? entry.details.branch : undefined;
   const prNumber = Number.isInteger(entry.details?.prNumber) ? entry.details.prNumber : undefined;
-  const base = entry.details?.base === "main" || entry.details?.base === "master"
+  const base = entry.details?.base === "main"
+    || entry.details?.base === "master"
+    || entry.details?.base === "develop"
     ? entry.details.base
     : undefined;
   const boundaryToolUseId = typeof entry.details?.boundaryToolUseId === "string"

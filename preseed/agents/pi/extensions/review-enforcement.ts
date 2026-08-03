@@ -651,6 +651,19 @@ function transcriptFacts(
   });
 }
 
+function completedTriageReadyAfterResume(ctx: ReviewContext): boolean {
+  const file = rootSessionFile(ctx);
+  if (!file) return false;
+  const preview = transcriptFacts(ctx, file, []);
+  if (!fullSha(preview.reviewHead) || !preview.reviewRepo) return false;
+  const context = boundaryContext(ctx, preview.reviewRepo);
+  if (!context) return false;
+  const ackHead = readAck(context.repo);
+  if (ackHead === preview.reviewHead) return false;
+  const lanes = requiredReviewLanes({ repo: context.repo, ackHead, head: preview.reviewHead });
+  return transcriptFacts(ctx, context.file, lanes, preview.reviewHead).triageComplete;
+}
+
 async function acknowledgeCompletedReview(
   pi: ReviewPi,
   ctx: ReviewContext,
@@ -798,7 +811,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
-    if (resumedWithoutBoundary) return;
+    if (resumedWithoutBoundary) {
+      if (!completedTriageReadyAfterResume(ctx)) return;
+      resumedWithoutBoundary = false;
+    }
     if (await acknowledgeCompletedReview(pi, ctx, dependencies)) return;
     const file = rootSessionFile(ctx);
     if (!file) return;

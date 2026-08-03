@@ -22,7 +22,7 @@ type TranscriptFacts = {
   reviewRepo?: string;
   reviewBranch?: string;
   reviewPrNumber?: number;
-  reviewBase?: 'main' | 'master';
+  reviewBase?: 'main' | 'master' | 'develop';
   reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
@@ -152,7 +152,7 @@ function toolResult(
   });
 }
 
-function reviewReminder(head: string, reviewRange: string): Record<string, unknown> {
+function reviewReminder(head: string, reviewRange: string, base = 'main'): Record<string, unknown> {
   return sessionEntry('custom_message', {
     customType: 'pr-boundary-launch-plan',
     content: `review_range=${reviewRange}`,
@@ -162,7 +162,7 @@ function reviewReminder(head: string, reviewRange: string): Record<string, unkno
       repo: '/workspace/repo',
       branch: 'pi',
       prNumber: 42,
-      base: 'main',
+      base,
       boundaryToolUseId: 'push-1',
     },
     display: true,
@@ -669,7 +669,7 @@ describe('native Pi transcript review facts', () => {
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
-      reviewReminder(head, reviewRange),
+      reviewReminder(head, reviewRange, 'develop'),
       assistantTool('code-range', 'subagent', {
         subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${reviewRange}`,
       }),
@@ -684,7 +684,7 @@ describe('native Pi transcript review facts', () => {
     expect(facts.reviewRepo).toBe('/workspace/repo');
     expect(facts.reviewBranch).toBe('pi');
     expect(facts.reviewPrNumber).toBe(42);
-    expect(facts.reviewBase).toBe('main');
+    expect(facts.reviewBase).toBe('develop');
     expect(facts.reviewBoundaryToolUseId).toBe('push-1');
     expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
