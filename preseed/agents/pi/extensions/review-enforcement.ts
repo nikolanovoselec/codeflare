@@ -491,6 +491,7 @@ async function launchBoundaryPlan(
   ctx: ReviewContext,
   dependencies: Dependencies,
   boundary: ClassifiedBoundary,
+  recoverExistingPlan = false,
 ): Promise<BoundaryLaunch | undefined> {
   const eventRepo = resolveShellInvocationRepo(boundary.invocation);
   if (!eventRepo) return undefined;
@@ -513,7 +514,8 @@ async function launchBoundaryPlan(
     && existing.reviewRepo === review.repo
     && existing.reviewBranch === review.pr.headRefName
     && existing.reviewPrNumber === review.pr.number
-    && existing.reviewBase === review.pr.baseRefName) return undefined;
+    && existing.reviewBase === review.pr.baseRefName
+    && !recoverExistingPlan) return undefined;
   const requiredLanes = reviewsEnabled && !skipReview
     ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
     : [];
@@ -829,7 +831,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     rememberActiveRepoFromToolResult(event, ctx.cwd);
     const boundary = latestBoundary(event, ctx.cwd);
     if (!boundary) return;
-    const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
+    const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary, resumedWithoutBoundary);
     pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     if (!launch) return;
     resumedWithoutBoundary = false;

@@ -2192,10 +2192,11 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(reloadedHarness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-036: resumed sessions evaluate a new authoritative candidate once', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-112: resumed sessions evaluate one new authoritative candidate and restore Goal pause', async () => {
     const fixture = makeReviewFixture();
     const initialHarness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
     );
@@ -2222,6 +2223,10 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
+
+    await resumedHarness.emit('agent_end');
+    await resumedHarness.flushGoalPauses();
+    expect(resumedHarness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
   });
 
   it('REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head', async () => {
