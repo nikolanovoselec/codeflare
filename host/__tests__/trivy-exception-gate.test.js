@@ -39,16 +39,19 @@ function report(results = [
   },
   {
     Target: 'Node.js',
-    Vulnerabilities: [braceExpansionVulnerability()],
+    Vulnerabilities: [
+      braceExpansionVulnerability(),
+      braceExpansionVulnerability({ InstalledVersion: '5.0.7' }),
+    ],
   },
 ]) {
   return { Results: results };
 }
 
 describe('Trivy bounded exception gate', () => {
-  it('accepts only the reviewed lazygit and agent-CLI findings', () => {
+  it('accepts only the reviewed lazygit and Node.js findings', () => {
     assert.deepEqual(validateTrivyResult(report()), {
-      accepted: ['usr/local/bin/lazygit@v0.37.0', 'Node.js@5.0.5'],
+      accepted: ['usr/local/bin/lazygit@v0.37.0', 'Node.js@5.0.5', 'Node.js@5.0.7'],
     });
   });
 
@@ -111,7 +114,17 @@ describe('Trivy bounded exception gate', () => {
     }
   });
 
-  it('rejects drift in the reviewed agent-CLI finding', () => {
+  it('rejects a missing reviewed Node.js finding', () => {
+    assert.throws(
+      () => validateTrivyResult(report([
+        report().Results[0],
+        { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability()] },
+      ])),
+      /missing reviewed finding.*5\.0\.7/s,
+    );
+  });
+
+  it('rejects drift in the reviewed Node.js finding', () => {
     const cases = [
       { Target: 'other', Vulnerabilities: [braceExpansionVulnerability()] },
       { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability({ InstalledVersion: '5.0.6' })] },
@@ -126,15 +139,21 @@ describe('Trivy bounded exception gate', () => {
     }
   });
 
-  it('rejects every unrelated HIGH or CRITICAL finding', () => {
+  it('reports every unrelated HIGH or CRITICAL finding together', () => {
     const input = report([
       ...report().Results,
       {
         Target: 'usr/bin/other',
-        Vulnerabilities: [vulnerability({ VulnerabilityID: 'CVE-2099-0001', PkgName: 'other' })],
+        Vulnerabilities: [
+          vulnerability({ VulnerabilityID: 'CVE-2099-0001', PkgName: 'first' }),
+          vulnerability({ VulnerabilityID: 'CVE-2099-0002', PkgName: 'second' }),
+        ],
       },
     ]);
-    assert.throws(() => validateTrivyResult(input), /CVE-2099-0001/);
+    assert.throws(
+      () => validateTrivyResult(input),
+      (error) => error.message.includes('CVE-2099-0001') && error.message.includes('CVE-2099-0002'),
+    );
   });
 
   it('fails closed on malformed or incomplete scanner output', () => {

@@ -696,6 +696,10 @@ CVE-2026-59874
 CVE-2026-13149
 # brace-expansion 5.0.5 — DoS via unbounded expansion length; fixed 5.0.8:
 CVE-2026-14257
+# CVE-2026-69152 is deliberately NOT globally ignored. The deployment scanner
+# reports two HIGH brace-expansion tuples (5.0.5 and 5.0.7) under `Node.js`;
+# scripts/ci/validate-trivy-result.mjs binds each exact target, package,
+# installed/fixed version, and severity so any drift or extra occurrence fails.
 # shell-quote 1.8.3 — inefficient-parse DoS; fixed 1.9.0 (npm has no 1.8.x fix release):
 CVE-2026-13311
 # grpc-go in the apt-distributed gh binary — bundles an xDS RBAC fail-open

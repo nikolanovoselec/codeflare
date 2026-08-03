@@ -19,13 +19,25 @@ const REVIEWED_FINDINGS = [
   {
     // Reviewed from integration deployment 30847836723 at head a05cf374 and
     // image sha256:324dc992f5d65aa9ab597a382ca6d35bd0629bfd502f809369547760dd767e3f.
-    // Trivy reports this vendored agent-CLI package under its Node.js target.
-    // The expansion-count DoS remains confined to the session owner's own CLI
-    // process. Remove when the upstream-built CLI includes brace-expansion 5.0.9.
+    // Trivy reports this package under its generic Node.js target. The DoS
+    // remains confined to the authenticated user's single-tenant container.
+    // Remove when the image no longer contains brace-expansion 5.0.5.
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-69152',
     packageName: 'brace-expansion',
     installedVersion: '5.0.5',
+    fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
+    severity: 'HIGH',
+  },
+  {
+    // Deployment 30849615814 at head a2fc364 and image
+    // sha256:432f2c4c53a38efd78ce7304147512feb0d45c0063dd94c6fbe26c99f46e55b2
+    // exposed this second exact tuple after the 5.0.5 tuple was accepted.
+    // Remove when the image no longer contains brace-expansion 5.0.7.
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-69152',
+    packageName: 'brace-expansion',
+    installedVersion: '5.0.7',
     fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
     severity: 'HIGH',
   },
@@ -49,6 +61,7 @@ export function validateTrivyResult(report) {
 
   const expected = new Map(REVIEWED_FINDINGS.map((finding) => [findingKey(finding), finding]));
   const seen = new Set();
+  const findings = [];
 
   for (const result of report.Results) {
     if (!result || typeof result !== 'object' || typeof result.Target !== 'string') {
@@ -81,23 +94,26 @@ export function validateTrivyResult(report) {
       };
       const key = findingKey(finding);
       if (!expected.has(key) || seen.has(key)) {
-        throw new Error(
+        findings.push(
           `unexpected HIGH/CRITICAL finding: ${finding.vulnerabilityId} ${finding.packageName} `
           + `${finding.installedVersion} -> ${finding.fixedVersion} at ${finding.target}`,
         );
+      } else {
+        seen.add(key);
       }
-      seen.add(key);
     }
   }
 
   for (const [key, finding] of expected) {
     if (!seen.has(key)) {
-      throw new Error(
+      findings.push(
         `missing reviewed finding: ${finding.vulnerabilityId} ${finding.packageName} `
         + `${finding.installedVersion} at ${finding.target}; remove or re-review the exception`,
       );
     }
   }
+
+  if (findings.length > 0) throw new Error(findings.join('\n'));
 
   return {
     accepted: REVIEWED_FINDINGS.map((finding) => `${finding.target}@${finding.installedVersion}`),
