@@ -8,7 +8,7 @@ export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPO
 export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-export type ReviewBoundaryEvent = "push" | "pr-create";
+export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-merge";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
@@ -16,6 +16,7 @@ type BoundarySurfaces = {
   pushSource?: string;
   pushTarget?: string;
   pushRemote?: string;
+  mergeSelector?: string;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
@@ -289,6 +290,27 @@ function pushBoundary(words: ShellWords): { source?: string; target?: string; re
   return { source, target };
 }
 
+const GH_PR_MERGE_OPTIONS_WITH_VALUE = new Set([
+  "--body", "-b", "--body-file", "-F", "--match-head-commit", "--subject", "-s",
+]);
+
+function prMergeSelector(words: ShellWords): string | undefined | false {
+  let selector: string | undefined;
+  for (let index = 3; index < words.length; index += 1) {
+    const arg = words[index] ?? "";
+    if (arg === "--repo" || arg.startsWith("-R") || arg.startsWith("--repo=")) return false;
+    if (GH_PR_MERGE_OPTIONS_WITH_VALUE.has(arg)) {
+      if (!words[index + 1]) return false;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    if (selector) return false;
+    selector = arg;
+  }
+  return selector;
+}
+
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
   let boundary: BoundarySurfaces = { reminder: false, settled: false };
   for (const words of commandWords(command)) {
@@ -307,6 +329,17 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
       boundary = { reminder: true, settled: true, event: "pr-create" };
+    }
+    if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
+      const mergeSelector = prMergeSelector(words);
+      if (mergeSelector !== false) {
+        boundary = {
+          reminder: true,
+          settled: true,
+          event: "pr-merge",
+          ...(mergeSelector ? { mergeSelector } : {}),
+        };
+      }
     }
   }
   return boundary;

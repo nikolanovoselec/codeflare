@@ -13,6 +13,7 @@ type PrState = {
   headRefOid: string;
   headRefName: string;
   number: number;
+  mergeCommit?: { oid: string } | null;
 };
 type SentMessage = {
   message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean };
@@ -1132,7 +1133,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: PR edit, update, and merge commands do not launch boundary work', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063: PR edit, update, and unconfirmed merge commands do not launch boundary work', async () => {
     for (const [index, command] of [
       'gh pr edit 42 --base main',
       'gh pr update-branch 42',
@@ -1734,6 +1735,127 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
+  it('REQ-AGENT-121: a completed merge into develop launches the exact downstream promotion head once', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      number: 761,
+    };
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 766,
+      mergeCommit: { oid: fixture.head },
+    };
+    const queries: Array<string | undefined> = [];
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => {
+        queries.push(target);
+        return target === '766' ? mergedPr : target === 'develop' ? fixture.pr : undefined;
+      },
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 766 --squash --match-head-commit deadbeef';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-develop', 'bash', { command }),
+      toolResult('merge-develop', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-develop'));
+
+    expect(queries).toEqual(['766', 'develop']);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: {
+          ...boundaryIdentity(fixture, 'merge-develop'),
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          scope: diffScope(),
+          requiredLanes: ALL_LANES,
+          launchWaves: launchWaves(ALL_LANES, true),
+          ciEvent: 'push',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
+  it('REQ-AGENT-121: a develop merge stays inert until the downstream PR reports its merge commit', async () => {
+    const fixture = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'develop',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 766,
+      mergeCommit: { oid: fixture.head },
+    };
+    const stalePromotion: PrState = {
+      ...fixture.pr,
+      baseRefName: 'main',
+      headRefName: 'develop',
+      headRefOid: fixture.base,
+      number: 761,
+    };
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => target === '766' ? mergedPr : stalePromotion,
+      headRetryDelaysMs: [0],
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 766 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-stale', 'bash', { command }),
+      toolResult('merge-stale', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-stale'));
+
+    expect(harness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-121: successful merges outside develop stay inert', async () => {
+    const fixture = makeReviewFixture();
+    const mergedPr: PrState = {
+      state: 'MERGED',
+      baseRefName: 'main',
+      headRefOid: fixture.base,
+      headRefName: 'feature/review-fix',
+      number: 766,
+      mergeCommit: { oid: fixture.head },
+    };
+    const queries: Array<string | undefined> = [];
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async (_repo, target) => {
+        queries.push(target);
+        return mergedPr;
+      },
+      deferGoalPause: harness.deferGoalPause,
+    });
+    const command = 'gh pr merge 766 --squash';
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-main', 'bash', { command }),
+      toolResult('merge-main', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'merge-main'));
+
+    expect(queries).toEqual(['766']);
+    expect(harness.sent).toEqual([]);
+  });
+
   it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
@@ -1881,7 +2003,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await expect(pending).resolves.toEqual(pr);
     expect(observed).toEqual({
       command: 'gh',
-      args: ['pr', 'view', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft'],
+      args: ['pr', 'view', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit'],
       options: { cwd: repo, encoding: 'utf8', timeout: 10_000 },
     });
     let targetedArgs: string[] | undefined;
@@ -1890,7 +2012,7 @@ describe('Pi review reminder and settled enforcement', () => {
       return { stdout: JSON.stringify(pr) };
     }, '42');
     expect(targetedArgs).toEqual([
-      'pr', 'view', '42', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft',
+      'pr', 'view', '42', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit',
     ]);
 
     await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBeUndefined();

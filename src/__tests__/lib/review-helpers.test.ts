@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
-type BoundaryEvent = 'push' | 'pr-create';
+type BoundaryEvent = 'push' | 'pr-create' | 'pr-merge';
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
@@ -14,6 +14,7 @@ type BoundarySurfaces = {
   pushSource?: string;
   pushTarget?: string;
   pushRemote?: string;
+  mergeSelector?: string;
 };
 type TranscriptFacts = {
   boundary?: {
@@ -229,7 +230,10 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['gh pr create --base main --title review', { reminder: true, settled: true, event: 'pr-create' }],
       ['gh pr edit 42 --base master', none],
       ['gh pr edit 42 --base main && git push origin pi', push],
-      ['gh pr merge 42', none],
+      ['gh pr merge 42 --squash', { reminder: true, settled: true, event: 'pr-merge', mergeSelector: '42' }],
+      ['gh pr merge --squash', { reminder: true, settled: true, event: 'pr-merge' }],
+      ['gh pr merge 42 --repo owner/other', none],
+      ['gh pr merge 42 -Rowner/other', none],
       ['gh pr update-branch 42', none],
       ['git push origin --delete pi', none],
       ['git push origin :pi', none],
@@ -507,7 +511,7 @@ describe('native Pi transcript review facts', () => {
       toolResult('push-old', 'bash'),
       assistantTool('code-old', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }, '2026-07-12T12:01:00.000Z'),
       notification('code-old'),
-      assistantTool('push-new', 'bash', { command: 'gh pr merge 42' }, '2026-07-12T12:05:00.000Z'),
+      assistantTool('push-new', 'bash', { command: 'gh pr update-branch 42' }, '2026-07-12T12:05:00.000Z'),
       toolResult('push-new', 'bash'),
       assistantTool('doc-new', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }, '2026-07-12T12:06:00.000Z'),
     ]);

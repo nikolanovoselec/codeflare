@@ -32,6 +32,7 @@ type PrState = {
   headRefName: string;
   number: number;
   isDraft?: boolean;
+  mergeCommit?: { oid: string } | null;
 };
 
 type Dependencies = {
@@ -454,6 +455,35 @@ async function currentReview(
   return undefined;
 }
 
+async function mergedDevelopPromotion(
+  ctx: ReviewContext,
+  dependencies: Dependencies,
+  selector: string | undefined,
+  preferredRepo: string,
+): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
+  const context = boundaryContext(ctx, preferredRepo);
+  if (!context) return undefined;
+  const mergedPr = await dependencies.queryPr(context.repo, selector);
+  const mergeHead = mergedPr?.mergeCommit?.oid;
+  if (!isProtectedPr(mergedPr)
+    || mergedPr.state !== "MERGED"
+    || mergedPr.baseRefName !== "develop"
+    || !fullSha(mergeHead)) return undefined;
+
+  const delays = dependencies.headRetryDelaysMs ?? [0, 250, 1_000];
+  const sleep = dependencies.sleep ?? defaultSleep;
+  for (const delayMs of delays) {
+    if (delayMs > 0) await sleep(delayMs);
+    const promotion = await dependencies.queryPr(context.repo, "develop");
+    if (!isEnforcedPr(promotion)
+      || (promotion.baseRefName !== "main" && promotion.baseRefName !== "master")
+      || promotion.headRefName !== "develop"
+      || promotion.headRefOid !== mergeHead) continue;
+    return { ...context, pr: promotion };
+  }
+  return undefined;
+}
+
 type CiBoundaryEvent = "push" | "pr-create";
 
 type LaunchMessage = {
@@ -468,6 +498,7 @@ type LaunchMessage = {
 };
 
 function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
+  if (event === "pr-merge") return "push";
   return event === "push" || event === "pr-create" ? event : undefined;
 }
 
@@ -485,15 +516,22 @@ async function launchBoundaryPlan(
   const revision = boundary.classification.event === "push"
     ? boundary.classification.pushSource ?? "HEAD"
     : "HEAD";
-  const review = await currentReview(
-    ctx,
-    dependencies,
-    target,
-    revision,
-    eventRepo,
-    boundary.classification.event === "push" && !target,
-    boundary.classification.pushRemote,
-  );
+  const review = boundary.classification.event === "pr-merge"
+    ? await mergedDevelopPromotion(
+      ctx,
+      dependencies,
+      boundary.classification.mergeSelector,
+      eventRepo,
+    )
+    : await currentReview(
+      ctx,
+      dependencies,
+      target,
+      revision,
+      eventRepo,
+      boundary.classification.event === "push" && !target,
+      boundary.classification.pushRemote,
+    );
   if (!review || !isEnforcedPr(review.pr)) return undefined;
 
   const reviewsEnabled = reviewEnabled(review.repo);
@@ -1050,7 +1088,7 @@ export async function queryPr(
   target?: string,
 ): Promise<PrState | undefined> {
   try {
-    const args = ["pr", "view", ...(target ? [target] : []), "--json", "state,baseRefName,headRefOid,headRefName,number,isDraft"];
+    const args = ["pr", "view", ...(target ? [target] : []), "--json", "state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit"];
     const { stdout } = await runner(
       "gh",
       args,

@@ -14,11 +14,11 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 ## Mandatory boundary stop
 
-After either eligible boundary succeeds — creating an open PR to `main`/`master`/`develop`, or completing a supported explicit or implicit configured-branch push whose exact destination and head have an open PR to `main`/`master`/`develop` — **end the turn immediately** and report only the push result or PR URL. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. Pushes with no open protected-base PR, tag-only pushes, branch deletion/pruning, mirror or multi-ref pushes, and PR edit/update/merge commands are not boundaries and do not require this stop. A plan not yet visible after an eligible boundary is queued, not missing.
+After an eligible boundary succeeds — creating an open PR to `main`/`master`/`develop`, completing a supported explicit or implicit configured-branch push whose exact destination and head have such an open PR, or completing a supported merge into `develop` whose merge commit is the exact head of an open `develop` → `main`/`master` PR — **end the turn immediately** and report only the push result, PR URL, or merge result. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. Pushes with no open protected-base PR, tag-only pushes, branch deletion/pruning, mirror or multi-ref pushes, PR edit/update commands, and unconfirmed or non-`develop` merges are not boundaries and do not require this stop. A plan not yet visible after an eligible boundary is queued, not missing.
 
 ## No pre-push reviewers
 
-Unpublished local commits are never PR-boundary review heads. Launch `code-reviewer`, `spec-reviewer`, and `doc-updater` only from the boundary plan emitted after an eligible push or protected-base PR creation.
+Unpublished local commits are never PR-boundary review heads. Launch `code-reviewer`, `spec-reviewer`, and `doc-updater` only from the boundary plan emitted after an eligible push, protected-base PR creation, or verified downstream develop merge.
 
 ## Execute one boundary plan
 
