@@ -19,11 +19,10 @@ name: Bump Shadow Pins
 #   spec in entrypoint.sh + baked into the seed; context-mode is owned
 #   atomically by its dedicated job above
 # - impeccable skill bundle (vendored for Claude Code + Pi, checked via impeccable.style)
-# - actionlint (VERSION + SHA256 literals in .github/workflows/test.yml; the job
-#   resolves the new checksum from the release's checksums.txt, so its PR is
-#   merge-ready with no manual checksum step)
-# - zizmor (pinned twice: the action's `version:` in zizmor.yml and the
-#   VERSION + SHA256 of the gating binary in test.yml)
+# - actionlint and zizmor (version + SHA256 in the non-executable
+#   .github/workflow-tool-pins.json manifest; workflows read that one validated
+#   source, so the standard GITHUB_TOKEN can push bump branches without workflow
+#   write permission)
 # - the five coding-agent CLIs baked into the image (claude-code, codex,
 #   opencode-ai, copilot, pi-coding-agent) from the shared npm-tools lock; the
 #   candidate is the newest release published MORE than 7 days ago, mirroring
@@ -2250,7 +2249,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP "^\s+ZIZMOR_VERSION: '\K[^']+" .github/workflows/test.yml)
+          CURRENT=$(node scripts/ci/workflow-tool-pins.mjs get zizmor version)
           ACTION_SHA=$(grep -oP "zizmorcore/zizmor-action@\K[0-9a-f]{40}" .github/workflows/zizmor.yml)
           LATEST=$(gh api "repos/zizmorcore/zizmor-action/contents/support/versions?ref=${ACTION_SHA}" \
             --jq .content | base64 -d \
@@ -2318,30 +2317,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const { LAT, SHA } = process.env;
-          // Both files or neither: the blocking lane and the SARIF upload must
-          // audit with the same zizmor, and a test asserts they match.
-          const edits = [
-            ['.github/workflows/test.yml', (t) => t
-              .replace(/ZIZMOR_VERSION: '[^']+'/, `ZIZMOR_VERSION: '${LAT}'`)
-              .replace(/ZIZMOR_SHA256: '[^']+'/, `ZIZMOR_SHA256: '${SHA}'`)],
-            ['.github/workflows/zizmor.yml', (t) => t
-              .replace(/^(\s+)version: '[^']+'/m, `$1version: '${LAT}'`)],
-          ];
-          for (const [f, edit] of edits) {
-            const before = fs.readFileSync(f, 'utf-8');
-            const after = edit(before);
-            if (before === after) {
-              console.error('Replacement matched nothing in ' + f);
-              process.exit(1);
-            }
-            fs.writeFileSync(f, after);
-          }
-          NODE
+          node scripts/ci/workflow-tool-pins.mjs update zizmor "$CUR" "$LAT" "$SHA"
 
-          git add .github/workflows/test.yml .github/workflows/zizmor.yml
+          git add .github/workflow-tool-pins.json
           if git diff --cached --quiet; then
             echo "Nothing changed - aborting."
             exit 1
@@ -2361,13 +2339,12 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`zizmor\` from \`$CUR\` to \`$LAT\`.
 
-          zizmor is pinned in two places that must stay equal - the blocking \`workflow-audit\` lane in \`.github/workflows/test.yml\` (a checksum-pinned release binary) and the SARIF upload in \`.github/workflows/zizmor.yml\` - so this PR moves both.
+          Both the blocking \`workflow-audit\` lane and the SARIF upload read this version from \`.github/workflow-tool-pins.json\`, so they cannot drift. Keeping the routinely updated pin outside \`.github/workflows/\` also lets the least-privilege \`GITHUB_TOKEN\` push the bump branch without workflow-write permission.
 
           The ceiling is the digest table baked into the pinned \`zizmor-action\` release, not zizmor's newest tag: naming a version the pinned action does not know fails every run with \`Unknown version\`. Dependabot raises that ceiling when it bumps the action.
 
           Files updated:
-          - \`.github/workflows/test.yml\` (\`ZIZMOR_VERSION\` + \`ZIZMOR_SHA256\`)
-          - \`.github/workflows/zizmor.yml\` (the \`version:\` input)
+          - \`.github/workflow-tool-pins.json\` (\`zizmor.version\` + \`zizmor.sha256\`)
 
           ## Test plan
           - [ ] CI green (the \`workflow-audit\` lane verifies the checksum before running, and audits every workflow with the new binary)
@@ -2403,7 +2380,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          CURRENT=$(grep -oP "^\s+ACTIONLINT_VERSION: '\K[^']+" .github/workflows/test.yml)
+          CURRENT=$(node scripts/ci/workflow-tool-pins.mjs get actionlint version)
           TAG=$(gh api repos/rhysd/actionlint/releases/latest --jq .tag_name)
           LATEST="${TAG#v}"
           VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
@@ -2474,21 +2451,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
-          node <<'NODE'
-          const fs = require('node:fs');
-          const f = '.github/workflows/test.yml';
-          const before = fs.readFileSync(f, 'utf-8');
-          const after = before
-            .replace(/ACTIONLINT_VERSION: '[^']+'/, `ACTIONLINT_VERSION: '${process.env.LAT}'`)
-            .replace(/ACTIONLINT_SHA256: '[^']+'/, `ACTIONLINT_SHA256: '${process.env.SHA}'`);
-          if (before === after) {
-            console.error('Replacement matched nothing in ' + f);
-            process.exit(1);
-          }
-          fs.writeFileSync(f, after);
-          NODE
+          node scripts/ci/workflow-tool-pins.mjs update actionlint "$CUR" "$LAT" "$SHA"
 
-          git add .github/workflows/test.yml
+          git add .github/workflow-tool-pins.json
           if git diff --cached --quiet; then
             echo "Nothing changed - aborting."
             exit 1
@@ -2508,12 +2473,12 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`actionlint\` from \`$CUR\` to \`$LAT\`.
 
-          The version and its SHA256 are literals in \`.github/workflows/test.yml\` (a checksum-pinned release binary, not a package.json entry), so Dependabot can't see them - \`bump-shadow-pins.yml\` opens this PR weekly.
+          The blocking \`workflow-audit\` lane reads the version and SHA256 from \`.github/workflow-tool-pins.json\`. Keeping the routinely updated pin outside \`.github/workflows/\` lets the least-privilege \`GITHUB_TOKEN\` push the bump branch without workflow-write permission.
 
           The new checksum is taken from the release's \`checksums.txt\` and re-verified against the downloaded artifact in this job, so no manual checksum step is required.
 
           Files updated:
-          - \`.github/workflows/test.yml\` (\`ACTIONLINT_VERSION\` + \`ACTIONLINT_SHA256\` in the \`workflow-audit\` lane)
+          - \`.github/workflow-tool-pins.json\` (\`actionlint.version\` + \`actionlint.sha256\`)
 
           ## Test plan
           - [ ] CI green (the \`actionlint\` job verifies the checksum before running, and lints every workflow with the new binary)

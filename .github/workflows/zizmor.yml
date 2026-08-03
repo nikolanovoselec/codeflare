@@ -12,11 +12,15 @@ on:
     paths:
       - '.github/workflows/**'
       - '.github/actions/**'
+      - '.github/workflow-tool-pins.json'
+      - 'scripts/ci/workflow-tool-pins.mjs'
   push:
     branches: [main]
     paths:
       - '.github/workflows/**'
       - '.github/actions/**'
+      - '.github/workflow-tool-pins.json'
+      - 'scripts/ci/workflow-tool-pins.mjs'
 
 permissions: {}
 
@@ -41,6 +45,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve the zizmor pin
+        id: zizmor-pin
+        run: echo "version=$(node scripts/ci/workflow-tool-pins.mjs get zizmor version)" >> "$GITHUB_OUTPUT"
+
       # Reproduce locally with: zizmor .github/workflows
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
@@ -54,15 +62,15 @@ jobs:
           # considers acceptable, in either direction. Pinned and bumped by
           # bump-shadow-pins.yml like every other non-Dependabot version.
           #
-          # This must stay equal to ZIZMOR_VERSION in test.yml, whose
+          # This reads the same validated manifest as test.yml, whose
           # workflow-audit lane is the BLOCKING gate — a SARIF upload produced
           # by a different auditor than the one that gates merges reports
           # findings nobody is required to fix, and misses ones that are.
-          # host/__tests__/zizmor-version-lockstep.test.js asserts the equality.
+          # host/__tests__/zizmor-version-lockstep.test.js asserts that contract.
           #
           # The action resolves this version against a digest table baked into
           # the action release, so it can only name a version the PINNED action
           # knows: v0.5.6 + '1.27.0' failed every run with "Unknown version".
           # The bump job reads that table at the pinned SHA rather than taking
           # zizmor's newest release.
-          version: '1.27.0'
+          version: ${{ steps.zizmor-pin.outputs.version }}

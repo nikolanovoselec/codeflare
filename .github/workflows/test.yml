@@ -421,6 +421,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve the zizmor pin
+        id: zizmor-pin
+        run: |
+          echo "version=$(node scripts/ci/workflow-tool-pins.mjs get zizmor version)" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(node scripts/ci/workflow-tool-pins.mjs get zizmor sha256)" >> "$GITHUB_OUTPUT"
+
       - name: Run zizmor (checksum-pinned binary)
         # zizmor.yml uploads SARIF to code scanning and is informational by
         # design — findings there notify, they do not block. This step is the
@@ -432,10 +438,11 @@ jobs:
         # Own binary rather than the action: the action's failure semantics
         # depend on whether it is uploading SARIF, and a gate must not be
         # ambiguous about when it fires. Upstream publishes no checksum file,
-        # so this SHA256 was computed from the release artifact and pinned here.
+        # so this SHA256 was computed from the release artifact and pinned in
+        # .github/workflow-tool-pins.json.
         env:
-          ZIZMOR_VERSION: '1.27.0'
-          ZIZMOR_SHA256: '277f2bd8fd37cf60c42ab7afca6faa884e65440fa31e02b44bdaae60f62a358f'
+          ZIZMOR_VERSION: ${{ steps.zizmor-pin.outputs.version }}
+          ZIZMOR_SHA256: ${{ steps.zizmor-pin.outputs.sha256 }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -470,6 +477,12 @@ jobs:
           # infrastructure rather than on findings.
           /tmp/zizmor --no-online-audits --format plain .github/
 
+      - name: Resolve the actionlint pin
+        id: actionlint-pin
+        run: |
+          echo "version=$(node scripts/ci/workflow-tool-pins.mjs get actionlint version)" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(node scripts/ci/workflow-tool-pins.mjs get actionlint sha256)" >> "$GITHUB_OUTPUT"
+
       - name: Run actionlint (checksum-pinned binary)
         # Catches workflow-file errors GitHub only surfaces as jobless
         # "completed/failure" validation runs (duplicate mapping keys, invalid
@@ -486,8 +499,8 @@ jobs:
         # cannot be anything but a bug. pyflakes stays off (no python in these
         # workflows).
         env:
-          ACTIONLINT_VERSION: '1.7.12'
-          ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+          ACTIONLINT_VERSION: ${{ steps.actionlint-pin.outputs.version }}
+          ACTIONLINT_SHA256: ${{ steps.actionlint-pin.outputs.sha256 }}
           SHELLCHECK_OPTS: '--severity=error'
         run: |
           set -euo pipefail
