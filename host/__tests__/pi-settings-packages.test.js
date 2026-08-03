@@ -56,7 +56,7 @@ function runAdvisorGuidanceMerge(initialConfig) {
 
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.source);
 const REQUIRED = [
-  'npm:@gotgenes/pi-subagents@18.1.2',
+  'npm:@gotgenes/pi-subagents@19.0.1',
   'npm:context-mode@1.0.169',
   'npm:@juicesharp/rpiv-advisor@2.1.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.1.0',
