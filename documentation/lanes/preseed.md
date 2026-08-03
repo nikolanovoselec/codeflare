@@ -64,7 +64,7 @@ In-process subagents always use native fallbacks. The three PR reviewers expose 
 
 `@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` command. Codeflare overrides its startup guidance so assistants do not call or suggest advisor unless the user's current message explicitly requests it.
 
-`pi-web-access` adds `web_search` and `fetch_content`. Both authenticate through Pi's model registry or zero-config Exa MCP, so neither needs a per-user API key.
+`pi-web-access` adds `web_search`, `source_check`, `fetch_content`, and paged `get_search_content`. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Version 0.14 removes upstream's bundled `librarian`; Codeflare preserves it as an owned skill in both Pi modes and keeps its generated-seed delivery under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
 
 `@narumitw/pi-goal` is pinned at 0.43.0 after review of the [published npm tarball](https://registry.npmjs.org/@narumitw/pi-goal/-/pi-goal-0.43.0.tgz). The MIT package declares `src/index.ts` as its sole Pi extension and provides `/goal`, `goal_complete`, and `goal_blocked` without managing subagent files. On startup, Codeflare creates `~/.pi/agent/pi-goal.json` with `toolVisibility: "after-first-goal"` only when the file is absent. Capability-filtered sessions therefore start narrow and reveal Goal's two terminal tools when `/goal` begins, while every existing Goal preference remains byte-for-byte user-owned. On reload, `capability.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or Goal's user-owned `always` policy already activated both tools, allowing the same Goal to restore without independently widening fresh or completed lazy sessions ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5).
 
@@ -76,7 +76,9 @@ The image build applies `scripts/patch-pi-goal-review-control.mjs` to the exact 
 
 Layout or version drift fails the image build. The weekly Pi-extension shadow-pin workflow installs each proposed pi-goal lock and applies this patch before opening its bump PR, so incompatible upstream changes are rejected at the bump boundary rather than first appearing during deployment ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) Constraints).
 
-For reviewer-bearing PR boundaries, `review-enforcement.ts` records review ownership before requesting a session-local control-channel pause and emitting the review launch plan. If ownership cannot be recorded, review proceeds without pausing the Goal. Review completion requests resume of an owned Goal immediately before emitting the matching acknowledged `pr-boundary-fix-follow-up`, while PR closure requests resume during closure handling. A failed replacement-head ownership write may separately request rollback resume. CI and individual reviewer notifications never request resume. Missing control, Goal replacement, and independent reactivation remain fail-open ([REQ-AGENT-113](../../sdd/spec/agents.md#req-agent-113-review-owned-goal-release) AC1-AC7).
+For reviewer-bearing PR boundaries, `review-enforcement.ts` emits the review launch plan independently. When an active Goal or matching review-owned pause exists, it schedules ownership and pause work after the boundary agent-end handler fully returns. This keeps pi-goal's native pause from aborting the boundary turn or its background tasks. If ownership cannot be recorded or Goal control is unavailable, review proceeds without pausing the Goal. An exact persisted pause retains release ownership even when the bridge response is missing or unsuccessful ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads) AC1-AC3 and Constraints; [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) AC1-AC4 and Constraints).
+
+Review completion requests resume immediately before the matching acknowledged `pr-boundary-fix-follow-up`. If a manual resume wins that request race, authoritative non-paused state clears stale ownership without a false error. PR closure requests resume during closure handling, and a failed replacement-head ownership write may request rollback. CI and individual reviewer notifications never request resume. Missing control, Goal replacement, and independent reactivation remain fail-open ([REQ-AGENT-113](../../sdd/spec/agents.md#req-agent-113-review-owned-goal-release) AC1-AC7; [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) AC5-AC6).
 
 For an open, non-bypassed review, the first settled recovery defers when no reviewer or CI launch is recorded, preventing a recovery message from duplicating the initial plan. Duplicate boundaries do not duplicate the pause, and a replacement PR head transfers ownership of the existing pause instead of stranding it on the superseded head. If that transfer cannot be persisted, the bridge requests rollback; successful rollback clears ownership, while failed rollback retains recoverable ownership for the replacement head's FIX release ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads) AC1-AC7).
 
@@ -84,7 +86,7 @@ For an open, non-bypassed review, the first settled recovery defers when no revi
 
 `web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`). A user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots.
 
-This is a deliberate workaround for an upstream `pi-web-access` bug: `openCuratorBrowser` references `sendCuratorFallbackUpdate` outside its declaring scope and crashes the whole `pi` process whenever the interactive browser-curator fallback tries to open a browser. The container is headless, so `auto-summary` is the only workflow that never reaches that path.
+[pi-web-access 0.14](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) fixes the former interactive-curator fallback crash. The container remains headless, so `auto-summary` is still the only default workflow that can complete without a browser-approval UI; users who deliberately provide such a UI may retain their own `summary-review` setting.
 
 Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC2/AC4/AC6, [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) AC1-AC3, and [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership); source: `entrypoint.sh::warm_pi_npm_dependencies` (filtered context-mode package + tool extensions), `preseed/agents/pi/extensions/context-mode-runtime.ts` (foreground ownership), `preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand` (state-changing `/ctx on|off` persistence + reload), the Pi reviewer agents (Bash-only transport), the main-execution web-search default block, `preseed/agents/pi/skills/advisor/SKILL.md`, and `preseed/agents/pi/package.json`.
 
@@ -232,7 +234,10 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. The Pi entrypoint-owned
+`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Because adapter 2.15+
+reserves a leading `!` for command-backed secrets, the entrypoint doubles that
+prefix only in Pi's generated env value so a provider key beginning with `!`
+remains literal; Claude's value is unchanged. The Pi entrypoint-owned
 `consult-llm` server entry is replaced on each start with `lifecycle: "lazy"`,
 removing the old always-on `keep-alive` / `directTools` fields while preserving
 unrelated user MCP servers in the same file ([REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
@@ -1205,7 +1210,7 @@ Guard re-injection fails closed on every input class that would otherwise produc
 The Stop hook credits *either* transport, a legacy `Agent` subagent envelope or this `Bash` runner invocation, so migrating a lane never narrows what the gate accepts. `--lane <name>` is the gate's match token: renaming it silently disables review enforcement. The runner must appear in command position, so a quoted mention inside another command credits nothing, and a backgrounded subagent's start receipt is not accepted as completion.
 
 Pi uses the supported command grammar in
-[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize protected-base `gh pr create`, explicit single-branch pushes, and implicit bare, remote-only, or `HEAD` pushes.
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize protected-base `gh pr create`, explicit single-branch pushes, and implicit bare, remote-only, or `HEAD` pushes. Heredoc payloads remain inert through exact delimiter matching and declaration-order consumption ([REQ-AGENT-116](../../sdd/spec/agents.md#req-agent-116-heredoc-safe-pr-boundary-classification)).
 
 For an explicit push, Pi resolves the pushed source ref and queries the destination branch's PR. For a bare or `HEAD` push, it asks Git for the configured push branch of the checked-out branch; a remote-only command scopes that lookup to its named remote. Each implicit form pairs the resolved destination with local `HEAD`. Repository resolution comes from the exact executable shell segment: deterministic parent-shell `cd` changes propagate, pipeline cwd changes do not, and unresolved conditional cwd changes fail closed.
 
@@ -1299,6 +1304,8 @@ Pi CI is not part of review completion or acknowledgement. After either eligible
 - [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) - Supported Boundary Recovery
 - [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff) - Pi Native Review Findings Handoff
 - [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) - PR-Boundary Command Parsing
+- [REQ-AGENT-116](../../sdd/spec/agents.md#req-agent-116-heredoc-safe-pr-boundary-classification) - Heredoc-safe PR-boundary classification
+- [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) - Non-disruptive review-owned Goal control
 - [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
 - [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) - consult-llm Invocation and Model-Selection Behavior
 - [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring

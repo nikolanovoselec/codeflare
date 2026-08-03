@@ -308,9 +308,9 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Symptom:** Asking Pi to search the web killed the whole session (process exited) on an older image.
 
-**Cause:** `pi-web-access`'s default `summary-review` workflow tries to open a browser for curator approval; a headless container has no launchable browser, and the upstream failure-handling path itself threw an uncaught `ReferenceError` (`sendCuratorFallbackUpdate` referenced outside its declaring scope — pi-web-access issue #103), crashing the `pi` process.
+**Cause:** Images with `pi-web-access` before 0.14 combined the default interactive `summary-review` workflow with a headless container and an upstream fallback error, so failure to open the curator browser could crash Pi.
 
-**Fix:** Fixed by default since this image: `entrypoint.sh` preseeds `~/.pi/web-search.json` with `{"workflow": "auto-summary"}`, which never reaches the buggy code path. No user action needed; redeploy if seeing this on an older container.
+**Fix:** Redeploy an image with [pi-web-access 0.14](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) or later, which fixes the fallback error. Codeflare still creates `~/.pi/web-search.json` with `{"workflow": "auto-summary"}` when absent because browser approval cannot function headlessly; an existing user choice remains untouched.
 
 ## Common Failure Modes
 

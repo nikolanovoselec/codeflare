@@ -2,7 +2,7 @@
 
 CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cost model.
 
-**Domain owner:** GitHub Actions workflows, deploy.yml, container-image.yml, test.yml, pentest.yml, fuzz.yml, stress-test.yml
+**Domain owner:** GitHub Actions workflows, deploy.yml, container-image.yml, sign-release.yml, test.yml, pentest.yml, fuzz.yml, stress-test.yml
 
 ### Key Concepts
 
@@ -255,12 +255,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The OSSF Scorecard workflow runs on push to main and weekly. <!-- @manual -->
 2. Scorecard results are uploaded to GitHub Security. <!-- @manual -->
-3. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
-4. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+3. A manual dispatch scans only the repository default branch; a non-default dispatch records an explicit successful no-op instead of invoking Scorecard's unsupported branch path. <!-- @impl: .github/workflows/scorecard.yml::unsupported-ref --> <!-- @impl: .github/workflows/scorecard.yml::scorecard --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
+4. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+5. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
 
 **Constraints:**
 
-- Supply chain monitoring is continuous (push-triggered + weekly), not on-demand.
+- Push-triggered and weekly scans provide continuous monitoring; default-branch manual dispatch remains available for explicit rescans.
 - Secret-scanning push protection prevents secrets from being committed.
 - High-severity dependency audits and dependency-review enforcement are owned by [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); not duplicated here.
 
@@ -268,7 +269,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Manual check
+**Verification:** Automated workflow-routing test for AC3; manual checks for AC1, AC2, AC4, and AC5.
 
 **Status:** Implemented
 
@@ -559,6 +560,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. For non-Pi packages, the shared manifest updater changes only the requested dependency after an exact current-value match. <!-- @impl: scripts/update-npm-tool-manifests.mjs::updateNpmToolManifests --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-033: lock-backed npm bump manifest updates) -->
 2. Npm-tool bump jobs regenerate and commit each changed manifest's owning lock through one lifecycle-safe helper. <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-033 AC2: npm bump jobs regenerate locks through the lifecycle-safe helper) -->
+3. Every shared npm-cooldown caller opens a bump only for a strictly newer numeric semantic version; equal or older candidates skip, and malformed versions fail closed. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
 
 **Constraints:** Package updates remain subject to the configured supply-chain cooldown and normal PR review.
 
@@ -566,7 +568,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
 
-**Verification:** Automated manifest-update test; workflow execution manual
+**Verification:** Automated manifest-update, lifecycle-safe lock-regeneration, and forward-only semantic-version tests; workflow execution manual
 
 **Status:** Implemented
 
@@ -609,7 +611,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The context-mode job bumps its Claude-plugin and Pi-prewarm pins atomically in one PR, and generated-artifact validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
 2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) -->
 3. Those jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
-4. A Pi runtime-agent bump updates the shared image-tools lock, the prewarm pin and lock, bundled-dependency integrity corrections, and embedded seed atomically. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation) -->
+4. A Pi runtime-agent bump updates the shared image-tools lock, both prewarm dependency/override pins and lock, bundled-dependency integrity corrections, and embedded seed atomically. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation) -->
 
 **Constraints:** None.
 
@@ -835,6 +837,38 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate)
 
 **Verification:** Automated test (host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates).
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-034: Keyless GitHub release signing
+
+**Intent:** Every published source release provides downloadable artifacts whose origin, exact source revision, and post-publication integrity can be verified without Codeflare storing a long-lived signing key.
+
+**Applies To:** Release consumer
+
+**Acceptance Criteria:**
+
+1. Publishing a GitHub release signs it automatically; an explicit tag input can safely recover or repeat signing for an existing release. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (signs published releases and supports an explicit recovery dispatch) -->
+2. Signing fails unless the release tag has the exact `vMAJOR.MINOR.PATCH` form, names an existing non-draft release, and resolves to a commit reachable from `main`; recovery dispatches must themselves run from `main`. <!-- @impl: .github/workflows/sign-release.yml::Validate release source --> <!-- @test: host/__tests__/release-signing-workflow.test.js (binds signing to a validated semantic-version tag reachable from main) -->
+3. The workflow creates a deterministic, tag-prefixed source archive and SHA-256 manifest from the validated tag commit. <!-- @impl: .github/workflows/sign-release.yml::Build deterministic release archive --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
+4. GitHub OIDC supplies short-lived keyless identity to Sigstore Cosign, which signs both the archive and checksum manifest and emits self-contained Sigstore bundles; no repository signing key or password is read. <!-- @impl: .github/workflows/sign-release.yml::Sign release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
+5. GitHub build-provenance attestations bind both release assets to the release workflow, repository, and exact source revision. <!-- @impl: .github/workflows/sign-release.yml::Attest release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (publishes GitHub provenance for the exact archive and checksum manifest) -->
+6. The archive, checksum manifest, and both `.sigstore.json` bundles are uploaded to the matching GitHub release only after signing and attestation succeed. <!-- @impl: .github/workflows/sign-release.yml::Upload signed release assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (creates deterministic release assets and keyless signatures) -->
+
+**Constraints:**
+
+- Release signing is separate from deployment container provenance; neither substitutes for the other.
+- Workflow dependencies and the Cosign release are immutable pins reviewed in source.
+- The job alone receives least-privilege `contents: write`, `id-token: write`, and `attestations: write`; repository-wide permissions remain read-only.
+- A repeated recovery dispatch deterministically replaces only the four assets owned by this workflow.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-019](#req-ops-019-security-posture-scanning-workflows)
+
+**Verification:** Automated workflow contract test and an observed signing run on a published release.
 
 **Status:** Implemented
 

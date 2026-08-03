@@ -28,10 +28,17 @@ export function verifyJitiCacheArtifact(sourcePath, cacheDirectory) {
 
 export function verifyPiLockstep(runtimeManifestPath, prewarmManifestPath, installedPackagePath) {
   const runtimeVersion = readJson(runtimeManifestPath).dependencies?.[PI_PACKAGE];
-  const prewarmVersion = readJson(prewarmManifestPath).overrides?.[PI_PACKAGE];
-  if (!runtimeVersion || !prewarmVersion) throw new Error('Pi runtime and prewarm manifests must contain exact pins');
-  if (prewarmVersion !== runtimeVersion) {
-    throw new Error(`prewarm Pi SDK ${prewarmVersion} != runtime ${runtimeVersion}`);
+  const prewarmManifest = readJson(prewarmManifestPath);
+  const prewarmDependencyVersion = prewarmManifest.dependencies?.[PI_PACKAGE];
+  const prewarmOverrideVersion = prewarmManifest.overrides?.[PI_PACKAGE];
+  if (!runtimeVersion || !prewarmDependencyVersion || !prewarmOverrideVersion) {
+    throw new Error('Pi runtime and prewarm manifests must contain exact pins');
+  }
+  if (prewarmDependencyVersion !== runtimeVersion) {
+    throw new Error(`prewarm Pi SDK dependency ${prewarmDependencyVersion} != runtime ${runtimeVersion}`);
+  }
+  if (prewarmOverrideVersion !== runtimeVersion) {
+    throw new Error(`prewarm Pi SDK override ${prewarmOverrideVersion} != runtime ${runtimeVersion}`);
   }
 
   if (installedPackagePath) {

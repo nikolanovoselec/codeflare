@@ -190,7 +190,7 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063: recognizes implicit and explicit branch pushes while rejecting non-branch forms', async () => {
+  it('REQ-AGENT-063/REQ-AGENT-116: recognizes implicit and explicit branch pushes while rejecting non-branch forms', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
     const push = {
       reminder: true,

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -41,6 +41,7 @@ type Dependencies = {
   queryPushBranch?(repo: string, branch: string, remote?: string): Promise<string | undefined>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
+  deferGoalPause?(task: () => void | Promise<void>): void;
 };
 
 type ReviewContext = {
@@ -201,9 +202,10 @@ async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string
     return;
   }
   const result = await requestGoalControl(pi, "pause", goal.id);
-  if (!result?.ok || result.goalId !== goal.id || result.status !== "paused") {
-    clearReviewGoalPause(pi);
-  }
+  const persistedGoal = currentGoal(ctx);
+  const bridgeConfirmed = result?.ok && result.goalId === goal.id && result.status === "paused";
+  const persistenceConfirmed = persistedGoal?.id === goal.id && persistedGoal.status === "paused";
+  if (!bridgeConfirmed && !persistenceConfirmed) clearReviewGoalPause(pi);
 }
 
 function ownsReviewGoalPause(ctx: ReviewContext, head: string): boolean {
@@ -225,6 +227,11 @@ async function releaseReviewGoalPause(pi: ReviewPi, ctx: ReviewContext, head: st
   if (result?.ok && result.status === "active") {
     clearReviewGoalPause(pi);
     return true;
+  }
+  const persistedGoal = currentGoal(ctx);
+  if (persistedGoal?.id !== owned.goalId || persistedGoal.status !== "paused") {
+    clearReviewGoalPause(pi);
+    return false;
   }
   notifyGoalBridgeFailure(ctx, "Could not resume Goal after PR review; review ownership was retained. Use /goal resume after resolving its current state.");
   return false;
@@ -275,12 +282,23 @@ function isChildSession(ctx: ReviewContext, file: string | undefined): boolean {
   }
 }
 
+function gitMetadataDirectory(repo: string): string {
+  const dotGit = join(repo, ".git");
+  try {
+    if (statSync(dotGit).isDirectory()) return dotGit;
+    const pointer = /^gitdir:\s*(.+)$/i.exec(readFileSync(dotGit, "utf8").trim())?.[1];
+    return pointer ? resolve(repo, pointer) : dotGit;
+  } catch {
+    return dotGit;
+  }
+}
+
 function ackPath(repo: string): string {
-  return join(repo, ".git", "sdd-last-ack-pr-head");
+  return join(gitMetadataDirectory(repo), "sdd-last-ack-pr-head");
 }
 
 function countPath(repo: string): string {
-  return join(repo, ".git", "sdd-review-block-count");
+  return join(gitMetadataDirectory(repo), "sdd-review-block-count");
 }
 
 function readAck(repo: string): string | undefined {
@@ -387,6 +405,10 @@ function reviewEnabled(repo: string): boolean {
 
 function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function defaultDeferGoalPause(task: () => void | Promise<void>): void {
+  setTimeout(() => { void task(); }, 0);
 }
 
 async function currentReview(
@@ -693,10 +715,12 @@ async function acknowledgeCompletedReview(
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   let resumedWithoutBoundary = false;
   let deferredSettledRecoveryHead: string | undefined;
+  let pendingGoalPauseHead: string | undefined;
 
   pi.on("session_start", (event) => {
     resumedWithoutBoundary = event?.reason === "resume";
     deferredSettledRecoveryHead = undefined;
+    pendingGoalPauseHead = undefined;
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -737,9 +761,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       : [];
     const ciEvent = ciBoundaryEvent(boundary.classification.event);
     if (requiredLanes.length === 0 && !ciEvent) return;
-    if (requiredLanes.length > 0) {
-      await pauseGoalForReview(pi, ctx, review.pr.headRefOid);
-    }
+    if (requiredLanes.length > 0) pendingGoalPauseHead = review.pr.headRefOid;
 
     sendLaunchMessage(pi, {
       phase: "plan",
@@ -755,8 +777,24 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_end", async (_event, ctx) => {
-    if (resumedWithoutBoundary) return;
-    await acknowledgeCompletedReview(pi, ctx, dependencies);
+    const pauseHead = pendingGoalPauseHead;
+    pendingGoalPauseHead = undefined;
+    const goal = currentGoal(ctx);
+    const owned = reviewGoalPause(ctx);
+    const needsGoalPause = goal?.status === "active"
+      || Boolean(owned?.goalId === goal?.id && goal?.status === "paused");
+    if (!pauseHead || !needsGoalPause) {
+      if (!resumedWithoutBoundary) await acknowledgeCompletedReview(pi, ctx, dependencies);
+      return;
+    }
+    (dependencies.deferGoalPause ?? defaultDeferGoalPause)(async () => {
+      try {
+        await pauseGoalForReview(pi, ctx, pauseHead);
+        if (!resumedWithoutBoundary) await acknowledgeCompletedReview(pi, ctx, dependencies);
+      } catch {
+        // Optional Goal control must not create an unhandled detached failure.
+      }
+    });
   });
 
   pi.on("agent_settled", async (_event, ctx) => {

@@ -271,10 +271,10 @@ describe('LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 
     });
   });
 
-  // REQ-AGENT-031 AC6 / REQ-AGENT-009 + REQ-AGENT-020 enterprise constraint:
+  // REQ-AGENT-031 AC7 / REQ-AGENT-009 + REQ-AGENT-020 enterprise constraint:
   // per-user LLM keys do not exist in enterprise mode (models route through the
   // managed AI Gateway BYOK). Every method is rejected with 403 BEFORE touching KV.
-  describe('enterprise mode (REQ-AGENT-031 AC6)', () => {
+  describe('enterprise mode (REQ-AGENT-031 AC7)', () => {
     function createEnterpriseTestApp() {
       const app = new Hono<{ Bindings: Env }>();
       app.onError((err, c) => {
