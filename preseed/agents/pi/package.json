@@ -4,7 +4,7 @@
   "//pi-coding-agent-override": "Must match preseed/npm-tools/package.json. The Docker build consumes this committed lockfile with npm ci and fails if the runtime and prewarm Pi versions drift.",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.82.1",
-    "@gotgenes/pi-subagents": "18.1.2",
+    "@gotgenes/pi-subagents": "19.2.0",
     "@juicesharp/rpiv-advisor": "2.1.0",
     "@juicesharp/rpiv-ask-user-question": "2.1.0",
     "@juicesharp/rpiv-todo": "2.1.0",
