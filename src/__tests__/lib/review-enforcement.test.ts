@@ -142,12 +142,12 @@ function reviewerArgs(fixture: ReturnType<typeof makeReviewFixture>, lane: Revie
   };
 }
 
-function ciArgs(head: string): Record<string, unknown> {
+function ciArgs(fixture: ReturnType<typeof makeReviewFixture>, overrides: { cwd?: string; pr?: number } = {}): Record<string, unknown> {
   return {
     subagent_type: 'ci-monitor',
     run_in_background: true,
     inherit_context: false,
-    prompt: `repo=owner/repo pr=42 head=${head}`,
+    prompt: `repo=owner/repo pr=${overrides.pr ?? fixture.pr.number} head=${fixture.head} cwd=${overrides.cwd ?? fixture.repo}`,
   };
 }
 
@@ -628,7 +628,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture)),
       notification('ci-1'),
     );
     await harness.emit('agent_end');
@@ -1197,7 +1197,16 @@ describe('Pi review reminder and settled enforcement', () => {
       );
       await first.emit('tool_result', boundaryEvent());
       appendSession(fixture.sessionFile,
-        assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+        assistantTool('ci-wrong-pr', 'subagent', ciArgs(fixture, { pr: 43 })),
+        toolResult('ci-wrong-pr', 'subagent'),
+        assistantTool('ci-failed', 'subagent', ciArgs(fixture)),
+        toolResult('ci-failed', 'subagent', true),
+      );
+      await first.emit('agent_settled');
+      expect(existsSync(join(fixture.repo, '.git', 'sdd-review-ci-pr-42'))).toBe(false);
+
+      appendSession(fixture.sessionFile,
+        assistantTool('ci-1', 'subagent', ciArgs(fixture)),
         toolResult('ci-1', 'subagent'),
       );
       await first.emit('agent_settled');
@@ -1506,7 +1515,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-cross', 'subagent', reviewerArgs(boundary, 'code-reviewer')),
       assistantTool('spec-cross', 'subagent', reviewerArgs(boundary, 'spec-reviewer')),
       assistantTool('doc-cross', 'subagent', reviewerArgs(boundary, 'doc-updater')),
-      assistantTool('ci-cross', 'subagent', ciArgs(boundary.head)),
+      assistantTool('ci-cross', 'subagent', ciArgs(boundary)),
       notification('code-cross'),
       notification('spec-cross'),
       notification('doc-cross'),
@@ -1672,7 +1681,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-develop', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-develop', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-develop', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-develop', 'subagent', ciArgs(fixture.head)),
+      assistantTool('ci-develop', 'subagent', ciArgs(fixture)),
       notification('code-develop'),
       notification('spec-develop'),
       notification('doc-develop'),
@@ -1969,7 +1978,7 @@ describe('Pi review reminder and settled enforcement', () => {
     appendSession(fixture.sessionFile,
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer'), '2026-07-12T12:00:30.000Z'),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer'), '2026-07-12T12:00:40.000Z'),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head), '2026-07-12T12:00:50.000Z'),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture), '2026-07-12T12:00:50.000Z'),
     );
 
     await harness.emit('agent_settled');
@@ -2046,7 +2055,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer'), '2026-07-12T12:07:00.000Z'),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer'), '2026-07-12T12:07:10.000Z'),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater'), '2026-07-12T12:07:20.000Z'),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head), '2026-07-12T12:07:30.000Z'),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture), '2026-07-12T12:07:30.000Z'),
       notification('doc-1'),
       notification('code-1'),
     );
@@ -2094,7 +2103,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture)),
       notification('code-1'),
       notification('spec-1'),
       notification('doc-1'),
@@ -2135,7 +2144,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture)),
       notification('code-1', 'Error'),
       notification('spec-1'),
       notification('doc-1'),
@@ -2163,7 +2172,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture)),
       notification('code-1'),
       notification('doc-1'),
     );
@@ -2294,7 +2303,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-resume', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-resume', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-resume', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-resume', 'subagent', ciArgs(fixture.head)),
+      assistantTool('ci-resume', 'subagent', ciArgs(fixture)),
       notification('code-resume'),
       notification('spec-resume'),
       notification('doc-resume'),
@@ -2458,7 +2467,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     harness.sent.splice(0);
-    appendSession(fixture.sessionFile, assistantTool('ci-1', 'subagent', ciArgs(fixture.head)));
+    appendSession(fixture.sessionFile, assistantTool('ci-1', 'subagent', ciArgs(fixture)));
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       harness.sent.splice(0);

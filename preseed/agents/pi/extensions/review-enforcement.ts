@@ -736,14 +736,14 @@ function transcriptFacts(
   ctx: ReviewContext,
   file: string,
   requiredLanes: ReviewLane[],
-  ciHead?: string,
+  ci?: { repo: string; prNumber: number; head: string },
   reviewHead?: string,
 ) {
   return reviewTranscriptFacts({
     sessionFile: file,
     entries: liveEntries(ctx),
     requiredLanes,
-    ciHead,
+    ci,
     reviewHead,
   });
 }
@@ -774,7 +774,7 @@ function completedTriageReadyAfterResume(ctx: ReviewContext): boolean {
   const ackHead = readAck(context.repo, preview.reviewPrNumber);
   if (ackHead === preview.reviewHead) return false;
   const lanes = requiredReviewLanes({ repo: context.repo, ackHead, head: preview.reviewHead });
-  return transcriptFacts(ctx, context.file, lanes, preview.reviewHead).triageComplete;
+  return transcriptFacts(ctx, context.file, lanes, undefined, preview.reviewHead).triageComplete;
 }
 
 async function acknowledgeCompletedReview(
@@ -811,7 +811,7 @@ async function acknowledgeCompletedReview(
   if (reviewedAck === reviewedHead) return false;
   const reviewedRange = reviewRange({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
   const reviewedLanes = requiredReviewLanes({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
-  const reviewedFacts = transcriptFacts(ctx, context.file, reviewedLanes, reviewedHead);
+  const reviewedFacts = transcriptFacts(ctx, context.file, reviewedLanes, undefined, reviewedHead);
   const allReviewedLanesTerminal = reviewedLanes.length > 0
     && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
   if (reviewedFacts.reviewHead !== reviewedHead
@@ -942,7 +942,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const requiredLanes = shouldReview
       ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
       : [];
-    const facts = transcriptFacts(ctx, review.file, requiredLanes, review.pr.headRefOid);
+    const facts = transcriptFacts(ctx, review.file, requiredLanes, {
+      repo: review.repo,
+      prNumber: review.pr.number,
+      head: review.pr.headRefOid,
+    });
     if (!facts.boundary) return;
     if (facts.ciLaunched) checkpointCi(review.repo, review.pr.number, review.pr.headRefOid);
     if (deferredSettledRecoveryHead === review.pr.headRefOid) {

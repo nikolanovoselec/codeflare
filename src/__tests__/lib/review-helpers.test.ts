@@ -44,7 +44,7 @@ type PlannedReviewHelpers = {
     sessionFile: string;
     entries?: Record<string, unknown>[];
     requiredLanes: ReviewLane[];
-    ciHead?: string;
+    ci?: { repo: string; prNumber: number; head: string };
   }): TranscriptFacts;
 };
 
@@ -682,11 +682,16 @@ describe('native Pi transcript review facts', () => {
         subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false, prompt: `head=${'a'.repeat(40)}`,
       }),
       assistantTool('ci-current', 'subagent', {
-        subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false, prompt: `repo=owner/repo pr=42 head=${head}`,
+        subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false, prompt: `repo=owner/repo pr=42 head=${head} cwd=/repo`,
       }),
+      toolResult('ci-current', 'subagent'),
     ]);
 
-    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES, ciHead: head });
+    const facts = reviewTranscriptFacts({
+      sessionFile,
+      requiredLanes: ALL_LANES,
+      ci: { repo: '/repo', prNumber: 42, head },
+    });
     expect(facts.ciLaunched).toBe(true);
     expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
   });

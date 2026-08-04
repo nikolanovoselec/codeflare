@@ -8,7 +8,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Undici 8.9.0 closes all ten current Dependabot alerts in the two Pi runtime trees** ([REQ-OPS-033](operations.md#req-ops-033-lock-backed-npm-bump-coherence) remains Implemented). Both reviewed override manifests and committed locks move from 8.5.0 to the first patched 8.9.0 release, and the generated seed follows the Pi lock. The existing runtime-tree floor test advances with the patched boundary so future regeneration cannot restore a vulnerable 8.x resolution.
 
-- **CI-only PR boundaries retain an independent per-PR checkpoint** ([REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring) AC8 added; remains Implemented). Once the root's public CI monitor launch is present in the session, settled enforcement records that exact PR head separately from review acknowledgement. Later sessions do not repeat CI for the unchanged head; changing from default or non-SDD mode to review-enabled mode still launches every required reviewer without treating CI evidence as review evidence.
+- **CI-only PR boundaries retain an independent per-PR checkpoint** ([REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring) AC8 added; remains Implemented). Once the root's public CI monitor launch has a correlated successful tool result whose cwd, PR number, and head match the boundary, settled enforcement records that exact PR head separately from review acknowledgement. Failed or mismatched launches remain retryable. Later sessions do not repeat CI for the unchanged head; changing from default or non-SDD mode to review-enabled mode still launches every required reviewer without treating CI evidence as review evidence.
 
 ## 2026-08-03
 

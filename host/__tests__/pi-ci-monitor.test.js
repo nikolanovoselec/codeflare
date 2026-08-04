@@ -64,7 +64,7 @@ function expectedRequest() {
   return {
     subagent_type: 'ci-monitor',
     description: `Monitor PR #${PR} CI`,
-    prompt: `repo=${REPO} pr=${PR} head=${HEAD}`,
+    prompt: `repo=${REPO} pr=${PR} head=${HEAD} cwd=${REQUEST_CWD}`,
     run_in_background: true,
     inherit_context: false,
   };

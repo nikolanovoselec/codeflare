@@ -523,12 +523,18 @@ export function reviewTranscriptFacts(input: {
   sessionFile: string;
   entries?: Record<string, any>[];
   requiredLanes: ReviewLane[];
-  ciHead?: string;
+  ci?: { repo: string; prNumber: number; head: string };
   reviewHead?: string;
 }): TranscriptFacts {
   const entries = input.entries ?? readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
+    .map((entry) => entry.message.toolCallId));
+  const successfulSubagentToolIds = new Set(entries
+    .filter((entry) => entry.type === "message"
+      && entry.message?.role === "toolResult"
+      && entry.message?.toolName === "subagent"
+      && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));
   const boundaries = new Map<string, { index: number; value: NonNullable<TranscriptFacts["boundary"]> }>();
   let boundaryIndex = -1;
@@ -655,13 +661,17 @@ export function reviewTranscriptFacts(input: {
       line.trim() === REVIEW_TRIAGE_HEADER && lines[lineIndex + 1]?.trim() === REVIEW_TRIAGE_DIVIDER,
     ),
   );
-  const ciLaunched = Boolean(input.ciHead && later.some((entry) => toolCalls(entry).some((call) => {
+  const ciLaunched = Boolean(input.ci && later.some((entry) => toolCalls(entry).some((call) => {
     const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
+    const tokens = prompt.split(/\s+/);
     return call.name === "subagent"
       && call.arguments?.subagent_type === "ci-monitor"
       && call.arguments?.run_in_background === true
       && call.arguments?.inherit_context === false
-      && prompt.split(/\s+/).includes(`head=${input.ciHead}`);
+      && successfulSubagentToolIds.has(call.id)
+      && tokens.includes(`pr=${input.ci!.prNumber}`)
+      && tokens.includes(`head=${input.ci!.head}`)
+      && tokens.includes(`cwd=${input.ci!.repo}`);
   })));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const closedNotified = later.some((entry) =>
