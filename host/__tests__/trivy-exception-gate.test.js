@@ -192,7 +192,7 @@ describe('Trivy bounded exception gate', () => {
       { PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.1.0?other' } },
     ]) {
       const input = report();
-      const reviewed = input.Results[1].Vulnerabilities.find(
+      const reviewed = input.Results[0].Vulnerabilities.find(
         (finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.1.0',
       );
       Object.assign(reviewed, change);
