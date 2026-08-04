@@ -121,11 +121,19 @@ describe('Trivy bounded exception gate', () => {
 
       const output = execFileSync(process.execPath, [VALIDATOR, reportPath], { encoding: 'utf8' });
       const identities = output.split('\n').filter((line) => line.startsWith('Observed reviewed Trivy identity:'));
-      assert.equal(identities.length, 10);
-      assert.match(
-        output,
-        /Observed reviewed Trivy identity: CVE-2026-69192 ip-address 10\.1\.0 at Node\.js \[path=opt\/pi\/package\.json; purl=pkg:npm\/ip-address@10\.1\.0\]/,
-      );
+      const prefix = 'Observed reviewed Trivy identity: ';
+      assert.deepEqual(identities, [
+        `${prefix}CVE-2026-56852 golang.org/x/text v0.37.0 at usr/local/bin/lazygit [path=<unavailable>; purl=<unavailable>]`,
+        `${prefix}CVE-2026-69152 brace-expansion 5.0.5 at Node.js [path=<unavailable>; purl=<unavailable>]`,
+        `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=<unavailable>; purl=<unavailable>]`,
+        `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=<unavailable>; purl=<unavailable>]`,
+        `${prefix}CVE-2026-69192 ip-address 10.1.0 at Node.js [path=opt/pi/package.json; purl=pkg:npm/ip-address@10.1.0]`,
+        `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=<unavailable>; purl=<unavailable>]`,
+        `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=<unavailable>; purl=<unavailable>]`,
+        `${prefix}CVE-2026-13697 undici 7.28.0 at Node.js [path=<unavailable>; purl=<unavailable>]`,
+        `${prefix}CVE-2026-13697 undici 8.5.0 at Node.js [path=<unavailable>; purl=<unavailable>]`,
+        `${prefix}CVE-2026-13697 undici 8.5.0 at Node.js [path=<unavailable>; purl=<unavailable>]`,
+      ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
