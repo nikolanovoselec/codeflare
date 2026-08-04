@@ -116,8 +116,11 @@ def to_json(graph, _communities, path, force=False):
     Path(path).write_text(json.dumps({'nodes': list(graph.nodes()), 'links': []}), encoding='utf-8')
     return True
 
-def to_html(_graph, _communities, path, community_labels=None):
+def to_html(_graph, _communities, path, community_labels=None, node_limit=None):
+    if _graph.number_of_nodes() > 1 and node_limit is None:
+        raise ValueError('explicit node_limit required for oversized graph')
     Path(path).write_text('<html>graph</html>', encoding='utf-8')
+    Path(str(path) + '.node-limit').write_text(str(node_limit), encoding='utf-8')
 `);
   writeFileSync(join(graphify, 'extract.py'), `
 def extract(_files, **_kwargs):
@@ -125,7 +128,7 @@ def extract(_files, **_kwargs):
 `);
   writeFileSync(join(graphify, 'report.py'), `
 def generate(_graph, _communities, _cohesion, labels, _gods, _surprises, _detection, _tokens, root, suggested_questions=None):
-    return '# Graph Report - ' + str(root) + '\n' + ','.join(labels.values())
+    return '# Graph Report - ' + str(root) + '\\n' + ','.join(labels.values())
 `);
   writeFileSync(join(fakeRoot, 'networkx.py'), `
 class NodeView:
@@ -191,6 +194,7 @@ function runBuildScript(scriptName) {
       GRAPHIFY_SAVE_MANIFEST_RECORD: recordPath,
       GRAPHIFY_BUILD_TIMEOUT: '30',
       GRAPHIFY_SAFE_RLIMIT_KB: '800000',
+      GRAPHIFY_VIZ_NODE_LIMIT: '1',
     },
   });
   assert.equal(result.status, 0, `${scriptName} failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
@@ -278,6 +282,9 @@ function runPiSemanticBuildStep() {
     env: {
       ...process.env,
       PYTHONPATH: fakeRoot,
+      GRAPHIFY_PYTHON: 'python3',
+      GRAPHIFY_BUILD_TIMEOUT: '30',
+      GRAPHIFY_VIZ_NODE_LIMIT: '1',
       GRAPHIFY_SAVE_MANIFEST_RECORD: recordPath,
     },
   });
@@ -338,6 +345,7 @@ describe('Graphify build preseed', () => {
   it('REQ-AGENT-024 AC5: Pi semantic graph publication produces HTML without community labels', () => {
     const cwd = runPiSemanticBuildStep();
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');
     const report = readFileSync(join(cwd, 'graphify-out/GRAPH_REPORT.md'), 'utf-8');
     assert.match(report, /Community 0/);
     assert.doesNotMatch(report, /Stale Label/);
@@ -347,6 +355,7 @@ describe('Graphify build preseed', () => {
   it('Pi AST-only build writes a portable manifest and unlabeled HTML', () => {
     const { cwd, calls } = runBuildScript('build-graphify-ast.sh');
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
     assert.equal(calls[0].root, cwd);
@@ -356,6 +365,7 @@ describe('Graphify build preseed', () => {
   it('Pi architecture build writes a portable manifest and unlabeled HTML', () => {
     const { cwd, calls } = runBuildScript('build-graphify-architecture.sh');
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
     assert.equal(calls[0].root, cwd);

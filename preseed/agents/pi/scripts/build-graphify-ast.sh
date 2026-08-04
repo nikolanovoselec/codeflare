@@ -110,7 +110,13 @@ report = generate(
 )
 (OUT / 'GRAPH_REPORT.md').write_text(report, encoding='utf-8')
 to_json(G, communities, OUT / 'graph.json', force=True)
-to_html(G, communities, OUT / 'graph.html', community_labels=None)
+try:
+    viz_node_limit = int(os.environ.get('GRAPHIFY_VIZ_NODE_LIMIT', '100000'))
+    if viz_node_limit < 1:
+        raise ValueError
+except ValueError:
+    raise SystemExit('GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer')
+to_html(G, communities, OUT / 'graph.html', community_labels=None, node_limit=viz_node_limit)
 callflow = OUT / 'callflow.html'
 if callflow.exists():
     callflow.unlink()

@@ -111,6 +111,7 @@ Then merge the local semantic fragment into the graph with Graphify modules:
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python - <<'PY'
 import json
+import os
 from pathlib import Path
 from graphify.analyze import god_nodes, surprising_connections, suggest_questions
 from graphify.build import build_merge
@@ -138,7 +139,13 @@ questions = suggest_questions(G, communities, labels)
 tokens = {'input': sem.get('input_tokens', 0), 'output': sem.get('output_tokens', 0)}
 (out / 'GRAPH_REPORT.md').write_text(generate(G, communities, cohesion, labels, gods, surprises, detect_result, tokens, str(root), suggested_questions=questions), encoding='utf-8')
 to_json(G, communities, out / 'graph.json', force=True)
-to_html(G, communities, out / 'graph.html', community_labels=None)
+try:
+    viz_node_limit = int(os.environ.get('GRAPHIFY_VIZ_NODE_LIMIT', '100000'))
+    if viz_node_limit < 1:
+        raise ValueError
+except ValueError:
+    raise SystemExit('GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer')
+to_html(G, communities, out / 'graph.html', community_labels=None, node_limit=viz_node_limit)
 callflow = out / 'callflow.html'
 if callflow.exists():
     callflow.unlink()

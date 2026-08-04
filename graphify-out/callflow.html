@@ -60,7 +60,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
 <div class="container">
 
 <h1>codeflare — Complete Call Flow &amp; Architecture Documentation</h1>
-<p class="subtitle">Generated from graphify knowledge graph: 15532 nodes, 35680 edges, 964 communities. Commit: 6bdc2d5</p>
+<p class="subtitle">Generated from graphify knowledge graph: 15532 nodes, 35680 edges, 966 communities. Commit: 6d2da83</p>
 
 <div class="nav">
     <a href="#overview">Architecture Overview</a>
@@ -90,7 +90,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
 flowchart LR
     EXTRACT_PIPELINE_5F350230("Extraction Pipeline<br/><small>284 nodes</small>")
     class EXTRACT_PIPELINE_5F350230 module;
-    BUILD_GRAPH_321CBB04("Graph Build<br/><small>1034 nodes</small>")
+    BUILD_GRAPH_321CBB04("Graph Build<br/><small>1035 nodes</small>")
     class BUILD_GRAPH_321CBB04 module;
     ANALYSIS_CLUSTERING_C79796DA("Analysis &amp; Clustering<br/><small>77 nodes</small>")
     class ANALYSIS_CLUSTERING_C79796DA module;
@@ -98,7 +98,7 @@ flowchart LR
     class OUTPUTS_DOCS_ED82387C module;
     CLI_SKILLS_9964CBB8("CLI &amp; Skill Installers<br/><small>5681 nodes</small>")
     class CLI_SKILLS_9964CBB8 module;
-    INGEST_CACHE_UPDATE_FF457338("Ingestion &amp; Updates<br/><small>381 nodes</small>")
+    INGEST_CACHE_UPDATE_FF457338("Ingestion &amp; Updates<br/><small>351 nodes</small>")
     class INGEST_CACHE_UPDATE_FF457338 module;
     SERVE_API_35EC8E86("Serving API<br/><small>204 nodes</small>")
     class SERVE_API_35EC8E86 module;
@@ -106,11 +106,11 @@ flowchart LR
     class SECURITY_GLOBAL_5B9C6A04 module;
     TESTS_FIXTURES_B84B1DCC("Tests &amp; Fixtures<br/><small>5072 nodes</small>")
     class TESTS_FIXTURES_B84B1DCC module;
-    LIVE_SKILLS_IMPECCABLE_AF0E3059("Live Skills Impeccable<br/><small>125 nodes</small>")
+    LIVE_SKILLS_IMPECCABLE_AF0E3059("Live Skills Impeccable<br/><small>152 nodes</small>")
     class LIVE_SKILLS_IMPECCABLE_AF0E3059 module;
-    SKILLS_IMPECCABLE_SCRIPTS_2C3785FC("Skills Impeccable Scripts<br/><small>119 nodes</small>")
+    SKILLS_IMPECCABLE_SCRIPTS_2C3785FC("Skills Impeccable Scripts<br/><small>134 nodes</small>")
     class SKILLS_IMPECCABLE_SCRIPTS_2C3785FC module;
-    SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648("Skills Impeccable Scripts<br/><small>88 nodes</small>")
+    SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648("Skills Impeccable Scripts<br/><small>75 nodes</small>")
     class SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648 module;
     IMPECCABLE_SKILLS_SCRIPTS_A34844E3("Impeccable Skills Scripts<br/><small>72 nodes</small>")
     class IMPECCABLE_SKILLS_SCRIPTS_A34844E3 module;
@@ -118,18 +118,18 @@ flowchart LR
     class REVIEW_PRESEED_AGENTS_757008F9 module;
     OTHER_D0941E68("Other<br/><small>1958 nodes</small>")
     class OTHER_D0941E68 module;
-    LIVE_SKILLS_IMPECCABLE_AF0E3059 -->|contains x327| OTHER_D0941E68
-    INGEST_CACHE_UPDATE_FF457338 -->|contains x177| BUILD_GRAPH_321CBB04
-    CLI_SKILLS_9964CBB8 -->|references x135| INGEST_CACHE_UPDATE_FF457338
+    LIVE_SKILLS_IMPECCABLE_AF0E3059 -->|contains x322| OTHER_D0941E68
+    INGEST_CACHE_UPDATE_FF457338 -->|extends x176| BUILD_GRAPH_321CBB04
+    CLI_SKILLS_9964CBB8 -->|references x129| INGEST_CACHE_UPDATE_FF457338
     CLI_SKILLS_9964CBB8 -->|references x115| SERVE_API_35EC8E86
-    CLI_SKILLS_9964CBB8 -->|imports x105| OTHER_D0941E68
-    OTHER_D0941E68 -->|imports x93| CLI_SKILLS_9964CBB8
-    LIVE_SKILLS_IMPECCABLE_AF0E3059 -->|contains x89| SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648
+    CLI_SKILLS_9964CBB8 -->|imports x110| OTHER_D0941E68
+    OTHER_D0941E68 -->|imports x97| CLI_SKILLS_9964CBB8
+    LIVE_SKILLS_IMPECCABLE_AF0E3059 -->|contains x75| SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648
     SKILLS_IMPECCABLE_SCRIPTS_2C3785FC -->|contains x74| OTHER_D0941E68
     CLI_SKILLS_9964CBB8 -->|relates x74| EXTRACT_PIPELINE_5F350230
-    OTHER_D0941E68 -->|calls x65| SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648
-    SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648 -->|calls x48| OTHER_D0941E68
-    INGEST_CACHE_UPDATE_FF457338 -->|relates x47| CLI_SKILLS_9964CBB8
+    SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648 -->|calls x49| OTHER_D0941E68
+    OTHER_D0941E68 -->|calls x49| SKILLS_IMPECCABLE_SCRIPTS_4FEAB3_5ED8E648
+    SERVE_API_35EC8E86 -->|relates x46| CLI_SKILLS_9964CBB8
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -146,7 +146,7 @@ flowchart LR
     <h4>Architecture Layers</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>Layer</th><th>Nodes</th><th>Communities</th></tr>
-      <tr><td>Extraction Pipeline</td><td>284</td><td><code>35, 85, 97, 130, 155, 181, 426, 456, 536, 589</code></td></tr><tr><td>Graph Build</td><td>1034</td><td><code>681, 102, 31, 182, 250, 121, 201, 215, 216, 163, 220, 111, 240, 255, 263, 203, 189, 221, 256, 306, 336, 173, 307, 312, 313, 319, 242, 332, 394, 355, 402, 425, 422, 431, 502, 594, 468, 495, 496, 500, 504, 570, 608, 627, 642, 669, 670, 671, 674, 677, 678, 680, 682, 683, 685, 686, 689, 690, 692, 698, 700, 703, 707, 708, 709, 712, 713, 715, 716, 717, 719, 720, 721, 722, 723, 724, 725, 767, 768, 772, 773, 777, 778, 779, 783, 808, 833, 836, 837, 840, 847, 849, 850, 851, 858, 872, 875, 876, 877, 878, 879, 880, 881, 882, 883, 884, 885, 886, 887, 888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 899, 900, 901, 902, 903, 904, 905, 906, 907, 908, 909, 910, 911, 912, 913, 914, 915, 916, 917, 918, 919, 920, 921, 922, 923, 924, 925, 926, 927, 928, 929, 930, 931, 932, 933, 934, 935, 936, 937, 938, 939, 940, 941, 942, 943, 944, 945, 946, 947, 948, 949, 950, 951, 952, 953, 954, 956, 961, 963</code></td></tr><tr><td>Analysis &amp; Clustering</td><td>77</td><td><code>232, 249, 252, 461, 583, 590, 592, 466, 467</code></td></tr><tr><td>Outputs &amp; Docs</td><td>190</td><td><code>88, 228, 231, 331, 280, 320, 321, 322, 338, 339, 340, 377, 378, 464, 555, 565, 739</code></td></tr><tr><td>CLI &amp; Skill Installers</td><td>5681</td><td><code>8, 14, 11, 28, 29, 30, 26, 34, 36, 37, 45, 191, 48, 75, 16, 2, 49, 51, 56, 61, 58, 50, 40, 66, 63, 78, 82, 65, 67, 68, 74, 41, 77, 80, 108, 107, 83, 87, 93, 94, 10, 95, 100, 115, 119, 101, 103, 151, 44, 109, 112, 117, 204, 138, 116, 147, 127, 128, 235, 135, 134, 139, 142, 144, 153, 113, 131, 160, 213, 150, 152, 179, 158, 159, 162, 161, 218, 141, 165, 166, 167, 168, 175, 205, 174, 178, 180, 236, 225, 195, 125, 196, 211, 212, 266, 277, 223, 183, 224, 230, 234, 247, 268, 364, 145, 226, 257, 258, 259, 261, 269, 273, 290, 275, 278, 318, 253, 291, 294, 297, 304, 342, 143, 267, 308, 309, 310, 311, 126, 295, 335, 367, 347, 356, 357, 358, 359, 360, 361, 362, 363, 366, 493, 254, 376, 391, 392, 393, 395, 396, 397, 293, 423, 424, 427, 428, 429, 604, 301, 455, 457, 458, 459, 460, 462, 503, 403, 474, 484, 485, 486, 487, 488, 490, 491, 492, 494, 576, 603, 514, 530, 532, 534, 537, 538, 539, 540, 541, 542, 543, 544, 545, 546, 551, 552, 553, 676, 684, 688, 964, 569, 571, 572, 573, 574, 575, 580, 581, 585, 586, 587, 588, 591, 593, 595, 596, 597, 598, 600, 601, 605, 606, 607, 609, 610, 611, 614, 615, 616, 617, 618, 619, 621, 622, 623, 624, 625, 626, 628, 630, 631, 632, 633, 634, 636, 637, 638, 639, 640, 641, 643, 644, 645, 646, 647, 648, 649, 650, 652, 653, 654, 655, 656, 657, 658, 659, 660, 661, 662, 664, 665, 666, 668, 673, 675, 687, 691, 693, 695, 696, 697, 699, 701, 702, 704, 705, 706, 710, 711, 718, 726, 727, 731, 732, 735, 759, 760, 761, 762, 763, 764, 765, 766, 769, 770, 771, 775, 776, 781, 782, 784, 785, 786, 787, 788, 789, 790, 791, 792, 793, 794, 795, 796, 797, 798, 799, 800, 801, 802, 803, 804, 805, 806, 807, 809, 810, 811, 812, 813, 814, 815, 816, 817, 818, 819, 820, 821, 822, 823, 824, 825, 826, 827, 828, 829, 830, 831, 832, 834, 835, 838, 839, 841, 842, 843, 844, 845, 846, 848, 852, 853, 854, 855, 856, 857, 859, 860, 861, 862, 863, 864, 865, 866, 867, 868, 869, 870, 871, 873, 874, 955, 957, 958, 959, 960, 747, 748, 753</code></td></tr><tr><td>Ingestion &amp; Updates</td><td>381</td><td><code>12, 208, 0, 198, 164, 300, 330, 370, 373, 505, 513, 559, 651, 663, 679, 714, 774, 780, 898</code></td></tr><tr><td>Serving API</td><td>204</td><td><code>42, 69, 72, 282, 285, 416</code></td></tr><tr><td>Security &amp; Global Graph</td><td>177</td><td><code>33, 185, 200, 296, 507, 489, 497, 508, 577, 531, 533, 535, 734</code></td></tr><tr><td>Tests &amp; Fixtures</td><td>5072</td><td><code>3, 1, 52, 25, 5, 186, 4, 62, 23, 110, 15, 13, 20, 18, 7, 21, 24, 39, 53, 6, 27, 57, 73, 47, 79, 148, 84, 91, 92, 118, 120, 124, 129, 133, 132, 140, 197, 156, 22, 169, 184, 172, 206, 233, 192, 187, 194, 214, 190, 202, 86, 210, 264, 244, 245, 248, 334, 279, 262, 265, 274, 328, 329, 237, 284, 286, 287, 288, 289, 292, 303, 305, 241, 315, 323, 324, 325, 326, 327, 344, 346, 243, 341, 343, 345, 602, 246, 351, 352, 353, 354, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 390, 398, 401, 450, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 417, 418, 419, 420, 438, 463, 578, 298, 432, 433, 434, 435, 436, 437, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 453, 454, 465, 472, 471, 473, 475, 476, 477, 478, 479, 480, 481, 482, 483, 510, 511, 579, 582, 515, 516, 517, 518, 519, 521, 522, 523, 524, 525, 526, 527, 528, 529, 548, 560, 561, 562, 563, 584, 612, 613, 620, 629, 566, 567, 568, 635, 667, 694, 736, 737, 738, 740, 741, 742, 743, 744, 751, 752, 754, 755, 756</code></td></tr><tr><td>Live Skills Impeccable</td><td>125</td><td><code>9</code></td></tr><tr><td>Skills Impeccable Scripts</td><td>119</td><td><code>17</code></td></tr><tr><td>Skills Impeccable Scripts</td><td>88</td><td><code>38</code></td></tr><tr><td>Impeccable Skills Scripts</td><td>72</td><td><code>71</code></td></tr><tr><td>Review Preseed Agents</td><td>70</td><td><code>59</code></td></tr><tr><td>Other</td><td>1958</td><td><code>32, 54, 106, 55, 60, 64, 70, 81, 43, 89, 76, 90, 171, 104, 105, 176, 96, 154, 114, 99, 149, 137, 123, 146, 157, 98, 170, 177, 19, 136, 207, 122, 188, 199, 227, 239, 217, 193, 209, 219, 229, 222, 238, 251, 270, 276, 260, 271, 281, 283, 272, 299, 314, 316, 317, 365, 333, 337, 46, 348, 349, 350, 400, 368, 369, 371, 372, 374, 375, 421, 399, 512, 520, 672, 430, 451, 452, 470, 599, 302, 469, 498, 499, 501, 506, 509, 547, 549, 550, 554, 556, 557, 558, 564, 728, 729, 730, 733, 745, 746, 749, 750, 757, 758</code></td></tr>
+      <tr><td>Extraction Pipeline</td><td>284</td><td><code>35, 85, 97, 130, 155, 181, 426, 456, 536, 589</code></td></tr><tr><td>Graph Build</td><td>1035</td><td><code>681, 102, 31, 182, 250, 121, 201, 215, 216, 163, 220, 111, 240, 255, 263, 203, 189, 221, 256, 306, 336, 173, 307, 312, 313, 319, 242, 332, 394, 355, 402, 425, 422, 431, 502, 594, 468, 495, 496, 500, 504, 570, 608, 627, 642, 669, 670, 671, 673, 674, 677, 678, 680, 682, 683, 685, 686, 689, 690, 692, 698, 700, 703, 707, 708, 709, 712, 713, 715, 716, 717, 719, 720, 721, 722, 723, 724, 725, 764, 767, 768, 772, 773, 777, 778, 779, 836, 858, 872, 875, 876, 877, 878, 879, 880, 881, 882, 883, 884, 885, 886, 887, 888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898, 899, 900, 901, 902, 903, 904, 905, 906, 907, 908, 909, 910, 911, 912, 913, 914, 915, 916, 917, 918, 919, 920, 921, 922, 923, 924, 926, 927, 928, 929, 930, 931, 932, 933, 934, 935, 936, 937, 938, 939, 940, 941, 942, 943, 944, 945, 946, 947, 948, 949, 950, 951, 952, 953, 954, 955, 956, 957, 958, 959, 960, 961, 962, 963, 964, 965</code></td></tr><tr><td>Analysis &amp; Clustering</td><td>77</td><td><code>232, 249, 252, 461, 583, 590, 592, 466, 467</code></td></tr><tr><td>Outputs &amp; Docs</td><td>190</td><td><code>88, 228, 231, 331, 280, 320, 321, 322, 338, 339, 340, 377, 378, 464, 555, 565, 739</code></td></tr><tr><td>CLI &amp; Skill Installers</td><td>5681</td><td><code>8, 14, 11, 28, 29, 30, 26, 34, 36, 37, 40, 45, 191, 48, 16, 2, 75, 51, 56, 58, 50, 61, 49, 66, 63, 78, 82, 65, 67, 68, 74, 41, 77, 80, 108, 107, 83, 87, 93, 138, 94, 10, 95, 100, 115, 119, 101, 103, 151, 44, 109, 112, 117, 116, 147, 127, 128, 235, 135, 134, 204, 139, 142, 144, 153, 131, 160, 213, 150, 152, 179, 158, 159, 162, 161, 141, 165, 166, 167, 168, 175, 205, 178, 180, 174, 225, 236, 267, 125, 195, 301, 196, 211, 212, 218, 266, 113, 183, 224, 230, 234, 247, 268, 145, 226, 257, 258, 259, 261, 223, 269, 273, 290, 364, 275, 278, 318, 253, 277, 291, 294, 297, 304, 342, 143, 308, 309, 310, 311, 429, 126, 295, 335, 365, 347, 356, 357, 358, 359, 360, 361, 362, 363, 366, 367, 493, 595, 376, 391, 392, 393, 395, 396, 397, 423, 424, 427, 428, 604, 455, 457, 458, 459, 460, 462, 503, 403, 474, 484, 485, 486, 487, 488, 490, 491, 492, 494, 576, 603, 514, 530, 532, 534, 537, 538, 539, 540, 541, 542, 543, 544, 545, 546, 551, 552, 553, 676, 684, 688, 569, 571, 572, 573, 574, 575, 580, 581, 585, 586, 587, 588, 591, 593, 597, 598, 600, 601, 605, 606, 607, 609, 610, 614, 615, 616, 617, 618, 619, 621, 622, 623, 624, 625, 626, 628, 630, 631, 632, 633, 634, 636, 637, 638, 639, 640, 641, 643, 644, 645, 646, 647, 648, 649, 650, 652, 653, 654, 655, 656, 657, 658, 659, 660, 661, 662, 664, 665, 666, 668, 675, 691, 693, 695, 696, 697, 699, 701, 702, 704, 705, 706, 710, 711, 718, 726, 727, 731, 732, 735, 759, 760, 761, 762, 763, 765, 766, 769, 770, 771, 775, 776, 780, 781, 782, 783, 784, 785, 786, 787, 788, 789, 790, 791, 792, 793, 794, 795, 796, 797, 798, 799, 800, 801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811, 812, 813, 814, 815, 816, 817, 818, 819, 820, 821, 822, 823, 824, 825, 826, 827, 828, 829, 830, 831, 832, 833, 834, 835, 837, 838, 839, 840, 841, 842, 843, 844, 845, 846, 847, 848, 849, 850, 851, 852, 853, 854, 855, 856, 857, 859, 860, 861, 862, 863, 864, 865, 866, 867, 868, 869, 870, 871, 873, 874, 747, 748, 753</code></td></tr><tr><td>Ingestion &amp; Updates</td><td>351</td><td><code>12, 0, 208, 198, 164, 300, 330, 370, 373, 505, 513, 559, 651, 663, 679, 687, 714, 774, 925</code></td></tr><tr><td>Serving API</td><td>204</td><td><code>42, 69, 72, 282, 285, 416</code></td></tr><tr><td>Security &amp; Global Graph</td><td>177</td><td><code>33, 185, 200, 296, 507, 489, 497, 508, 577, 531, 533, 535, 734</code></td></tr><tr><td>Tests &amp; Fixtures</td><td>5072</td><td><code>3, 1, 52, 25, 5, 186, 62, 110, 15, 4, 13, 18, 20, 23, 24, 39, 27, 21, 53, 148, 57, 73, 19, 222, 47, 7, 6, 254, 79, 84, 91, 92, 118, 120, 124, 129, 133, 132, 140, 197, 293, 156, 22, 169, 184, 172, 206, 233, 192, 187, 194, 214, 190, 202, 86, 210, 264, 244, 245, 248, 279, 262, 265, 274, 328, 329, 237, 284, 286, 287, 288, 289, 292, 303, 305, 241, 315, 323, 324, 325, 326, 327, 344, 346, 243, 341, 343, 345, 602, 246, 351, 352, 353, 354, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 390, 398, 401, 450, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 417, 418, 419, 420, 438, 463, 578, 298, 432, 433, 434, 435, 436, 437, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 453, 454, 465, 472, 471, 473, 475, 476, 477, 478, 479, 480, 481, 482, 483, 510, 511, 579, 582, 515, 516, 517, 518, 519, 521, 522, 523, 524, 525, 526, 527, 528, 529, 548, 560, 561, 562, 563, 584, 612, 613, 620, 629, 566, 567, 568, 635, 667, 694, 736, 737, 738, 740, 741, 742, 743, 744, 751, 752, 754, 755, 756</code></td></tr><tr><td>Live Skills Impeccable</td><td>152</td><td><code>9</code></td></tr><tr><td>Skills Impeccable Scripts</td><td>134</td><td><code>17</code></td></tr><tr><td>Skills Impeccable Scripts</td><td>75</td><td><code>38</code></td></tr><tr><td>Impeccable Skills Scripts</td><td>72</td><td><code>71</code></td></tr><tr><td>Review Preseed Agents</td><td>70</td><td><code>59</code></td></tr><tr><td>Other</td><td>1958</td><td><code>32, 55, 54, 106, 60, 64, 70, 176, 43, 81, 89, 76, 90, 114, 171, 104, 105, 96, 154, 46, 99, 149, 137, 123, 157, 98, 170, 177, 199, 122, 188, 193, 227, 239, 136, 207, 209, 217, 219, 229, 238, 251, 270, 146, 276, 260, 271, 334, 281, 283, 272, 299, 314, 316, 317, 333, 337, 348, 349, 350, 400, 368, 369, 371, 372, 374, 375, 421, 596, 399, 512, 520, 672, 430, 451, 452, 470, 599, 302, 469, 498, 499, 501, 506, 509, 547, 549, 550, 554, 556, 557, 558, 564, 611, 728, 729, 730, 733, 745, 746, 749, 750, 757, 758</code></td></tr>
     </table>
   </div>
   <div class="card">
@@ -158,7 +158,7 @@ flowchart LR
   <div class="card">
     <h4>Graph Report Highlights</h4>
     <ul>
-      <li>15532 nodes · 35680 edges · 964 communities (549 shown, 415 thin omitted)</li>
+      <li>15532 nodes · 35680 edges · 966 communities (551 shown, 415 thin omitted)</li>
       <li>Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 539 edges (avg confidence: 0.67)</li>
       <li>Token cost: 0 input · 0 output</li>
       <li>1. `Spec Changes` - 344 edges</li>
@@ -519,12 +519,12 @@ flowchart LR
 
 <!-- ====== 3. Graph Build ====== -->
 <h2 id="build-graph">3. Graph Build</h2>
-<p>Graph Build groups implementation around preseed, agents, manifestjson, packagejson, mostly in agents/pi/manifest.json, package.json, web-ui/package.json. This section covers 1034 nodes and 1160 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Graph Build groups implementation around preseed, agents, manifestjson, packagejson, mostly in agents/pi/manifest.json, package.json, web-ui/package.json. This section covers 1035 nodes and 1161 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Graph Build (1034 nodes, 1160 edges)
+    %% Section: Graph Build (1035 nodes, 1161 edges)
     subgraph build_graph_codeflare_vault_scripts_merge_vault_dd735328["codeflare-vault/scripts/merge-vault-graph.py"]
         preseed_agents_claude_plugins_codeflare_vault_sc_0f5bf558("node_link_edges()<br/><small>codeflare-vault/scripts/merge-vault-graph.py</small>")
         preseed_agents_claude_plugins_codeflare_vault_sc_65425fcc("dedupe_node_link_edges()<br/><small>codeflare-vault/scripts/merge-vault-graph.py</small>")
@@ -562,7 +562,7 @@ flowchart LR
     preseed_agents_claude_skills_review_scope_script_dceea025 -->|calls| preseed_agents_claude_skills_review_scope_script_eaa0be26
     preseed_agents_claude_skills_review_scope_script_dceea025 -->|calls| preseed_agents_claude_skills_review_scope_script_536d2bc1
     preseed_agents_claude_skills_review_scope_script_536d2bc1 -->|calls| preseed_agents_claude_skills_review_scope_script_eaa0be26
-    %% Omitted for readability: 1016 nodes, 0 edges
+    %% Omitted for readability: 1017 nodes, 0 edges
     class preseed_agents_claude_plugins_codeflare_vault_sc_0f5bf558 function;
     class preseed_agents_claude_plugins_codeflare_vault_sc_65425fcc function;
     class preseed_agents_claude_plugins_codeflare_vault_sc_4415d7ee function;
@@ -604,6 +604,22 @@ flowchart LR
 </tr>
 <tr>
   <td>1</td>
+  <td><code>pi/manifest.json</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>pi/manifest.json node in agents/pi/manifest.json.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>skills/browser-e2e/SKILL.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>skills/browser-e2e/SKILL.md node in agents/pi/manifest.json.</td>
+</tr>
+<tr>
+  <td>3</td>
   <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -611,15 +627,7 @@ flowchart LR
   <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
-  <td>2</td>
-  <td><code>advanced</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>advanced node in agents/pi/manifest.json.</td>
-</tr>
-<tr>
-  <td>3</td>
+  <td>4</td>
   <td><code>extensions/commands-helpers.ts</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-cmd">Entry</span></td>
   <td>External entry / no inbound edge</td>
@@ -627,31 +635,15 @@ flowchart LR
   <td>Module file in agents/pi/manifest.json.</td>
 </tr>
 <tr>
-  <td>4</td>
+  <td>5</td>
   <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>modes node in agents/pi/manifest.json.</td>
-</tr>
-<tr>
-  <td>5</td>
-  <td><code>agents/code-reviewer.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>agents/code-reviewer.md node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>6</td>
-  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>modes node in agents/pi/manifest.json.</td>
-</tr>
-<tr>
-  <td>7</td>
   <td><code>agents/spec-reviewer.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -659,7 +651,7 @@ flowchart LR
   <td>agents/spec-reviewer.md node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
-  <td>8</td>
+  <td>7</td>
   <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -667,7 +659,23 @@ flowchart LR
   <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
+  <td>8</td>
+  <td><code>agents/doc-updater.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>agents/doc-updater.md node in agents/pi/manifest.json.</td>
+</tr>
+<tr>
   <td>9</td>
+  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>modes node in agents/pi/manifest.json.</td>
+</tr>
+<tr>
+  <td>10</td>
   <td><code>extensions/sdd-helpers.ts</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-class">Module</span></td>
   <td>External entry / no inbound edge</td>
@@ -675,7 +683,7 @@ flowchart LR
   <td>Module file in agents/pi/manifest.json.</td>
 </tr>
 <tr>
-  <td>10</td>
+  <td>11</td>
   <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -683,164 +691,156 @@ flowchart LR
   <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
-  <td>11</td>
-  <td><code>extensions/post-compaction-recall.ts</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td>12</td>
+  <td><code>extensions/memory-vault-helpers.ts</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-class">Module</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>Module file in agents/pi/manifest.json.</td>
 </tr>
 <tr>
-  <td>12</td>
+  <td>13</td>
   <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>modes node in agents/pi/manifest.json.</td>
-</tr>
-<tr>
-  <td>13</td>
-  <td><code>skills/git-review-pipeline/SKILL.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Turns a local path or remote repository into analysis context.</td>
 </tr>
 <tr>
   <td>14</td>
-  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>modes node in agents/pi/manifest.json.</td>
-</tr>
-<tr>
-  <td>15</td>
-  <td><code>scripts/local-graphify-labels.sh</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>skills/graphify/references/build.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>Builds dependency relationships and graph data.</td>
 </tr>
 <tr>
-  <td>16</td>
+  <td>15</td>
   <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>modes node in agents/pi/manifest.json.</td>
+</tr>
+<tr>
+  <td>16</td>
+  <td><code>skills/review/scripts/resolve-project-root.mjs</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>skills/review/scripts/resolve-project-root.mjs node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>17</td>
-  <td><code>skills/impeccable/reference/android.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>skills/impeccable/reference/android.md node in agents/pi/manifest.json.</td>
+  <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>18</td>
-  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
+  <td><code>scripts/merge-vault-graph.py</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-class">Module</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>modes node in agents/pi/manifest.json.</td>
+  <td>Module file in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>19</td>
-  <td><code>skills/impeccable/reference/animate.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>skills/impeccable/reference/animate.md node in agents/pi/manifest.json.</td>
+  <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>20</td>
-  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
+  <td><code>extensions/sidebar-approval.ts</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-class">Module</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>modes node in agents/pi/manifest.json.</td>
+  <td>Module file in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>21</td>
-  <td><code>skills/impeccable/reference/craft.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>skills/impeccable/reference/craft.md node in agents/pi/manifest.json.</td>
+  <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>22</td>
-  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>skills/impeccable/reference/critique.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>modes node in agents/pi/manifest.json.</td>
+  <td>skills/impeccable/reference/critique.md node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>23</td>
-  <td><code>skills/impeccable/reference/doctor.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>skills/impeccable/reference/doctor.md node in agents/pi/manifest.json.</td>
+  <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>24</td>
-  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>skills/impeccable/reference/document.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>modes node in agents/pi/manifest.json.</td>
+  <td>skills/impeccable/reference/document.md node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>25</td>
-  <td><code>skills/impeccable/reference/extract.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>skills/impeccable/reference/extract.md node in agents/pi/manifest.json.</td>
+  <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>26</td>
-  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>skills/impeccable/reference/harden.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>modes node in agents/pi/manifest.json.</td>
+  <td>skills/impeccable/reference/harden.md node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>27</td>
-  <td><code>skills/impeccable/reference/live-setup.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>skills/impeccable/reference/live-setup.md node in agents/pi/manifest.json.</td>
+  <td>modes node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>28</td>
-  <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
+  <td><code>skills/impeccable/reference/hooks.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-hook">UI</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
-  <td>modes node in agents/pi/manifest.json.</td>
+  <td>skills/impeccable/reference/hooks.md node in agents/pi/manifest.json.</td>
 </tr>
 <tr>
   <td>29</td>
-  <td><code>skills/impeccable/reference/overdrive.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>skills/impeccable/reference/overdrive.md node in agents/pi/manifest.json.</td>
-</tr>
-<tr>
-  <td>30</td>
   <td><code>modes</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>modes node in agents/pi/manifest.json.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>skills/impeccable/reference/new-work.md</code><br><small style="color:var(--muted)">agents/pi/manifest.json</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>skills/impeccable/reference/new-work.md node in agents/pi/manifest.json.</td>
 </tr>
 </table>
 
@@ -849,7 +849,7 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>agents/pi/manifest.json</code></td><td>355 nodes</td></tr>
+      <tr><td><code>agents/pi/manifest.json</code></td><td>356 nodes</td></tr>
 <tr><td><code>package.json</code></td><td>66 nodes</td></tr>
 <tr><td><code>web-ui/package.json</code></td><td>57 nodes</td></tr>
 <tr><td><code>agents/pi/package.json</code></td><td>39 nodes</td></tr>
@@ -861,7 +861,7 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x638, extends x255, imports x108, calls x108. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x816, imports x108, calls x108, extends x78. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -1894,12 +1894,12 @@ flowchart LR
 
 <!-- ====== 7. Ingestion & Updates ====== -->
 <h2 id="ingest-cache-update">7. Ingestion &amp; Updates</h2>
-<p>Ingestion &amp; Updates groups implementation around preseed, agents, scripts, spec, mostly in agents/pi/manifest.json, sdd/spec/glossary.md, sdd/spec/changes-archive-2026-07.md. This section covers 381 nodes and 670 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Ingestion &amp; Updates groups implementation around preseed, agents, spec, sdd, mostly in agents/pi/manifest.json, sdd/spec/glossary.md, sdd/spec/changes-archive-2026-07.md. This section covers 351 nodes and 612 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Ingestion &amp; Updates (381 nodes, 670 edges)
+    %% Section: Ingestion &amp; Updates (351 nodes, 612 edges)
     subgraph ingest_cache_update_codeflare_vault_scripts_vaul_2c369f8a["codeflare-vault/scripts/vault-manifest.py"]
         preseed_agents_claude_plugins_codeflare_vault_sc_b7719695("_rel()<br/><small>codeflare-vault/scripts/vault-manifest.py</small>")
         preseed_agents_claude_plugins_codeflare_vault_sc_23664df6("collect()<br/><small>codeflare-vault/scripts/vault-manifest.py</small>")
@@ -1915,6 +1915,10 @@ flowchart LR
         preseed_agents_pi_extensions_vault_manifest_fs_c_a7edfd6a("collectVaultFileHashes()<br/><small>pi/extensions/vault-manifest-fs.ts</small>")
         preseed_agents_pi_extensions_vault_manifest_fs_r_eba8494b("readVaultManifest()<br/><small>pi/extensions/vault-manifest-fs.ts</small>")
     end
+    subgraph ingest_cache_update_engines_browser_detect_url_m_13db12f6["engines/browser/detect-url.mjs"]
+        preseed_agents_pi_skills_impeccable_scripts_dete_f4fc58bb("pi/skills/impeccable/scripts/detector/e...<br/><small>engines/browser/detect-url.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_ade3384b("runVisualContrastFallback()<br/><small>engines/browser/detect-url.mjs</small>")
+    end
     subgraph ingest_cache_update_engines_static_html_detect_h_bfcad885["engines/static-html/detect-html.mjs"]
         preseed_agents_pi_skills_impeccable_scripts_dete_bab7f01b("pi/skills/impeccable/scripts/detector/e...<br/><small>engines/static-html/detect-html.mjs</small>")
         preseed_agents_pi_skills_impeccable_scripts_dete_6cd503cc("detectHtml()<br/><small>engines/static-html/detect-html.mjs</small>")
@@ -1923,8 +1927,6 @@ flowchart LR
         preseed_agents_pi_extensions_memory_vault_helper_2ee7035a("isVaultExcludedPath()<br/><small>pi/extensions/memory-vault-helpers.ts</small>")
         preseed_agents_pi_extensions_memory_vault_helper_0d0b28c6("parseVaultManifest()<br/><small>pi/extensions/memory-vault-helpers.ts</small>")
     end
-    preseed_agents_pi_skills_impeccable_scripts_dete_f4fc58bb("pi/skills/impeccable/scripts/detector/e...<br/><small>engines/browser/detect-url.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_ab1f7eb5("pi/skills/impeccable/scripts/detector/e...<br/><small>engines/regex/detect-text.mjs</small>")
     landing_src_layouts_baselayout_3e879940("BaseLayout.astro")
     preseed_agents_claude_plugins_codeflare_vault_sc_b7719695 -->|calls| preseed_agents_claude_plugins_codeflare_vault_sc_23664df6
     preseed_agents_claude_plugins_codeflare_vault_sc_71978b74 -->|calls| preseed_agents_claude_plugins_codeflare_vault_sc_23664df6
@@ -1937,8 +1939,7 @@ flowchart LR
     preseed_agents_pi_extensions_memory_vault_helper_2ee7035a -->|calls| preseed_agents_pi_extensions_vault_manifest_fs_c_a7edfd6a
     preseed_agents_pi_extensions_memory_vault_helper_0d0b28c6 -->|calls| preseed_agents_pi_extensions_vault_manifest_fs_r_eba8494b
     preseed_agents_pi_extensions_vault_manifest_fs_s_ddcde2eb -->|calls| preseed_agents_pi_extensions_vault_manifest_fs_c_a7edfd6a
-    preseed_agents_pi_skills_impeccable_scripts_dete_ab1f7eb5 -->|imports| preseed_agents_pi_skills_impeccable_scripts_dete_bab7f01b
-    %% Omitted for readability: 363 nodes, 0 edges
+    %% Omitted for readability: 333 nodes, 0 edges
     class preseed_agents_claude_plugins_codeflare_vault_sc_b7719695 function;
     class preseed_agents_claude_plugins_codeflare_vault_sc_23664df6 function;
     class preseed_agents_claude_plugins_codeflare_vault_sc_71978b74 function;
@@ -1950,12 +1951,12 @@ flowchart LR
     class preseed_agents_pi_extensions_vault_manifest_fs_s_ddcde2eb function;
     class preseed_agents_pi_extensions_vault_manifest_fs_c_a7edfd6a function;
     class preseed_agents_pi_extensions_vault_manifest_fs_r_eba8494b function;
+    class preseed_agents_pi_skills_impeccable_scripts_dete_f4fc58bb function;
+    class preseed_agents_pi_skills_impeccable_scripts_dete_ade3384b function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_bab7f01b function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_6cd503cc function;
     class preseed_agents_pi_extensions_memory_vault_helper_2ee7035a function;
     class preseed_agents_pi_extensions_memory_vault_helper_0d0b28c6 function;
-    class preseed_agents_pi_skills_impeccable_scripts_dete_f4fc58bb function;
-    class preseed_agents_pi_skills_impeccable_scripts_dete_ab1f7eb5 function;
     class landing_src_layouts_baselayout_3e879940 klass;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
@@ -2225,19 +2226,19 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>agents/pi/manifest.json</code></td><td>68 nodes</td></tr>
+      <tr><td><code>agents/pi/manifest.json</code></td><td>67 nodes</td></tr>
 <tr><td><code>sdd/spec/glossary.md</code></td><td>48 nodes</td></tr>
 <tr><td><code>sdd/spec/changes-archive-2026-07.md</code></td><td>38 nodes</td></tr>
 <tr><td><code>sdd/spec/enterprise-mode.md</code></td><td>32 nodes</td></tr>
-<tr><td><code>engines/regex/detect-text.mjs</code></td><td>28 nodes</td></tr>
 <tr><td><code>sdd/spec/setup.md</code></td><td>14 nodes</td></tr>
 <tr><td><code>pi/extensions/vault-manifest-fs.ts</code></td><td>11 nodes</td></tr>
 <tr><td><code>codeflare-vault/scripts/vault-manifest.py</code></td><td>10 nodes</td></tr>
+<tr><td><code>detector/profile/profiler.mjs</code></td><td>10 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: references x210, contains x171, relates x119, calls x102. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: references x210, relates x119, contains x108, calls x86. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -3035,7 +3036,7 @@ flowchart LR
   <td><code>contract/schemas.test.ts</code><br><small style="color:var(--muted)">__tests__/contract/schemas.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
-  <td><code>AccessTierSchema</code><br><small style="color:var(--muted)">src/lib/schemas.ts</small><br><code>AccessTierSchema</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>AgentTypeSchema</code><br><small style="color:var(--muted)">src/lib/schemas.ts</small><br>+9 more</td>
+  <td><code>AccessTierSchema</code><br><small style="color:var(--muted)">src/lib/schemas.ts</small><br><code>AccessTierSchema</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>AgentTypeSchema</code><br><small style="color:var(--muted)">src/types.ts</small><br>+9 more</td>
   <td>Module file in __tests__/contract/schemas.test.ts.</td>
 </tr>
 <tr>
@@ -3104,30 +3105,6 @@ flowchart LR
 </tr>
 <tr>
   <td>10</td>
-  <td><code>test-app.ts</code><br><small style="color:var(--muted)">__tests__/helpers/test-app.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>AccessUser</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>AppError</code><br><small style="color:var(--muted)">src/lib/error-types.ts</small><br><code>auth.ts</code><br><small style="color:var(--muted)">src/middleware/auth.ts</small><br>+20 more</td>
-  <td>Module file in __tests__/helpers/test-app.ts.</td>
-</tr>
-<tr>
-  <td>11</td>
-  <td><code>RouteRegistration</code><br><small style="color:var(--muted)">__tests__/helpers/test-app.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>RouteRegistration node in __tests__/helpers/test-app.ts.</td>
-</tr>
-<tr>
-  <td>12</td>
-  <td><code>TestAppOptions</code><br><small style="color:var(--muted)">__tests__/helpers/test-app.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Verifies imports, entry points, or version behavior.</td>
-</tr>
-<tr>
-  <td>13</td>
   <td><code>createMockEnv()</code><br><small style="color:var(--muted)">src/__tests__/index.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
@@ -3135,7 +3112,7 @@ flowchart LR
   <td>createMockEnv() node in src/__tests__/index.test.ts.</td>
 </tr>
 <tr>
-  <td>14</td>
+  <td>11</td>
   <td><code>access-cookie-jwt.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/access-cookie-jwt.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
@@ -3143,7 +3120,7 @@ flowchart LR
   <td>Module file in __tests__/lib/access-cookie-jwt.test.ts.</td>
 </tr>
 <tr>
-  <td>15</td>
+  <td>12</td>
   <td><code>makeEnv()</code><br><small style="color:var(--muted)">__tests__/lib/access-cookie-jwt.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -3151,7 +3128,7 @@ flowchart LR
   <td>makeEnv() node in __tests__/lib/access-cookie-jwt.test.ts.</td>
 </tr>
 <tr>
-  <td>16</td>
+  <td>13</td>
   <td><code>cors-cache.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/cors-cache.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
@@ -3159,7 +3136,7 @@ flowchart LR
   <td>Module file in __tests__/lib/cors-cache.test.ts.</td>
 </tr>
 <tr>
-  <td>17</td>
+  <td>14</td>
   <td><code>createEnv()</code><br><small style="color:var(--muted)">__tests__/lib/cors-cache.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -3167,7 +3144,63 @@ flowchart LR
   <td>createEnv() node in __tests__/lib/cors-cache.test.ts.</td>
 </tr>
 <tr>
+  <td>15</td>
+  <td><code>cross-package-constants.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/cross-package-constants.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>AgentTypeSchema</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>constants.ts</code><br><small style="color:var(--muted)">src/lib/constants.ts</small><br><code>LIMIT MAX CONNECTIONS</code><br><small style="color:var(--muted)">src/lib/constants.ts</small><br>+6 more</td>
+  <td>Module file in __tests__/lib/cross-package-constants.test.ts.</td>
+</tr>
+<tr>
+  <td>16</td>
+  <td><code>currency.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/currency.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>currency.ts</code><br><small style="color:var(--muted)">src/lib/currency.ts</small><br><code>getCurrencyForCountry()</code><br><small style="color:var(--muted)">src/lib/currency.ts</small></td>
+  <td>Module file in __tests__/lib/currency.test.ts.</td>
+</tr>
+<tr>
+  <td>17</td>
+  <td><code>enterprise-jit-provisioning.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/enterprise-jit-provisioning.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
+  <td><code>access.ts</code><br><small style="color:var(--muted)">src/lib/access.ts</small><br><code>authenticateRequest()</code><br><small style="color:var(--muted)">src/lib/access.ts</small><br><code>Env</code><br><small style="color:var(--muted)">src/types.ts</small><br>+7 more</td>
+  <td>Module file in __tests__/lib/enterprise-jit-provisioning.test.ts.</td>
+</tr>
+<tr>
   <td>18</td>
+  <td><code>{ mockLoggerWarn }</code><br><small style="color:var(--muted)">__tests__/lib/enterprise-jit-provisioning.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>{ mockLoggerWarn } node in __tests__/lib/enterprise-jit-provisioning.test.ts.</td>
+</tr>
+<tr>
+  <td>19</td>
+  <td><code>{ mockSendWelcomeEmail }</code><br><small style="color:var(--muted)">__tests__/lib/enterprise-jit-provisioning.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>{ mockSendWelcomeEmail } node in __tests__/lib/enterprise-jit-provisioning.test.ts.</td>
+</tr>
+<tr>
+  <td>20</td>
+  <td><code>identityOk()</code><br><small style="color:var(--muted)">__tests__/lib/enterprise-jit-provisioning.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>identityOk() node in __tests__/lib/enterprise-jit-provisioning.test.ts.</td>
+</tr>
+<tr>
+  <td>21</td>
+  <td><code>enterpriseEnv()</code><br><small style="color:var(--muted)">__tests__/lib/enterprise-jit-provisioning.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>enterpriseEnv() node in __tests__/lib/enterprise-jit-provisioning.test.ts.</td>
+</tr>
+<tr>
+  <td>22</td>
   <td><code>enterprise-route-config.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/enterprise-route-config.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>MockKV</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
@@ -3175,7 +3208,7 @@ flowchart LR
   <td>Module file in __tests__/lib/enterprise-route-config.test.ts.</td>
 </tr>
 <tr>
-  <td>19</td>
+  <td>23</td>
   <td><code>makeEnv()</code><br><small style="color:var(--muted)">__tests__/lib/enterprise-route-config.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -3183,7 +3216,7 @@ flowchart LR
   <td>makeEnv() node in __tests__/lib/enterprise-route-config.test.ts.</td>
 </tr>
 <tr>
-  <td>20</td>
+  <td>24</td>
   <td><code>withGlobalAndGroups()</code><br><small style="color:var(--muted)">__tests__/lib/enterprise-route-config.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -3191,7 +3224,7 @@ flowchart LR
   <td>withGlobalAndGroups() node in __tests__/lib/enterprise-route-config.test.ts.</td>
 </tr>
 <tr>
-  <td>21</td>
+  <td>25</td>
   <td><code>jit-provisioning.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/jit-provisioning.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
@@ -3199,7 +3232,7 @@ flowchart LR
   <td>Module file in __tests__/lib/jit-provisioning.test.ts.</td>
 </tr>
 <tr>
-  <td>22</td>
+  <td>26</td>
   <td><code>makeEnv()</code><br><small style="color:var(--muted)">__tests__/lib/jit-provisioning.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -3207,7 +3240,15 @@ flowchart LR
   <td>makeEnv() node in __tests__/lib/jit-provisioning.test.ts.</td>
 </tr>
 <tr>
-  <td>23</td>
+  <td>27</td>
+  <td><code>src/__tests__/lib/schemas.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/schemas.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>schemas.ts</code><br><small style="color:var(--muted)">src/lib/schemas.ts</small><br><code>TabConfigSchema</code><br><small style="color:var(--muted)">src/lib/schemas.ts</small></td>
+  <td>Module file in __tests__/lib/schemas.test.ts.</td>
+</tr>
+<tr>
+  <td>28</td>
   <td><code>service-token-auth.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/service-token-auth.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
@@ -3215,7 +3256,7 @@ flowchart LR
   <td>Module file in __tests__/lib/service-token-auth.test.ts.</td>
 </tr>
 <tr>
-  <td>24</td>
+  <td>29</td>
   <td><code>makeEnv()</code><br><small style="color:var(--muted)">__tests__/lib/service-token-auth.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -3223,52 +3264,12 @@ flowchart LR
   <td>makeEnv() node in __tests__/lib/service-token-auth.test.ts.</td>
 </tr>
 <tr>
-  <td>25</td>
+  <td>30</td>
   <td><code>sync-fanout.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/sync-fanout.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
   <td><code>Env</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>fanOutBisyncTrigger()</code><br><small style="color:var(--muted)">src/lib/sync-fanout.ts</small><br><code>sync-fanout.ts</code><br><small style="color:var(--muted)">src/lib/sync-fanout.ts</small><br>+1 more</td>
   <td>Module file in __tests__/lib/sync-fanout.test.ts.</td>
-</tr>
-<tr>
-  <td>26</td>
-  <td><code>testState</code><br><small style="color:var(--muted)">__tests__/lib/sync-fanout.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Verifies imports, entry points, or version behavior.</td>
-</tr>
-<tr>
-  <td>27</td>
-  <td><code>buildEnv()</code><br><small style="color:var(--muted)">__tests__/lib/sync-fanout.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>buildEnv() node in __tests__/lib/sync-fanout.test.ts.</td>
-</tr>
-<tr>
-  <td>28</td>
-  <td><code>seedSession()</code><br><small style="color:var(--muted)">__tests__/lib/sync-fanout.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>seedSession() node in __tests__/lib/sync-fanout.test.ts.</td>
-</tr>
-<tr>
-  <td>29</td>
-  <td><code>user-cleanup.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/user-cleanup.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
-  <td><code>cleanupUserData()</code><br><small style="color:var(--muted)">src/lib/user-cleanup.ts</small><br><code>Env</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>types.ts</code><br><small style="color:var(--muted)">src/types.ts</small><br>+1 more</td>
-  <td>Module file in __tests__/lib/user-cleanup.test.ts.</td>
-</tr>
-<tr>
-  <td>30</td>
-  <td><code>mockDeleteScopedR2Token</code><br><small style="color:var(--muted)">__tests__/lib/user-cleanup.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>mockDeleteScopedR2Token node in __tests__/lib/user-cleanup.test.ts.</td>
 </tr>
 </table>
 
@@ -3296,62 +3297,62 @@ flowchart LR
 
 <!-- ====== 11. Live Skills Impeccable ====== -->
 <h2 id="live-skills-impeccable">11. Live Skills Impeccable</h2>
-<p>Live Skills Impeccable groups implementation around live, skills, impeccable, scripts, mostly in impeccable/scripts/live-browser.js. This section covers 125 nodes and 255 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Live Skills Impeccable groups implementation around live, skills, impeccable, scripts, mostly in impeccable/scripts/live-browser.js. This section covers 152 nodes and 307 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Live Skills Impeccable (125 nodes, 255 edges)
+    %% Section: Live Skills Impeccable (152 nodes, 307 edges)
     preseed_agents_pi_skills_impeccable_scripts_live_f86f2ea8("renderDesignVisual()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_94f823d3("renderDesignBody()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_054b6490("isTransparentColor()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_3d494a2d("normalizeManualContextText()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_229663f9("renderColorTiles()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_0f5bc858("documentRefSegment()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_e81311af("scopeCssBlock()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_44968cc2("shouldShowHighlightTagTooltip()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_d0830989("showHighlight()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_16af3a92("hideHighlightTagTooltip()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_2792e616("handleMouseMove()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_b75ee272("detectInsertAxisFromStyle()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_2fa4f6e0("detectInsertAxis()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_5f1bffba("createInsertPlaceholder()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_f03b15fa("layoutFlowChildren()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_d56758d5("computeInsertPosition()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_aa3ee9b9("resolveInsertHover()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_39d6ae86("groupSiblingRows()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_d22024d7("hitSiblingInsertGap()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_c1f73cb7("contextElementForManualEdit()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_6c9e6afa("addManualContextText()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_a83ad5f2("isUsefulManualEditContext()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_fc74d56c("collectManualContextPieces()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_31c393a3("canRestoreManualEditElement()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_163a5718("findManualEditRestoreElement()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_81e90a5b("nearbyEditableTextsForManualEdit()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_def11742("restoreMixedTextNodeManualEdit()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_44968cc2 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_d0830989
     preseed_agents_pi_skills_impeccable_scripts_live_16af3a92 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_d0830989
     preseed_agents_pi_skills_impeccable_scripts_live_d0830989 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_2792e616
-    preseed_agents_pi_skills_impeccable_scripts_live_b75ee272 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_2fa4f6e0
-    preseed_agents_pi_skills_impeccable_scripts_live_2fa4f6e0 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5f1bffba
-    preseed_agents_pi_skills_impeccable_scripts_live_2fa4f6e0 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_2792e616
-    preseed_agents_pi_skills_impeccable_scripts_live_f03b15fa -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_2792e616
-    preseed_agents_pi_skills_impeccable_scripts_live_d56758d5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_aa3ee9b9
-    preseed_agents_pi_skills_impeccable_scripts_live_39d6ae86 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_d22024d7
-    preseed_agents_pi_skills_impeccable_scripts_live_d22024d7 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_aa3ee9b9
-    preseed_agents_pi_skills_impeccable_scripts_live_aa3ee9b9 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_2792e616
+    preseed_agents_pi_skills_impeccable_scripts_live_c1f73cb7 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_6c9e6afa
+    preseed_agents_pi_skills_impeccable_scripts_live_c1f73cb7 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_a83ad5f2
+    preseed_agents_pi_skills_impeccable_scripts_live_a83ad5f2 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_fc74d56c
+    preseed_agents_pi_skills_impeccable_scripts_live_6c9e6afa -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_3d494a2d
+    preseed_agents_pi_skills_impeccable_scripts_live_3d494a2d -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_31c393a3
+    preseed_agents_pi_skills_impeccable_scripts_live_3d494a2d -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_163a5718
+    preseed_agents_pi_skills_impeccable_scripts_live_3d494a2d -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_81e90a5b
+    preseed_agents_pi_skills_impeccable_scripts_live_3d494a2d -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_def11742
     preseed_agents_pi_skills_impeccable_scripts_live_94f823d3 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_f86f2ea8
     preseed_agents_pi_skills_impeccable_scripts_live_f86f2ea8 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_229663f9
-    %% Omitted for readability: 107 nodes, 0 edges
+    %% Omitted for readability: 134 nodes, 0 edges
     class preseed_agents_pi_skills_impeccable_scripts_live_f86f2ea8 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_94f823d3 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_054b6490 function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_3d494a2d function;
     class preseed_agents_pi_skills_impeccable_scripts_live_229663f9 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_0f5bc858 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_e81311af function;
     class preseed_agents_pi_skills_impeccable_scripts_live_44968cc2 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_d0830989 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_16af3a92 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_2792e616 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_b75ee272 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_2fa4f6e0 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_5f1bffba function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_f03b15fa function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_d56758d5 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_aa3ee9b9 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_39d6ae86 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_d22024d7 function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_c1f73cb7 function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_6c9e6afa function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_a83ad5f2 function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_fc74d56c function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_31c393a3 ui;
+    class preseed_agents_pi_skills_impeccable_scripts_live_163a5718 ui;
+    class preseed_agents_pi_skills_impeccable_scripts_live_81e90a5b function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_def11742 ui;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -3407,6 +3408,38 @@ flowchart LR
 </tr>
 <tr>
   <td>5</td>
+  <td><code>contextElementForManualEdit()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>addManualContextText()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>isUsefulManualEditContext()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>contextElementForManualEdit() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td><code>isUsefulManualEditContext()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>contextElementForManualEdit()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><code>collectManualContextPieces()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>isUsefulManualEditContext() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td><code>collectManualContextPieces()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>isUsefulManualEditContext()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>No direct outbound edge</td>
+  <td>collectManualContextPieces() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td><code>addManualContextText()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>contextElementForManualEdit()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><code>normalizeManualContextText()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>addManualContextText() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>9</td>
   <td><code>isMeaningfulManualContextPiece()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3414,7 +3447,15 @@ flowchart LR
   <td>isMeaningfulManualContextPiece() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>6</td>
+  <td>10</td>
+  <td><code>normalizeManualContextText()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>addManualContextText()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><code>canRestoreManualEditElement()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>findManualEditRestoreElement()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>nearbyEditableTextsForManualEdit()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br>+1 more</td>
+  <td>normalizeManualContextText() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>11</td>
   <td><code>detectInsertAxisFromStyle()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3422,7 +3463,7 @@ flowchart LR
   <td>detectInsertAxisFromStyle() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>7</td>
+  <td>12</td>
   <td><code>detectInsertAxis()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>detectInsertAxisFromStyle()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -3430,7 +3471,7 @@ flowchart LR
   <td>detectInsertAxis() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>8</td>
+  <td>13</td>
   <td><code>layoutFlowChildren()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3438,7 +3479,7 @@ flowchart LR
   <td>layoutFlowChildren() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>9</td>
+  <td>14</td>
   <td><code>computeInsertPosition()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3446,7 +3487,7 @@ flowchart LR
   <td>computeInsertPosition() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>10</td>
+  <td>15</td>
   <td><code>groupSiblingRows()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3454,7 +3495,7 @@ flowchart LR
   <td>groupSiblingRows() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>11</td>
+  <td>16</td>
   <td><code>horizontalOverlap()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3462,7 +3503,7 @@ flowchart LR
   <td>horizontalOverlap() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>12</td>
+  <td>17</td>
   <td><code>hitSiblingInsertGap()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>groupSiblingRows()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>horizontalOverlap()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -3470,7 +3511,7 @@ flowchart LR
   <td>hitSiblingInsertGap() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>13</td>
+  <td>18</td>
   <td><code>insertLineCoords()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3478,7 +3519,7 @@ flowchart LR
   <td>insertLineCoords() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>14</td>
+  <td>19</td>
   <td><code>resolveInsertHover()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>computeInsertPosition()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>hitSiblingInsertGap()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>insertLineCoords()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -3486,7 +3527,7 @@ flowchart LR
   <td>resolveInsertHover() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>15</td>
+  <td>20</td>
   <td><code>placeholderSizing()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3494,7 +3535,7 @@ flowchart LR
   <td>placeholderSizing() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>16</td>
+  <td>21</td>
   <td><code>applyPlaceholderSizingStyles()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3502,7 +3543,31 @@ flowchart LR
   <td>applyPlaceholderSizingStyles() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>17</td>
+  <td>22</td>
+  <td><code>clampPlaceholderSize()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>resizePlaceholderFromEdge()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>clampPlaceholderSize() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>23</td>
+  <td><code>cursorForPlaceholderEdge()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>buildPlaceholderResizeHandles()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>cursorForPlaceholderEdge() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>24</td>
+  <td><code>resizePlaceholderFromEdge()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>clampPlaceholderSize()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>No direct outbound edge</td>
+  <td>resizePlaceholderFromEdge() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>25</td>
   <td><code>ensureInsertLine()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3510,7 +3575,7 @@ flowchart LR
   <td>ensureInsertLine() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>18</td>
+  <td>26</td>
   <td><code>showInsertLine()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>ensureInsertLine()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -3518,7 +3583,15 @@ flowchart LR
   <td>showInsertLine() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>19</td>
+  <td>27</td>
+  <td><code>buildPlaceholderResizeHandles()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>cursorForPlaceholderEdge()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>No direct outbound edge</td>
+  <td>buildPlaceholderResizeHandles() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>28</td>
   <td><code>createInsertPlaceholder()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>applyPlaceholderSizingStyles()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>detectInsertAxis()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>placeholderSizing()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -3526,7 +3599,7 @@ flowchart LR
   <td>createInsertPlaceholder() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>20</td>
+  <td>29</td>
   <td><code>collectEditableTextRows()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3534,84 +3607,12 @@ flowchart LR
   <td>collectEditableTextRows() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>21</td>
+  <td>30</td>
   <td><code>wrapMixedContentTextNodes()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td><code>enableInlineEdit()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td>wrapMixedContentTextNodes() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>22</td>
-  <td><code>enableInlineEdit()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>collectEditableTextRows()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>wrapMixedContentTextNodes()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>No direct outbound edge</td>
-  <td>enableInlineEdit() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>23</td>
-  <td><code>onInlineInput()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>onInlineInput() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>24</td>
-  <td><code>documentRefSegment()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>documentRefClassSuffix()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>documentRefIdSuffix()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>indexAmongSameTag()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>documentRefSegment() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>25</td>
-  <td><code>documentRefIdSuffix()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>documentRefSegment()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><code>normalizeDocumentRefToken()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>documentRefIdSuffix() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>26</td>
-  <td><code>documentRefClassSuffix()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>documentRefSegment()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><code>normalizeDocumentRefToken()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>documentRefClassSuffix() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>27</td>
-  <td><code>normalizeDocumentRefToken()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>documentRefClassSuffix()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>documentRefIdSuffix()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>No direct outbound edge</td>
-  <td>normalizeDocumentRefToken() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>28</td>
-  <td><code>indexAmongSameTag()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>documentRefSegment()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><code>elementMatchesManualRefSegment()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>indexAmongSameTag() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>29</td>
-  <td><code>findManualEditRestoreElement()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-hook">UI</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>cssIdent()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>queryManualEditRef()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>findManualEditRestoreElement() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>30</td>
-  <td><code>queryManualEditRef()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>findManualEditRestoreElement()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><code>elementMatchesManualRefSegment()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>parseManualEditRefSegment()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>queryManualEditRef() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 </table>
 
@@ -3620,30 +3621,30 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>impeccable/scripts/live-browser.js</code></td><td>125 nodes</td></tr>
+      <tr><td><code>impeccable/scripts/live-browser.js</code></td><td>152 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: calls x130, contains x120, explains x4. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: calls x155, contains x147, explains x4. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 12. Skills Impeccable Scripts ====== -->
 <h2 id="skills-impeccable-scripts">12. Skills Impeccable Scripts</h2>
-<p>Skills Impeccable Scripts groups implementation around skills, impeccable, scripts, detector, mostly in detector/rules/checks.mjs, detector/shared/constants.mjs. This section covers 119 nodes and 225 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Skills Impeccable Scripts groups implementation around skills, impeccable, scripts, detector, mostly in detector/rules/checks.mjs, detector/shared/constants.mjs. This section covers 134 nodes and 271 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Skills Impeccable Scripts (119 nodes, 225 edges)
-    preseed_agents_pi_skills_impeccable_scripts_dete_d7ba8e76("classSelector()<br/><small>detector/rules/checks.mjs</small>")
+    %% Section: Skills Impeccable Scripts (134 nodes, 271 edges)
+    preseed_agents_pi_skills_impeccable_scripts_dete_2f12d17c("collectCssCustomProps()<br/><small>detector/rules/checks.mjs</small>")
+    preseed_agents_pi_skills_impeccable_scripts_dete_5ae07df7("cssLengthToPx()<br/><small>detector/rules/checks.mjs</small>")
+    preseed_agents_pi_skills_impeccable_scripts_dete_ed194409("parseCssDeclBlock()<br/><small>detector/rules/checks.mjs</small>")
     preseed_agents_pi_skills_impeccable_scripts_dete_99421c78("resolveLengthPx()<br/><small>detector/rules/checks.mjs</small>")
     preseed_agents_pi_skills_impeccable_scripts_dete_15d64d1c("cssColorIsTransparent()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_0019b9d3("metricLengthPx()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_2e19ebba("borderColorsFromStyle()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_3f34801a("borderWidthsFromStyle()<br/><small>detector/rules/checks.mjs</small>")
+    preseed_agents_pi_skills_impeccable_scripts_dete_74c71e38("cssTextHasDarkRootBg()<br/><small>detector/rules/checks.mjs</small>")
     preseed_agents_pi_skills_impeccable_scripts_dete_84d6d618("isCardLikeFromProps()<br/><small>detector/rules/checks.mjs</small>")
     preseed_agents_pi_skills_impeccable_scripts_dete_d2c297b3("isCardLike()<br/><small>detector/rules/checks.mjs</small>")
     preseed_agents_pi_skills_impeccable_scripts_dete_1c8d6f44("isCardLikeDOM()<br/><small>detector/rules/checks.mjs</small>")
@@ -3666,14 +3667,13 @@ flowchart LR
     preseed_agents_pi_skills_impeccable_scripts_dete_7910201b -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_49036e1b
     preseed_agents_pi_skills_impeccable_scripts_dete_c159f4e4 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_49036e1b
     preseed_agents_pi_skills_impeccable_scripts_dete_99421c78 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_49036e1b
-    preseed_agents_pi_skills_impeccable_scripts_dete_99421c78 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_0019b9d3
-    %% Omitted for readability: 101 nodes, 0 edges
-    class preseed_agents_pi_skills_impeccable_scripts_dete_d7ba8e76 async;
+    %% Omitted for readability: 116 nodes, 0 edges
+    class preseed_agents_pi_skills_impeccable_scripts_dete_2f12d17c ui;
+    class preseed_agents_pi_skills_impeccable_scripts_dete_5ae07df7 function;
+    class preseed_agents_pi_skills_impeccable_scripts_dete_ed194409 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_99421c78 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_15d64d1c function;
-    class preseed_agents_pi_skills_impeccable_scripts_dete_0019b9d3 function;
-    class preseed_agents_pi_skills_impeccable_scripts_dete_2e19ebba function;
-    class preseed_agents_pi_skills_impeccable_scripts_dete_3f34801a function;
+    class preseed_agents_pi_skills_impeccable_scripts_dete_74c71e38 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_84d6d618 ui;
     class preseed_agents_pi_skills_impeccable_scripts_dete_d2c297b3 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_1c8d6f44 function;
@@ -3797,6 +3797,54 @@ flowchart LR
 </tr>
 <tr>
   <td>12</td>
+  <td><code>findShadowColor()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>scanCssTextForGlow()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForInsetStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>findShadowColor() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>13</td>
+  <td><code>extractShadowLengths()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>scanCssTextForGlow()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForInsetStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>extractShadowLengths() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>14</td>
+  <td><code>collectCssCustomProps()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-hook">UI</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>scanCssTextForGlow()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForInsetStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForPseudoStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br>+2 more</td>
+  <td>collectCssCustomProps() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>15</td>
+  <td><code>cssTextHasDarkRootBg()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>resolveVarRefs()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForGlow()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForRadialHalo()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>cssTextHasDarkRootBg() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>16</td>
+  <td><code>scanCssTextForGlow()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>collectCssCustomProps()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>cssTextHasDarkRootBg()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>extractShadowLengths()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br>+1 more</td>
+  <td><code>checkHtmlPatterns()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>resolveVarRefs()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>Starts scanning or handles scan status.</td>
+</tr>
+<tr>
+  <td>17</td>
+  <td><code>scanCssTextForRadialHalo()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>collectCssCustomProps()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>cssTextHasDarkRootBg()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><code>checkHtmlPatterns()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>resolveVarRefs()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>splitTopLevelCommas()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>Starts scanning or handles scan status.</td>
+</tr>
+<tr>
+  <td>18</td>
   <td><code>CSS_RULE_BLOCK_SOURCE</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3804,7 +3852,71 @@ flowchart LR
   <td>CSS_RULE_BLOCK_SOURCE node in detector/rules/checks.mjs.</td>
 </tr>
 <tr>
-  <td>13</td>
+  <td>19</td>
+  <td><code>parseCssDeclBlock()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>scanCssTextForInsetStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForMarquee()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForPseudoStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br>+1 more</td>
+  <td>parseCssDeclBlock() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>20</td>
+  <td><code>cssLengthToPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>isRoundDotRadius()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForInsetStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>scanCssTextForPseudoStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br>+1 more</td>
+  <td>cssLengthToPx() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>21</td>
+  <td><code>isZeroOffset()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>scanCssTextForPseudoStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>isZeroOffset() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>22</td>
+  <td><code>scanCssTextForPseudoStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>collectCssCustomProps()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>cssLengthToPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>isZeroOffset()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br>+1 more</td>
+  <td><code>checkHtmlPatterns()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>resolveVarRefs()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>Starts scanning or handles scan status.</td>
+</tr>
+<tr>
+  <td>23</td>
+  <td><code>scanCssTextForInsetStripe()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>collectCssCustomProps()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>cssLengthToPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>extractShadowLengths()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br>+2 more</td>
+  <td><code>checkHtmlPatterns()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>resolveVarRefs()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>Starts scanning or handles scan status.</td>
+</tr>
+<tr>
+  <td>24</td>
+  <td><code>collectMarqueeKeyframes()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>scanCssTextForMarquee()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>collectMarqueeKeyframes() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>25</td>
+  <td><code>scanCssTextForMarquee()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>collectMarqueeKeyframes()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>parseCssDeclBlock()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><code>checkHtmlPatterns()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>infiniteAnimationNames()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>Starts scanning or handles scan status.</td>
+</tr>
+<tr>
+  <td>26</td>
+  <td><code>collectPulseKeyframes()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>scanCssTextForPulsingDot()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>collectPulseKeyframes() node in detector/rules/checks.mjs.</td>
+</tr>
+<tr>
+  <td>27</td>
   <td><code>ANIMATION_VALUE_KEYWORDS</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3812,140 +3924,28 @@ flowchart LR
   <td>ANIMATION_VALUE_KEYWORDS node in detector/rules/checks.mjs.</td>
 </tr>
 <tr>
-  <td>14</td>
-  <td><code>parseRadiusToPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>resolveBorderRadiusPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>parseRadiusToPx() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>15</td>
-  <td><code>resolveBorderRadiusPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>parseRadiusToPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><code>isCardLike()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>resolveBorderRadiusPx() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>16</td>
-  <td><code>checkElementPseudoStripeDOM()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>classSelector()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>isRenderedForBrowserRule()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>checkElementPseudoStripeDOM() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>17</td>
-  <td><code>checkElementItalicSerifDOM()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>checkItalicSerif()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>No direct outbound edge</td>
-  <td>checkElementItalicSerifDOM() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>18</td>
-  <td><code>checkElementHeroEyebrowDOM()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>checkHeroEyebrow()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>No direct outbound edge</td>
-  <td>checkElementHeroEyebrowDOM() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>19</td>
-  <td><code>buildCustomPropMap()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>buildCustomPropMap() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>20</td>
-  <td><code>splitTopLevelCommas()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>parseColorMix()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>parseRadialGradientStops()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>splitTopLevelCommas() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>21</td>
-  <td><code>parseColorMix()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>splitTopLevelCommas()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>No direct outbound edge</td>
-  <td>parseColorMix() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>22</td>
-  <td><code>KICKER_SKIP_SELECTOR</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-class">Class</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>KICKER_SKIP_SELECTOR node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>23</td>
-  <td><code>KICKER_CARD_CONTEXT_SELECTOR</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-class">Class</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>KICKER_CARD_CONTEXT_SELECTOR node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>24</td>
-  <td><code>cleanInlineText()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>collectKickerCandidates()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>collectNumberedSectionLabelCandidates()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>cleanInlineText() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>25</td>
-  <td><code>isKickerCardContext()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>collectKickerCandidates()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>collectNumberedSectionLabelCandidates()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>isKickerCardContext() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>26</td>
-  <td><code>isKickerCandidate()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>collectKickerCandidates()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>isKickerCandidate() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
-  <td>27</td>
-  <td><code>kickerHeadingLevel()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>collectKickerCandidates()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>kickerHeadingLevel() node in detector/rules/checks.mjs.</td>
-</tr>
-<tr>
   <td>28</td>
-  <td><code>collectKickerCandidates()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><code>infiniteAnimationNames()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
-  <td><code>cleanInlineText()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>isKickerCandidate()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>isKickerCardContext()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br>+1 more</td>
-  <td><code>checkKickerAboveHeadingDOM()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>collectKickerCandidates() node in detector/rules/checks.mjs.</td>
+  <td><code>scanCssTextForMarquee()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><code>scanCssTextForPulsingDot()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>infiniteAnimationNames() node in detector/rules/checks.mjs.</td>
 </tr>
 <tr>
   <td>29</td>
-  <td><code>checkKickerAboveHeadingDOM()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><code>isRoundDotRadius()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
-  <td><code>checkKickerAboveHeading()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small><br><code>collectKickerCandidates()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><code>resolveLengthPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td>checkKickerAboveHeadingDOM() node in detector/rules/checks.mjs.</td>
+  <td><code>cssLengthToPx()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><code>scanCssTextForPulsingDot()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>isRoundDotRadius() node in detector/rules/checks.mjs.</td>
 </tr>
 <tr>
   <td>30</td>
-  <td><code>NUMBERED_LABEL_TAGS</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
-  <td><span class="tag tag-class">Class</span></td>
+  <td><code>stripReducedMotionBlocks()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>NUMBERED_LABEL_TAGS node in detector/rules/checks.mjs.</td>
+  <td><code>scanCssTextForPulsingDot()</code><br><small style="color:var(--muted)">detector/rules/checks.mjs</small></td>
+  <td>stripReducedMotionBlocks() node in detector/rules/checks.mjs.</td>
 </tr>
 </table>
 
@@ -3954,86 +3954,86 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>detector/rules/checks.mjs</code></td><td>118 nodes</td></tr>
+      <tr><td><code>detector/rules/checks.mjs</code></td><td>133 nodes</td></tr>
 <tr><td><code>detector/shared/constants.mjs</code></td><td>1 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x117, calls x106, imports x1. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: calls x138, contains x132, imports x1. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 13. Skills Impeccable Scripts ====== -->
 <h2 id="skills-impeccable-scripts-4feab3">13. Skills Impeccable Scripts</h2>
-<p>Skills Impeccable Scripts groups implementation around skills, impeccable, scripts, live, mostly in impeccable/scripts/live-browser.js, impeccable/scripts/live-browser-session.js. This section covers 88 nodes and 212 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Skills Impeccable Scripts groups implementation around skills, impeccable, scripts, live, mostly in impeccable/scripts/live-browser.js, impeccable/scripts/live-browser-session.js. This section covers 75 nodes and 180 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Skills Impeccable Scripts (88 nodes, 212 edges)
+    %% Section: Skills Impeccable Scripts (75 nodes, 180 edges)
     preseed_agents_pi_skills_impeccable_scripts_live_6ac9d917("showOrUpdateCyclingBar()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_170e97b8("isFrameworkComponentPreviewMode()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_52a8333e("positionBar()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_27400d77("resolveBarAnchor()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_6ce3cced("disableInlineEdit()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_dba13953("showVariantInDOM()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_9bc71171("enterRecoveryWaitingForAnchor()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_27400d77("resolveBarAnchor()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_0804cddf("shouldAdvancePhase()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_5b863d62("connectSSE()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_a94ae710("writeScrollY()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_18bb551a("handleGo()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_ec884416("handleInsertCreate()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_d7b12f75("startScrollLock()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_09adee4c("readScrollY()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_9af40dfe("resumeSession()<br/><small>impeccable/scripts/live-browser.js</small>")
-    preseed_agents_pi_skills_impeccable_scripts_live_71fbe9ef("extractContext()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_2ae68d00("injectSvelteComponentsFromManifest()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_5f3bc250("injectVariantsFromSource()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_3942716b("scheduleCyclingBarSync()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_3d3d1451("selectVariant()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_41ab5aa3("startVariantObserver()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_9e2d7a2c("positionShaderOverlay()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_94b38d1e("ensureInsertPlaceholder()<br/><small>impeccable/scripts/live-browser.js</small>")
+    preseed_agents_pi_skills_impeccable_scripts_live_9d61a463("pickVariantContent()<br/><small>impeccable/scripts/live-browser.js</small>")
     preseed_agents_pi_skills_impeccable_scripts_live_0804cddf -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5b863d62
-    preseed_agents_pi_skills_impeccable_scripts_live_a94ae710 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_18bb551a
-    preseed_agents_pi_skills_impeccable_scripts_live_a94ae710 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_ec884416
-    preseed_agents_pi_skills_impeccable_scripts_live_a94ae710 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_d7b12f75
     preseed_agents_pi_skills_impeccable_scripts_live_09adee4c -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_9af40dfe
-    preseed_agents_pi_skills_impeccable_scripts_live_71fbe9ef -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_18bb551a
-    preseed_agents_pi_skills_impeccable_scripts_live_71fbe9ef -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_ec884416
     preseed_agents_pi_skills_impeccable_scripts_live_52a8333e -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_2ae68d00
     preseed_agents_pi_skills_impeccable_scripts_live_52a8333e -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5f3bc250
     preseed_agents_pi_skills_impeccable_scripts_live_52a8333e -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_27400d77
     preseed_agents_pi_skills_impeccable_scripts_live_52a8333e -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_3942716b
-    preseed_agents_pi_skills_impeccable_scripts_live_27400d77 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_d7b12f75
+    preseed_agents_pi_skills_impeccable_scripts_live_52a8333e -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_3d3d1451
+    preseed_agents_pi_skills_impeccable_scripts_live_52a8333e -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_41ab5aa3
+    preseed_agents_pi_skills_impeccable_scripts_live_27400d77 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_9e2d7a2c
+    preseed_agents_pi_skills_impeccable_scripts_live_27400d77 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_94b38d1e
+    preseed_agents_pi_skills_impeccable_scripts_live_27400d77 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_9d61a463
+    preseed_agents_pi_skills_impeccable_scripts_live_94b38d1e -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_9af40dfe
+    preseed_agents_pi_skills_impeccable_scripts_live_94b38d1e -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_41ab5aa3
     preseed_agents_pi_skills_impeccable_scripts_live_6ac9d917 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5b863d62
     preseed_agents_pi_skills_impeccable_scripts_live_6ac9d917 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_2ae68d00
     preseed_agents_pi_skills_impeccable_scripts_live_6ac9d917 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5f3bc250
     preseed_agents_pi_skills_impeccable_scripts_live_6ac9d917 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_3942716b
-    preseed_agents_pi_skills_impeccable_scripts_live_6ce3cced -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5b863d62
-    preseed_agents_pi_skills_impeccable_scripts_live_6ce3cced -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_18bb551a
-    preseed_agents_pi_skills_impeccable_scripts_live_6ce3cced -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_2ae68d00
-    preseed_agents_pi_skills_impeccable_scripts_live_6ce3cced -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5f3bc250
+    preseed_agents_pi_skills_impeccable_scripts_live_6ac9d917 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_3d3d1451
+    preseed_agents_pi_skills_impeccable_scripts_live_6ac9d917 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_41ab5aa3
     preseed_agents_pi_skills_impeccable_scripts_live_3942716b -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_dba13953
     preseed_agents_pi_skills_impeccable_scripts_live_dba13953 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5f3bc250
     preseed_agents_pi_skills_impeccable_scripts_live_dba13953 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_9af40dfe
-    preseed_agents_pi_skills_impeccable_scripts_live_170e97b8 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_5b863d62
-    %% Omitted for readability: 70 nodes, 8 edges
+    preseed_agents_pi_skills_impeccable_scripts_live_dba13953 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_3d3d1451
+    preseed_agents_pi_skills_impeccable_scripts_live_dba13953 -->|calls| preseed_agents_pi_skills_impeccable_scripts_live_41ab5aa3
+    %% Omitted for readability: 57 nodes, 12 edges
     class preseed_agents_pi_skills_impeccable_scripts_live_6ac9d917 entry;
     class preseed_agents_pi_skills_impeccable_scripts_live_170e97b8 ui;
     class preseed_agents_pi_skills_impeccable_scripts_live_52a8333e function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_27400d77 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_6ce3cced function;
     class preseed_agents_pi_skills_impeccable_scripts_live_dba13953 function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_9bc71171 function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_27400d77 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_0804cddf function;
     class preseed_agents_pi_skills_impeccable_scripts_live_5b863d62 async;
-    class preseed_agents_pi_skills_impeccable_scripts_live_a94ae710 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_18bb551a function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_ec884416 function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_d7b12f75 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_09adee4c function;
     class preseed_agents_pi_skills_impeccable_scripts_live_9af40dfe function;
-    class preseed_agents_pi_skills_impeccable_scripts_live_71fbe9ef function;
     class preseed_agents_pi_skills_impeccable_scripts_live_2ae68d00 ui;
     class preseed_agents_pi_skills_impeccable_scripts_live_5f3bc250 function;
     class preseed_agents_pi_skills_impeccable_scripts_live_3942716b entry;
+    class preseed_agents_pi_skills_impeccable_scripts_live_3d3d1451 function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_41ab5aa3 function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_9e2d7a2c function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_94b38d1e function;
+    class preseed_agents_pi_skills_impeccable_scripts_live_9d61a463 function;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -4081,14 +4081,6 @@ flowchart LR
 </tr>
 <tr>
   <td>4</td>
-  <td><code>writeScrollY()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>handleGo()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>handleInsertCreate()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>startScrollLock()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>writeScrollY() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>5</td>
   <td><code>readScrollY()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4096,15 +4088,7 @@ flowchart LR
   <td>readScrollY() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>6</td>
-  <td><code>extractContext()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>handleGo()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>handleInsertCreate()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>extractContext() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>7</td>
+  <td>5</td>
   <td><code>positionBar()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4112,15 +4096,15 @@ flowchart LR
   <td>positionBar() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>8</td>
+  <td>6</td>
   <td><code>resolveBarAnchor()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>positionBar()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><code>ensureInsertPlaceholder()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>pickVariantContent()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>positionShaderOverlay()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br>+3 more</td>
+  <td><code>ensureInsertPlaceholder()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>pickVariantContent()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>positionShaderOverlay()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br>+2 more</td>
   <td>resolveBarAnchor() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>9</td>
+  <td>7</td>
   <td><code>removeInsertPlaceholderDom()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4128,7 +4112,7 @@ flowchart LR
   <td>removeInsertPlaceholderDom() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>10</td>
+  <td>8</td>
   <td><code>finalizeInsertSession()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>removeInsertPlaceholderDom()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -4136,15 +4120,7 @@ flowchart LR
   <td>finalizeInsertSession() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>11</td>
-  <td><code>buildInsertPlaceholderSnapshotFromDom()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>handleInsertCreate()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
-  <td>buildInsertPlaceholderSnapshotFromDom() node in impeccable/scripts/live-browser.js.</td>
-</tr>
-<tr>
-  <td>12</td>
+  <td>9</td>
   <td><code>findInsertAnchorInDom()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4152,7 +4128,7 @@ flowchart LR
   <td>findInsertAnchorInDom() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>13</td>
+  <td>10</td>
   <td><code>isInsertGeneratingSession()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4160,7 +4136,7 @@ flowchart LR
   <td>isInsertGeneratingSession() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>14</td>
+  <td>11</td>
   <td><code>ensureInsertPlaceholder()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>findInsertAnchorInDom()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>isInsertGeneratingSession()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>resolveBarAnchor()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -4168,7 +4144,7 @@ flowchart LR
   <td>ensureInsertPlaceholder() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>15</td>
+  <td>12</td>
   <td><code>showOrUpdateCyclingBar()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-cmd">Entry</span></td>
   <td>External entry / no inbound edge</td>
@@ -4176,7 +4152,7 @@ flowchart LR
   <td>showOrUpdateCyclingBar() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>16</td>
+  <td>13</td>
   <td><code>getMountedSvelteComponentAnchor()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-hook">UI</span></td>
   <td>External entry / no inbound edge</td>
@@ -4184,7 +4160,7 @@ flowchart LR
   <td>getMountedSvelteComponentAnchor() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>17</td>
+  <td>14</td>
   <td><code>resolveSvelteComponentAnchor()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-hook">UI</span></td>
   <td><code>getMountedSvelteComponentAnchor()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>resolveBarAnchor()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -4192,7 +4168,7 @@ flowchart LR
   <td>resolveSvelteComponentAnchor() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>18</td>
+  <td>15</td>
   <td><code>getVisibleVariantEl()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>resolveSvelteComponentAnchor()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -4200,7 +4176,7 @@ flowchart LR
   <td>getVisibleVariantEl() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>19</td>
+  <td>16</td>
   <td><code>parseVariantParams()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4208,7 +4184,7 @@ flowchart LR
   <td>parseVariantParams() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>20</td>
+  <td>17</td>
   <td><code>applyParamValue()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4216,7 +4192,7 @@ flowchart LR
   <td>applyParamValue() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>21</td>
+  <td>18</td>
   <td><code>applyParamDefaults()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>applyParamValue()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -4224,7 +4200,7 @@ flowchart LR
   <td>applyParamDefaults() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>22</td>
+  <td>19</td>
   <td><code>formatRangeValue()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4232,7 +4208,7 @@ flowchart LR
   <td>formatRangeValue() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>23</td>
+  <td>20</td>
   <td><code>buildParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>applyParamValue()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>formatRangeValue()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -4240,15 +4216,15 @@ flowchart LR
   <td>buildParamsPanel() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>24</td>
+  <td>21</td>
   <td><code>disableInlineEdit()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
-  <td><code>connectSSE()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>handleGo()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>injectSvelteComponentsFromManifest()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br>+2 more</td>
+  <td><code>connectSSE()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>injectSvelteComponentsFromManifest()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>injectVariantsFromSource()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br>+1 more</td>
   <td>disableInlineEdit() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>25</td>
+  <td>22</td>
   <td><code>popoverDirection()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4256,7 +4232,7 @@ flowchart LR
   <td>popoverDirection() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>26</td>
+  <td>23</td>
   <td><code>closedClipPath()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-cmd">Entry</span></td>
   <td>External entry / no inbound edge</td>
@@ -4264,7 +4240,7 @@ flowchart LR
   <td>closedClipPath() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>27</td>
+  <td>24</td>
   <td><code>setClipPath()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-cmd">Entry</span></td>
   <td>External entry / no inbound edge</td>
@@ -4272,7 +4248,7 @@ flowchart LR
   <td>setClipPath() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>28</td>
+  <td>25</td>
   <td><code>positionParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>closedClipPath()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>popoverDirection()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>setClipPath()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -4280,7 +4256,7 @@ flowchart LR
   <td>positionParamsPanel() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>29</td>
+  <td>26</td>
   <td><code>showParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>positionParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>setClipPath()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
@@ -4288,12 +4264,36 @@ flowchart LR
   <td>showParamsPanel() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 <tr>
-  <td>30</td>
+  <td>27</td>
   <td><code>hideParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>closedClipPath()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>setClipPath()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td><code>refreshParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>startVariantObserver()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
   <td>hideParamsPanel() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>28</td>
+  <td><code>refreshParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>applyParamDefaults()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>buildParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>getVisibleVariantEl()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br>+4 more</td>
+  <td><code>completeParameterPublication()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>connectSSE()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>injectSvelteComponentsFromManifest()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br>+5 more</td>
+  <td>refreshParamsPanel() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>29</td>
+  <td><code>mountedParameterCount()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>parseVariantParams()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><code>completeParameterPublication()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>mountedParameterCount() node in impeccable/scripts/live-browser.js.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>completeParameterPublication()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>mountedParameterCount()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>refreshParamsPanel()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>showOrUpdateCyclingBar()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td><code>injectSvelteComponentsFromManifest()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>injectVariantsFromSource()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small><br><code>saveSession()</code><br><small style="color:var(--muted)">impeccable/scripts/live-browser.js</small></td>
+  <td>completeParameterPublication() node in impeccable/scripts/live-browser.js.</td>
 </tr>
 </table>
 
@@ -4302,13 +4302,13 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>impeccable/scripts/live-browser.js</code></td><td>86 nodes</td></tr>
+      <tr><td><code>impeccable/scripts/live-browser.js</code></td><td>73 nodes</td></tr>
 <tr><td><code>impeccable/scripts/live-browser-session.js</code></td><td>2 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: calls x205, contains x1. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: calls x174, contains x1. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -5012,12 +5012,12 @@ flowchart LR
 
 <!-- ====== 16. Other ====== -->
 <h2 id="other">16. Other</h2>
-<p>Other groups implementation around scripts, preseed, agents, impeccable, mostly in impeccable/scripts/live-browser.js, scripts/detector/detect-antipatterns-browser.js, browser/injected/index.mjs. This section covers 1958 nodes and 4069 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Other groups implementation around scripts, preseed, agents, impeccable, mostly in impeccable/scripts/live-browser.js, scripts/detector/detect-antipatterns-browser.js, browser/injected/index.mjs. This section covers 1958 nodes and 4086 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Other (1958 nodes, 4069 edges)
+    %% Section: Other (1958 nodes, 4086 edges)
     subgraph other_host_src_server_ts_db595a51["host/src/server.ts"]
         host_src_server_createserverstate_4555a1fb("createServerState()<br/><small>host/src/server.ts</small>")
         host_src_server_log_597855a0("log()<br/><small>host/src/server.ts</small>")
@@ -5339,19 +5339,19 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>impeccable/scripts/live-browser.js</code></td><td>316 nodes</td></tr>
+      <tr><td><code>impeccable/scripts/live-browser.js</code></td><td>302 nodes</td></tr>
 <tr><td><code>scripts/detector/detect-antipatterns-browser.js</code></td><td>250 nodes</td></tr>
 <tr><td><code>browser/injected/index.mjs</code></td><td>72 nodes</td></tr>
 <tr><td><code>scripts/detector/design-system.mjs</code></td><td>64 nodes</td></tr>
-<tr><td><code>detector/rules/checks.mjs</code></td><td>59 nodes</td></tr>
 <tr><td><code>impeccable/scripts/live-server.mjs</code></td><td>59 nodes</td></tr>
 <tr><td><code>impeccable/scripts/modern-screenshot.umd.js</code></td><td>54 nodes</td></tr>
 <tr><td><code>scripts/lib/impeccable-config.mjs</code></td><td>48 nodes</td></tr>
+<tr><td><code>pi/extensions/codeflare-pi.ts</code></td><td>46 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: calls x2235, contains x1293, imports x168, references x82. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: calls x2214, contains x1318, imports x173, references x82. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -5456,7 +5456,7 @@ flowchart LR
       <tr><td>Nodes</td><td>15532</td></tr>
       <tr><td>Edges</td><td>35680</td></tr>
       <tr><td>Hyperedges</td><td>39</td></tr>
-      <tr><td>Communities</td><td>964</td></tr>
+      <tr><td>Communities</td><td>966</td></tr>
       <tr><td>Documented Sections</td><td>15</td></tr>
     </table>
   </div>
@@ -5472,7 +5472,7 @@ flowchart LR
 
 <div style="text-align:center; padding:40px 0; color: var(--muted); font-size:0.9rem;">
   <p>codeflare — Architecture Documentation</p>
-  <p>Generated: 2026-08-04 12:24 UTC · graphify callflow-html</p>
+  <p>Generated: 2026-08-04 12:31 UTC · graphify callflow-html</p>
 </div>
 
 </div><!-- .container -->
