@@ -305,6 +305,21 @@ function gitMetadataDirectory(repo: string): string | undefined {
   }
 }
 
+async function githubRepository(repo: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["remote", "get-url", "origin"],
+      { cwd: repo, encoding: "utf8", timeout: 10_000 },
+    );
+    const remote = String(stdout).trim().replace(/\.git$/, "");
+    const match = /github\.com(?::|\/)([^/:\s]+)\/([^/\s]+)$/.exec(remote);
+    return match ? `${match[1]}/${match[2]}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function statePath(repo: string, kind: "ack" | "ci" | "count", prNumber: number): string | undefined {
   const metadata = gitMetadataDirectory(repo);
   return metadata ? join(metadata, `sdd-review-${kind}-pr-${prNumber}`) : undefined;
@@ -736,7 +751,7 @@ function transcriptFacts(
   ctx: ReviewContext,
   file: string,
   requiredLanes: ReviewLane[],
-  ci?: { repo: string; prNumber: number; head: string },
+  ci?: { repository: string; repo: string; prNumber: number; head: string },
   reviewHead?: string,
 ) {
   return reviewTranscriptFacts({
@@ -942,11 +957,13 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const requiredLanes = shouldReview
       ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
       : [];
-    const facts = transcriptFacts(ctx, review.file, requiredLanes, {
+    const repository = await githubRepository(review.repo);
+    const facts = transcriptFacts(ctx, review.file, requiredLanes, repository ? {
+      repository,
       repo: review.repo,
       prNumber: review.pr.number,
       head: review.pr.headRefOid,
-    });
+    } : undefined);
     if (!facts.boundary) return;
     if (facts.ciLaunched) checkpointCi(review.repo, review.pr.number, review.pr.headRefOid);
     if (deferredSettledRecoveryHead === review.pr.headRefOid) {

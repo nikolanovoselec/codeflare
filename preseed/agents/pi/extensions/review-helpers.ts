@@ -523,7 +523,7 @@ export function reviewTranscriptFacts(input: {
   sessionFile: string;
   entries?: Record<string, any>[];
   requiredLanes: ReviewLane[];
-  ci?: { repo: string; prNumber: number; head: string };
+  ci?: { repository: string; repo: string; prNumber: number; head: string };
   reviewHead?: string;
 }): TranscriptFacts {
   const entries = input.entries ?? readEntries(input.sessionFile);
@@ -661,17 +661,23 @@ export function reviewTranscriptFacts(input: {
       line.trim() === REVIEW_TRIAGE_HEADER && lines[lineIndex + 1]?.trim() === REVIEW_TRIAGE_DIVIDER,
     ),
   );
-  const ciLaunched = Boolean(input.ci && later.some((entry) => toolCalls(entry).some((call) => {
-    const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
-    const tokens = prompt.split(/\s+/);
-    return call.name === "subagent"
-      && call.arguments?.subagent_type === "ci-monitor"
-      && call.arguments?.run_in_background === true
-      && call.arguments?.inherit_context === false
-      && successfulSubagentToolIds.has(call.id)
-      && tokens.includes(`pr=${input.ci!.prNumber}`)
-      && tokens.includes(`head=${input.ci!.head}`)
-      && tokens.includes(`cwd=${input.ci!.repo}`);
+  const ci = input.ci;
+  const ciLaunched = Boolean(ci && later.some((entry) => toolCalls(entry).some((call) => {
+    if (call.name !== "subagent"
+      || call.arguments?.subagent_type !== "ci-monitor"
+      || call.arguments?.run_in_background !== true
+      || call.arguments?.inherit_context !== false
+      || !successfulSubagentToolIds.has(call.id)
+      || typeof call.arguments?.prompt !== "string") return false;
+    try {
+      const request = JSON.parse(call.arguments.prompt);
+      return request?.repo === ci.repository
+        && request?.pr === ci.prNumber
+        && request?.head === ci.head
+        && request?.cwd === ci.repo;
+    } catch {
+      return false;
+    }
   })));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const closedNotified = later.some((entry) =>

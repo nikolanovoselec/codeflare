@@ -64,7 +64,7 @@ function expectedRequest() {
   return {
     subagent_type: 'ci-monitor',
     description: `Monitor PR #${PR} CI`,
-    prompt: `repo=${REPO} pr=${PR} head=${HEAD} cwd=${REQUEST_CWD}`,
+    prompt: JSON.stringify({ repo: REPO, pr: PR, head: HEAD, cwd: REQUEST_CWD }),
     run_in_background: true,
     inherit_context: false,
   };
@@ -168,6 +168,21 @@ test('REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once', a
     'pr', 'view', String(PR), '--repo', REPO,
     '--json', 'number,state,baseRefName,headRefOid',
   ]);
+});
+
+test('REQ-AGENT-068 AC8: CI request identity preserves repository paths containing whitespace', async () => {
+  const cwd = '/workspace/codeflare project';
+  const request = await resolveCiMonitorRequest({
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    pr: PR,
+    cwd,
+    reviewState: 'not-required',
+    runner: async () => commandResult(openPr()),
+  });
+
+  assert.deepEqual(JSON.parse(request.prompt), { repo: REPO, pr: PR, head: HEAD, cwd });
 });
 
 test('REQ-AGENT-068 AC1: eligible PR creation uses the affected repository cwd', async () => {
