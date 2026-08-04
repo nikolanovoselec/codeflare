@@ -78,7 +78,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     const floors = {
       'brace-expansion': '5.0.8',
       protobufjs: '7.6.5',
-      undici: '8.5.0',
+      undici: '8.9.0',
       ws: '8.21.0',
       '@hono/node-server': '2.0.5',
     };
