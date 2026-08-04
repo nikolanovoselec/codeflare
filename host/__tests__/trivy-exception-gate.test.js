@@ -199,7 +199,12 @@ describe('Trivy bounded exception gate', () => {
       {
         Target: 'usr/bin/other',
         Vulnerabilities: [
-          vulnerability({ VulnerabilityID: 'CVE-2099-0001', PkgName: 'first', PkgPath: 'opt/first/package.json' }),
+          vulnerability({
+            VulnerabilityID: 'CVE-2099-0001',
+            PkgName: 'first',
+            PkgPath: 'opt/first/package.json',
+            PkgIdentifier: { PURL: 'pkg:npm/first@1.0.0' },
+          }),
           vulnerability({ VulnerabilityID: 'CVE-2099-0002', PkgName: 'second', PkgPath: 'opt/second/package.json' }),
         ],
       },
@@ -208,6 +213,7 @@ describe('Trivy bounded exception gate', () => {
       () => validateTrivyResult(input),
       (error) => error.message.includes('CVE-2099-0001')
         && error.message.includes('path=opt/first/package.json')
+        && error.message.includes('purl=pkg:npm/first@1.0.0')
         && error.message.includes('CVE-2099-0002')
         && error.message.includes('path=opt/second/package.json')
         && error.message.includes('missing reviewed finding: CVE-2026-69152 brace-expansion 5.0.7'),

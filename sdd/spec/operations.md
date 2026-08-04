@@ -86,7 +86,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated workflow-ownership test; deployment image evidence
 
-**Status:** Implemented
+**Status:** Partial — package-path evidence for the six new Node.js findings is pending a deployment scan before exact path matching can be enabled.
 
 ---
 
