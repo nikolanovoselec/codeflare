@@ -507,6 +507,13 @@ async function currentReview(
 
 type CiBoundaryEvent = "push";
 
+type CiLaunchIdentity = {
+  repo: string;
+  pr: number;
+  head: string;
+  cwd: string;
+};
+
 type LaunchMessage = {
   phase: "plan" | "follow-up";
   repo: string;
@@ -520,6 +527,51 @@ type LaunchMessage = {
 
 function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
   return event === "push" ? "push" : undefined;
+}
+
+function ciLaunchIdentity(event: any): CiLaunchIdentity | undefined {
+  if (!successful(event)
+    || event?.toolName !== "subagent"
+    || event?.input?.subagent_type !== "ci-monitor"
+    || event?.input?.run_in_background !== true
+    || event?.input?.inherit_context !== false
+    || event?.details?.subagentType !== "ci-monitor"
+    || typeof event?.input?.prompt !== "string") return undefined;
+  try {
+    const request = JSON.parse(event.input.prompt);
+    return typeof request?.repo === "string"
+      && Number.isInteger(request?.pr)
+      && fullSha(request?.head)
+      && typeof request?.cwd === "string"
+      ? request as CiLaunchIdentity
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function checkpointCiLaunch(
+  event: any,
+  ctx: ReviewContext,
+  dependencies: Dependencies,
+): Promise<boolean> {
+  const request = ciLaunchIdentity(event);
+  if (!request) return false;
+  const context = boundaryContext(ctx, request.cwd);
+  if (!context || request.cwd !== context.repo || !gitMetadataDirectory(context.repo)) return false;
+  const [repository, branch, head, pr] = await Promise.all([
+    githubRepository(context.repo),
+    (dependencies.queryBranch ?? queryBranch)(context.repo),
+    (dependencies.queryHead ?? queryHead)(context.repo, "HEAD"),
+    dependencies.queryPr(context.repo, String(request.pr)),
+  ]);
+  if (repository !== request.repo
+    || head !== request.head
+    || !isEnforcedPr(pr)
+    || branch !== pr.headRefName
+    || pr.number !== request.pr
+    || pr.headRefOid !== request.head) return false;
+  return checkpointCi(context.repo, request.pr, request.head);
 }
 
 type BoundaryLaunch = { head: string; pauseGoal: boolean };
@@ -876,6 +928,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("tool_result", async (event, ctx) => {
     if (!successful(event)) return;
     rememberActiveRepoFromToolResult(event, ctx.cwd);
+    await checkpointCiLaunch(event, ctx, dependencies);
     const boundary = latestBoundary(event, ctx.cwd);
     if (!boundary || boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
     const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary, resumedWithoutBoundary);
@@ -1002,6 +1055,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     }
 
     const ciEvent = facts.ciLaunched
+      || readCiHead(review.repo, review.pr.number) === review.pr.headRefOid
       ? undefined
       : ciBoundaryEvent(classifyReviewBoundaryCommand(facts.boundary.command).event);
     if (shouldReview && requiredLanes.length === 0) acknowledge(review.repo, review.pr.number, review.pr.headRefOid);

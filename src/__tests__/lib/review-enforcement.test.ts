@@ -485,6 +485,30 @@ function boundaryEvent(command = 'git push origin pi', toolCallId = 'push-1') {
   };
 }
 
+function ciResultEvent(
+  fixture: ReturnType<typeof makeReviewFixture>,
+  overrides: { cwd?: string; head?: string; pr?: number; repo?: string } = {},
+  isError = false,
+) {
+  const input = ciArgs(fixture, overrides);
+  if (overrides.head) {
+    input.prompt = JSON.stringify({
+      repo: overrides.repo ?? 'owner/repo',
+      pr: overrides.pr ?? fixture.pr.number,
+      head: overrides.head,
+      cwd: overrides.cwd ?? fixture.repo,
+    });
+  }
+  return {
+    toolName: 'subagent',
+    toolCallId: 'ci-result',
+    input,
+    content: [{ type: 'text', text: isError ? 'failed' : 'started' }],
+    details: { subagentType: 'ci-monitor', status: 'background' },
+    isError,
+  };
+}
+
 function ackHead(repo: string, prNumber = 42): string {
   const perPr = join(repo, '.git', `sdd-review-ack-pr-${prNumber}`);
   const path = existsSync(perPr) ? perPr : join(repo, '.git', 'sdd-last-ack-pr-head');
@@ -1196,6 +1220,52 @@ describe('Pi review reminder and settled enforcement', () => {
       if (previousMode === undefined) delete process.env.SESSION_MODE;
       else process.env.SESSION_MODE = previousMode;
     }
+  });
+
+  it('REQ-AGENT-068: checkpoints a successful CI launch before stale live transcript recovery', async () => {
+    const fixture = makeReviewFixture();
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+    try {
+      const harness = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-1', 'bash'),
+      );
+      await harness.emit('tool_result', boundaryEvent());
+      harness.sent.splice(0);
+
+      const staleEntries = readFileSync(fixture.sessionFile, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((entry) => entry.type !== 'session');
+      harness.setLiveEntries(staleEntries);
+      await harness.emit('tool_result', ciResultEvent(fixture));
+
+      expect(ciHead(fixture.repo)).toBe(fixture.head);
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
+      await harness.emit('agent_settled');
+      expect(harness.sent).toEqual([]);
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
+  it('REQ-AGENT-068: failed or mismatched direct CI launch results remain retryable', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    for (const event of [
+      ciResultEvent(fixture, { cwd: `${fixture.repo}-other` }),
+      ciResultEvent(fixture, { repo: 'other/repo' }),
+      ciResultEvent(fixture, { pr: 43 }),
+      ciResultEvent(fixture, { head: fixture.base }),
+      ciResultEvent(fixture, {}, true),
+    ]) {
+      await harness.emit('tool_result', event);
+    }
+    expect(existsSync(join(fixture.repo, '.git', 'sdd-review-ci-pr-42'))).toBe(false);
   });
 
   it('REQ-AGENT-068: checkpoints a launched CI-only head without acknowledging later review', async () => {
