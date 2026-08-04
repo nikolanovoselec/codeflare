@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="#deployment"><img src="https://img.shields.io/badge/deployment-self--hosted-2563eb" alt="Self-hosted deployment"></a>
+  <a href="#deployment"><img src="https://img.shields.io/badge/deployment-self--operated-2563eb" alt="Self-operated deployment"></a>
   <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/tenancy-single--tenant-7c3aed" alt="Single-tenant architecture"></a>
   <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/runtime-Workers%20%2B%20Containers-F38020?logo=cloudflare&amp;logoColor=white" alt="Cloudflare Workers and Containers"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-59636e" alt="PolyForm Noncommercial license"></a>
