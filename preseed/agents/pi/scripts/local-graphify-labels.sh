@@ -229,6 +229,12 @@ graph_path = out / 'graph.json'
 labels_path = out / '.graphify_labels.json'
 raw = json.loads(graph_path.read_text(encoding='utf-8'))
 labels = {int(k): v for k, v in json.loads(labels_path.read_text(encoding='utf-8')).items()}
+try:
+    viz_node_limit = int(os.environ.get('GRAPHIFY_VIZ_NODE_LIMIT', '100000'))
+    if viz_node_limit < 1:
+        raise ValueError
+except ValueError:
+    raise SystemExit('GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer')
 G = build_from_json(raw, directed=bool(raw.get('directed', False)), root=root)
 communities_map: dict[int, list[str]] = defaultdict(list)
 next_cid = 0
@@ -267,12 +273,6 @@ report = generate(
     built_at_commit=raw.get('built_at_commit'),
 )
 (out / 'GRAPH_REPORT.md').write_text(report, encoding='utf-8')
-try:
-    viz_node_limit = int(os.environ.get('GRAPHIFY_VIZ_NODE_LIMIT', '100000'))
-    if viz_node_limit < 1:
-        raise ValueError
-except ValueError:
-    raise SystemExit('GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer')
 to_html(
     G,
     communities,

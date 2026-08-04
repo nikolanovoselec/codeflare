@@ -130,7 +130,7 @@ def extract(_files, **_kwargs):
     return {'nodes': [{'id': 'src_module', 'label': 'Source Module', 'source_file': 'src.py'}], 'edges': [], 'input_tokens': 0, 'output_tokens': 0}
 `);
   writeFileSync(join(graphify, 'report.py'), `
-def generate(_graph, _communities, _cohesion, labels, _gods, _surprises, _detection, _tokens, root, suggested_questions=None):
+def generate(_graph, _communities, _cohesion, labels, _gods, _surprises, _detection, _tokens, root, suggested_questions=None, **_kwargs):
     return '# Graph Report - ' + str(root) + '\\n' + ','.join(labels.values())
 `);
   writeFileSync(join(fakeRoot, 'networkx.py'), `
@@ -299,7 +299,7 @@ function runPiSemanticBuildStep() {
   return cwd;
 }
 
-function runPiLabelApply() {
+function runPiLabelApply(vizNodeLimit = '1', expectedStatus = 0) {
   const cwd = mkdtempSync(join(tmpdir(), 'graphify-pi-labels-'));
   const fakeRoot = writeFakeGraphify(cwd);
   const bin = join(cwd, 'bin');
@@ -318,6 +318,8 @@ function runPiLabelApply() {
     0: 'Source Runtime',
     1: 'Dependency Module',
   }));
+  writeFileSync(join(cwd, 'graphify-out/GRAPH_REPORT.md'), 'prior report');
+  writeFileSync(join(cwd, 'graphify-out/graph.html'), 'prior html');
   const graphifyCli = join(bin, 'graphify');
   writeFileSync(graphifyCli, '#!/usr/bin/env bash\noutput="${@: -1}"\nprintf "<html>callflow</html>" > "$output"\n');
   chmodSync(graphifyCli, 0o755);
@@ -332,11 +334,11 @@ function runPiLabelApply() {
       PATH: `${bin}:${process.env.PATH}`,
       PYTHONPATH: fakeRoot,
       GRAPHIFY_PYTHON: 'python3',
-      GRAPHIFY_VIZ_NODE_LIMIT: '1',
+      GRAPHIFY_VIZ_NODE_LIMIT: vizNodeLimit,
     },
   });
-  assert.equal(result.status, 0, `Pi label apply failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-  return cwd;
+  assert.equal(result.status, expectedStatus, `Pi label apply returned an unexpected status\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  return { cwd, result };
 }
 
 function runClaudeGraphifyManifestStep() {
@@ -414,8 +416,16 @@ describe('Graphify build preseed', () => {
     assert.match(result.stderr, /GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer/);
   });
 
+  it('REQ-AGENT-024 AC5: Pi label apply rejects an invalid limit before publication', () => {
+    const { cwd, result } = runPiLabelApply('invalid', 1);
+    assert.match(result.stderr, /GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer/);
+    assert.equal(readFileSync(join(cwd, 'graphify-out/GRAPH_REPORT.md'), 'utf-8'), 'prior report');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), 'prior html');
+    assert.equal(existsSync(join(cwd, 'graphify-out/callflow.html')), false);
+  });
+
   it('REQ-AGENT-024 AC5: Pi labeled graph publication forwards the visualization limit', () => {
-    const cwd = runPiLabelApply();
+    const { cwd } = runPiLabelApply();
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');
     assert.equal(readFileSync(join(cwd, 'graphify-out/callflow.html'), 'utf-8'), '<html>callflow</html>');
