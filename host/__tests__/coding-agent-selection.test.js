@@ -5,7 +5,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
-import { verifySelectedAgentLaunchers } from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
+import {
+  verifySelectedAgentLaunchers,
+  verifySelectedAgentPackages,
+} from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const selectorPath = join(ROOT, 'scripts/ci/coding-agent-selection.mjs');
@@ -75,6 +78,40 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.deepEqual(inspected, Object.values(commands).map(({ path }) => path));
     assert.deepEqual(started, ['/agents/claude', '/agents/codex', '/agents/pi']);
     assert.equal(versions.copilot, null);
+  });
+
+  it('the complete-image smoke rejects alternate platform packages after pruning', async () => {
+    const inventories = new Map([
+      ['/npm/@anthropic-ai', ['claude-code', 'claude-code-linux-x64']],
+      ['/npm/@github', []],
+      ['/npm/@openai', ['codex', 'codex-linux-x64']],
+      ['/npm', ['opencode-ai', 'opencode-linux-x64']],
+    ]);
+    const options = {
+      hasCodingAgent: (selection, agent) => selection.split(',').includes(agent),
+      nodeModulesPath: '/npm',
+      readDirectory: async (path) => inventories.get(path) ?? [],
+    };
+
+    assert.deepEqual(
+      await verifySelectedAgentPackages('claude-code,codex,opencode', options),
+      {
+        'claude-code': ['claude-code', 'claude-code-linux-x64'],
+        codex: ['codex', 'codex-linux-x64'],
+        copilot: [],
+        opencode: ['opencode-ai', 'opencode-linux-x64'],
+      },
+    );
+
+    inventories.set('/npm/@anthropic-ai', [
+      'claude-code',
+      'claude-code-linux-x64',
+      'claude-code-linux-x64-musl',
+    ]);
+    await assert.rejects(
+      verifySelectedAgentPackages('claude-code,codex,opencode', options),
+      /claude-code package inventory/i,
+    );
   });
 
   it('fails closed at the selector CLI boundary', () => {

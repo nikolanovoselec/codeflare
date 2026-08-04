@@ -297,7 +297,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gh \
 ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
 ENV CODEFLARE_CODING_AGENTS=${CODEFLARE_CODING_AGENTS}
 COPY preseed/npm-tools/package.json preseed/npm-tools/package-lock.json /opt/codeflare/npm-tools/
-COPY scripts/ci/coding-agent-selection.mjs /opt/codeflare/scripts/coding-agent-selection.mjs
+COPY scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs /opt/codeflare/scripts/
 RUN cd /opt/codeflare/npm-tools && \
     CODEFLARE_CODING_AGENTS="$(node /opt/codeflare/scripts/coding-agent-selection.mjs resolve "$CODEFLARE_CODING_AGENTS")" && \
     npm ci --omit=dev --no-audit --no-fund && \
@@ -322,10 +322,7 @@ RUN cd /opt/codeflare/npm-tools && \
     done && \
     mkdir -p /opt/codeflare/bin && \
     ln -sf /usr/local/bin/chrome-devtools-mcp /opt/codeflare/bin/chrome-devtools-mcp && \
-    if [ -d node_modules/opencode-linux-x64 ]; then \
-      cd node_modules && find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-ai' ! -name 'opencode-linux-x64' -type d -exec rm -rf {} +; \
-      cd /opt/codeflare/npm-tools; \
-    fi && \
+    node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
     if [ -d node_modules/@github/copilot/prebuilds ]; then \
       find node_modules/@github/copilot/prebuilds/ -maxdepth 1 -type d ! -name 'prebuilds' ! -name 'linux-x64' -exec rm -rf {} +; \
       rm -rf node_modules/@github/copilot/mxc-bin/arm64 node_modules/@github/copilot/ripgrep/ \
