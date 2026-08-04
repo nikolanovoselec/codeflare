@@ -77,17 +77,31 @@ function report(results = [
 
 describe('Trivy bounded exception gate', () => {
   it('accepts only the reviewed lazygit and Node.js findings', () => {
-    assert.deepEqual(validateTrivyResult(report()), {
-      accepted: [
-        'usr/local/bin/lazygit@v0.37.0',
-        'Node.js@5.0.5',
-        'Node.js@5.0.7',
-        'Node.js@10.1.0',
-        'Node.js@10.2.0',
-        'Node.js@7.28.0',
-        'Node.js@8.5.0',
-      ],
-    });
+    const result = validateTrivyResult(report());
+    assert.deepEqual(result.accepted, [
+      'usr/local/bin/lazygit@v0.37.0',
+      'Node.js@5.0.5',
+      'Node.js@5.0.7',
+      'Node.js@10.1.0',
+      'Node.js@10.2.0',
+      'Node.js@7.28.0',
+      'Node.js@8.5.0',
+    ]);
+    assert.equal(result.evidence.length, 9);
+  });
+
+  it('reports scanner package identities for accepted reviewed findings', () => {
+    const input = report();
+    const reviewed = input.Results[1].Vulnerabilities.find(
+      (finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.1.0',
+    );
+    reviewed.PkgPath = 'opt/pi/package.json';
+    reviewed.PkgIdentifier = { PURL: 'pkg:npm/ip-address@10.1.0' };
+
+    assert.ok(validateTrivyResult(input).evidence.includes(
+      'CVE-2026-69192 ip-address 10.1.0 at Node.js '
+      + '[path=opt/pi/package.json; purl=pkg:npm/ip-address@10.1.0]',
+    ));
   });
 
   it('rejects the retired gh x/text finding', () => {

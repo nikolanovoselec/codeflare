@@ -111,6 +111,7 @@ export function validateTrivyResult(report) {
   ]));
   const seen = new Map();
   const findings = [];
+  const evidence = [];
 
   for (const result of report.Results) {
     if (!result || typeof result !== 'object' || typeof result.Target !== 'string') {
@@ -158,6 +159,10 @@ export function validateTrivyResult(report) {
         );
       } else {
         seen.set(key, occurrences + 1);
+        evidence.push(
+          `${finding.vulnerabilityId} ${finding.packageName} ${finding.installedVersion} at ${finding.target} `
+          + `[path=${finding.packagePath ?? '<unavailable>'}; purl=${finding.packagePurl ?? '<unavailable>'}]`,
+        );
       }
     }
   }
@@ -176,6 +181,7 @@ export function validateTrivyResult(report) {
 
   return {
     accepted: REVIEWED_FINDINGS.map((finding) => `${finding.target}@${finding.installedVersion}`),
+    evidence,
   };
 }
 
@@ -186,6 +192,7 @@ async function main() {
   const report = JSON.parse(await readFile(path, 'utf8'));
   const result = validateTrivyResult(report);
   console.log(`Validated bounded Trivy exceptions: ${result.accepted.join(', ')}`);
+  for (const identity of result.evidence) console.log(`Observed reviewed Trivy identity: ${identity}`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
