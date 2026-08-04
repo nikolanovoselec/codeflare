@@ -1210,6 +1210,8 @@ describe('Pi review reminder and settled enforcement', () => {
       );
       await first.emit('tool_result', boundaryEvent());
       appendSession(fixture.sessionFile,
+        assistantTool('ci-wrong-cwd', 'subagent', ciArgs(fixture, { cwd: `${fixture.repo}-other` })),
+        toolResult('ci-wrong-cwd', 'subagent'),
         assistantTool('ci-wrong-repo', 'subagent', ciArgs(fixture, { repo: 'other/repo' })),
         toolResult('ci-wrong-repo', 'subagent'),
         assistantTool('ci-wrong-pr', 'subagent', ciArgs(fixture, { pr: 43 })),
