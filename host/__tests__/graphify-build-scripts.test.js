@@ -4,7 +4,7 @@
 // observes behavior without running a real AST build.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -59,6 +59,9 @@ class FakeGraph:
         return len(self._edges)
 
 def build(_extractions, dedup=True, root=None):
+    return FakeGraph()
+
+def build_from_json(_data, directed=False, root=None):
     return FakeGraph()
 
 def build_merge(_chunks, graph_path=None, prune_sources=None, dedup=True, root=None):
@@ -179,7 +182,7 @@ class Graph:
   return fakeRoot;
 }
 
-function runBuildScript(scriptName) {
+function runBuildScript(scriptName, graphifyEnv = { GRAPHIFY_VIZ_NODE_LIMIT: '1' }, expectedStatus = 0) {
   const cwd = mkdtempSync(join(tmpdir(), 'graphify-script-'));
   writeFileSync(join(cwd, 'src.py'), 'from dep import value\n');
   writeFileSync(join(cwd, 'dep.py'), 'value = 1\n');
@@ -194,11 +197,15 @@ function runBuildScript(scriptName) {
       GRAPHIFY_SAVE_MANIFEST_RECORD: recordPath,
       GRAPHIFY_BUILD_TIMEOUT: '30',
       GRAPHIFY_SAFE_RLIMIT_KB: '800000',
-      GRAPHIFY_VIZ_NODE_LIMIT: '1',
+      ...graphifyEnv,
     },
   });
-  assert.equal(result.status, 0, `${scriptName} failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-  return { cwd, calls: JSON.parse(readFileSync(recordPath, 'utf-8')) };
+  assert.equal(result.status, expectedStatus, `${scriptName} returned an unexpected status\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  return {
+    cwd,
+    calls: existsSync(recordPath) ? JSON.parse(readFileSync(recordPath, 'utf-8')) : [],
+    result,
+  };
 }
 
 function extractClaudeGraphifyManifestScript() {
@@ -292,6 +299,46 @@ function runPiSemanticBuildStep() {
   return cwd;
 }
 
+function runPiLabelApply() {
+  const cwd = mkdtempSync(join(tmpdir(), 'graphify-pi-labels-'));
+  const fakeRoot = writeFakeGraphify(cwd);
+  const bin = join(cwd, 'bin');
+  mkdirSync(join(cwd, 'graphify-out'), { recursive: true });
+  mkdirSync(bin);
+  writeFileSync(join(cwd, 'graphify-out/graph.json'), JSON.stringify({
+    directed: false,
+    nodes: [
+      { id: 'src_module', community: 0 },
+      { id: 'src_handler', community: 0 },
+      { id: 'dep_module', community: 1 },
+    ],
+    links: [{ source: 'src_handler', target: 'dep_module', relation: 'imports' }],
+  }));
+  writeFileSync(join(cwd, 'graphify-out/.graphify_labels.json'), JSON.stringify({
+    0: 'Source Runtime',
+    1: 'Dependency Module',
+  }));
+  const graphifyCli = join(bin, 'graphify');
+  writeFileSync(graphifyCli, '#!/usr/bin/env bash\noutput="${@: -1}"\nprintf "<html>callflow</html>" > "$output"\n');
+  chmodSync(graphifyCli, 0o755);
+  const result = spawnSync('bash', [
+    resolve(repoRoot, 'preseed/agents/pi/scripts/local-graphify-labels.sh'),
+    'apply',
+    cwd,
+  ], {
+    encoding: 'utf-8',
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      PYTHONPATH: fakeRoot,
+      GRAPHIFY_PYTHON: 'python3',
+      GRAPHIFY_VIZ_NODE_LIMIT: '1',
+    },
+  });
+  assert.equal(result.status, 0, `Pi label apply failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  return cwd;
+}
+
 function runClaudeGraphifyManifestStep() {
   const cwd = mkdtempSync(join(tmpdir(), 'graphify-claude-skill-'));
   const fakeRoot = writeFakeGraphify(cwd);
@@ -353,13 +400,25 @@ describe('Graphify build preseed', () => {
   });
 
   it('Pi AST-only build writes a portable manifest and unlabeled HTML', () => {
-    const { cwd, calls } = runBuildScript('build-graphify-ast.sh');
+    const { cwd, calls } = runBuildScript('build-graphify-ast.sh', {});
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
-    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '100000');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
     assert.equal(calls[0].root, cwd);
     assert.equal(calls[0].manifest_path, 'graphify-out/manifest.json');
+  });
+
+  it('REQ-AGENT-024 AC5: Pi AST build rejects an invalid visualization limit', () => {
+    const { result } = runBuildScript('build-graphify-ast.sh', { GRAPHIFY_VIZ_NODE_LIMIT: '0' }, 1);
+    assert.match(result.stderr, /GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer/);
+  });
+
+  it('REQ-AGENT-024 AC5: Pi labeled graph publication forwards the visualization limit', () => {
+    const cwd = runPiLabelApply();
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/callflow.html'), 'utf-8'), '<html>callflow</html>');
   });
 
   it('Pi architecture build writes a portable manifest and unlabeled HTML', () => {

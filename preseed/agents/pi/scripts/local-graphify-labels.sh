@@ -214,6 +214,7 @@ PY
     validate_labels
     "$PY" - <<'PY'
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 from graphify.analyze import god_nodes, surprising_connections, suggest_questions
@@ -267,12 +268,18 @@ report = generate(
 )
 (out / 'GRAPH_REPORT.md').write_text(report, encoding='utf-8')
 try:
-    to_html(G, communities, out / 'graph.html', community_labels=labels or None)
-except ValueError as exc:
-    html = out / 'graph.html'
-    if html.exists():
-        html.unlink()
-    print(f'local-graphify-labels: skipped graph.html: {exc}')
+    viz_node_limit = int(os.environ.get('GRAPHIFY_VIZ_NODE_LIMIT', '100000'))
+    if viz_node_limit < 1:
+        raise ValueError
+except ValueError:
+    raise SystemExit('GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer')
+to_html(
+    G,
+    communities,
+    out / 'graph.html',
+    community_labels=labels or None,
+    node_limit=viz_node_limit,
+)
 print(f"local-graphify-labels: applied labels to {len(communities)} communities")
 PY
     graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html
