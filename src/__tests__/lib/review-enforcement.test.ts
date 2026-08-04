@@ -1268,13 +1268,18 @@ describe('Pi review reminder and settled enforcement', () => {
 
     const { PR_LOOKUP_FAILED, registerReviewEnforcement } = await plannedEnforcement();
     const transientHarness = makeHarness(fixture.repo, fixture.sessionFile);
+    let lookups = 0;
     await registerReviewEnforcement(transientHarness.pi, {
-      queryPr: async () => PR_LOOKUP_FAILED,
+      queryPr: async () => (++lookups === 1 ? PR_LOOKUP_FAILED : fixture.pr),
       deferGoalPause: transientHarness.deferGoalPause,
     });
     await transientHarness.emit('tool_result', ciResultEvent(fixture));
-
+    expect(lookups).toBe(1);
     expect(existsSync(join(fixture.repo, '.git', 'sdd-review-ci-pr-42'))).toBe(false);
+
+    await transientHarness.emit('tool_result', ciResultEvent(fixture));
+    expect(lookups).toBe(2);
+    expect(ciHead(fixture.repo)).toBe(fixture.head);
   });
 
   it('REQ-AGENT-068: checkpoints a launched CI-only head without acknowledging later review', async () => {
