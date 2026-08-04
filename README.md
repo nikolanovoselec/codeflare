@@ -8,10 +8,17 @@
 <p align="center">Governed engineering agents that build, test, review, deploy, and operate inside your own estate.</p>
 
 <p align="center">
+  <a href="https://github.com/nikolanovoselec/codeflare/releases/latest"><img src="https://img.shields.io/github/v/release/nikolanovoselec/codeflare?display_name=tag&amp;sort=semver" alt="Latest release"></a>
   <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/test.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/test.yml/badge.svg?branch=main" alt="PR Checks"></a>
   <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/codeql.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
-  <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/scorecard.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/scorecard.yml/badge.svg?branch=main" alt="OpenSSF Scorecard"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-59636e" alt="License: PolyForm Noncommercial 1.0.0"></a>
+  <a href="https://github.com/nikolanovoselec/codeflare/actions/workflows/fuzz.yml"><img src="https://github.com/nikolanovoselec/codeflare/actions/workflows/fuzz.yml/badge.svg?branch=main" alt="Property-based fuzzing"></a>
+</p>
+
+<p align="center">
+  <a href="#deployment"><img src="https://img.shields.io/badge/deployment-self--operated-2563eb" alt="Self-operated deployment"></a>
+  <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/tenancy-single--tenant-7c3aed" alt="Single-tenant architecture"></a>
+  <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/runtime-Workers%20%2B%20Containers-F38020?logo=cloudflare&amp;logoColor=white" alt="Cloudflare Workers and Containers"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-59636e" alt="PolyForm Noncommercial license"></a>
 </p>
 
 <p align="center">
@@ -156,6 +163,8 @@ The public path creates a private single-tenant instance in four steps:
 
 Deployment and setup provision everything inside the operator's account: the Worker and its KV control plane, the session container image, dedicated per-user R2 buckets, and the Cloudflare Access application. Session limits and container sizing are maintained in [Configuration](documentation/lanes/configuration.md#container-specs).
 
+To omit unused shared coding-agent CLIs from an environment's image, set its GitHub Actions variable `CODING_AGENTS` to a comma-separated subset of `claude-code,codex,copilot,antigravity,opencode,pi`; for example, `claude-code,codex,pi`. Unset preserves all agents. Packaging is specified by [REQ-OPS-040](sdd/spec/operations.md#req-ops-040-selected-coding-agent-packaging); Bash, native IDE assets, and Pi's warmed runtime remain available as documented in [Configuration](documentation/lanes/configuration.md#container-environment) and [REQ-OPS-039](sdd/spec/operations.md#req-ops-039-reduced-image-capability-preservation).
+
 For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Without it, Codeflare cannot provide its KV credential-encryption and R2 SSE-C contracts. Users may also need their selected agent's subscription or credentials, and supported GitHub or Cloudflare connection flows require operator-registered OAuth applications.
 
 Production deployment belongs to GitHub Actions. Do not use `npm run deploy` as a substitute for the reviewed workflow.
@@ -166,6 +175,7 @@ Codeflare's repository applies the same delivery rules that it gives to agents:
 
 - PR Checks run path-aware lint, type checks, audits, backend and frontend tests, host tests, coverage, dependency review, workflow analysis, bundle limits, and complete-image Browser IDE verification.
 - Container publication requires content-addressed input verification and a Trivy scan of fixable HIGH and CRITICAL findings. Fresh images carry an SBOM and provenance.
+- Published source releases include deterministic archives, checksums, keyless Sigstore bundles, and GitHub provenance; verification commands are documented in [CI/CD and Testing](documentation/lanes/ci-cd.md#keyless-release-signing).
 - CodeQL, property-based fuzzing, workflow static analysis, dependency monitoring, and external security probes run on their owned schedules.
 - Deployment verifies the exact reviewed head and source tree before promoting Worker assets and the session image.
 - Rollback starts from a known successful deployment and requires the original failed user flow to pass before the incident closes.

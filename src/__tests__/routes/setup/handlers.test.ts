@@ -507,6 +507,15 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.activeAgents).toEqual(['copilot', 'pi']);
     });
 
+    it('REQ-ENTERPRISE-025 AC1: GET /prefill hides capable agents omitted from the image', async () => {
+      mockKV._store.set('setup:active_agents', '["copilot"]');
+      const app = createApp({ ENTERPRISE_MODE: 'active', CODING_AGENTS: 'claude-code,pi' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.activeAgents).toEqual(['pi']);
+      expect(body.configurableAgents).toEqual(['pi']);
+    });
+
     it('GET /prefill omits the fields when ENTERPRISE_MODE is unset', async () => {
       mockKV._store.set('setup:active_agents', '["pi"]');
       const app = createApp();

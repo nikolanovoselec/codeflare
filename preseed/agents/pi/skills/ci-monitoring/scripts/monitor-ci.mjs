@@ -68,7 +68,7 @@ export async function resolveCiMonitorRequest({ event, changed, repo, pr: reques
   if (
     !resolvedPr ||
     resolvedPr.state !== 'OPEN' ||
-    !['main', 'master'].includes(resolvedPr.baseRefName) ||
+    !['main', 'master', 'develop'].includes(resolvedPr.baseRefName) ||
     !Number.isInteger(resolvedPr.number) ||
     resolvedPr.number !== requestedPr ||
     !/^[0-9a-f]{40}$/i.test(resolvedPr.headRefOid ?? '')
@@ -77,7 +77,7 @@ export async function resolveCiMonitorRequest({ event, changed, repo, pr: reques
   return {
     subagent_type: 'ci-monitor',
     description: `Monitor PR #${resolvedPr.number} CI`,
-    prompt: `repo=${repo} pr=${resolvedPr.number} head=${resolvedPr.headRefOid}`,
+    prompt: JSON.stringify({ repo, pr: resolvedPr.number, head: resolvedPr.headRefOid, cwd }),
     run_in_background: true,
     inherit_context: false,
   };

@@ -8,6 +8,7 @@ import { ApiError, redirectExpiredSession } from './api/fetch-helper';
 import { sessionStore } from './stores/session';
 import { storageStore } from './stores/storage';
 import { terminalStore } from './stores/terminal';
+import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from './lib/agent-catalog';
 import { logger } from './lib/logger';
 import './styles/app.css';
 
@@ -97,7 +98,8 @@ const AppContent: Component = () => {
       setEnterpriseMode(user.enterpriseMode);
       sessionStore.setEnterpriseMode(user.enterpriseMode === true);
       sessionStore.setSaasMode(user.saasMode === true);
-      sessionStore.setAllowedAgents(user.allowedAgents ?? null);
+      sessionStore.setAllowedAgents(user.allowedAgents
+        ?? (user.enterpriseMode ? ENTERPRISE_AGENT_TYPES : AGENT_OPTIONS.map((agent) => agent.type)));
       if (user.workerName) storageStore.setWorkerName(user.workerName);
       storageStore.setDownloadsDisabled(user.downloadsDisabled === true);
 

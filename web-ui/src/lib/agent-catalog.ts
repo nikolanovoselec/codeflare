@@ -38,7 +38,7 @@ export const AGENT_OPTIONS: AgentOption[] = [
 
 // Enterprise mode restricts the agent set to the wizard-activated agents
 // delivered by GET /api/user (REQ-ENTERPRISE-003). ENTERPRISE_AGENT_TYPES is the
-// stale-client fallback used until that response hydrates; it mirrors
-// ENTERPRISE_AGENTS in src/lib/agent-allowlist.ts. When enterpriseMode is
-// unset/false, the full AGENT_OPTIONS list renders.
+// legacy-response fallback used when that response omits allowedAgents; it
+// mirrors ENTERPRISE_AGENTS in src/lib/agent-allowlist.ts. Before hydration,
+// sessionStore.allowedAgents remains null and creation choices stay hidden.
 export const ENTERPRISE_AGENT_TYPES: AgentType[] = ['copilot', 'pi', 'bash'];

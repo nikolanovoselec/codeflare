@@ -13,7 +13,7 @@ Hard rules:
 - **Never use the `graphify_build` tool.** Its `semanticBackend` parameter defaults to DeepSeek (an external provider requiring `DEEPSEEK_API_KEY`, which is NOT set in this container), so it fails with `backend 'deepseek' requires DEEPSEEK_API_KEY`. Use the local scripts/flows in this skill instead (`build-graphify-ast.sh`, `safe-graphify-update.sh`, `graphify cluster-only`).
 - **Vault graph rebuilds publish to `Raw/Graphs/`.** After a local `graphify cluster-only .` from `/home/user/Vault`, copy `graphify-out/graph.html` to `Raw/Graphs/vault-graph.html` so the seeded `Raw/Graphs/Vault Graph.md` index link resolves through the SilverBullet `.fs/` route. `graphify-out/` is excluded from R2 bisync and the `.fs/` route, so without the copy the link 404s.
 - **The Vault graph uses the canonical graphify schema.** Vault nodes carry `file_type` + `source_file` (document/code) or `file_type: "concept"` with `source_file: null`; edges carry `relation` + `confidence` + `confidence_score`, identical to repo and global graphs. Never write the legacy `type`/`path`/`mentions` shape - `graphify global add` label-merges any node lacking `source_file`, collapsing document identity.
-- **Use the Pi main session agent for community labels.** The main session writes `graphify-out/.graphify_labels.json`; then Graphify regenerates report/html locally from the graph's existing community assignments.
+- **Community labeling is optional.** When the user requests labels, the Pi main session writes `graphify-out/.graphify_labels.json` and Graphify regenerates report/html locally from the existing community assignments. When labels are skipped, keep Graphify's official generated report/html and do not create or require a labels file.
 - **Use Pi `subagent` tool calls only for uncached Full-mode semantic extraction chunks.** Do not run headless semantic extraction for uncached docs/images.
 - **Use official Graphify flows** for AST detection/extraction, graph build/merge, clustering, report generation, HTML generation, query/path/explain, global merge, and callflow export.
 - **Do not hand-edit graph output JSON.** Do not add Codeflare-specific AST allowlists, import rewrites, or graph normalization.
@@ -102,9 +102,9 @@ Use this when the user chooses Architecture graph:
 bash /home/user/.pi/agent/scripts/build-graphify-architecture.sh .
 ```
 
-The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, and `report` modules after applying generic architecture filters. It does not rewrite Graphify output. It deliberately defers user-facing `graph.html` and `callflow.html` until labels exist.
+The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, and `report` modules after applying generic architecture filters. It does not rewrite Graphify output.
 
-Then label communities using the **Local main-session community labels** section below. Do not push or present HTML outputs until label apply regenerates them from `.graphify_labels.json`.
+If the user requests community labels, use **Optional local main-session community labels** below. Otherwise keep Graphify's official generated report/html, export `callflow.html`, and continue without `.graphify_labels.json`.
 
 ## Full repo AST-only initial build
 
@@ -114,9 +114,9 @@ Use this only when the user chooses Full repo AST-only and `graphify-out/graph.j
 bash /home/user/.pi/agent/scripts/build-graphify-ast.sh .
 ```
 
-The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, and `report` modules only. It does not rewrite Graphify output. It deliberately defers user-facing `graph.html` and `callflow.html` until labels exist.
+The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, and `report` modules only. It does not rewrite Graphify output.
 
-Then label communities using the **Local main-session community labels** section below. Do not push or present HTML outputs until label apply regenerates them from `.graphify_labels.json`.
+If the user requests community labels, use **Optional local main-session community labels** below. Otherwise keep Graphify's official generated report/html, export `callflow.html`, and continue without `.graphify_labels.json`.
 
 ## Full repo AST-only refresh for an existing graph
 
@@ -126,19 +126,19 @@ Use this when the user chooses Full repo AST-only, `graphify-out/graph.json` exi
 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
 ```
 
-The safety wrapper only sets `GRAPHIFY_MAX_WORKERS`, applies `ulimit -v`, and runs upstream `graphify update`. Any `graph.html` produced by upstream update is provisional.
+The safety wrapper only sets `GRAPHIFY_MAX_WORKERS`, applies `ulimit -v`, and runs upstream `graphify update`.
 
-Then label communities using the **Local main-session community labels** section below. Do not push or present HTML outputs until label apply regenerates them from `.graphify_labels.json`.
+If the user requests community labels, use **Optional local main-session community labels** below. Otherwise keep Graphify's official generated report/html, export `callflow.html`, and continue without `.graphify_labels.json`.
 
 ## Full build/update without provider LLMs
 
 Use this when the user chooses Full repo semantic. Pi `subagent` tool calls produce semantic chunks for the uncached docs/papers/images, then Graphify consumes the local semantic fragments and rebuilds locally. **Do not pass a model override** when dispatching those subagents - they use the running session model. The full four-step flow (create semantic file list, dispatch subagents, merge chunks into the Graphify cache + local fragment, then rebuild from an AST baseline with `build-graphify-ast.sh`) lives in `references/build.md`. Load it only after the post-detection cost/count confirmation passes.
 
-Then label communities using the **Local main-session community labels** flow below.
+If the user requests community labels, use the **Optional local main-session community labels** flow below. Otherwise keep Graphify's official generated report/html, export `callflow.html`, and continue without `.graphify_labels.json`.
 
-## Local main-session community labels
+## Optional local main-session community labels
 
-This is the only allowed label path in Pi interactive Graphify - never run `graphify label`. The Pi main session agent prepares a worklist (`local-graphify-labels.sh prepare .`), inspects each community's nodes/sources, writes unique 2–6 word names to `graphify-out/.graphify_labels.json`, then applies them (`local-graphify-labels.sh apply .`), which regenerates `GRAPH_REPORT.md` + the final labeled `graph.html` + `callflow.html` without reclustering. Every completed build/update must finish by running label apply. See `references/labels.md` for the worklist/naming rules, the apply-script guarantees, and the callflow-html fallback.
+Community labels are an optional presentation layer, not a graph-completion gate. Never run `graphify label` or a provider backend. When the user requests labels, the Pi main session prepares a worklist (`local-graphify-labels.sh prepare .`), inspects each community's nodes/sources, writes unique 2–6 word names to `graphify-out/.graphify_labels.json`, then applies them (`local-graphify-labels.sh apply .`) to regenerate `GRAPH_REPORT.md`, `graph.html`, and `callflow.html` without reclustering. When the user declines labels, do not prepare or apply them: retain Graphify's official report/html and run `graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html`. See `references/labels.md` for both paths.
 
 ## Validation checklist
 
@@ -152,7 +152,7 @@ After build/refresh, verify:
 - duplicate IDs = 0
 - dangling edges = 0
 - semantic cache was preserved for Full mode
-- `graphify-out/.graphify_labels.json` exists and has complete, unique, non-placeholder, non-numbered labels for all communities
+- when labeling was requested, `graphify-out/.graphify_labels.json` exists and has complete, unique, non-placeholder, non-numbered labels for all communities; otherwise it is absent from the committed update
 
 ## Global merge and git persistence
 
@@ -167,7 +167,7 @@ Commit only durable outputs when the user can push:
 - `graphify-out/graph.json`
 - `graphify-out/GRAPH_REPORT.md`
 - `graphify-out/graph.html`
-- `graphify-out/.graphify_labels.json`
+- optional `graphify-out/.graphify_labels.json` when community labeling was requested
 - `graphify-out/callflow.html`
 - optional `graphify-out/wiki/`
 

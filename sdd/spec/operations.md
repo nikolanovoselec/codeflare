@@ -2,7 +2,7 @@
 
 CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cost model.
 
-**Domain owner:** GitHub Actions workflows, deploy.yml, container-image.yml, test.yml, pentest.yml, fuzz.yml, stress-test.yml
+**Domain owner:** GitHub Actions workflows, deploy.yml, container-image.yml, sign-release.yml, test.yml, pentest.yml, fuzz.yml, stress-test.yml
 
 ### Key Concepts
 
@@ -68,7 +68,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. A cache-bust forces an image rebuild without changing the content-addressed tag. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 3. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
 4. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
-5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, path, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
+5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, package path, package URL, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 6. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 7. A freshly built image passes packaged Pi/Claude inventory, cold-readiness, process, resource, and prefixed-proxy smoke before vulnerability scan or push. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
 
@@ -255,12 +255,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The OSSF Scorecard workflow runs on push to main and weekly. <!-- @manual -->
 2. Scorecard results are uploaded to GitHub Security. <!-- @manual -->
-3. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
-4. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+3. A manual dispatch on the repository default branch runs Scorecard. <!-- @impl: .github/workflows/scorecard.yml::scorecard --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
+4. A non-default manual dispatch records an explicit successful no-op instead of invoking Scorecard's unsupported branch path. <!-- @impl: .github/workflows/scorecard.yml::unsupported-ref --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
+5. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+6. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
 
 **Constraints:**
 
-- Supply chain monitoring is continuous (push-triggered + weekly), not on-demand.
+- Push-triggered and weekly scans provide continuous monitoring; default-branch manual dispatch remains available for explicit rescans.
 - Secret-scanning push protection prevents secrets from being committed.
 - High-severity dependency audits and dependency-review enforcement are owned by [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); not duplicated here.
 
@@ -268,7 +270,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Manual check
+**Verification:** Automated workflow-routing tests for AC3 and AC4; manual checks for AC1, AC2, AC5, and AC6.
 
 **Status:** Implemented
 
@@ -314,7 +316,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The container base image is a glibc-based Node.js 24 distribution (Debian bookworm-slim). <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011: Container base image is Debian bookworm-slim) --> <!-- @manual -->
-2. All supported agent CLIs (Claude Code, Codex, Antigravity, Copilot, OpenCode) start without crashes. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC2 (precondition): agent CLI packages are present in the image for Claude Code, Codex, Antigravity, Copilot, OpenCode) --> <!-- @manual -->
+2. Every agent CLI selected for the deployment starts without crashes. <!-- @manual: Build the selected image and start each offered agent. -->
 3. Essential developer tools for terminal-based workflows are pre-installed. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC3: system packages include essential tools: git, ripgrep, neovim, tmux, fzf, jq, python) --> <!-- @manual -->
 
 **Constraints:** None.
@@ -465,14 +467,16 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-018: Weekly fuzz testing
 
-**Intent:** Property-based fuzz testing runs on a weekly schedule and on every PR to `main` to identify edge-case bugs in input parsing and state transitions.
+**Intent:** Property-based fuzz testing runs on a weekly schedule and on every PR to either protected branch to identify edge-case bugs in input parsing and state transitions.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The fuzz workflow runs on PRs to `main`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`. <!-- @manual -->
+1. The fuzz workflow runs on PRs to `main` and `develop`. <!-- @impl: .github/workflows/fuzz.yml::pull_request = branches: [main, develop] --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-018/019: protected branch required-check triggers) -->
 2. Fuzz testing uses fast-check with 50,000 iterations for property-based testing. <!-- @manual -->
+3. The fuzz workflow runs weekly (Sunday 04:00 UTC). <!-- @manual -->
+4. The fuzz workflow supports `workflow_dispatch`. <!-- @manual -->
 
 **Constraints:**
 
@@ -482,7 +486,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Manual check
+**Verification:** Automated protected-branch trigger contract for AC1; manual verification for AC2, AC3, and AC4.
 
 **Status:** Implemented
 
@@ -496,18 +500,22 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. A CodeQL static-analysis workflow runs on pushes to main, on PRs to main, and on a weekly schedule. Results are uploaded to GitHub Security. <!-- @manual -->
-2. An OSSF Scorecard workflow runs a security-posture assessment on push to main and on a weekly schedule. <!-- @manual -->
+1. CodeQL runs on pushes to `main`. <!-- @manual -->
+2. CodeQL runs on a weekly schedule. <!-- @manual -->
+3. CodeQL uploads results to GitHub Security. <!-- @manual -->
+4. OSSF Scorecard runs a security-posture assessment on pushes to `main`. <!-- @manual -->
+5. OSSF Scorecard runs on a weekly schedule. <!-- @manual -->
+6. CodeQL runs on PRs to `main` and `develop`. <!-- @impl: .github/workflows/codeql.yml::pull_request = branches: [main, develop] --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-018/019: protected branch required-check triggers) -->
 
 **Constraints:**
 
-- These workflows run independently of the per-PR quality gates in [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); their cadence is push-to-main + weekly, not per-PR.
+- These workflows run independently of the per-PR quality gates in [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit). CodeQL also supplies its required status to pull requests for both protected branches.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Manual check
+**Verification:** Automated protected-branch CodeQL trigger contract for AC6; manual verification for AC1 through AC5.
 
 **Status:** Implemented
 
@@ -537,7 +545,29 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Manual release-job verification
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-041: Least-privilege workflow-tool pin updates
+
+**Intent:** Routine workflow-tool bumps remain pushable by the standard GitHub Actions token without granting automation permission to rewrite workflow logic.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Zizmor and actionlint bumps update only their validated non-workflow pin manifest, allowing the least-privilege GitHub Actions token to push their branches without workflow-write permission. <!-- @impl: scripts/ci/workflow-tool-pins.mjs::updateWorkflowToolPin --> <!-- @impl: scripts/ci/workflow-tool-pins.mjs::stageDefaultManifest --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::zizmor --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @test: host/__tests__/workflow-tool-pins.test.js (REQ-OPS-041: least-privilege workflow-tool pin updates) -->
+
+**Constraints:** GitHub Actions referenced through `uses:` remain pinned directly to immutable commits in workflow files.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-021](#req-ops-021-workflow-file-static-analysis)
+
+**Verification:** Automated workflow-tool pin CLI tests; manual release-job verification
 
 **Status:** Implemented
 
@@ -552,7 +582,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. For non-Pi packages, the shared manifest updater changes only the requested dependency after an exact current-value match. <!-- @impl: scripts/update-npm-tool-manifests.mjs::updateNpmToolManifests --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-033: lock-backed npm bump manifest updates) -->
-2. Npm-tool bump jobs regenerate and commit each changed manifest's owning lock without executing dependency lifecycle scripts. <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @manual -->
+2. Npm-tool bump jobs regenerate and commit each changed manifest's owning lock through one lifecycle-safe helper. <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) -->
+3. Every shared npm-cooldown caller opens a bump for a strictly newer numeric semantic version. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
+4. Equal or older npm-cooldown candidates do not open a bump. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
+5. Malformed npm-cooldown candidates fail before mutation. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
+6. Every affected committed runtime lock resolves reviewed dependency security floors, including undici 8.9.0 in both Pi runtime trees and ip-address 10.3.1 or later in all three affected runtime trees. <!-- @impl: preseed/npm-tools/package-lock.json --> <!-- @impl: preseed/agents/pi/package-lock.json --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 
 **Constraints:** Package updates remain subject to the configured supply-chain cooldown and normal PR review.
 
@@ -560,7 +594,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
 
-**Verification:** Automated manifest-update test; workflow execution manual
+**Verification:** Automated manifest-update, lifecycle-safe lock-regeneration, and forward-only semantic-version tests; workflow execution manual
 
 **Status:** Implemented
 
@@ -601,9 +635,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The context-mode job bumps its Claude-plugin and Pi-prewarm pins atomically in one PR, and generated-artifact validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::context-mode --> <!-- @manual -->
-2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
+2. Context-mode and Pi-extension bumps regenerate the Pi package lock without executing runtime-layout package lifecycle scripts. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/regenerate-npm-package-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/npm-package-lock-regeneration.test.js (REQ-OPS-033: lifecycle-safe npm lockfile regeneration) -->
 3. Those jobs regenerate the embedded agent seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual -->
-4. A Pi runtime-agent bump updates the shared image-tools lock, the prewarm pin and lock, bundled-dependency integrity corrections, and embedded seed atomically. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation) -->
+4. A Pi runtime-agent bump updates the shared image-tools lock, both prewarm dependency/override pins and lock, bundled-dependency integrity corrections, and embedded seed atomically. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js (REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation) -->
 
 **Constraints:** None.
 
@@ -611,7 +645,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test ([Automated lockfile test](../../host/__tests__/pi-preseed-lockfile-regeneration.test.js); workflow execution manual)
+**Verification:** Automated test ([Automated lockfile test](../../host/__tests__/npm-package-lock-regeneration.test.js); workflow execution manual)
 
 **Status:** Implemented
 
@@ -829,6 +863,194 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate)
 
 **Verification:** Automated test (host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates).
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-034: GitHub release signing eligibility
+
+**Intent:** Release signing must accept only published or explicitly recovered source releases that belong to protected `main`.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Publishing a GitHub release starts signing automatically. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing) -->
+2. An explicit tag input can recover or repeat signing for an existing release. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing) -->
+3. Signing accepts only an exact semantic-version tag that names an existing non-draft release reachable from `main`. <!-- @impl: scripts/ci/sign-release.sh::validate_release_source --> <!-- @test: host/__tests__/release-signing-workflow.test.js (accepts only an existing semantic release reachable from main) -->
+4. Recovery signing accepts dispatches only from `main`. <!-- @impl: scripts/ci/sign-release.sh::validate_release_source --> <!-- @test: host/__tests__/release-signing-workflow.test.js (accepts only an existing semantic release reachable from main) -->
+
+**Constraints:** Repeated recovery signs the same validated tag commit.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-019](#req-ops-019-security-posture-scanning-workflows)
+
+**Verification:** Automated release-boundary tests and an observed signing run on a published release
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-035: Keyless signed release artifacts
+
+**Intent:** Every eligible source release provides artifacts whose origin, exact source revision, and post-publication integrity can be verified without a stored signing key.
+
+**Applies To:** Release consumer
+
+**Acceptance Criteria:**
+
+1. The validated tag commit produces a deterministic, tag-prefixed source archive and checksum manifest. <!-- @impl: scripts/ci/sign-release.sh::build_release_assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (builds deterministic assets, signs both, and uploads the owned set) -->
+2. Signing uses short-lived GitHub OIDC identity and reads no repository signing key or password. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing) --> <!-- @test: host/__tests__/release-signing-workflow.test.js (builds deterministic assets, signs both, and uploads the owned set) -->
+3. The archive and checksum manifest receive self-contained Sigstore bundles. <!-- @impl: scripts/ci/sign-release.sh::sign_release_assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (builds deterministic assets, signs both, and uploads the owned set) -->
+4. GitHub build-provenance attestations bind both release assets to the release workflow, repository, and exact source revision. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @test: host/__tests__/release-signing-workflow.test.js (REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing) -->
+5. The archive, checksum manifest, and both bundles upload to the matching release only after signing and attestation succeed. <!-- @impl: scripts/ci/sign-release.sh::upload_release_assets --> <!-- @test: host/__tests__/release-signing-workflow.test.js (builds deterministic assets, signs both, and uploads the owned set) -->
+
+**Constraints:**
+
+- Release signing is separate from deployment container provenance; neither substitutes for the other.
+- Workflow dependencies and the Cosign release are immutable pins reviewed in source.
+- The signing job alone receives least-privilege write, identity, and attestation permissions; repository-wide permissions remain read-only.
+- A repeated recovery dispatch replaces only the four assets owned by this workflow.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-034](#req-ops-034-github-release-signing-eligibility)
+
+**Verification:** Automated artifact-boundary tests and an observed signing run on a published release
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-036: Develop-only main promotion
+
+**Intent:** Protected production branches accept promotion only from the reviewed `develop` branch, so feature branches cannot bypass the integration boundary.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. Pull requests targeting `main` or `master` receive a `Develop promotion source` status check. <!-- @impl: .github/workflows/promotion-source.yml::promotion-source --> <!-- @test: host/__tests__/promotion-source.test.js (REQ-OPS-036: protected main promotion source) -->
+2. The check succeeds only when the pull request head is the canonical repository's exact `develop` branch. <!-- @impl: .github/workflows/promotion-source.yml::promotion-source --> <!-- @test: host/__tests__/promotion-source.test.js (REQ-OPS-036: protected main promotion source) -->
+3. Each existing `main` or `master` ruleset requires the `Develop promotion source` status before merge. <!-- @manual: Inspect the active GitHub ruleset and confirm `Develop promotion source` is required without bypass. -->
+
+**Constraints:**
+
+- GitHub still permits creating other pull requests; the required status blocks their merge.
+- A fork branch named `develop` cannot satisfy the promotion check.
+- The validation command consumes pull-request metadata through environment variables and never executes branch or repository names as shell code.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** Automated workflow and validator behavior for AC1 and AC2; live ruleset inspection for AC3
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-037: Develop direct fast-forward repairs
+
+**Intent:** Maintainers can repair the integration branch directly without weakening production promotion or allowing destructive history changes.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. The active `develop` ruleset permits direct pushes without a pull-request requirement. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm no pull_request rule. -->
+2. The active `develop` ruleset does not require pre-push status contexts. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm no required_status_checks rule. -->
+3. The active `develop` ruleset blocks branch deletion. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm the deletion rule. -->
+4. The active `develop` ruleset blocks non-fast-forward updates. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm the non_fast_forward rule. -->
+
+**Constraints:** Production promotion remains governed by [REQ-OPS-036](#req-ops-036-develop-only-main-promotion).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-036](#req-ops-036-develop-only-main-promotion)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-038: Build-selected coding-agent CLIs
+
+**Intent:** An operator can build a smaller deployment image containing only the shared coding-agent launchers that environment offers.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. An environment-scoped deployment value selects a non-empty subset of supported coding agents. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
+2. An absent selection preserves the full supported coding-agent set. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) -->
+3. Empty or unknown selections fail before image construction. <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (rejects empty explicit sets and unknown agent names) -->
+4. Equivalent selections produce one canonical image identity. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
+5. Different selected sets produce different image identities. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
+
+**Constraints:** Package versions remain exact, lock-backed or checksum-pinned inputs governed by normal bump review.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image)
+
+**Verification:** Automated selector and image-identity tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-040: Selected coding-agent packaging
+
+**Intent:** The image packages exactly the shared coding-agent launchers selected by the operator.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Every selected lock-backed npm agent launcher is installed. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) --> <!-- @manual: Inspect selected packaged-image agentVersions evidence. -->
+2. Every omitted npm agent launcher is absent. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) --> <!-- @manual: Inspect omitted packaged-image agentVersions evidence. -->
+3. The Antigravity launcher is installed only when selected. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @manual: Inspect packaged-image agentVersions evidence for selections with and without Antigravity. -->
+4. Installed npm agents retain only their canonical Linux x64 runtime payloads; alternate operating-system, architecture, baseline, and musl payloads are removed before image commit. <!-- @impl: scripts/ci/prune-npm-platform-artifacts.mjs::pruneNpmPlatformArtifacts --> <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentPackages --> <!-- @test: host/__tests__/npm-platform-pruning.test.js (REQ-OPS-040: Linux coding-agent package pruning) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the complete-image smoke rejects alternate platform packages after pruning) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
+
+**Constraints:** Every packaged launcher remains exact-version lock-backed or checksum-pinned.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-038](#req-ops-038-build-selected-coding-agent-clis), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
+
+**Verification:** Automated manifest and platform-pruning tests; reduced complete-image deployment evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-039: Reduced-image capability preservation
+
+**Intent:** Reducing shared agent launchers does not remove unrelated tools or platform-owned fast-start and Browser IDE capabilities.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Shared non-agent npm tools remain installed for every valid selection. <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) -->
+2. Pi extension startup remains prewarmed even when the shared Pi launcher is omitted. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @manual: Run complete-image smoke for a selection without Pi and inspect prewarm evidence. -->
+3. Native Pi and official Claude Browser IDE inventories remain packaged for every selection. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Run complete-image smoke for a reduced selection and inspect native inventory evidence. -->
+4. Packaged-image verification starts every selected launcher. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
+5. Packaged-image verification rejects an omitted launcher that remains on the shared path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
+6. Deployment records complete-image byte size as evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Inspect image_bytes in complete-image deployment evidence. -->
+7. Deployment does not reject an image against a fixed byte ceiling. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Inspect complete-image deployment policy for the absence of a fixed ceiling. -->
+
+**Constraints:** Selection affects shared coding-agent launchers only; prewarm and native IDE assets remain platform-owned.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-038](#req-ops-038-build-selected-coding-agent-clis), [REQ-IDE-005](browser-ide.md#req-ide-005-selected-native-ide-agent)
+
+**Verification:** Automated manifest and packaged-smoke behavior tests; complete-image deployment evidence
 
 **Status:** Implemented
 

@@ -45,12 +45,28 @@ export type ShellInvocation = { command: string; cwd: string; certain: boolean }
 function commandInvocations(command: string, cwd: string): ShellInvocation[] {
   let effectiveCwd = cwd;
   let cwdCertain = true;
+  let errexit = false;
   return executableShellSegments(command).map((segment) => {
     const invocation = {
       command: segment.command,
       cwd: effectiveCwd,
       certain: cwdCertain && segment.separatorBefore !== "||",
     };
+    const parentShell = segment.separatorBefore !== "|"
+      && segment.separatorBefore !== "&"
+      && segment.separatorAfter !== "|"
+      && segment.separatorAfter !== "&";
+    if (invocation.certain && parentShell && /^set(?:\s|$)/.test(segment.command)) {
+      const words = segment.command.split(/\s+/).slice(1);
+      for (let index = 0; index < words.length; index += 1) {
+        const word = words[index] ?? "";
+        if (word === "--") break;
+        if (word === "+e" || (word === "+o" && words[index + 1] === "errexit")) errexit = false;
+        if ((word.startsWith("-") && !word.startsWith("--") && word.includes("e"))
+          || (word === "-o" && words[index + 1] === "errexit")) errexit = true;
+      }
+    }
+
     const cd = /^cd(?:\s+--)?\s+(.+)$/.exec(segment.command);
     if (!cd?.[1]) return invocation;
     if (!invocation.certain) {
@@ -59,7 +75,9 @@ function commandInvocations(command: string, cwd: string): ShellInvocation[] {
     }
 
     const target = unquoteShellToken(cd[1]);
-    if (segment.separatorAfter === "&&") {
+    const failClosedSequence = errexit
+      && (segment.separatorAfter === ";" || segment.separatorAfter === "\n");
+    if (segment.separatorAfter === "&&" || failClosedSequence) {
       if (cwdCertain || isAbsolute(target)) {
         effectiveCwd = resolve(effectiveCwd, target);
         cwdCertain = true;

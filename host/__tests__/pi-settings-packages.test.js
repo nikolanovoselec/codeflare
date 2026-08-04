@@ -56,13 +56,13 @@ function runAdvisorGuidanceMerge(initialConfig) {
 
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.source);
 const REQUIRED = [
-  'npm:@gotgenes/pi-subagents@18.1.2',
+  'npm:@gotgenes/pi-subagents@19.2.0',
   'npm:context-mode@1.0.169',
   'npm:@juicesharp/rpiv-advisor@2.1.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.1.0',
   'npm:@juicesharp/rpiv-todo@2.1.0',
-  'npm:pi-web-access@0.13.0',
-  'npm:pi-mcp-adapter@2.13.0',
+  'npm:pi-web-access@0.15.0',
+  'npm:pi-mcp-adapter@2.15.0',
   'npm:@narumitw/pi-goal@0.43.0',
 ];
 

@@ -1,42 +1,15 @@
 #!/usr/bin/env bash
 # Stop hook - enforces SDD review-agent spawning at the PR boundary.
 #
-# Architecture (v5): PR HEAD SHA checkpoint + open-PR gate.
+# Architecture: authoritative checked-out branch state plus a per-PR checkpoint.
 #
-#   Layer 1 (CANDIDATE) - loose regex finds any "git push" mention in the
-#     transcript. Accepts false positives - they get filtered below.
+#   Layer 1 (CANDIDATE) finds executable `git` or `gh` commands.
+#   Layer 2 (TRUTH) requires a normal checked-out branch whose open
+#     main/master/develop PR head exactly equals local HEAD.
+#   Layer 3 (CHECKPOINT) stores the acknowledged SHA by PR number.
 #
-#   Layer 2 (TRUTH) - `gh pr view <branch>` returns the current PR HEAD
-#     SHA. The PR HEAD SHA is the unfakeable signal at PR-boundary
-#     scope: it changes only when a real push lands on the PR's source
-#     branch. The legacy reflog `update by push` truth layer is kept as
-#     a comment-anchored documentation reference (search "update by
-#     push" or "reflog" in this file) and is no longer read at runtime,
-#     because PR HEAD SHA is a stricter signal that already requires a
-#     real push to advance.
-#
-#   Layer 3 (CHECKPOINT) - `.git/sdd-last-ack-pr-head` stores the PR
-#     HEAD SHA whose review pipeline completed. A PR is un-acknowledged
-#     iff CURRENT_PR_HEAD ≠ LAST_ACK_PR_HEAD.
-#
-# Trigger semantics (PR-boundary, gated on PR target = main/master):
-#
-#   - No open PR for current branch → exit 0 (deferred; the review
-#     fires when the PR opens)
-#   - Open PR + base ∉ (main, master) → exit 0 (deferred; the
-#     integration branch's own PR-to-main carries the cumulative
-#     review). Feature → develop PRs do not fire; develop → main
-#     PRs do.
-#   - Open PR + CURRENT_PR_HEAD == LAST_ACK → exit 0 (already reviewed
-#     at this state)
-#   - Open PR + CURRENT_PR_HEAD ≠ LAST_ACK → enforce: require
-#     code-reviewer + spec-reviewer + doc-updater spawned later in
-#     the transcript than the boundary candidate line (`git push`,
-#     `gh pr merge`, or `gh pr edit --base main|master`)
-#
-# Migration from v4: if .git/sdd-last-ack-push (timestamp checkpoint)
-# exists, it is deleted on first v5 invocation. The PR HEAD SHA
-# checkpoint takes over.
+# Command syntax never decides eligibility. After a merge, switching to and
+# synchronizing the merge-target branch exposes that branch's new PR head.
 #
 # Bypass methods (USER-ONLY - the assistant must NEVER create the
 # sentinel or write the magic phrase in its own output. An assistant
@@ -51,25 +24,17 @@
 # Vibe-coding gate: no enforcement if sdd/ is missing.
 # Fail-safe: any unexpected error → exit 0 (never lock users out).
 #
-# Known under-block conditions (all fail-safe by design - review fires
-# on the next eligible push instead of locking the user out):
-#   1. Web-UI driven PR HEAD changes (amend from GitHub UI, branch
-#      reset via API): the current Claude session has no `git push`
-#      line in its transcript, so PUSH_LINE detection exits 0. Review
-#      fires on the next local push to the branch.
+# Known under-block conditions (all fail-safe by design):
+#   1. Remote-only PR HEAD changes remain inert until the user synchronizes
+#      the checked-out branch and runs another Git or GitHub CLI command.
 #   2. A required review lane is still in flight or lacks a completed
 #      marker: the hook withholds acknowledgement and continues blocking
 #      until every required parallel lane has a current-head completion.
 #   3. Transcript file rotated or truncated mid-session: PUSH_LINE
 #      detection silently returns 0. Review fires on the next push.
 #
-# Operational requirements (see rules/spec-discipline.md →
-#   "Operational requirements for the Stop hook"):
-#   - Current branch must have upstream tracking (`git rev-parse @{u}`
-#     must resolve). The cheap @{u} short-circuit relies on it; without
-#     it the hook still works via gh pr view but loses the fast path.
-#   - `gh` on PATH for the authoritative PR HEAD SHA check.
-#   - sdd/README.md present (vibe-coding gate).
+# Operational requirements: a normal checked-out branch, `gh` on PATH,
+# and sdd/README.md present.
 
 set +e
 
@@ -209,8 +174,8 @@ if [ -z "$PRETOOL_MODE" ]; then
 #                                   sibling `"language":"shell"` appears on
 #                                   the same JSONL line)
 #
-# Candidate commands are `git push`, `gh pr merge`, and protected-base
-# `gh pr edit --base main|master` retargets.
+# Candidate commands are executable `git` and `gh` commands; authoritative
+# checked-out branch state below filters false positives and unchanged heads.
 #
 # Issue #319: prior to multi-tool scanning, `git push` made via ctx_execute
 # or ctx_batch_execute was invisible to PUSH_LINE detection because the awk
@@ -230,93 +195,18 @@ if [ -z "$PRETOOL_MODE" ]; then
 #
 # ---------------------------------------------------------------------------
 PUSH_LINE=$(awk '
-  # A. Bash tool_use
-  # Two-pattern detection: anchored start (`"command":"git push`) catches
-  # bare pushes; loose chained (`<sep> git push`) catches piped/chained
-  # pushes. The anchored start tolerates a leading env-var prefix via
-  # `([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*` (zero-or-more), so
-  # `BROWSER="" git push` is detected, not silently skipped. The chained form is NOT anchored to start-of-command-string
-  # because JSON-escaped quotes inside the value (e.g. `cd "/path with
-  # spaces" && git push`) break the `[^"]*` inner-string constraint. The
-  # outer `"name":"Bash"` guard keeps false positives bounded; Layer 2
-  # (PR HEAD SHA) filters any that slip through.
-  #
-  # `gh pr merge` is also recognised: a server-side merge into develop
-  # advances origin/develop without a local `git push`, but it is the
-  # exact event that creates an un-acked develop->main PR HEAD. Without
-  # this surface, develop->main reviewers silently fail to arm. See
-  # commit history for the "stop hook never fires after gh pr merge"
-  # incident.
+  function candidate(field) {
+    return field ~ /"(command|code)"[[:space:]]*:[[:space:]]*"(env[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(git|gh)[[:space:]"\047);&|]/ \
+      || field ~ /(\\n|[;&|])[[:space:]]*(git|gh)[[:space:]"\047);&|]/
+  }
   /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
-      print NR; next
-    }
+    if (candidate($0)) { print NR; next }
   }
-  # B. mcp__*__ctx_batch_execute tool_use (per-entry `"command"` field).
-  #    Pattern note: `mcp__[^"]*ctx_batch_execute"` requires the literal
-  #    `ctx_batch_execute` to end at the closing `"`, so it cannot match the
-  #    bare `ctx_execute` tool name handled in block C below. Blocks B and C
-  #    are mutually exclusive per tool_use line.
   /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
-      print NR; next
-    }
+    if (candidate($0)) { print NR; next }
   }
-  # C. mcp__*__ctx_execute with `"language":"shell"` (uses `"code"` field).
-  #    Pattern note: `mcp__[^"]*ctx_execute"` requires the literal `ctx_execute`
-  #    to end at the closing `"` - the trailing `_batch_execute` form does NOT
-  #    match. This is the mutual-exclusion anchor that lets blocks B and C
-  #    share the line-level `mcp__` prefix without firing twice on one entry.
   /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
-    if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
-    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
-      print NR; next
-    }
-    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
-      print NR; next
-    }
-    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
-      print NR; next
-    }
+    if ($0 ~ /"language"[[:space:]]*:[[:space:]]*"shell"/ && candidate($0)) { print NR; next }
   }
 ' "$TRANSCRIPT" 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
@@ -455,62 +345,39 @@ if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -q
 fi
 
 # ---------------------------------------------------------------------------
-# Resolve git common dir for worktree/submodule compatibility
+# Authoritative checked-out branch state
 # ---------------------------------------------------------------------------
-GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null)
-[ -n "$GIT_COMMON_DIR" ] || exit 0  # not in a git repo → silent exit
-case "$GIT_COMMON_DIR" in /*) ;; *) GIT_COMMON_DIR="$REPO_DIR/$GIT_COMMON_DIR" ;; esac
-ACK_FILE="$GIT_COMMON_DIR/sdd-last-ack-pr-head"
-COUNT_FILE="$GIT_COMMON_DIR/sdd-review-block-count"
-
-# Migration: clean up v4 timestamp checkpoint on first v5 run
-LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
-[ -f "$LEGACY_ACK" ] && rm -f "$LEGACY_ACK" 2>/dev/null
-
-# ---------------------------------------------------------------------------
-# Layer 2 (TRUTH) - PR HEAD SHA via gh pr view
-#
-# If the current branch has no open PR, exit 0 (deferred). The review
-# pipeline fires when the PR opens (handled by git-push-review-reminder.sh
-# at PR-OPEN time). No open PR → no enforcement here.
-# ---------------------------------------------------------------------------
-CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
-[ -n "$CURRENT" ] || exit 0
-[ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD - skip
-
-# ---------------------------------------------------------------------------
-# Cheap pre-check: skip the gh network call if all four conditions hold,
-# falling through to the authoritative gh check otherwise.
-#
-#   1. last-ack matches the local remote-tracking ref (@{u})
-#   2. local HEAD matches @{u} (no local commits ahead - guards against
-#      `git reset --hard` regressing HEAD to an old acked SHA while a
-#      newer un-acked SHA exists upstream that the next push would
-#      promote)
-#   3. ack file mtime is within 5 minutes (bounds the staleness of
-#      @{u}: if the user hasn't fetched recently, @{u} could be stale
-#      and an upstream push from elsewhere would go un-reviewed)
-#   4. @{u} resolves at all
-#
-# Without all four, fall through. The cheap path saves a 200-500ms
-# gh round-trip in the steady-state post-review tail of a session;
-# the constraints above ensure we never short-circuit on a stale
-# signal that hides a real un-acked PR HEAD.
-# ---------------------------------------------------------------------------
+[ -d .git ] || exit 0
+GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
+[ -d "$GIT_DIR" ] || exit 0
+CURRENT=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
+LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null) || exit 0
+command -v gh >/dev/null 2>&1 || exit 0
+. "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
+PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
+PR_STATE=$(printf '%s' "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
+CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+BASE_REF=$(printf '%s' "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
+PR_NUMBER=$(printf '%s' "$PR_INFO" | jq -r '.number // empty' 2>/dev/null)
+[ "$PR_STATE" = "OPEN" ] || exit 0
+case "$BASE_REF" in main|master|develop) ;; *) exit 0 ;; esac
+printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
+printf '%s' "$CURRENT_PR_HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
+[ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] || exit 0
+ACK_FILE="$GIT_DIR/sdd-review-ack-pr-$PR_NUMBER"
+COUNT_FILE="$GIT_DIR/sdd-review-count-pr-$PR_NUMBER"
+LEGACY_ACK="$GIT_DIR/sdd-last-ack-pr-head"
 LAST_ACK_PR_HEAD=""
 if [ -f "$ACK_FILE" ]; then
   LAST_ACK_PR_HEAD=$(cat "$ACK_FILE" 2>/dev/null)
-  # SHA-shape guard: only accept a 40-char lower-hex string. A corrupt or
-  # accidentally-touched ACK file (truncated, contains a stray newline, or
-  # holds non-SHA bytes) used to silently load and force the authoritative
-  # gh round-trip via the !match path below; this explicit validation
-  # makes the self-heal visible in audit and prevents the unlikely future
-  # case of a partially-valid prefix matching by accident.
-  case "$LAST_ACK_PR_HEAD" in
-    *[!0-9a-f]* | "" ) LAST_ACK_PR_HEAD="" ;;
-    *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
-  esac
+elif [ -f "$LEGACY_ACK" ]; then
+  LAST_ACK_PR_HEAD=$(cat "$LEGACY_ACK" 2>/dev/null)
 fi
+case "$LAST_ACK_PR_HEAD" in
+  *[!0-9a-f]*|"") LAST_ACK_PR_HEAD="" ;;
+  *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
+esac
+[ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] || exit 0
 
 # ---------------------------------------------------------------------------
 # Retroactive ack scan (v7) -- handles the fix-push cascade pattern.
@@ -1005,58 +872,6 @@ if [ -n "$LAST_ACK_PR_HEAD" ]; then
   fi
 fi
 
-if ! command -v gh >/dev/null 2>&1; then
-  exit 0  # gh missing → can't verify PR state → fail-safe exit
-fi
-
-# Shared CLI invocation; see lib/gh-pr-state.sh for the contract
-. "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
-PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
-[ -n "$PR_INFO" ] || exit 0
-
-PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
-CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
-BASE_REF=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
-
-# No open PR → exit 0 (deferred review)
-# MERGED/CLOSED with un-acked HEAD → record visibility finding but do
-# not block (the merge already happened; blocking turn-end is moot).
-if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
-  if [ -n "$CURRENT_PR_HEAD" ] \
-     && [ -n "$LAST_ACK_PR_HEAD" ] \
-     && [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ]; then
-    triage_file=$(test -f sdd/spec/.review-queue.md && echo sdd/spec/.review-queue.md || echo sdd/.review-needed.md)
-    {
-      printf '\n## %s - PR %s un-acked at merge/close\n' \
-        "$(date +%Y-%m-%d)" "$PR_STATE"
-      printf -- '- PR for branch `%s` reached %s with un-acked HEAD `%s` (last ack: `%s`). Review pipeline did not complete before merge.\n' \
-        "$CURRENT" "$PR_STATE" "${CURRENT_PR_HEAD:0:7}" "${LAST_ACK_PR_HEAD:0:7}"
-    } >> "$triage_file" 2>/dev/null || true
-  fi
-  exit 0
-fi
-[ "$PR_STATE" = "OPEN" ] || exit 0
-[ -n "$CURRENT_PR_HEAD" ] || exit 0
-
-# Gate on PR target: only PRs landing on main/master trigger the review
-# pipeline. Feature → develop defers until the develop → main PR.
-#
-# Empty BASE_REF (transient gh / jq failure between successful state
-# parse and base parse - rare but possible) is treated as fail-CLOSED:
-# enforcement still runs (the safe direction). Better to over-block
-# when truth is uncertain than to silently let an unreviewed PR-to-main
-# slip through.
-case "$BASE_REF" in
-  main|master|"") ;;
-  *) exit 0 ;;
-esac
-
-# Authoritative PR HEAD check (network result may differ from @{u} if
-# the local-tracking ref is stale): bail if already acked.
-if [ -n "$LAST_ACK_PR_HEAD" ] && [ "$LAST_ACK_PR_HEAD" = "$CURRENT_PR_HEAD" ]; then
-  exit 0
-fi
-
 # ---------------------------------------------------------------------------
 # Real un-acknowledged PR HEAD exists. Enforce.
 #
@@ -1112,7 +927,7 @@ read_count() { read_count_from "$COUNT_FILE"; }
 # at the verdict check already at the limit, so the escape hatch fired on the
 # FIRST pass -- acknowledging a head whose findings were never triaged, before
 # a single verdict demand had been issued, while claiming five went unanswered.
-VERDICT_COUNT_FILE="$GIT_COMMON_DIR/sdd-review-verdict-count"
+VERDICT_COUNT_FILE="$GIT_DIR/sdd-review-verdict-count-pr-$PR_NUMBER"
 
 reack_on_repeated_demand() {
   local strikes

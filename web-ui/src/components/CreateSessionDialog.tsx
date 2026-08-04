@@ -2,7 +2,7 @@ import { Component, For, Show, createSignal, createEffect, onMount, onCleanup } 
 import Icon from './Icon';
 import type { AgentType, TabConfig } from '../types';
 import { sessionStore } from '../stores/session';
-import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../lib/agent-catalog';
+import { AGENT_OPTIONS } from '../lib/agent-catalog';
 import '../styles/create-session-dialog.css';
 
 interface CreateSessionDialogProps {
@@ -18,12 +18,11 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
 
   const lastAgentType = () => sessionStore.preferences.lastAgentType;
 
-  // Enterprise mode shows only the wizard-activated agents; otherwise the full
-  // set. Falsy enterpriseMode ⇒ unchanged (all AGENT_OPTIONS render).
+  // Withhold choices until GET /api/user supplies the deployment allowlist;
+  // showing the full catalog during hydration could expose an omitted CLI.
   const agentOptions = () => {
-    if (!sessionStore.enterpriseMode) return AGENT_OPTIONS;
-    const allowed = sessionStore.allowedAgents ?? ENTERPRISE_AGENT_TYPES;
-    return AGENT_OPTIONS.filter((a) => allowed.includes(a.type));
+    const allowed = sessionStore.allowedAgents;
+    return allowed ? AGENT_OPTIONS.filter((agent) => allowed.includes(agent.type)) : [];
   };
 
   // Compute fixed position from anchor button rect — dialog opens BELOW the button.

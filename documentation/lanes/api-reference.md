@@ -127,13 +127,15 @@ The pre-Hono, pre-auth 400 keeps the full default security-header set; every oth
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1, [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC4 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`, `allowedAgents` — the creation-selectable agent set, wizard-governed under enterprise mode) |
+| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1, [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC4, [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability) AC3 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`, `allowedAgents` — the build-installed, policy-filtered creation set) |
 | POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC2 | Mark guided setup as visited (sets KV flag) |
 | GET | `/api/user/r2-status` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC3 | R2 credential status for current user |
 | POST | `/api/user/ensure-r2-token` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC4, AC6 | Create scoped R2 token if missing (rate limited) |
 | GET | `/api/users` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | List allowed users (admin only) |
 | DELETE | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Remove allowed user (admin only) |
 | PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Update user tier/role (admin only) |
+
+For `GET /api/user`, current workers return `allowedAgents`. During a rolling upgrade, a successful response from an older worker may omit this optional field; the UI then hydrates the deployment-mode legacy catalog rather than remaining in its pre-hydration state ([REQ-AGENT-124](../../sdd/spec/agents.md#req-agent-124-agent-choice-profile-hydration)).
 
 ## Auth (SaaS Mode)
 
@@ -367,7 +369,7 @@ Each runs only when its field is present in the request body, so unrelated recon
 - `configure_strict_egress` — writes `setup:strict_egress` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
 - `configure_r2_sse` — writes `setup:r2_sse_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
 - `configure_downloads_disabled` — writes `setup:downloads_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable)
-- `configure_active_agents` — validates the selection against the gateway-capable coding agents (rejects empty or non-capable) and writes `setup:active_agents` as a JSON array. [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard)
+- `configure_active_agents` — validates the selection against build-installed, gateway-capable coding agents (rejects empty, non-capable, or omitted CLIs) and writes `setup:active_agents` as a JSON array. [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability)
 
 **Step 7 -- `finalize`**
 
@@ -548,7 +550,7 @@ In SaaS mode, returns empty arrays - admin enters everything manually.
 {"adminUsers": ["alice@example.com"], "allowedUsers": ["bob@example.com"]}
 ```
 
-Under `ENTERPRISE_MODE` the response additionally carries the stored enterprise configuration for wizard round-trip (Access groups, route catalog, masked token flags, toggles) plus `activeAgents` (the stored coding-agent selection, or every capable agent when absent/invalid) and `configurableAgents` (the governable universe: `copilot`, `pi`); both agent fields are omitted outside enterprise mode ([REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard)).
+Under `ENTERPRISE_MODE` the response additionally carries the stored enterprise configuration for wizard round-trip (Access groups, route catalog, masked token flags, toggles) plus `activeAgents` (the stored coding-agent selection intersected with installed CLIs, or every installed capable agent when absent/invalid) and `configurableAgents` (the build-installed subset of the governable `copilot`, `pi` universe); both agent fields are omitted outside enterprise mode ([REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability)).
 
 ```json
 {"adminUsers": ["alice@example.com"], "allowedUsers": [], "activeAgents": ["pi"], "configurableAgents": ["copilot", "pi"]}
@@ -608,9 +610,13 @@ Under enterprise mode, the response's `sessionMode` is always `'advanced'`. GET 
 
 ## LLM API Keys
 
-GET `/api/llm-keys` - returns masked keys (`****` + last 4 chars), never full keys.
-PUT `/api/llm-keys` - set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
-DELETE `/api/llm-keys` - removes all LLM keys from KV.
+| Method | Success contract | Enterprise response |
+|---|---|---|
+| GET `/api/llm-keys` | Returns masked keys (`****` + last 4 characters), never full keys. | `403` before KV access. |
+| PUT `/api/llm-keys` | Sets or clears keys from `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`; `null` deletes, omission leaves unchanged, and strings set values. Returns masked keys. With `ENCRYPTION_KEY`, values use AES-256-GCM before KV storage. | `403` before KV access. |
+| DELETE `/api/llm-keys` | Removes all LLM keys from KV. | `403` before KV access. |
+
+Enterprise deployments reject per-user LLM-key management under [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) AC2. <!-- @impl: src/routes/llm-keys.ts::app.use -->
 
 Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected only as `CODEFLARE_OPENAI_API_KEY` / `CODEFLARE_GEMINI_API_KEY`; `entrypoint.sh` maps them back to bare provider env names only inside the scoped `consult-llm-mcp` server config for Claude (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`). The LLM Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
 

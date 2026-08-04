@@ -150,7 +150,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     passThroughOnException: vi.fn(),
   };
 
-  function createTestApp() {
+  function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
     app.use('*', async (c, next) => {
@@ -160,6 +160,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
         R2_ACCESS_KEY_ID: 'account-level-ak',
         R2_SECRET_ACCESS_KEY: 'account-level-sk',
         CONTAINER: {} as any,
+        ...envOverrides,
       } as unknown as Env;
       c.set('user' as any, { email: 'test@example.com', authenticated: true, role: 'admin' });
       c.set('bucketName' as any, 'codeflare-test-example-com');
@@ -184,6 +185,24 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
       },
     };
   }
+
+  it('REQ-AGENT-123 AC5: rejects starting a persisted session whose CLI is omitted from the image', async () => {
+    const app = createTestApp({ CODING_AGENTS: 'claude-code,codex,pi' });
+    mockKV._set('session:codeflare-test-example-com:test-session', {
+      id: 'test-session',
+      name: 'Old Copilot session',
+      status: 'stopped',
+      agentType: 'copilot',
+      createdAt: '2024-01-01T00:00:00Z',
+    } satisfies Partial<Session>);
+
+    const res = await app.request('/container/start?sessionId=test-session', { method: 'POST' });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(mockGetOrCreateScopedR2Token).not.toHaveBeenCalled();
+    expect(mockContainerStub.startAndWaitForPorts).not.toHaveBeenCalled();
+  });
 
   it('setupR2Credentials returns scoped credentials for bucket (L15)', async () => {
     const app = createTestApp();

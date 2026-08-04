@@ -2336,14 +2336,14 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@18.1.2',
+  'npm:@gotgenes/pi-subagents@19.2.0',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@2.1.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.1.0',
   'npm:@juicesharp/rpiv-todo@2.1.0',
-  'npm:pi-web-access@0.13.0',
-  'npm:pi-mcp-adapter@2.13.0',
+  'npm:pi-web-access@0.15.0',
+  'npm:pi-mcp-adapter@2.15.0',
   'npm:@narumitw/pi-goal@0.43.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
@@ -2543,27 +2543,25 @@ configure_consult_llm() {
         "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env}}}')" \
         "Claude Code"
 
-    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape). Keep the
-    # server behind the adapter's lazy `mcp` proxy so consult-llm-mcp starts only
-    # when the user explicitly asks to consult an external LLM.
+    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape). Adapter
+    # 2.15+ interprets a leading `!` as a command-backed secret and `!!` as a
+    # literal leading bang, so encode only Pi's copy; Claude receives raw env.
+    # Keep the server behind the adapter's lazy `mcp` proxy so consult-llm-mcp
+    # starts only when the user explicitly asks to consult an external LLM.
+    pi_env_obj=$(printf '%s' "$env_obj" | jq -c \
+        'with_entries(.value |= if type == "string" and startswith("!") then "!" + . else . end)')
     mkdir -p "$USER_HOME/.pi/agent"
     _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" \
-        "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
+        "$(jq -n --argjson env "$pi_env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
         "Pi"
 }
 configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"
 
-# Pi web-search workflow: skip the interactive browser-curator fallback.
-# pi-web-access's openCuratorBrowser has an upstream bug -- sendCuratorFallbackUpdate
-# is declared inside the try{} block but referenced from the sibling catch{} block
-# (github.com/nicobailon/pi-web-access issue #103; fix in PR #114, not yet released
-# to npm) -- so any web_search call crashes the WHOLE pi process with an uncaught
-# ReferenceError whenever the browser fails to open, which it always does here (no
-# GUI browser in a headless container; xdg-open exits non-zero). "auto-summary"
-# generates a synthesized answer directly without ever opening a browser, so the
-# buggy path is never reached -- and this is strictly correct for this environment
-# regardless of the bug, since a browser-approval UI could never functionally work
-# here anyway. pi-web-access resolves its OWN config dir independently of Pi's core
+# Pi web-search workflow: skip the interactive browser-curator path. Version 0.14
+# fixes the former curator fallback crash, but a browser-approval UI still cannot
+# function in this headless container. "auto-summary" generates the synthesized
+# answer directly without attempting to open a GUI browser. pi-web-access resolves
+# its OWN config dir independently of Pi's core
 # ~/.pi/agent/* -- its getWebSearchConfigDir() checks PI_CODING_AGENT_DIR first, then
 # XDG_CONFIG_HOME, defaulting to bare ~/.pi when neither is set (neither is set
 # here) -- verified against the installed package's actual path-resolution logic,
@@ -2573,7 +2571,7 @@ PI_WEB_SEARCH_JSON="$USER_HOME/.pi/web-search.json"
 if [ ! -f "$PI_WEB_SEARCH_JSON" ]; then
     mkdir -p "$(dirname "$PI_WEB_SEARCH_JSON")"
     printf '{\n  "workflow": "auto-summary"\n}\n' > "$PI_WEB_SEARCH_JSON"
-    echo "[entrypoint] Pi web-search workflow set to auto-summary (avoids upstream pi-web-access curator crash)"
+    echo "[entrypoint] Pi web-search workflow set to auto-summary (headless-safe)"
 fi
 
 # ---------------------------------------------------------------------------

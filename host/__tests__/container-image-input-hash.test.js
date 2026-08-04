@@ -46,7 +46,7 @@ esac
 `);
 chmodSync(join(bin, 'date'), 0o755);
 
-function imageHashResult(cwd = root) {
+function imageHashResult(cwd = root, codingAgents = 'claude-code,codex,copilot,antigravity,opencode,pi') {
   const output = join(root, 'github-output');
   writeFileSync(output, '');
   execFileSync('bash', ['-euo', 'pipefail', '-c', hashScript], {
@@ -54,6 +54,7 @@ function imageHashResult(cwd = root) {
     env: {
       ...process.env,
       GITHUB_OUTPUT: output,
+      RAW_CODING_AGENTS: codingAgents,
       PATH: `${bin}:${process.env.PATH ?? ''}`,
     },
     stdio: 'pipe',
@@ -94,15 +95,31 @@ describe('deployment container image input hash', () => {
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/verify-pi-lockstep.mjs',
+      'scripts/ci/coding-agent-selection.mjs',
+      'scripts/ci/prune-npm-platform-artifacts.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'src/lib/agent-seed.generated.ts',
     ]) write(path);
+    write(
+      'scripts/ci/coding-agent-selection.mjs',
+      readFileSync(join(ROOT, 'scripts/ci/coding-agent-selection.mjs'), 'utf8'),
+    );
     commit('fixture');
     const baseline = imageHashResult();
     assert.match(baseline.tag ?? '', /^in-[a-f0-9]{16}$/);
     assert.equal(baseline.noReuse, '0');
     assert.equal(imageHashResult(ROOT).noReuse, '0', 'the real Dockerfile must remain fully covered');
+    assert.notEqual(
+      imageHashResult(root, 'claude-code,codex,pi').tag,
+      baseline.tag,
+      'different installed-agent sets must never reuse the same image',
+    );
+    assert.equal(
+      imageHashResult(root, 'pi, claude-code,codex').tag,
+      imageHashResult(root, 'claude-code,codex,pi').tag,
+      'equivalent selections must canonicalize to one image identity',
+    );
 
     write('host/__tests__/container-image-input-hash.test.js', 'test only\n');
     commit('test-only change');
@@ -123,9 +140,14 @@ describe('deployment container image input hash', () => {
     const goalPatchTag = imageHashResult().tag;
     assert.notEqual(goalPatchTag, scriptTag);
 
+    write('scripts/ci/prune-npm-platform-artifacts.mjs', 'pruning change\n');
+    commit('pruning change');
+    const pruningTag = imageHashResult().tag;
+    assert.notEqual(pruningTag, goalPatchTag);
+
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
-    assert.notEqual(imageHashResult().tag, goalPatchTag);
+    assert.notEqual(imageHashResult().tag, pruningTag);
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');

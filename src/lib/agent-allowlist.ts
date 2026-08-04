@@ -4,9 +4,9 @@
  * Enterprise deploys restrict the selectable agent set to those whose LLM
  * traffic can be routed through the customer's AI Gateway with zero manual
  * login (REQ-ENTERPRISE-003). Within that gateway-routable universe the admin
- * narrows the offering from the Setup wizard (KV `setup:active_agents`, REQ-ENTERPRISE-025);
- * `bash` needs no LLM and is always selectable. Outside enterprise mode, all
- * agents defined by {@link AgentTypeSchema} remain available — this is a
+ * narrows the offering from the Setup wizard (KV `setup:active_agents`, REQ-ENTERPRISE-025).
+ * Every mode also intersects that policy with the build-installed `CODING_AGENTS`
+ * set (REQ-OPS-038); `bash` needs no package and is always selectable. This is a
  * runtime filter, NOT an enum change.
  */
 import { AgentTypeSchema, type AgentType, type Env } from '../types';
@@ -28,6 +28,20 @@ const ENTERPRISE_AGENTS = ['copilot', 'pi', 'bash'] as const satisfies readonly 
  * deactivating it would remove nothing — it stays always-on. */
 export const CONFIGURABLE_ENTERPRISE_AGENTS: readonly AgentType[] = ENTERPRISE_AGENTS.filter((a) => a !== 'bash');
 
+const CODING_AGENT_TYPES = new Set<string>(AgentTypeSchema.options.filter((agent) => agent !== 'bash'));
+
+/** Resolve build-installed agents in canonical schema order. Invalid external
+ * configuration fails closed to bash; an absent value preserves all agents. */
+export function installedAgents(env: Pick<Env, 'CODING_AGENTS'> | undefined): readonly AgentType[] {
+  if (env?.CODING_AGENTS === undefined) return AgentTypeSchema.options;
+  const requested = env.CODING_AGENTS.split(',').map((value) => value.trim()).filter(Boolean);
+  if (requested.length === 0 || requested.some((value) => !CODING_AGENT_TYPES.has(value))) {
+    return ['bash'];
+  }
+  const selected = new Set(requested);
+  return AgentTypeSchema.options.filter((agent) => agent === 'bash' || selected.has(agent));
+}
+
 /**
  * Read + sanitize the wizard-selected active coding agents (REQ-ENTERPRISE-025).
  * Canonical {@link CONFIGURABLE_ENTERPRISE_AGENTS} order is preserved regardless
@@ -48,13 +62,17 @@ export async function readActiveAgents(kv: Env['KV']): Promise<readonly AgentTyp
 
 /**
  * Resolve the set of agent types selectable under the current deploy mode.
- * Enterprise ⇒ the wizard-selected active coding agents plus the always-on
- * `bash`; an absent/invalid stored value falls back to the full
- * {@link ENTERPRISE_AGENTS}. Otherwise the full agent enum.
+ * Enterprise policy and the build-installed set are intersected; outside
+ * enterprise mode only the build-installed set applies. Bash remains available.
  */
-export async function allowedAgents(env: Pick<Env, 'ENTERPRISE_MODE' | 'KV'> | undefined): Promise<readonly AgentType[]> {
-  if (!env || !isEnterpriseMode(env)) return AgentTypeSchema.options;
+export async function allowedAgents(
+  env: Pick<Env, 'CODING_AGENTS' | 'ENTERPRISE_MODE' | 'KV'> | undefined,
+): Promise<readonly AgentType[]> {
+  const installed = installedAgents(env);
+  if (!env || !isEnterpriseMode(env)) return installed;
   const active = await readActiveAgents(env.KV);
-  if (active === null) return ENTERPRISE_AGENTS;
-  return ENTERPRISE_AGENTS.filter((a) => a === 'bash' || active.includes(a));
+  const enterprise = active === null
+    ? ENTERPRISE_AGENTS
+    : ENTERPRISE_AGENTS.filter((agent) => agent === 'bash' || active.includes(agent));
+  return enterprise.filter((agent) => installed.includes(agent));
 }

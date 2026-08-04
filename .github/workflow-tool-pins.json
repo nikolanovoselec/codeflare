@@ -1,0 +1,10 @@
+{
+  "zizmor": {
+    "version": "1.28.0",
+    "sha256": "e87b67160194884e375a46a12c57ccc904f762b53845f254fab7f17d98809c09"
+  },
+  "actionlint": {
+    "version": "1.7.12",
+    "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+  }
+}

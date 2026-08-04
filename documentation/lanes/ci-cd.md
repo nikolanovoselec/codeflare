@@ -29,12 +29,14 @@ The root npm lane owns application Wrangler. Stress and container-image workflow
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub; optional advanced `verified_run_id`) | Automatically reuses a successful exact-head, exact-tree PR Checks receipt or falls back to inline checks, then runs staged `prepare` → (`build-worker` ∥ `container`) → `deploy`. |
-| `container-image.yml` | `workflow_call` (from `deploy.yml`) | Reusable container build → Trivy scan → push, parameterized by registry (Cloudflare managed registry, or Docker Hub as connection-drop bypass). Tags images `in-<input-hash>` and **reuses the existing already-scanned image when inputs are unchanged**, skipping the multi-GB build+scan; a weekly hash salt bounds reuse at seven days. |
+| `container-image.yml` | `workflow_call` (from `deploy.yml`) | Reusable container build → Trivy scan → push, parameterized by registry and the environment's selected coding-agent CLIs. Tags images `in-<input-hash>` and **reuses the existing already-scanned image when inputs are unchanged**, skipping the multi-GB build+scan; selected agents and a weekly salt are part of identity. |
+| `sign-release.yml` | GitHub release publication + recovery `workflow_dispatch` with an existing tag | Validates that a semantic-version release tag is reachable from `main`, creates a deterministic source archive and checksum manifest, keylessly signs both with Sigstore, records GitHub build provenance, and uploads the four verifiable assets to that release. |
 | `test.yml` | PRs to `main` or `develop`, push to `main`, `merge_group`, `workflow_dispatch` + nightly schedule (all lanes) | Parallel path-filtered quality (lint, knip, audit, seed drift), typecheck, workflow-audit, bundle-size, coverage, test-suite, host, and dependency-review lanes. One fail-closed action runs four backend shards, a Node leg, three frontend shards, and landing. The required `test` summary fails failed/cancelled lanes and passes unaffected skipped lanes. |
+| `promotion-source.yml` | PRs to `main` or `master` | Publishes the required `Develop promotion source` status and fails unless the PR head is the canonical repository's exact `develop` branch ([REQ-OPS-036](../../sdd/spec/operations.md#req-ops-036-develop-only-main-promotion)). |
 | `zizmor.yml` | PRs and pushes touching `.github/**` + `workflow_dispatch` | Records the workflow security audit as SARIF in code scanning, so the alert history is preserved. It only records — the blocking check is the `workflow-audit` lane in `test.yml`. Its zizmor version is pinned (the action defaults to `latest`, which floats the auditor). |
-| `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF. Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
-| `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
-| `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
+| `codeql.yml` | Push to `main`, PRs to `main` or `develop`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF ([REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows)). Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
+| `fuzz.yml` | PRs to `main` or `develop`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations; [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing)) |
+| `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment on the default branch, publishes results and uploads SARIF. A manual dispatch from another branch exits successfully with an explicit unsupported-ref summary because Scorecard rejects non-default branches. |
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
 | `stress-test.yml` | `workflow_dispatch` | k6 stress tests from `stress/` (API throughput, session lifecycle, storage operations, rate-limit validation) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
 | `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Tracks non-Dependabot pins: context-mode, graphify, checksum-backed binaries including uv, shared-lock npm tools, Pi preseed npm pins, Browser Run MCP, the vendored Impeccable bundle, code-server plus its Code gitlink, Antigravity, and `actionlint`/`zizmor`. |
@@ -45,17 +47,42 @@ Additional details:
 
 **`bump-shadow-pins.yml`:** Tracks context-mode, graphify, checksum-backed Docker binaries and uv, the shared npm-tools tree (agent CLIs, Bun, `consult-llm-mcp`, `chrome-devtools-mcp`), Browser Run MCP's dedicated lock, every Pi preseed npm pin, the vendored Impeccable bundle, code-server plus its Code gitlink, Antigravity, and the pinned `actionlint` and `zizmor` binaries.
 
-Each bump opens its own PR. Shared npm-tool jobs update the owning manifest and regenerate its committed lock atomically ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence)). Pi changes additionally regenerate the prewarm lock and embedded seed through `scripts/regenerate-pi-preseed-lock.mjs`, which suppresses lifecycle scripts because the committed payload differs deliberately from flattened runtime npm layout ([REQ-OPS-025](../../sdd/spec/operations.md#req-ops-025-pi-preseed-bump-artifact-coherence)).
+Each bump opens its own PR. Shared npm cooldown candidates pass through one strict numeric-semver comparator before any branch is created: a candidate older than or equal to the current pin is a normal skip, while malformed versions fail closed. This prevents a recently pinned release from being downgraded merely because the cooldown's newest eligible release is older ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence) AC3).
 
-Checksum jobs either resolve authoritative release digests or deliberately invalidate the old digest for review. Actionlint resolves `checksums.txt`; SilverBullet verifies its release archive, extracts the matching native service worker, and updates the Docker pin plus `src/routes/vault/native-sw.ts` atomically.
+Npm bump jobs update the owning manifest and delegate committed-lock regeneration to `scripts/regenerate-npm-package-lock.mjs`, which suppresses lifecycle scripts and reapplies bounded integrity corrections ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence) AC2). Pi changes additionally regenerate the embedded seed because the committed payload differs deliberately from flattened runtime npm layout; runtime-agent bumps move both the direct prewarm dependency and its override so npm cannot retain a stale peer resolution ([REQ-OPS-025](../../sdd/spec/operations.md#req-ops-025-pi-preseed-bump-artifact-coherence)).
 
-**`bump-shadow-pins.yml` permissions:** top-level is `contents: read`; each job that pushes a bump branch and opens a PR elevates itself to `contents: write` + `pull-requests: write`, while `pi-extensions-discover` stays read-only (it only lists package names). No job persists checkout credentials — the default would leave the token in `.git/config` for every later step, including the install scripts `npm ci` runs in the lockfile-regenerating jobs — so checkouts set `persist-credentials: false` and the push authenticates explicitly instead (zizmor `artipacked`). Branch-existence probes use unauthenticated `ls-remote`, which works because the repository is public.
+Checksum jobs either resolve authoritative release digests or deliberately invalidate the old digest for review. Actionlint resolves `checksums.txt`; SilverBullet verifies its release archive, extracts the matching native service worker, and updates the Docker pin plus `src/routes/vault/native-sw.ts` atomically. Zizmor and actionlint share `.github/workflow-tool-pins.json`, validated by `scripts/ci/workflow-tool-pins.mjs`; both consuming workflows read that manifest, while weekly bumps change only the non-workflow data file ([REQ-OPS-041](../../sdd/spec/operations.md#req-ops-041-least-privilege-workflow-tool-pin-updates)).
+
+**`bump-shadow-pins.yml` permissions:** top-level is `contents: read`; each job that pushes a bump branch and opens a PR elevates itself to `contents: write` + `pull-requests: write`, while `pi-extensions-discover` stays read-only (it only lists package names). Zizmor and actionlint deliberately avoid changing `.github/workflows/**`, so the standard GitHub Actions token can push their pin-only branches without workflow-write permission. No job persists credentials — `actions/checkout` would otherwise write the token into `.git/config`, where every later step could read it, including install scripts run by lockfile-regenerating jobs — so checkouts set `persist-credentials: false` and the push authenticates explicitly instead (zizmor `artipacked`). Branch-existence probes use unauthenticated `ls-remote`, which works because the repository is public.
 
 The code-server job validates upstream release tags against a strict version pattern, derives the packaged code-server commit and embedded Code version from the immutable release artifact, cross-checks package/product identity, derives the Code source commit from the tag's immutable `lib/vscode` gitlink, and invalidates the archive checksum before creating a bump. Its write-enabled shell steps receive the validated version and derived branch through quoted environment variables, so release metadata is never parsed as shell source ([REQ-OPS-027](../../sdd/spec/operations.md#req-ops-027-code-server-coupled-pin-automation)).
 
 The `pi-extensions` bump is data-driven: `pi-extensions-discover` lists every dependency in `preseed/agents/pi/package.json` except context-mode. That set is `@gotgenes/pi-subagents` plus six managed extensions: the three `@juicesharp` packages, `@narumitw/pi-goal`, `pi-web-access`, and `pi-mcp-adapter`. A `fail-fast: false` matrix gives each package its own bump leg and PR; the dedicated `context-mode` job owns its coupled copies.
 
 Each package version also appears in `entrypoint.sh`, pinned-version tests, and the generated seed. Dependabot intentionally skips the Pi preseed directory, so Shadow Pins updates every owning copy together.
+
+### Keyless release signing
+
+Published `vMAJOR.MINOR.PATCH` releases receive a deterministic `codeflare-vMAJOR.MINOR.PATCH.tar.gz`, `SHA256SUMS`, and a `.sigstore.json` bundle for each file. The workflow delegates validation, archive construction, signing, and upload to the executable `scripts/ci/sign-release.sh` boundary, whose observable exits and artifacts are tested with controlled command dependencies. The signing job rejects drafts, malformed tags, and commits not reachable from `main`. A manual dispatch must run from `main`, accepts only an existing release tag, and reruns the same deterministic path, so recovery does not create or retarget releases.
+
+Cosign obtains a short-lived certificate from GitHub's OIDC identity; Codeflare stores no private signing key or signing password. GitHub artifact attestations independently bind the archive and checksum manifest to the repository, workflow, and source revision. This source-release evidence complements rather than replaces the container-image provenance created during deployment. <!-- @impl: .github/workflows/sign-release.yml::sign -->
+
+After downloading all four assets from a release, verify the checksum and Sigstore bundles:
+
+```bash
+sha256sum --check SHA256SUMS
+cosign verify-blob "codeflare-${TAG}.tar.gz" \
+  --bundle "codeflare-${TAG}.tar.gz.sigstore.json" \
+  --certificate-identity-regexp '^https://github.com/nikolanovoselec/codeflare/.github/workflows/sign-release.yml@refs/(tags/v[0-9]+\\.[0-9]+\\.[0-9]+|heads/main)$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/nikolanovoselec/codeflare/.github/workflows/sign-release.yml@refs/(tags/v[0-9]+\\.[0-9]+\\.[0-9]+|heads/main)$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+gh attestation verify "codeflare-${TAG}.tar.gz" --repo nikolanovoselec/codeflare
+```
+
+Set `TAG` to the downloaded release tag, including its leading `v`. The signature check proves the workflow identity; the checksum manifest alone does not. Implements [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility) and [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts).
 
 ### GitHub Environments
 
@@ -72,10 +99,12 @@ The non-default enterprise environments, account overrides, and dispatch procedu
 
 | Branch | Required checks | Bypass |
 |--------|-----------------|--------|
-| `main` | `test`, `CodeQL`, `Property-based fuzzing` | none |
-| `develop` | `test` | repository admin |
+| `main` | `test`, `CodeQL`, `Property-based fuzzing`, `Develop promotion source` | none |
+| `develop` | none before push; CI remains observable after push | none |
 
-Required status checks apply to direct pushes, not merges alone. `test.yml` has no `push` trigger for `develop`, so a locally authored commit cannot acquire the `test` check and a direct push to `develop` is rejected — the admin bypass exists so an emergency push is still possible. The release-time `git push -f origin main:develop` reset is unaffected, because that SHA already carries a green `test` from `main`.
+GitHub rulesets [`13219234`](https://github.com/nikolanovoselec/codeflare/settings/rules/13219234) (`main`) and [`19216590`](https://github.com/nikolanovoselec/codeflare/settings/rules/19216590) (`develop`) are authoritative. Operators can verify their complete settings with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`.
+
+`main` requires squash-only pull requests, blocks deletion and non-fast-forward updates, dismisses stale reviews, and requires the latest branch state to carry its complete check set. It additionally requires `Develop promotion source`, so GitHub may display a feature-to-main or fork-`develop` PR but cannot merge it. The active `develop` ruleset instead permits direct fast-forward pushes while blocking deletion and non-fast-forward updates ([REQ-OPS-037](../../sdd/spec/operations.md#req-ops-037-develop-direct-fast-forward-repairs)). CI remains observable after direct pushes where workflow triggers apply, and force-reset synchronization stays prohibited. Neither ruleset requires approving reviews because Codeflare currently has one maintainer; self-approval would add delay without independent assurance.
 
 Workflow references are SHA-pinned repository-wide (`sha_pinning_required`); a `uses:` on a tag or branch is rejected at the Actions level rather than caught in review.
 
@@ -102,12 +131,13 @@ Job graph: `verify-existing` → optional `verify` → `prepare` → (`build-wor
 
 The run title (`run-name`) resolves and displays the deploy target (production / enterprise / enterprise integration / integration) plus the source ref, so the Actions list and `gh run list` answer "what did this deploy to?" without opening the run. The inline `verify` job passes its own `github.run_id` to `test.yml` as `concurrency_key`, which is appended to that workflow's concurrency group — without it, dispatching two environment deploys off one branch puts both inline verifies in the same group and the second cancels the first, surfacing as a cancelled run that deployed nothing.
 
-1. **prepare** — blocks production dispatches from non-main branches; resolves the environment name, checkout ref (the exact SHA whose PR Checks ended green), worker name, and cache-bust flag once for all downstream jobs.
+1. **prepare** — blocks production dispatches from non-main branches; resolves the environment name, checkout ref (the exact SHA whose PR Checks ended green), worker name, cache-bust flag, and environment-scoped `CODING_AGENTS` selection once for all downstream jobs.
 2. **build-worker** — builds frontend, then landing (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), uploads `web-ui/dist` as a 1-day artifact.
 3. **container** — calls `container-image.yml` to build, scan, and push the image, or to reuse an existing one:
-   - Hashes `Dockerfile`, ignore/scan policy, `entrypoint.sh`, `host/package.json`, `host/package-lock.json`, `host/tsconfig.json`, `host/src/`, `openvscode/`, `preseed/`, seed and image-smoke scripts, the Pi lockstep verifier, and the ISO week.
+   - Hashes `Dockerfile`, ignore/scan policy, `entrypoint.sh`, `host/package.json`, `host/package-lock.json`, `host/tsconfig.json`, `host/src/`, `openvscode/`, `preseed/`, seed, npm platform-pruning, and image-smoke scripts, the Pi lockstep verifier, the canonical selected-agent set, and the ISO week.
    - Changes under `host/__tests__/` do not invalidate the deployment image.
    - If `in-<hash>` already exists in the target registry, the retained image is reused and build/scan/push are skipped.
+   - Fresh-image smoke records complete image bytes and identity as evidence; image size has no fixed deployment-failing ceiling.
 
      Reuse preserves the original scan and uploaded SBOM without regenerating or revalidating them. Provenance exists only if the original post-push attestation succeeded, and reuse does not check it. The weekly salt bounds the reused CVE verdict to seven days.
    - Otherwise buildx uses the deployment-owned GHCR registry cache. Login failure disables cache use; export errors are ignored without failing or restarting the image build. PR Checks never authenticate to this cache. The base image comes from the AWS ECR Public Node mirror to avoid Docker Hub anonymous pull limits.
@@ -212,7 +242,7 @@ A file lost to a mis-shard, a stale exclude, or a worker dying mid-run fails the
 
 ### Property-Based Fuzz Tests
 
-**Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to main, weekly, and manual dispatch.
+**Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to `main` or `develop`, weekly, and manual dispatch ([REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing)).
 **Local:** Default 1,000 iterations. Override with `FAST_CHECK_NUM_RUNS=50000`.
 
 | Suite | File | What it covers |

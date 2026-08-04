@@ -64,7 +64,7 @@ function expectedRequest() {
   return {
     subagent_type: 'ci-monitor',
     description: `Monitor PR #${PR} CI`,
-    prompt: `repo=${REPO} pr=${PR} head=${HEAD}`,
+    prompt: JSON.stringify({ repo: REPO, pr: PR, head: HEAD, cwd: REQUEST_CWD }),
     run_in_background: true,
     inherit_context: false,
   };
@@ -170,6 +170,21 @@ test('REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once', a
   ]);
 });
 
+test('REQ-AGENT-068 AC8: CI request identity preserves repository paths containing whitespace', async () => {
+  const cwd = '/workspace/codeflare project';
+  const request = await resolveCiMonitorRequest({
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    pr: PR,
+    cwd,
+    reviewState: 'not-required',
+    runner: async () => commandResult(openPr()),
+  });
+
+  assert.deepEqual(JSON.parse(request.prompt), { repo: REPO, pr: PR, head: HEAD, cwd });
+});
+
 test('REQ-AGENT-068 AC1: eligible PR creation uses the affected repository cwd', async () => {
   const requests = [];
   let lookupCwd;
@@ -233,13 +248,26 @@ test('REQ-AGENT-068 AC1: a mismatched resolved PR number fails closed', async ()
   assert.equal(request, null);
 });
 
-test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integration PR events return no request', async () => {
+test('REQ-AGENT-068 AC1: develop-bound pushes resolve a CI monitor request', async () => {
+  const request = await resolveCiMonitorRequest({
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    pr: PR,
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
+    runner: async () => commandResult(openPr({ baseRefName: 'develop' })),
+  });
+
+  assert.deepEqual(request, expectedRequest());
+});
+
+test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, and closed PR events return no request', async () => {
   const cases = [
     ['unsupported event', { event: 'review', changed: true }, openPr()],
     ['unchanged push', { event: 'push', changed: false }, openPr()],
     ['no PR', { event: 'push', changed: true }, null],
     ['closed PR', { event: 'push', changed: true }, openPr({ state: 'CLOSED' })],
-    ['integration base', { event: 'push', changed: true }, openPr({ baseRefName: 'develop' })],
   ];
 
   for (const [name, event, pr] of cases) {

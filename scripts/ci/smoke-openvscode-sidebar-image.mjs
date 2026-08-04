@@ -20,6 +20,55 @@ import { pathToFileURL } from 'node:url';
 const ROOT = '/opt/codeflare/openvscode';
 const CODE_SERVER_ROOT = '/opt/code-server';
 const EXTENSION_NAME = 'codeflare-agent-sidebar';
+const NPM_TOOLS_NODE_MODULES = '/opt/codeflare/npm-tools/node_modules';
+const AGENT_PACKAGE_FAMILIES = Object.freeze([
+  Object.freeze({ agent: 'claude-code', directory: '@anthropic-ai', prefix: 'claude-code', keep: Object.freeze(['claude-code', 'claude-code-linux-x64']) }),
+  Object.freeze({ agent: 'codex', directory: '@openai', prefix: 'codex', keep: Object.freeze(['codex', 'codex-linux-x64']) }),
+  Object.freeze({ agent: 'copilot', directory: '@github', prefix: 'copilot', keep: Object.freeze(['copilot', 'copilot-linux-x64']) }),
+  Object.freeze({ agent: 'opencode', directory: '', prefix: 'opencode-', keep: Object.freeze(['opencode-ai', 'opencode-linux-x64']) }),
+]);
+
+export async function verifySelectedAgentLaunchers(
+  selection,
+  { commands, hasCodingAgent, inspectPath = lstat, run = execFileSync },
+) {
+  const versions = {};
+  for (const [agent, command] of Object.entries(commands)) {
+    if (hasCodingAgent(selection, agent)) {
+      await inspectPath(command.path);
+      versions[agent] = run(command.path, command.args, { encoding: 'utf8', timeout: 10_000 }).trim();
+    } else {
+      await assert.rejects(inspectPath(command.path), (error) => error?.code === 'ENOENT');
+      versions[agent] = null;
+    }
+  }
+  return versions;
+}
+
+export async function verifySelectedAgentPackages(
+  selection,
+  {
+    hasCodingAgent,
+    nodeModulesPath = NPM_TOOLS_NODE_MODULES,
+    readDirectory = readdir,
+  },
+) {
+  const inventories = {};
+  for (const family of AGENT_PACKAGE_FAMILIES) {
+    let entries;
+    try {
+      entries = await readDirectory(join(nodeModulesPath, family.directory));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      entries = [];
+    }
+    const actual = entries.filter((name) => name.startsWith(family.prefix)).sort();
+    const expected = hasCodingAgent(selection, family.agent) ? [...family.keep].sort() : [];
+    assert.deepEqual(actual, expected, `${family.agent} package inventory must contain only canonical Linux x64 payloads`);
+    inventories[family.agent] = actual;
+  }
+  return inventories;
+}
 
 export async function verifyUnsupportedInventory(inventory) {
   const entries = await readdir(inventory, { withFileTypes: true });
@@ -102,8 +151,15 @@ async function main() {
   await verifyConfigProjection();
   await verifyOpenVscodeSettings();
   await verifyUiStateHelper();
-  const claudeVersion = execFileSync('/usr/local/bin/claude', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
-  const piVersion = execFileSync('/usr/local/bin/pi', ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
+  const { CODING_AGENT_COMMANDS, hasCodingAgent } = await import('file:///opt/codeflare/scripts/coding-agent-selection.mjs');
+  const selection = process.env.CODEFLARE_CODING_AGENTS;
+  const agentPackages = await verifySelectedAgentPackages(selection, { hasCodingAgent });
+  const agentVersions = await verifySelectedAgentLaunchers(selection, {
+    commands: CODING_AGENT_COMMANDS,
+    hasCodingAgent,
+  });
+  const claudeVersion = agentVersions['claude-code'];
+  const piVersion = agentVersions.pi;
 
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
@@ -111,6 +167,8 @@ async function main() {
     nativeChat,
     officialClaude,
     codeServerRuntime,
+    agentPackages,
+    agentVersions,
     claudeVersion,
     piVersion,
   })}\n`);

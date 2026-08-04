@@ -579,13 +579,23 @@ Per-user cap on concurrent running sessions, configurable by role. The two varia
 
 Browse endpoint validates prefix parameter against directory traversal (`..` rejection) and protected path access via `validateKey()` in `src/routes/storage/validation.ts`.
 
+### Keyless source-release identity
+
+**Threat:** A release archive and checksum hosted together can both be replaced, while a stored signing key can be stolen or misused.
+
+**Mitigation:** [The dedicated release workflow](../../.github/workflows/sign-release.yml) uses GitHub OIDC to give Cosign a short-lived identity bound to this repository, immutable workflow path, and triggering ref: the release tag for publication or `main` for recovery. `validate_release_source` separately verifies that the selected semantic-version tag is reachable from `main` before signing the deterministic archive and checksum manifest and publishing provenance attestations. Container-image provenance remains separate. <!-- @impl: .github/workflows/sign-release.yml::sign --> <!-- @impl: scripts/ci/sign-release.sh::validate_release_source -->
+
+**Verification:** Consumers verify the Sigstore workflow identity and OIDC issuer in addition to `SHA256SUMS`. Full commands and recovery behavior are in [CI/CD § Keyless release signing](ci-cd.md#keyless-release-signing); [release-signing workflow tests](../../host/__tests__/release-signing-workflow.test.js) verify publication and recovery behavior.
+
+**Implements:** [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility), [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts).
+
 ### Container Image Scanning
 
 **Threat:** A deploy could promote a container with a fixable HIGH/CRITICAL vulnerability or an exception that has drifted beyond its reviewed artifact.
 
 **Mitigation:** Every deploy invokes Trivy through reusable `container-image.yml`. Identical-input deploys reuse the scanned image, bounded by the seven-day weekly salt in [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images). `ignore-unfixed: true` limits the gate to vulnerabilities with an available fix; reviewed exceptions remain artifact-specific and fail closed on drift.
 
-**Verification:** The reusable workflow blocks image publication before a successful scan. [Trivy gate tests](../../host/__tests__/trivy-exception-gate.test.js) cover scan ordering, unfixed handling, and bounded exceptions.
+**Verification:** The reusable workflow blocks image publication before a successful scan. Successful validation logs the scanner-provided package path and PURL for every accepted occurrence, using `<unavailable>` when either field is absent, so reviewed exceptions can be audited and later bound to exact package identities. [Trivy gate tests](../../host/__tests__/trivy-exception-gate.test.js) cover scan ordering, unfixed handling, bounded exceptions, and the emitted occurrence evidence.
 
 **Implements:** [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push).
 
@@ -599,6 +609,8 @@ Unreachable means the vulnerable code path is never reached with attacker-contro
 Every entry carries an inline comment recording the affected package, the impact, and which conditions apply. The allowlist is reviewed monthly and entries are removed once a fix reaches the image. (Pre-existing entries for unfixed CVEs are now redundant with `ignore-unfixed` but are left in place as a documented record.)
 
 CVE-2026-56852 remains narrower than a global ID suppression. When integration deployment run `30612952117` for head `82244a1d117194227c0082b9555f3654f903fbd2` installed gh v2.97.0 and its reviewed finding disappeared, `scripts/ci/validate-trivy-result.mjs` stopped before push and forced that occurrence's removal. The gate now accepts only x/text v0.37.0 in `usr/local/bin/lazygit`; missing, duplicate, fixed, version-drifted, differently located, or additional HIGH/CRITICAL findings fail deployment. Any recurrence in `usr/bin/gh` is unreviewed and fails. The CVE is not in the global ignore file.
+
+Integration runs `30893082736` and `30893082817` at head `8a745b736aa948e9c88351ce5b2bcd5098ae69e2` produced the same complete six-finding new Node.js set before publication. CVE-2026-69192 appeared as one `ip-address` 10.1.0 declaration and two 10.2.0 declarations, although every affected committed runtime lock installs patched 10.4.0. CVE-2026-13697 appeared as two upstream Pi declarations of undici 8.5.0, while both Pi runtime locks install patched 8.9.0, plus one undici 7.28.0 occurrence in Node/npm image tooling. Codeflare does not enable undici's shared cache interceptor, and npm use remains inside the authenticated user's single-tenant container. Standard integration run `30896944558` then recorded the scanner path and PURL for every Node.js finding; lazygit supplied a PURL but no package path. The gate binds every reviewed occurrence to its observed identity, including the unavailable lazygit path, plus its version and multiplicity until upstream package metadata or the pinned image advances. Movement between npm, code-server, shared Pi tooling, or Pi's dedicated runtime fails closed, and none of these IDs is globally suppressed.
 
 ### Protected R2 Paths
 

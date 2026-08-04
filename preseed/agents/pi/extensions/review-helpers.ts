@@ -8,24 +8,26 @@ export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPO
 export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-export type ReviewBoundaryEvent = "push" | "pr-create";
+export type ReviewBoundaryEvent = "push";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: ReviewBoundaryEvent;
-  pushSource?: string;
-  pushTarget?: string;
-  pushRemote?: string;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
-  boundary?: { toolUseId: string; command: string };
+  boundary?: {
+    toolUseId: string;
+    command: string;
+    toolName: string;
+    toolArguments: Record<string, unknown>;
+  };
   reviewHead?: string;
   reviewRange?: string;
   reviewRepo?: string;
   reviewBranch?: string;
   reviewPrNumber?: number;
-  reviewBase?: "main" | "master";
+  reviewBase?: "main" | "master" | "develop";
   reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
@@ -202,109 +204,11 @@ function commandWords(command: string): ShellWords[] {
   });
 }
 
-function gitSubcommandIndex(words: ShellWords): number | undefined {
-  if (words[0] !== "git") return undefined;
-  let index = 1;
-  while (words[index] === "-C" && words[index + 1]) index += 2;
-  return index < words.length ? index : undefined;
-}
-
-function gitSubcommand(words: ShellWords): string | undefined {
-  const index = gitSubcommandIndex(words);
-  return index === undefined ? undefined : words[index];
-}
-
-const PUSH_OPTIONS_WITH_VALUE = new Set(["--exec", "--push-option", "--receive-pack", "-o"]);
-const UNSUPPORTED_PUSH_OPTIONS = new Set([
-  "--all", "--delete", "--dry-run", "--follow-tags", "--mirror", "--prune", "--tags", "-d", "-n",
-]);
-
-function branchRef(value: string): string | undefined {
-  if (!value || value === "HEAD") return undefined;
-  if (value.startsWith("refs/heads/")) return value.slice("refs/heads/".length) || undefined;
-  if (value.startsWith("refs/") || value.includes("*") || value.startsWith(":")) return undefined;
-  return value;
-}
-
-function pushBoundary(words: ShellWords): { source?: string; target?: string; remote?: string } | undefined {
-  const subcommandIndex = gitSubcommandIndex(words);
-  if (subcommandIndex === undefined || words[subcommandIndex] !== "push") return undefined;
-  const positionals: string[] = [];
-  const args = words.slice(subcommandIndex + 1);
-  let optionRemote: string | undefined;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] ?? "";
-    if (UNSUPPORTED_PUSH_OPTIONS.has(arg)
-      || /^-[^-]*[dn]/.test(arg)
-      || [...UNSUPPORTED_PUSH_OPTIONS].some((option) => arg.startsWith(`${option}=`))) {
-      return undefined;
-    }
-    if (arg === "--repo") {
-      optionRemote = args[index + 1];
-      if (!optionRemote) return undefined;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--repo=")) {
-      optionRemote = arg.slice("--repo=".length) || undefined;
-      if (!optionRemote) return undefined;
-      continue;
-    }
-    if (PUSH_OPTIONS_WITH_VALUE.has(arg)) {
-      index += 1;
-      continue;
-    }
-    if (arg === "--") {
-      positionals.push(...args.slice(index + 1));
-      break;
-    }
-    if (arg.startsWith("-")) continue;
-    positionals.push(arg);
-  }
-  const remote = optionRemote ?? positionals[0];
-  const refspecs = optionRemote ? positionals : positionals.slice(1);
-  if (refspecs.length === 0) return remote ? { remote } : {};
-  if (refspecs.length !== 1) return undefined;
-  const refspec = refspecs[0] ?? "";
-  if (refspec === "HEAD") return remote ? { remote } : {};
-  const normalizedRefspec = refspec.startsWith("+") ? refspec.slice(1) : refspec;
-  if (!normalizedRefspec || normalizedRefspec.startsWith(":")) return undefined;
-  const separator = normalizedRefspec.indexOf(":");
-  const sourceRaw = separator === -1 ? normalizedRefspec : normalizedRefspec.slice(0, separator);
-  const targetRaw = separator === -1 ? normalizedRefspec : normalizedRefspec.slice(separator + 1);
-  if (!sourceRaw || !targetRaw || targetRaw === "HEAD") return undefined;
-  const sourceBranch = sourceRaw === "HEAD" ? undefined : branchRef(sourceRaw);
-  const source = sourceRaw === "HEAD"
-    ? "HEAD"
-    : sourceBranch
-      ? `refs/heads/${sourceBranch}`
-      : undefined;
-  const target = branchRef(targetRaw);
-  if (!source || !target) return undefined;
-  return { source, target };
-}
-
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  let boundary: BoundarySurfaces = { reminder: false, settled: false };
-  for (const words of commandWords(command)) {
-    if (gitSubcommand(words) === "push") {
-      const push = pushBoundary(words);
-      if (push) {
-        boundary = {
-          reminder: true,
-          settled: true,
-          event: "push",
-          ...(push.source ? { pushSource: push.source } : {}),
-          ...(push.target ? { pushTarget: push.target } : {}),
-          ...(!push.target && push.remote ? { pushRemote: push.remote } : {}),
-        };
-      }
-    }
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
-      boundary = { reminder: true, settled: true, event: "pr-create" };
-    }
-  }
-  return boundary;
+  const candidate = commandWords(command).some((words) => words[0] === "git" || words[0] === "gh");
+  return candidate
+    ? { reminder: true, settled: true, event: "push" }
+    : { reminder: false, settled: false };
 }
 
 function firstExisting(paths: string[]): string | undefined {
@@ -588,7 +492,7 @@ type ReviewWindow = {
   repo?: string;
   branch?: string;
   prNumber?: number;
-  base?: "main" | "master";
+  base?: "main" | "master" | "develop";
   boundaryToolUseId?: string;
 };
 
@@ -604,7 +508,9 @@ function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
   const repo = typeof entry.details?.repo === "string" ? entry.details.repo : undefined;
   const branch = typeof entry.details?.branch === "string" ? entry.details.branch : undefined;
   const prNumber = Number.isInteger(entry.details?.prNumber) ? entry.details.prNumber : undefined;
-  const base = entry.details?.base === "main" || entry.details?.base === "master"
+  const base = entry.details?.base === "main"
+    || entry.details?.base === "master"
+    || entry.details?.base === "develop"
     ? entry.details.base
     : undefined;
   const boundaryToolUseId = typeof entry.details?.boundaryToolUseId === "string"
@@ -617,24 +523,56 @@ export function reviewTranscriptFacts(input: {
   sessionFile: string;
   entries?: Record<string, any>[];
   requiredLanes: ReviewLane[];
-  ciHead?: string;
+  ci?: { repository: string; repo: string; prNumber: number; head: string };
+  reviewHead?: string;
 }): TranscriptFacts {
   const entries = input.entries ?? readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));
+  const successfulSubagentToolIds = new Set(entries
+    .filter((entry) => entry.type === "message"
+      && entry.message?.role === "toolResult"
+      && entry.message?.toolName === "subagent"
+      && entry.message?.isError !== true)
+    .map((entry) => entry.message.toolCallId));
+  const boundaries = new Map<string, { index: number; value: NonNullable<TranscriptFacts["boundary"]> }>();
   let boundaryIndex = -1;
   let boundary: TranscriptFacts["boundary"];
   entries.forEach((entry, index) => {
     for (const call of toolCalls(entry)) {
       for (const command of shellCommands(call)) {
         if (successfulToolIds.has(call.id) && classifyReviewBoundaryCommand(command).settled) {
+          const value = {
+            toolUseId: call.id,
+            command,
+            toolName: String(call.name ?? ""),
+            toolArguments: call.arguments && typeof call.arguments === "object" ? call.arguments : {},
+          };
+          boundaries.set(call.id, { index, value });
           boundaryIndex = index;
-          boundary = { toolUseId: call.id, command };
+          boundary = value;
         }
       }
     }
   });
+  const windows = entries.map(reviewWindow).filter((candidate) => candidate?.boundaryToolUseId
+    && boundaries.has(candidate.boundaryToolUseId));
+  const latestHasWindow = windows.some((candidate) => candidate?.boundaryToolUseId === boundary?.toolUseId);
+  const latestWasEvaluated = entries.some((entry) => entry.customType === "pr-boundary-evaluated"
+    && entry.data?.toolUseId === boundary?.toolUseId);
+  const reviewHead = input.reviewHead
+    ?? (latestHasWindow || latestWasEvaluated ? windows.at(-1)?.head : undefined);
+  const selectedWindow = reviewHead
+    ? windows.find((candidate) => candidate?.head === reviewHead)
+    : undefined;
+  const selectedBoundary = selectedWindow?.boundaryToolUseId
+    ? boundaries.get(selectedWindow.boundaryToolUseId)
+    : undefined;
+  if (selectedBoundary) {
+    boundaryIndex = selectedBoundary.index;
+    boundary = selectedBoundary.value;
+  }
 
   const lanes = Object.fromEntries(ALL_REVIEW_LANES.map((lane) => [lane, { state: "missing" }])) as Record<ReviewLane, LaneFact>;
   if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, triageComplete: false, closedNotified: false, lanes };
@@ -723,13 +661,23 @@ export function reviewTranscriptFacts(input: {
       line.trim() === REVIEW_TRIAGE_HEADER && lines[lineIndex + 1]?.trim() === REVIEW_TRIAGE_DIVIDER,
     ),
   );
-  const ciLaunched = Boolean(input.ciHead && later.some((entry) => toolCalls(entry).some((call) => {
-    const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
-    return call.name === "subagent"
-      && call.arguments?.subagent_type === "ci-monitor"
-      && call.arguments?.run_in_background === true
-      && call.arguments?.inherit_context === false
-      && prompt.split(/\s+/).includes(`head=${input.ciHead}`);
+  const ci = input.ci;
+  const ciLaunched = Boolean(ci && later.some((entry) => toolCalls(entry).some((call) => {
+    if (call.name !== "subagent"
+      || call.arguments?.subagent_type !== "ci-monitor"
+      || call.arguments?.run_in_background !== true
+      || call.arguments?.inherit_context !== false
+      || !successfulSubagentToolIds.has(call.id)
+      || typeof call.arguments?.prompt !== "string") return false;
+    try {
+      const request = JSON.parse(call.arguments.prompt);
+      return request?.repo === ci.repository
+        && request?.pr === ci.prNumber
+        && request?.head === ci.head
+        && request?.cwd === ci.repo;
+    } catch {
+      return false;
+    }
   })));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const closedNotified = later.some((entry) =>

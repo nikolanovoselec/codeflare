@@ -6,10 +6,10 @@
 # worker count and virtual memory so upstream Graphify can fail cleanly in the
 # resource-constrained Codeflare container.
 #
-# Important: upstream `graphify update` may write a provisional graph.html. The
-# final user-facing graph.html and callflow.html must be regenerated *after* the
-# Pi main session writes .graphify_labels.json, by running
-# local-graphify-labels.sh apply.
+# Upstream `graphify update` writes the official unlabeled graph/report/HTML.
+# Optional community labeling may regenerate them through
+# local-graphify-labels.sh apply; callflow.html is exported separately in either
+# path.
 set -eu
 
 CAP_KB="${GRAPHIFY_SAFE_RLIMIT_KB:-1500000}"
@@ -21,4 +21,4 @@ export GRAPHIFY_VIZ_NODE_LIMIT="${GRAPHIFY_VIZ_NODE_LIMIT:-100000}"
 
 graphify update "$@"
 
-echo "safe-graphify-update: graph.html from graphify update is provisional; run local-graphify-labels.sh apply to regenerate graph.html and callflow.html after labels"
+echo "safe-graphify-update: official unlabeled graph/report/HTML generated; export callflow.html directly or optionally apply local community labels"

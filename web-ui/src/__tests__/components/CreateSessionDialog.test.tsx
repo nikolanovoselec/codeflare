@@ -33,7 +33,7 @@ describe('CreateSessionDialog', () => {
   beforeEach(() => {
     sessionStoreState.preferences = { lastAgentType: undefined };
     sessionStoreState.enterpriseMode = false;
-    sessionStoreState.allowedAgents = null;
+    sessionStoreState.allowedAgents = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
   });
 
   afterEach(() => {
@@ -502,12 +502,10 @@ describe('CreateSessionDialog', () => {
     });
   });
 
-  // REQ-ENTERPRISE-003: enterprise mode restricts the agent set to the
-  // wizard-activated agents delivered by GET /api/user, falling back to the
-  // static gateway-capable list {copilot, pi, bash} until that response
-  // hydrates (OpenAI-wire-format only; Claude Code excluded — AD74).
-  describe('Enterprise mode agent allowlist', () => {
-    it('renders all 7 agents when enterpriseMode is false (default, unchanged)', () => {
+  // REQ-ENTERPRISE-003 / REQ-AGENT-123: GET /api/user carries the resolved
+  // deployment allowlist. Choices stay withheld until that response hydrates.
+  describe('Deployment agent allowlist', () => {
+    it('renders all 7 agents when the hydrated deployment allows the full set', () => {
       sessionStoreState.enterpriseMode = false;
       render(() => (
         <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
@@ -531,36 +529,30 @@ describe('CreateSessionDialog', () => {
       expect(screen.queryByTestId('csd-agent-copilot')).not.toBeInTheDocument();
     });
 
-    it('ignores allowedAgents outside enterprise mode', () => {
+    it('renders only build-installed agents outside enterprise mode', () => {
       sessionStoreState.enterpriseMode = false;
-      sessionStoreState.allowedAgents = ['pi', 'bash'];
+      sessionStoreState.allowedAgents = ['claude-code', 'codex', 'pi', 'bash'];
       render(() => (
         <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
       ));
 
       const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
-      expect(buttons).toHaveLength(7);
-    });
-
-    it('falls back to the static enterprise list until /api/user hydrates', () => {
-      sessionStoreState.enterpriseMode = true;
-      render(() => (
-        <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
-      ));
-
-      const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
-      expect(buttons).toHaveLength(3);
-
-      // Allowlisted agents present.
-      expect(screen.getByTestId('csd-agent-copilot')).toBeInTheDocument();
+      expect(buttons).toHaveLength(4);
+      expect(screen.getByTestId('csd-agent-claude-code')).toBeInTheDocument();
+      expect(screen.getByTestId('csd-agent-codex')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-pi')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-bash')).toBeInTheDocument();
+      expect(screen.queryByTestId('csd-agent-copilot')).not.toBeInTheDocument();
+    });
 
-      // Non-allowlisted agents hidden (Claude Code now excluded).
-      expect(screen.queryByTestId('csd-agent-claude-code')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('csd-agent-antigravity')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('csd-agent-codex')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('csd-agent-opencode')).not.toBeInTheDocument();
+    it('withholds every agent choice until /api/user hydrates', () => {
+      sessionStoreState.allowedAgents = null;
+      render(() => (
+        <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
+      ));
+
+      const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
+      expect(buttons).toHaveLength(0);
     });
   });
 });

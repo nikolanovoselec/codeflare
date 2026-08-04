@@ -27,7 +27,7 @@ Re-extracts code structure only. Use after source code changes. Memory-safe (OOM
 6. Dispatch waves of at most 10 Sonnet subagents (Note 9: `model: "sonnet"`). All agents in one wave go in a SINGLE message. Wait for wave completion before next wave.
 7. Collect results, save to cache, merge cached + new (Step B3)
 8. Merge AST + semantic (Part C)
-9. Build, cluster, label communities (Steps 3-4)
+9. Build, cluster, and optionally label communities (Steps 3-4)
 10. Generate HTML + Obsidian vault (Step 5)
 11. Benchmark + manifest + cleanup (Steps 6-7)
 12. Commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html` + merge into global graph (Note 3)
@@ -43,8 +43,8 @@ graphify cluster-only .
 ```
 Reruns community detection on existing `graph.json`. No extraction, no tokens.
 
-### Recipe 5: Name/relabel communities and show labels in the HTML viz (in-session, NO backend)
-**NEVER run `graphify label` and NEVER pass `--backend`.** That command calls an external LLM provider (openai/gemini/deepseek - none configured here, so it silently falls back to `Community N` placeholders) AND it re-clusters, which renumbers communities and wipes existing labels. Community naming is done by THIS session reading the member nodes. The only correct path:
+### Recipe 5: Optionally name/relabel communities in-session (NO backend)
+Community labels are optional and never block graph publication. **NEVER run `graphify label` and NEVER pass `--backend`.** That command calls an external LLM provider and re-clusters, which renumbers communities and wipes existing labels. When the user requests labels, community naming is done by THIS session reading the member nodes:
 
 1. **Prepare** a worklist from the graph's existing community assignments (no recluster, no LLM):
    ```
@@ -61,13 +61,15 @@ Reruns community detection on existing `graph.json`. No extraction, no tokens.
    ```
    flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
    ```
-   `global add` is hash-keyed on node/edge content, so it no-ops when only labels changed - that is expected, not a failure. Community **names** live in `graphify-out/.graphify_labels.json` and the regenerated `graph.html`, NOT in the global graph: `graph_stats` reporting `Communities: 0` for the global graph is its normal state and is not "fixed" by labeling. Commit only `graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, and `.graphify_labels.json`.
+   `global add` is hash-keyed on node/edge content, so it no-ops when only labels changed - that is expected, not a failure. Community **names** live in `graphify-out/.graphify_labels.json` and the regenerated `graph.html`, NOT in the global graph: `graph_stats` reporting `Communities: 0` for the global graph is its normal state and is not "fixed" by labeling. Commit `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and `callflow.html`; include `.graphify_labels.json` only when optional labeling was requested.
+
+When labeling is skipped, do not run prepare/apply. Keep Graphify's official report/html, remove `.graphify_labels.json` from the committed update, and generate `callflow.html` directly with `graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html`.
 
 ## Codeflare-specific operational notes
 
 1. **MCP query tools are always available.** Even before any graph is built, you can call `mcp__graphify__query_graph`, `mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, and `mcp__graphify__shortest_path`. They return useful errors when no graph is present. After a build, point them at `graphify-out/graph.json` in the current cwd.
 
-2. **Never use an external LLM backend; never run `graphify label`.** Do NOT pass `--backend openai` (or `--backend gemini` / `--backend deepseek`) to any command, and NEVER run `graphify label` - it requires a provider backend AND re-clusters, which renumbers communities and discards existing labels. Codeflare configures no third-party LLM API keys. Semantic extraction uses in-session Claude subagents (the chunking model below); community naming uses the in-session `local-graphify-labels.sh` flow (Recipe 5). Both are the canonical paths.
+2. **Never use an external LLM backend; never run `graphify label`.** Do NOT pass `--backend openai` (or `--backend gemini` / `--backend deepseek`) to any command, and NEVER run `graphify label` - it requires a provider backend AND re-clusters, which renumbers communities and discards existing labels. Codeflare configures no third-party LLM API keys. Semantic extraction uses in-session Claude subagents. Optional community naming uses the in-session `local-graphify-labels.sh` flow (Recipe 5); unlabeled graphs keep official Graphify report/html output.
 
 3. **Persistence lives in git, not R2.** The graph travels with the repo. After your first `/graphify` build in a repo the user has push permission to:
    - Add to the repo's `.gitignore` (create if absent):
@@ -92,13 +94,13 @@ Reruns community detection on existing `graph.json`. No extraction, no tokens.
      .graphify_root
      /.graphify_labels.json
      ```
-     All patterns are regenerable; only `graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, and `.graphify_labels.json` are committed (plus optional `wiki/`). The leading `/` on `/.graphify_labels.json` ignores only a stray root-level marker, never the committed `graphify-out/.graphify_labels.json`. The `local-graphify-labels.sh prepare` worklist + batches are working intermediates - never commit them.
+     All patterns are regenerable; only `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and `callflow.html` are always committed (plus optional `wiki/`). `.graphify_labels.json` is committed only when optional community labeling was requested. The leading `/` on `/.graphify_labels.json` ignores only a stray root-level marker. The `local-graphify-labels.sh prepare` worklist + batches are working intermediates - never commit them.
    - Add to the repo's `.gitattributes` (create if absent):
      ```
      graphify-out/graph.json merge=graphify
      ```
      This wires the graphify semantic merge driver for `graph.json`. The driver itself is registered globally in the container image, so this `.gitattributes` line is the only per-repo setup needed. Without it, concurrent edits produce corrupt JSON on merge.
-   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, `.graphify_labels.json`, and optionally `wiki/`.
+   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, optional `.graphify_labels.json` when labeling was requested, and optional `wiki/`.
    - For repos the user does NOT have push permission to (cloned open-source projects, read-only forks): graphify-out/ stays in the working tree only, ephemeral, no R2 fallback. Do not try to persist via bisync.
    - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock -w 5` serialises against the capture agent and the vault-extract agent; the 5s timeout prevents a wedged writer from blocking the queue.
 
@@ -172,7 +174,7 @@ This step runs structural (AST, free) and semantic (Claude subagents, costs toke
 
 ### Steps 3-7 - Build, cluster, label, visualize, report
 
-After extraction produces `.graphify_extract.json`, build the graph, cluster it, label communities, generate the Obsidian vault + HTML, benchmark (only if `total_words > 5000`), save the manifest, clean up, and report. See `references/build.md` for all five steps.
+After extraction produces `.graphify_extract.json`, build the graph, cluster it, optionally label communities, generate the Obsidian vault + HTML + callflow, benchmark (only if `total_words > 5000`), save the manifest, clean up, and report. See `references/build.md` for all five steps.
 
 ## Incremental Updates and --cluster-only
 

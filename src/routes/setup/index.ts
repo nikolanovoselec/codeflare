@@ -1,7 +1,7 @@
 import { Hono, type Context, type Next } from 'hono';
 import { z } from 'zod';
 import { AgentTypeSchema, type Env } from '../../types';
-import { CONFIGURABLE_ENTERPRISE_AGENTS } from '../../lib/agent-allowlist';
+import { CONFIGURABLE_ENTERPRISE_AGENTS, installedAgents } from '../../lib/agent-allowlist';
 import { ValidationError, toError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
@@ -209,6 +209,10 @@ app.post('/configure', async (c) => {
 
   const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
+
+  if (isEnterpriseMode(c.env) && activeAgents?.some((agent) => !installedAgents(c.env).includes(agent))) {
+    throw new ValidationError('Active coding agents must be installed in this deployment');
+  }
 
   // During reconfiguration, prevent admin from removing themselves
   const currentUser = c.get('user');

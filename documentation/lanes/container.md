@@ -34,9 +34,11 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 ### Lock-backed NPM Tools
 
-The shared npm-tool set—agent CLIs, Bun, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp`—installs from `preseed/npm-tools/package.json` and its committed lock. `.cache-bust` still invalidates that layer on each deploy, but `npm ci` preserves reviewed registry integrity and transitive versions.
+The shared npm-tool set—agent CLIs, Bun, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp`—installs from `preseed/npm-tools/package.json` and its committed lock. `.cache-bust` still invalidates that layer on each deploy, but `npm ci` preserves reviewed registry integrity and transitive versions. Before the layer is committed, the build removes alternate Claude, Codex, Copilot, and OpenCode operating-system, architecture, baseline, and musl payloads while retaining each canonical Linux x64 package. The pruning unit test verifies retained canonical package directories and removed variants; deployment's complete-image smoke rejects any retained alternate package and executes every selected launcher. The pruning boundary also reports reclaimed bytes ([REQ-OPS-040](../../sdd/spec/operations.md#req-ops-040-selected-coding-agent-packaging) AC4).
 
-Antigravity remains a checksum-verified installer outside npm. Browser Run MCP uses its own committed package lock. Weekly Shadow Pins updates each owning manifest and lock after the supply-chain cooldown.
+The environment-scoped GitHub variable `CODING_AGENTS` may narrow shared launchers to any non-empty subset of `claude-code,codex,copilot,antigravity,opencode,pi`; unset preserves all six. The build canonicalizes and hashes the set, prunes omitted npm agents in the install layer, and skips Antigravity's checksum-backed installer when omitted. Bash and shared non-agent tools remain. Native Pi/Claude IDE inventories and Pi's separate prewarm/Jiti layout are intentionally unaffected ([REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis), [REQ-OPS-040](../../sdd/spec/operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-OPS-039](../../sdd/spec/operations.md#req-ops-039-reduced-image-capability-preservation)).
+
+Antigravity remains a checksum-verified installer outside npm when selected. Browser Run MCP uses its own committed package lock. Weekly Shadow Pins updates each owning manifest and lock after the supply-chain cooldown.
 
 **Known trade-off:** Long-lived sessions keep the image version they started with while a later reviewed image may carry newer CLIs. Version changes remain a compatibility risk, but they now pass PR checks and image smoke instead of entering an arbitrary deploy through mutable resolution.
 
@@ -251,13 +253,13 @@ The platform kills such a tick at the 15-minute alarm wall-time limit, which is 
 
 ## Claude Code Integration
 
-Terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI, restores a fixed unrestricted settings overlay on each launch, and runs every tool without approval.
+When `claude-code` is build-selected, terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI regardless of shared CLI selection, restores a fixed unrestricted settings overlay on each launch, and runs every tool without approval.
 
 **Auto-update control:** `DISABLE_AUTOUPDATER=1` prevents the CLI's internal auto-updater from running, avoiding startup delay. Updates happen at Docker build time via `.cache-bust` layer invalidation. When Fast Start is OFF, `DISABLE_AUTOUPDATER` is unset, allowing the CLI to update to latest on startup.
 
 ### Container Environment Variables
 
-**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `DISABLE_AUTOUPDATER=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
+**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `DISABLE_AUTOUPDATER=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`, and canonical `CODEFLARE_CODING_AGENTS` build evidence.
 
 **Prewarm readiness:** Detected by first PTY output -- as soon as the agent produces any terminal output, pre-warm is considered ready. The 20s hard timeout in `server.ts` remains as a safety net.
 
@@ -269,7 +271,7 @@ Terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package 
 
 `graphifyy` (Apache-2.0) is installed globally at Docker build time via `uv tool install graphifyy[mcp,sql,pdf]==<VER>`. The version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; a Dependabot bump there triggers a Dockerfile rebuild in lockstep so the runtime binary and the plugin manifest stay synchronised. The `graphify` CLI lives at `/root/.local/bin/graphify` (PATH-ready). The MCP server is invoked via the venv's own interpreter at `/root/.local/share/uv/tools/graphifyy/bin/python`, running the `graphify-mcp-lazy.py` wrapper (preseeded at `~/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py`).
 
-System `python3` cannot import graphifyy directly because `uv tool install` keeps the package isolated. Graphify provider/backend extras are intentionally omitted; interactive semantic extraction and community labels are produced by the active agent session, and Graphify consumes `.graphify_labels.json` via local `cluster-only --no-label`. Build cost: ~220 MB.
+System `python3` cannot import graphifyy directly because `uv tool install` keeps the package isolated. Graphify provider/backend extras are intentionally omitted; interactive semantic extraction is produced by the active agent session. Community labels are optional and, when requested, Graphify consumes the session-authored `.graphify_labels.json` without a provider backend or reclustering. Build cost: ~220 MB.
 
 **Tier-split gating ([AD52](../decisions/README.md#ad52-graphify-mcp-available-everywhere-discipline-advanced-only), [AD53](../decisions/README.md#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)):** the MCP server + `graphify-mcp-lazy.py` wrapper are registered in `~/.claude.json` for both default and advanced session modes (ambient capability). PostToolUse-on-clone triage, the PreToolUse graph-first nudge, and the active-repo tracker - plus the graph-first discipline (a section of `engineering-constitution.md` since 2026-07-25) and `graphify/SKILL.md` - ship in advanced session mode only. Default session mode users have the capability without the proactive discipline and without multi-repo tracking precision.
 
@@ -287,7 +289,7 @@ Per-branch graphs are not supported - the wrapper reads `<repo>/.git/HEAD` only 
 
 **Pi native tools exposed:** `graphify_query`, `graphify_path`, and `graphify_explain` are registered by `graphify-native.ts`. They shell the same Graphify CLI and resolve the cwd repo graph, then the active-repo sentinel graph, then the merged global graph.
 
-**Persistence:** `graphify-out/` lives in the repo, not in R2. Repo owners commit `graph.json`, `GRAPH_REPORT.md`, `.graphify_labels.json`, final labeled `graph.html`, and final labeled `callflow.html` to git; contributors get the graph and browser-openable visualizations on clone. Repos without push permission keep the graph local-only and ephemeral. R2 bisync explicitly excludes `**/graphify-out/**`.
+**Persistence:** `graphify-out/` lives in the repo, not in R2. Repo owners commit `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and `callflow.html`; `.graphify_labels.json` is included only when community naming was requested. Contributors get the graph and browser-openable visualizations on clone. Repos without push permission keep the graph local-only and ephemeral. R2 bisync explicitly excludes `**/graphify-out/**`.
 
 The SKILL's `.gitignore` block adds regenerable build outputs under `graphify-out/` (`cache/`, `.cache/`, `.chunks/`, `manifest.json`, `obsidian/` - the Obsidian-app stub vault that rewrites on every update and would drown PRs), the `.graphify_*` working-tree intermediates the protocol creates mid-run (cleaned by the build's Step 9, gitignored as the safety net for runs interrupted before cleanup), and per-machine markers such as `.graphify_root` with an absolute path.
 
@@ -320,7 +322,7 @@ The keys are injected under a `CODEFLARE_` namespace so the coding agents (Pi, o
 
 The `"openai"`/`"gemini"` selectors are resolved to the current best flagship by the `consult_llm` server at call time, so "latest" never drifts to a stale pin and no live `GET /v1/models` lookup (which would require the isolated key in the agent's env) is performed.
 
-**Enterprise mode:** consult-llm is fully unavailable — no keys are injected, `/api/llm-keys` returns `403`, the "LLM API Keys" settings UI is hidden, and any seeded `consult-llm` skill dir (Claude + Pi) is removed at boot. Enterprise models route through the managed AI Gateway instead.
+**Enterprise mode:** consult-llm is fully unavailable — no keys are injected, `/api/llm-keys` returns `403`, the "LLM API Keys" settings UI is hidden, and any seeded `consult-llm` skill dir (Claude + Pi) is removed at boot. Enterprise models route through the managed AI Gateway instead ([REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability)).
 
 Skill definitions: `preseed/agents/claude/skills/consult-llm/SKILL.md` (Claude), `preseed/agents/pi/skills/consult-llm/SKILL.md` (Pi).
 

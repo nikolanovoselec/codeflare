@@ -421,7 +421,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // The five Pi tool-extension skills ship a "when to use which tool" guide; the
     // manifest -> seed pipeline must surface each one (advisor is codeflare-authored
     // for the @juicesharp/rpiv-advisor extension, which ships no skill of its own).
-    for (const skill of ['advisor', 'rpiv-ask-user-question', 'rpiv-todo', 'pi-web-access', 'pi-mcp-adapter']) {
+    for (const skill of ['advisor', 'rpiv-ask-user-question', 'rpiv-todo', 'pi-web-access', 'pi-mcp-adapter', 'librarian']) {
       expect(skills.map((d) => d.key)).toContain(`.pi/agent/skills/${skill}/SKILL.md`);
     }
     const advisorSkill = skills.find((d) => d.key === '.pi/agent/skills/advisor/SKILL.md');
@@ -743,7 +743,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  // REQ-AGENT-031 AC4: consult-llm is scoped to Claude + Pi ONLY. Claude gets it
+  // REQ-AGENT-031 AC5: consult-llm is scoped to Claude + Pi ONLY. Claude gets it
   // from its manifest; Pi gets it as a native skill (pi/manifest.json) paired with
   // the pi-mcp-adapter lazy proxy. codex/opencode/antigravity never get
   // it (they have no consult-llm MCP server, so the skill would reference a missing

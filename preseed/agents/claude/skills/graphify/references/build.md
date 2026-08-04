@@ -1,6 +1,6 @@
-# Steps 3-7 - Build, cluster, label, visualize, report
+# Steps 3-7 - Build, cluster, optionally label, visualize, report
 
-Load this after extraction (Step 2 / `references/extraction-spec.md`) produces `.graphify_extract.json`. These steps build the graph, cluster it, label communities, generate the Obsidian vault + HTML, benchmark, save the manifest, and report.
+Load this after extraction (Step 2 / `references/extraction-spec.md`) produces `.graphify_extract.json`. These steps build the graph, cluster it, optionally label communities, generate the Obsidian vault + HTML, benchmark, save the manifest, and report.
 
 ## Step 3 - Build graph, cluster, analyze, generate outputs
 
@@ -52,11 +52,11 @@ If this step prints `ERROR: Graph is empty`, stop and tell the user what happene
 
 Replace INPUT_PATH with the actual path.
 
-## Step 4 - Label communities
+## Step 4 - Optionally label communities
 
-Read `.graphify_analysis.json`. For each community key, look at its node labels and write a 2-5 word plain-language name (e.g. "Attention Mechanism", "Training Pipeline", "Data Loading").
+Skip this step when the user does not request community naming. The graph remains publishable without a labels file.
 
-Then regenerate the report and save the labels for the visualizer:
+When labels are requested, read `.graphify_analysis.json`. For each community key, look at its node labels and write a 2-5 word plain-language name (e.g. "Attention Mechanism", "Training Pipeline", "Data Loading"). Then regenerate the report and save the labels for the visualizer:
 
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
@@ -145,6 +145,7 @@ labels = {int(k): v for k, v in labels_raw.items()}
 to_html(G, communities, 'graphify-out/graph.html', community_labels=labels or None)
 print('graph.html written - open in any browser, no server needed')
 "
+graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html
 ```
 
 ## Step 6 - Token reduction benchmark (only if total_words > 5000)

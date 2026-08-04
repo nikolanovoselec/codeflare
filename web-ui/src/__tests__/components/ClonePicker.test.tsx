@@ -68,7 +68,7 @@ describe('ClonePicker', () => {
     vi.clearAllMocks();
     sessionStoreState.sessions = [];
     sessionStoreState.enterpriseMode = false;
-    sessionStoreState.allowedAgents = null;
+    sessionStoreState.allowedAgents = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
     mockCloneIntoSession.mockResolvedValue({ outcome: 'cloned', path: '/home/user/workspace/hello' });
     mockCreateSessionWithClone.mockResolvedValue({ id: 's-new', name: '', status: 'stopped' });
   });
@@ -220,17 +220,14 @@ describe('ClonePicker', () => {
     expect(screen.getByTestId('clone-picker-done-btn')).toBeInTheDocument();
   });
 
-  it('respects enterprise mode by restricting the agent set', () => {
-    sessionStoreState.enterpriseMode = true;
+  it('withholds new-session agent choices until /api/user hydrates', () => {
+    sessionStoreState.allowedAgents = null;
 
     renderPicker();
 
-    // Static fallback (allowedAgents not yet hydrated) is copilot/pi/bash.
-    expect(screen.getByTestId('clone-picker-agent-pi')).toBeInTheDocument();
-    expect(screen.getByTestId('clone-picker-agent-copilot')).toBeInTheDocument();
-    expect(screen.getByTestId('clone-picker-agent-bash')).toBeInTheDocument();
+    expect(screen.queryByTestId('clone-picker-agent-pi')).not.toBeInTheDocument();
     expect(screen.queryByTestId('clone-picker-agent-claude-code')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('clone-picker-agent-codex')).not.toBeInTheDocument();
+    expect(screen.getByTestId('clone-picker-new-group').querySelectorAll('[data-testid^="clone-picker-agent-"]')).toHaveLength(0);
   });
 
   it('renders only the wizard-activated agents delivered by /api/user in enterprise mode', () => {
@@ -244,14 +241,17 @@ describe('ClonePicker', () => {
     expect(screen.queryByTestId('clone-picker-agent-copilot')).not.toBeInTheDocument();
   });
 
-  it('ignores allowedAgents outside enterprise mode', () => {
+  it('renders only build-installed agents outside enterprise mode', () => {
     sessionStoreState.enterpriseMode = false;
-    sessionStoreState.allowedAgents = ['pi', 'bash'];
+    sessionStoreState.allowedAgents = ['claude-code', 'codex', 'pi', 'bash'];
 
     renderPicker();
 
     expect(screen.getByTestId('clone-picker-agent-claude-code')).toBeInTheDocument();
-    expect(screen.getByTestId('clone-picker-agent-copilot')).toBeInTheDocument();
+    expect(screen.getByTestId('clone-picker-agent-codex')).toBeInTheDocument();
+    expect(screen.getByTestId('clone-picker-agent-pi')).toBeInTheDocument();
+    expect(screen.getByTestId('clone-picker-agent-bash')).toBeInTheDocument();
+    expect(screen.queryByTestId('clone-picker-agent-copilot')).not.toBeInTheDocument();
   });
 
   it('a running-session row shows the session agent icon and a session-type subtitle', () => {

@@ -10,7 +10,7 @@
 # exits without side effects when imported.
 
 # gh_pr_state <branch>
-#   Stdout: JSON like {"state":"OPEN","headRefOid":"abc...","baseRefName":"main"}
+#   Stdout: JSON like {"number":42,"state":"OPEN","headRefOid":"abc...","baseRefName":"main"}
 #           on success; empty when no PR exists for the branch.
 #   Exit:   0 if a PR was found and JSON was emitted.
 #           1 if no PR found (gh's standard "not found" exit).
@@ -28,7 +28,7 @@
 # stays in the hooks.
 gh_pr_state() {
   local branch="$1"
-  gh pr view "$branch" --json state,headRefOid,baseRefName 2>/dev/null
+  gh pr view "$branch" --json number,state,headRefOid,baseRefName 2>/dev/null
 }
 
 # resolve_review_head <ghHead> -- the SHA the review RANGE should end at.

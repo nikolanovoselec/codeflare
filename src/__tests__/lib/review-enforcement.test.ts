@@ -9,10 +9,11 @@ import { rememberActiveRepo } from '../../../preseed/agents/pi/extensions/codefl
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type PrState = {
   state: 'OPEN' | 'CLOSED' | 'MERGED';
-  baseRefName: 'main' | 'master';
+  baseRefName: 'main' | 'master' | 'develop';
   headRefOid: string;
   headRefName: string;
   number: number;
+  mergeCommit?: { oid: string } | null;
 };
 type SentMessage = {
   message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean };
@@ -27,15 +28,16 @@ type TestContext = {
   ui: { notify(message: string): void; setStatus(): void; clearStatus(): void };
 };
 type PlannedReviewEnforcement = {
+  PR_LOOKUP_FAILED: symbol;
   registerReviewEnforcement(
     pi: TestPi,
     dependencies: {
-      queryPr(repo: string, target?: string): Promise<PrState | undefined>;
+      queryPr(repo: string, target?: string): Promise<PrState | undefined | symbol>;
       queryHead?(repo: string, revision?: string): Promise<string | undefined>;
       queryBranch?(repo: string): Promise<string | undefined>;
-      queryPushBranch?(repo: string, branch: string, remote?: string): Promise<string | undefined>;
       sleep?(delayMs: number): Promise<void>;
       headRetryDelaysMs?: number[];
+      deferGoalPause?(task: () => void | Promise<void>): void;
     },
   ): void | Promise<void>;
   queryPr(
@@ -46,17 +48,7 @@ type PlannedReviewEnforcement = {
       options: { cwd: string; encoding: 'utf8'; timeout: number },
     ) => Promise<{ stdout: string }>,
     target?: string,
-  ): Promise<PrState | undefined>;
-  queryPushBranch(
-    repo: string,
-    branch: string,
-    runner?: (
-      command: string,
-      args: string[],
-      options: { cwd: string; encoding: 'utf8'; timeout: number },
-    ) => Promise<{ stdout: string }>,
-    remote?: string,
-  ): Promise<string | undefined>;
+  ): Promise<PrState | undefined | symbol>;
 };
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
@@ -89,6 +81,10 @@ function tempRoot(prefix: string): string {
 
 function git(repo: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
+}
+
+function gitMetadataDirectory(repo: string): string {
+  return git(repo, 'rev-parse', '--absolute-git-dir');
 }
 
 function write(repo: string, relativePath: string, contents: string): void {
@@ -146,13 +142,25 @@ function reviewerArgs(fixture: ReturnType<typeof makeReviewFixture>, lane: Revie
   };
 }
 
-function ciArgs(head: string): Record<string, unknown> {
+function ciArgs(fixture: ReturnType<typeof makeReviewFixture>, overrides: { cwd?: string; pr?: number; repo?: string } = {}): Record<string, unknown> {
   return {
     subagent_type: 'ci-monitor',
     run_in_background: true,
     inherit_context: false,
-    prompt: `repo=owner/repo pr=42 head=${head}`,
+    prompt: JSON.stringify({
+      repo: overrides.repo ?? 'owner/repo',
+      pr: overrides.pr ?? fixture.pr.number,
+      head: fixture.head,
+      cwd: overrides.cwd ?? fixture.repo,
+    }),
   };
+}
+
+function ciLaunch(toolUseId: string, fixture: ReturnType<typeof makeReviewFixture>, timestamp?: string): Record<string, unknown>[] {
+  return [
+    assistantTool(toolUseId, 'subagent', ciArgs(fixture), timestamp),
+    toolResult(toolUseId, 'subagent'),
+  ];
 }
 
 function launchWaves(reviewers: ReviewLane[], includeCi: boolean): Array<string[]> {
@@ -261,6 +269,7 @@ function makeReviewFixture(options: { child?: boolean; changedPath?: string } = 
   git(repo, 'branch', '-M', 'pi');
   git(repo, 'config', 'user.name', 'Test User');
   git(repo, 'config', 'user.email', 'test@users.noreply.github.com');
+  git(repo, 'remote', 'add', 'origin', 'https://github.com/owner/repo.git');
   write(repo, 'sdd/README.md', '# fixture\n');
   write(repo, 'README.md', '# fixture\n');
   git(repo, 'add', 'sdd/README.md', 'README.md');
@@ -276,7 +285,7 @@ function makeReviewFixture(options: { child?: boolean; changedPath?: string } = 
   git(repo, 'add', '--', options.changedPath ?? 'src/review.ts', 'sdd/spec/boundary.md');
   git(repo, 'commit', '-m', 'review boundary');
   const head = git(repo, 'rev-parse', 'HEAD');
-  writeFileSync(join(repo, '.git/sdd-last-ack-pr-head'), `${base}\n`, 'utf8');
+  writeFileSync(join(gitMetadataDirectory(repo), 'sdd-last-ack-pr-head'), `${base}\n`, 'utf8');
 
   const sessionFile = join(repo, 'session.jsonl');
   const header = {
@@ -310,8 +319,15 @@ function makeHarness(repo: string, sessionFile: string): {
   notifications: string[];
   operations: string[];
   setGoalControlAvailable(available: boolean): void;
+  setGoalPauseResponseSucceeds(succeeds: boolean): void;
+  setGoalResumeRaceActive(goalId: string | undefined): void;
   setGoalResumeSucceeds(succeeds: boolean): void;
   setLiveEntries(entries: Record<string, unknown>[] | undefined): void;
+  setSessionReadFails(fails: boolean): void;
+  setAppendEntryFails(fails: boolean): void;
+  setAppendEntryFailureType(customType: string | undefined): void;
+  deferGoalPause(task: () => void | Promise<void>): void;
+  flushGoalPauses(): Promise<void>;
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
@@ -319,10 +335,16 @@ function makeHarness(repo: string, sessionFile: string): {
   const goalControlRequests: Array<{ action: string; goalId: string }> = [];
   const notifications: string[] = [];
   const operations: string[] = [];
+  const deferredGoalPauses: Array<() => void | Promise<void>> = [];
   let activeTools = ['read', 'bash'];
   let goalControlAvailable = true;
+  let goalPauseResponseSucceeds = true;
+  let goalResumeRaceActive: string | undefined;
   let goalResumeSucceeds = true;
   let liveEntries: Record<string, unknown>[] | undefined;
+  let sessionReadFails = false;
+  let appendEntryFails = false;
+  let appendEntryFailureType: string | undefined;
   const allTools = [
     { name: 'read', description: 'Read files' },
     { name: 'bash', description: 'Run shell commands' },
@@ -344,6 +366,16 @@ function makeHarness(repo: string, sessionFile: string): {
           || typeof request.respond !== 'function') return;
         goalControlRequests.push({ action: request.action, goalId: request.goalId });
         request.accepted?.();
+        if (request.action === 'pause' && !goalPauseResponseSucceeds) {
+          appendSession(sessionFile, goalState(request.goalId, 'paused'));
+          request.respond({ ok: false, goalId: request.goalId, status: 'paused' });
+          return;
+        }
+        if (request.action === 'resume' && goalResumeRaceActive) {
+          appendSession(sessionFile, goalState(goalResumeRaceActive, 'active'));
+          request.respond({ ok: false, goalId: request.goalId, status: 'paused' });
+          return;
+        }
         const succeeded = request.action === 'pause' || goalResumeSucceeds;
         request.respond({
           ok: succeeded,
@@ -353,6 +385,7 @@ function makeHarness(repo: string, sessionFile: string): {
       },
     },
     appendEntry: (customType, data) => {
+      if (appendEntryFails || customType === appendEntryFailureType) throw new Error('append failed');
       operations.push(`append:${customType}`);
       appendSession(sessionFile, {
         type: 'custom',
@@ -385,11 +418,14 @@ function makeHarness(repo: string, sessionFile: string): {
     isIdle: () => true,
     sessionManager: {
       getSessionFile: () => sessionFile,
-      getEntries: () => liveEntries ?? readFileSync(sessionFile, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as Record<string, unknown>)
-        .filter((entry) => entry.type !== 'session'),
+      getEntries: () => {
+        if (sessionReadFails) throw new Error('session read failed');
+        return liveEntries ?? readFileSync(sessionFile, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .filter((entry) => entry.type !== 'session');
+      },
     },
     ui: {
       notify: (message) => { notifications.push(message); },
@@ -405,8 +441,17 @@ function makeHarness(repo: string, sessionFile: string): {
     notifications,
     operations,
     setGoalControlAvailable: (available) => { goalControlAvailable = available; },
+    setGoalPauseResponseSucceeds: (succeeds) => { goalPauseResponseSucceeds = succeeds; },
+    setGoalResumeRaceActive: (goalId) => { goalResumeRaceActive = goalId; },
     setGoalResumeSucceeds: (succeeds) => { goalResumeSucceeds = succeeds; },
     setLiveEntries: (entries) => { liveEntries = entries; },
+    setSessionReadFails: (fails) => { sessionReadFails = fails; },
+    setAppendEntryFails: (fails) => { appendEntryFails = fails; },
+    setAppendEntryFailureType: (customType) => { appendEntryFailureType = customType; },
+    deferGoalPause: (task) => { deferredGoalPauses.push(task); },
+    flushGoalPauses: async () => {
+      for (const task of deferredGoalPauses.splice(0)) await task();
+    },
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
@@ -417,7 +462,6 @@ async function registerFixture(
   fixture: ReturnType<typeof makeReviewFixture>,
   cwd = fixture.repo,
   observeQuery?: (repo: string, target: string | undefined) => void,
-  observePush?: (repo: string, branch: string, remote: string | undefined) => void,
 ) {
   const { registerReviewEnforcement } = await plannedEnforcement();
   const harness = makeHarness(cwd, fixture.sessionFile);
@@ -426,10 +470,7 @@ async function registerFixture(
       observeQuery?.(repo, target);
       return fixture.pr;
     },
-    queryPushBranch: async (repo, branch, remote) => {
-      observePush?.(repo, branch, remote);
-      return branch;
-    },
+    deferGoalPause: harness.deferGoalPause,
   });
   return harness;
 }
@@ -444,8 +485,38 @@ function boundaryEvent(command = 'git push origin pi', toolCallId = 'push-1') {
   };
 }
 
-function ackHead(repo: string): string {
-  return readFileSync(join(repo, '.git/sdd-last-ack-pr-head'), 'utf8').trim();
+function ciResultEvent(
+  fixture: ReturnType<typeof makeReviewFixture>,
+  overrides: { cwd?: string; head?: string; pr?: number; repo?: string } = {},
+  isError = false,
+) {
+  const input = ciArgs(fixture, overrides);
+  if (overrides.head) {
+    input.prompt = JSON.stringify({
+      repo: overrides.repo ?? 'owner/repo',
+      pr: overrides.pr ?? fixture.pr.number,
+      head: overrides.head,
+      cwd: overrides.cwd ?? fixture.repo,
+    });
+  }
+  return {
+    toolName: 'subagent',
+    toolCallId: 'ci-result',
+    input,
+    content: [{ type: 'text', text: isError ? 'failed' : 'started' }],
+    details: { subagentType: 'ci-monitor', status: 'background' },
+    isError,
+  };
+}
+
+function ackHead(repo: string, prNumber = 42): string {
+  const perPr = join(repo, '.git', `sdd-review-ack-pr-${prNumber}`);
+  const path = existsSync(perPr) ? perPr : join(repo, '.git', 'sdd-last-ack-pr-head');
+  return readFileSync(path, 'utf8').trim();
+}
+
+function ciHead(repo: string, prNumber = 42): string {
+  return readFileSync(join(repo, '.git', `sdd-review-ci-pr-${prNumber}`), 'utf8').trim();
 }
 
 afterEach(() => {
@@ -542,7 +613,32 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114: pauses an active Goal once at review launch and resumes the same Goal from the FIX reminder', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063: checks authoritative current-branch state after any git or gh command', async () => {
+    for (const [command, toolCallId] of [
+      ['git status --short', 'git-state'],
+      ['gh pr view', 'gh-state'],
+    ]) {
+      const fixture = makeReviewFixture();
+      const queried: Array<string | undefined> = [];
+      const harness = await registerFixture(fixture, fixture.repo, (_repo, target) => queried.push(target));
+      appendSession(fixture.sessionFile,
+        assistantTool(toolCallId, 'bash', { command }),
+        toolResult(toolCallId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolCallId));
+
+      expect(queried).toEqual(['pi']);
+      expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
+        prNumber: 42,
+        head: fixture.head,
+        ackHead: fixture.base,
+        reviewRange: `${fixture.base}..${fixture.head}`,
+      }));
+    }
+  });
+
+  it('REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -554,6 +650,12 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('tool_result', boundaryEvent());
 
+    expect(harness.goalControlRequests).toEqual([]);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-plan');
+    await harness.emit('agent_end');
+    expect(harness.goalControlRequests).toEqual([]);
+    await harness.flushGoalPauses();
     expect(harness.goalControlRequests).toEqual([{
       action: 'pause',
       goalId: 'goal-1',
@@ -563,7 +665,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      ...ciLaunch('ci-1', fixture),
       notification('ci-1'),
     );
     await harness.emit('agent_end');
@@ -575,6 +677,13 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
       expect(ackHead(fixture.repo)).toBe(fixture.base);
     }
+
+    appendSession(fixture.sessionFile,
+      assistantTool('ci-log', 'bash', { command: 'gh run view 123 --log-failed' }),
+      toolResult('ci-log', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('gh run view 123 --log-failed', 'ci-log'));
+    expect(harness.sent.filter(({ message }) => message.customType === 'pr-boundary-launch-plan')).toHaveLength(1);
 
     appendSession(fixture.sessionFile, triageMessage());
     await harness.emit('agent_end');
@@ -593,6 +702,85 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
+  it('REQ-AGENT-113: clears stale review ownership when a manual resume wins the release race', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-resume-race', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-resume-race', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-resume-race'));
+    await harness.emit('agent_end');
+    expect(harness.goalControlRequests).toEqual([]);
+    await harness.flushGoalPauses();
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'paused'),
+      assistantTool('code-resume-race', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-resume-race', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-resume-race', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-resume-race'),
+      notification('spec-resume-race'),
+      notification('doc-resume-race'),
+      triageMessage(),
+    );
+    harness.setGoalResumeRaceActive('goal-1');
+
+    await harness.emit('agent_end');
+
+    expect(harness.goalControlRequests).toEqual([
+      { action: 'pause', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
+    ]);
+    expect(harness.notifications).toEqual([]);
+    const entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause')
+      .at(-1)?.data).toBeNull();
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-fix-follow-up');
+  });
+
+  it('REQ-AGENT-112/REQ-AGENT-113: retains release ownership when the exact Goal persists paused despite a failed pause response', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    harness.setGoalPauseResponseSucceeds(false);
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
+      assistantTool('push-persisted-pause', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-persisted-pause', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-persisted-pause'));
+
+    expect(harness.goalControlRequests).toEqual([]);
+    await harness.emit('agent_end');
+    expect(harness.goalControlRequests).toEqual([]);
+    await harness.flushGoalPauses();
+    expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
+    const entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause')
+      .at(-1)?.data).toEqual({ head: fixture.head, goalId: 'goal-1' });
+
+    appendSession(fixture.sessionFile,
+      assistantTool('code-persisted', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-persisted', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-persisted', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-persisted'),
+      notification('spec-persisted'),
+      notification('doc-persisted'),
+      triageMessage(),
+    );
+    await harness.emit('agent_end');
+
+    expect(harness.goalControlRequests).toEqual([
+      { action: 'pause', goalId: 'goal-1' },
+      { action: 'resume', goalId: 'goal-1' },
+    ]);
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-fix-follow-up');
+  });
+
   it('REQ-AGENT-112: transfers an owned pause to a replacement PR head and resumes after its FIX reminder', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
@@ -602,6 +790,8 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-1', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
@@ -627,6 +817,7 @@ describe('Pi review reminder and settled enforcement', () => {
       triageMessage(),
     );
     await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
     expect(harness.goalControlRequests).toEqual([
@@ -651,6 +842,8 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-1', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
@@ -672,6 +865,8 @@ describe('Pi review reminder and settled enforcement', () => {
     };
 
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([
       { action: 'pause', goalId: 'goal-1' },
@@ -690,6 +885,8 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-1', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     const originalHead = fixture.head;
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
@@ -713,6 +910,8 @@ describe('Pi review reminder and settled enforcement', () => {
     harness.setGoalResumeSucceeds(false);
 
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     let entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toEqual({
@@ -767,6 +966,8 @@ describe('Pi review reminder and settled enforcement', () => {
     };
 
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([]);
     expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-plan');
@@ -789,6 +990,8 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([]);
     expect(harness.sent.at(-1)).toEqual({
@@ -806,6 +1009,8 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-1', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
@@ -837,6 +1042,8 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-1', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       goalState('goal-2', 'active'),
@@ -868,6 +1075,8 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-1', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       goalState('goal-1', 'active'),
@@ -945,55 +1154,43 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-055/REQ-AGENT-068: acknowledged current head emits a CI-only plan', async () => {
+  it('REQ-AGENT-055: keeps acknowledgements isolated by pull request', async () => {
     const fixture = makeReviewFixture();
-    writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), `${fixture.head}\n`, 'utf8');
+    writeFileSync(join(fixture.repo, '.git/sdd-review-ack-pr-42'), `${fixture.head}\n`, 'utf8');
+    fixture.pr.number = 43;
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
-      assistantTool('push-current', 'bash', { command: 'git push origin pi' }),
-      toolResult('push-current', 'bash'),
+      assistantTool('other-pr', 'bash', { command: 'git status --short' }),
+      toolResult('other-pr', 'bash'),
     );
 
-    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-current'));
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'other-pr'));
 
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-plan',
-        details: {
-          ...boundaryIdentity(fixture, 'push-current'),
-          head: fixture.head,
-          ackHead: fixture.head,
-          reviewRange: undefined,
-          scope: diffScope(),
-          requiredLanes: [],
-          launchWaves: launchWaves([], true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
-    }]);
-    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
+      prNumber: 43,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+    }));
+    expect(ackHead(fixture.repo, 42)).toBe(fixture.head);
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: PR edit, update, and merge commands do not launch boundary work', async () => {
-    for (const [index, command] of [
-      'gh pr edit 42 --base main',
-      'gh pr update-branch 42',
-      'gh pr merge 42',
-    ].entries()) {
-      const fixture = makeReviewFixture();
+  it('REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert', async () => {
+    const fixture = makeReviewFixture();
+    writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), `${fixture.head}\n`, 'utf8');
+    for (const [command, toolCallId] of [
+      ['git status --short', 'git-current'],
+      ['gh pr view', 'gh-current'],
+    ]) {
       const harness = await registerFixture(fixture);
       appendSession(fixture.sessionFile,
-        assistantTool(`unsupported-${index}`, 'bash', { command }),
-        toolResult(`unsupported-${index}`, 'bash'),
+        assistantTool(toolCallId, 'bash', { command }),
+        toolResult(toolCallId, 'bash'),
       );
-
-      await harness.emit('tool_result', boundaryEvent(command));
+      await harness.emit('tool_result', boundaryEvent(command, toolCallId));
       await harness.emit('agent_settled');
-
-      expect(harness.sent, command).toEqual([]);
-      expect(ackHead(fixture.repo), command).toBe(fixture.base);
+      expect(harness.sent).toEqual([]);
     }
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
   it('REQ-AGENT-068: emits a CI-only launch plan in default session mode', async () => {
@@ -1019,6 +1216,129 @@ describe('Pi review reminder and settled enforcement', () => {
         '### 1. Start CI immediately',
       ]);
       expect(markdownTableColumns(harness.sent[0]?.message.content)).toEqual([]);
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
+  it('REQ-AGENT-068: checkpoints a successful CI launch before stale live transcript recovery', async () => {
+    const fixture = makeReviewFixture();
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+    try {
+      const harness = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-1', 'bash'),
+      );
+      await harness.emit('tool_result', boundaryEvent());
+      harness.sent.splice(0);
+
+      const staleEntries = readFileSync(fixture.sessionFile, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((entry) => entry.type !== 'session');
+      harness.setLiveEntries(staleEntries);
+      await harness.emit('tool_result', ciResultEvent(fixture));
+
+      expect(ciHead(fixture.repo)).toBe(fixture.head);
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
+      await harness.emit('agent_settled');
+      expect(harness.sent).toEqual([]);
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
+  it('REQ-AGENT-068: failed or mismatched direct CI launch results remain retryable', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    for (const event of [
+      ciResultEvent(fixture, { cwd: `${fixture.repo}-other` }),
+      ciResultEvent(fixture, { repo: 'other/repo' }),
+      ciResultEvent(fixture, { pr: 43 }),
+      ciResultEvent(fixture, { head: fixture.base }),
+      ciResultEvent(fixture, {}, true),
+    ]) {
+      await harness.emit('tool_result', event);
+    }
+
+    const { PR_LOOKUP_FAILED, registerReviewEnforcement } = await plannedEnforcement();
+    const transientHarness = makeHarness(fixture.repo, fixture.sessionFile);
+    let lookups = 0;
+    await registerReviewEnforcement(transientHarness.pi, {
+      queryPr: async () => (++lookups === 1 ? PR_LOOKUP_FAILED : fixture.pr),
+      deferGoalPause: transientHarness.deferGoalPause,
+    });
+    await transientHarness.emit('tool_result', ciResultEvent(fixture));
+    expect(lookups).toBe(1);
+    expect(existsSync(join(fixture.repo, '.git', 'sdd-review-ci-pr-42'))).toBe(false);
+
+    await transientHarness.emit('tool_result', ciResultEvent(fixture));
+    expect(lookups).toBe(2);
+    expect(ciHead(fixture.repo)).toBe(fixture.head);
+  });
+
+  it('REQ-AGENT-068: checkpoints a launched CI-only head without acknowledging later review', async () => {
+    const fixture = makeReviewFixture();
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+    try {
+      const first = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-1', 'bash'),
+      );
+      await first.emit('tool_result', boundaryEvent());
+      appendSession(fixture.sessionFile,
+        assistantTool('ci-wrong-cwd', 'subagent', ciArgs(fixture, { cwd: `${fixture.repo}-other` })),
+        toolResult('ci-wrong-cwd', 'subagent'),
+        assistantTool('ci-wrong-repo', 'subagent', ciArgs(fixture, { repo: 'other/repo' })),
+        toolResult('ci-wrong-repo', 'subagent'),
+        assistantTool('ci-wrong-pr', 'subagent', ciArgs(fixture, { pr: 43 })),
+        toolResult('ci-wrong-pr', 'subagent'),
+        assistantTool('ci-failed', 'subagent', ciArgs(fixture)),
+        toolResult('ci-failed', 'subagent', true),
+      );
+      await first.emit('agent_settled');
+      expect(existsSync(join(fixture.repo, '.git', 'sdd-review-ci-pr-42'))).toBe(false);
+
+      git(fixture.repo, 'remote', 'set-url', 'origin', 'ssh://git@ssh.github.com:443/owner/repo.git');
+      appendSession(fixture.sessionFile,
+        assistantTool('ci-1', 'subagent', ciArgs(fixture)),
+        toolResult('ci-1', 'subagent'),
+      );
+      await first.emit('agent_settled');
+      expect(ciHead(fixture.repo)).toBe(fixture.head);
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
+
+      const header = readFileSync(fixture.sessionFile, 'utf8').split('\n', 1)[0];
+      writeFileSync(fixture.sessionFile, `${header}\n`, 'utf8');
+      const repeated = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('status-2', 'bash', { command: 'git status --short' }),
+        toolResult('status-2', 'bash'),
+      );
+      await repeated.emit('tool_result', boundaryEvent('git status --short', 'status-2'));
+      expect(repeated.sent).toEqual([]);
+
+      delete process.env.SESSION_MODE;
+      writeFileSync(fixture.sessionFile, `${header}\n`, 'utf8');
+      const review = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('status-3', 'bash', { command: 'git status --short' }),
+        toolResult('status-3', 'bash'),
+      );
+      await review.emit('tool_result', boundaryEvent('git status --short', 'status-3'));
+      expect(review.sent[0]?.message.details).toMatchObject({
+        requiredLanes: ALL_LANES,
+        launchWaves: launchWaves(ALL_LANES, false),
+      });
+      expect(review.sent[0]?.message.details?.ciEvent).toBeUndefined();
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
     } finally {
       if (previousMode === undefined) delete process.env.SESSION_MODE;
       else process.env.SESSION_MODE = previousMode;
@@ -1073,11 +1393,46 @@ describe('Pi review reminder and settled enforcement', () => {
           scope: diffScope(),
           requiredLanes: ALL_LANES,
           launchWaves: launchWaves(ALL_LANES, true),
-          ciEvent: 'pr-create',
+          ciEvent: 'push',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-063: resolves fail-fast multiline push and PR-create boundaries', async () => {
+    const commands = [
+      'set -euo pipefail\ncd "REPO"\ngit push origin pi',
+      'set -euo pipefail\ncd "REPO"\ngh pr create --base main --head pi --title review',
+    ];
+
+    for (const [index, template] of commands.entries()) {
+      const fixture = makeReviewFixture();
+      const sessionRoot = dirname(fixture.repo);
+      const queriedRepos: string[] = [];
+      const harness = await registerFixture(fixture, sessionRoot, (repo) => {
+        queriedRepos.push(repo);
+      });
+      const command = template.replace('REPO', fixture.repo);
+      const toolUseId = `fail-fast-multiline-${index}`;
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        toolResult(toolUseId, 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent(command, toolUseId));
+
+      expect(queriedRepos).toEqual([fixture.repo]);
+      expect(harness.sent).toHaveLength(1);
+      expect(harness.sent[0]?.message.details).toMatchObject({
+        ...boundaryIdentity(fixture, toolUseId),
+        head: fixture.head,
+        ackHead: fixture.base,
+        reviewRange: `${fixture.base}..${fixture.head}`,
+        requiredLanes: ALL_LANES,
+        ciEvent: 'push',
+      });
+    }
   });
 
   it('REQ-AGENT-036/REQ-AGENT-068: default mode resolves the repository from a cd-prefixed boundary', async () => {
@@ -1175,23 +1530,12 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: resolves implicit pushes from the configured push destination', async () => {
-    const implicitCases = [
-      { command: 'git push', remote: undefined },
-      { command: 'git push origin', remote: 'origin' },
-      { command: 'git push -u origin HEAD', remote: 'origin' },
-    ];
-    for (const [index, testCase] of implicitCases.entries()) {
+  it('REQ-AGENT-036/REQ-AGENT-063: verifies only the checked-out branch and rejects detached HEAD', async () => {
+    for (const [index, command] of ['git push', 'git push origin', 'git pull --ff-only', 'gh pr view'].entries()) {
       const fixture = makeReviewFixture();
       const queries: Array<{ repo: string; target: string | undefined }> = [];
-      const pushRoutes: Array<{ repo: string; branch: string; remote: string | undefined }> = [];
-      const harness = await registerFixture(fixture, fixture.repo, (repo, target) => {
-        queries.push({ repo, target });
-      }, (repo, branch, remote) => {
-        pushRoutes.push({ repo, branch, remote });
-      });
-      const command = testCase.command;
-      const toolUseId = `implicit-${index}`;
+      const harness = await registerFixture(fixture, fixture.repo, (repo, target) => queries.push({ repo, target }));
+      const toolUseId = `branch-state-${index}`;
       appendSession(fixture.sessionFile,
         assistantTool(toolUseId, 'bash', { command }),
         toolResult(toolUseId, 'bash'),
@@ -1199,89 +1543,45 @@ describe('Pi review reminder and settled enforcement', () => {
 
       await harness.emit('tool_result', boundaryEvent(command, toolUseId));
 
-      expect(pushRoutes).toEqual([{ repo: fixture.repo, branch: 'pi', remote: testCase.remote }]);
       expect(queries).toEqual([{ repo: fixture.repo, target: 'pi' }]);
       expect(harness.sent).toHaveLength(1);
-      expect(harness.sent[0]?.message.details).toMatchObject({
-        ...boundaryIdentity(fixture, toolUseId),
-        head: fixture.head,
-        ciEvent: 'push',
-      });
     }
-
-    const renamed = makeReviewFixture();
-    git(renamed.repo, 'branch', '-m', 'topic');
-    renamed.pr.headRefName = 'review-topic';
-    const renamedQueries: Array<{ repo: string; target: string | undefined }> = [];
-    const { registerReviewEnforcement } = await plannedEnforcement();
-    const renamedHarness = makeHarness(renamed.repo, renamed.sessionFile);
-    registerReviewEnforcement(renamedHarness.pi, {
-      queryBranch: async () => 'topic',
-      queryPushBranch: async (_repo, _branch, remote) => remote === undefined ? 'review-topic' : undefined,
-      queryPr: async (repo, target) => {
-        renamedQueries.push({ repo, target });
-        return renamed.pr;
-      },
-    });
-    appendSession(renamed.sessionFile,
-      assistantTool('renamed-upstream', 'bash', { command: 'git push' }),
-      toolResult('renamed-upstream', 'bash'),
-    );
-
-    await renamedHarness.emit('tool_result', boundaryEvent('git push', 'renamed-upstream'));
-
-    expect(renamedQueries).toEqual([{ repo: renamed.repo, target: 'review-topic' }]);
-    expect(renamedHarness.sent[0]?.message.details).toMatchObject({
-      ...boundaryIdentity(renamed, 'renamed-upstream'),
-      branch: 'review-topic',
-      head: renamed.head,
-    });
 
     const detached = makeReviewFixture();
     git(detached.repo, 'checkout', '--detach', '-q');
     let detachedQueries = 0;
-    const detachedHarness = await registerFixture(detached, detached.repo, () => {
-      detachedQueries += 1;
-    });
+    const detachedHarness = await registerFixture(detached, detached.repo, () => { detachedQueries += 1; });
     appendSession(detached.sessionFile,
-      assistantTool('detached-push', 'bash', { command: 'git push' }),
-      toolResult('detached-push', 'bash'),
+      assistantTool('detached-state', 'bash', { command: 'git status --short' }),
+      toolResult('detached-state', 'bash'),
     );
 
-    await detachedHarness.emit('tool_result', boundaryEvent('git push', 'detached-push'));
+    await detachedHarness.emit('tool_result', boundaryEvent('git status --short', 'detached-state'));
 
     expect(detachedQueries).toBe(0);
     expect(detachedHarness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-036: resolves a remote-only push through the production configured-push fallback', async () => {
-    const fixture = makeReviewFixture();
-    git(fixture.repo, 'remote', 'add', 'origin', fixture.repo);
-    git(fixture.repo, 'config', 'remote.origin.push', 'refs/heads/pi:refs/heads/review-topic');
-    git(fixture.repo, 'update-ref', 'refs/remotes/origin/review-topic', fixture.head);
-    fixture.pr.headRefName = 'review-topic';
-    const queried: Array<{ repo: string; target: string | undefined }> = [];
-    const { registerReviewEnforcement } = await plannedEnforcement();
-    const harness = makeHarness(fixture.repo, fixture.sessionFile);
-    registerReviewEnforcement(harness.pi, {
-      queryPr: async (repo, target) => {
-        queried.push({ repo, target });
-        return fixture.pr;
-      },
-    });
-    const command = 'git push origin';
-    appendSession(fixture.sessionFile,
-      assistantTool('production-push-fallback', 'bash', { command }),
-      toolResult('production-push-fallback', 'bash'),
+  it('REQ-AGENT-121/REQ-AGENT-122: rejects a nonstandard worktree without bookkeeping errors', async () => {
+    const source = makeReviewFixture();
+    const parent = tempRoot('pi-review-nonstandard-');
+    const repo = join(parent, 'linked');
+    git(source.repo, 'worktree', 'add', '-q', '-b', 'linked-rejected', repo, source.head);
+    const sessionFile = join(repo, 'session.jsonl');
+    writeFileSync(sessionFile, `${JSON.stringify({
+      type: 'session', version: 3, id: nextId('session'), timestamp: '2026-07-12T11:59:00.000Z', cwd: repo,
+    })}\n`, 'utf8');
+    const fixture = { ...source, repo, sessionFile };
+    let queries = 0;
+    const harness = await registerFixture(fixture, repo, () => { queries += 1; });
+    appendSession(sessionFile,
+      assistantTool('nonstandard', 'bash', { command: 'git status --short' }),
+      toolResult('nonstandard', 'bash'),
     );
 
-    await harness.emit('tool_result', boundaryEvent(command, 'production-push-fallback'));
-
-    expect(queried).toEqual([{ repo: fixture.repo, target: 'review-topic' }]);
-    expect(harness.sent[0]?.message.details).toMatchObject({
-      ...boundaryIdentity(fixture, 'production-push-fallback'),
-      head: fixture.head,
-    });
+    await expect(harness.emit('tool_result', boundaryEvent('git status --short', 'nonstandard'))).resolves.toBeUndefined();
+    expect(queries).toBe(0);
+    expect(harness.sent).toEqual([]);
   });
 
   it('REQ-AGENT-036/REQ-AGENT-055: binds git -C review and acknowledgement to the boundary repository', async () => {
@@ -1317,7 +1617,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-cross', 'subagent', reviewerArgs(boundary, 'code-reviewer')),
       assistantTool('spec-cross', 'subagent', reviewerArgs(boundary, 'spec-reviewer')),
       assistantTool('doc-cross', 'subagent', reviewerArgs(boundary, 'doc-updater')),
-      assistantTool('ci-cross', 'subagent', ciArgs(boundary.head)),
+      ...ciLaunch('ci-cross', boundary),
       notification('code-cross'),
       notification('spec-cross'),
       notification('doc-cross'),
@@ -1339,7 +1639,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: pairs a batch boundary with its command repository', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063: pairs the latest batch candidate with its command repository', async () => {
     const ambient = makeReviewFixture();
     const boundary = makeReviewFixture();
     const { registerReviewEnforcement } = await plannedEnforcement();
@@ -1370,10 +1670,10 @@ describe('Pi review reminder and settled enforcement', () => {
       isError: false,
     });
 
-    expect(queriedRepos).toEqual([boundary.repo]);
+    expect(queriedRepos).toEqual([ambient.repo]);
     expect(harness.sent[0]?.message.details).toMatchObject({
-      ...boundaryIdentity(boundary, 'batch-cross-repo'),
-      head: boundary.head,
+      ...boundaryIdentity(ambient, 'batch-cross-repo'),
+      head: ambient.head,
     });
   });
 
@@ -1440,6 +1740,8 @@ describe('Pi review reminder and settled enforcement', () => {
 
     for (const [index, command] of [
       `cd "${pipelineOther.repo}"; git push origin pi`,
+      `set -e\nset +e\ncd "${pipelineOther.repo}"\ngit push origin pi`,
+      `set -- -e\ncd "${pipelineOther.repo}"\ngit push origin pi`,
       `cd /missing || git push origin pi`,
       `true || cd "${pipelineOther.repo}" && git push origin pi`,
     ].entries()) {
@@ -1459,6 +1761,42 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(queries).toBe(0);
       expect(harness.sent).toEqual([]);
     }
+  });
+
+  it('REQ-AGENT-036: PR creation targeting develop launches its review window', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr.baseRefName = 'develop';
+    const harness = await registerFixture(fixture);
+    const command = 'gh pr create --base develop --title review';
+    appendSession(fixture.sessionFile,
+      assistantTool('create-develop', 'bash', { command }),
+      toolResult('create-develop', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'create-develop'));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
+
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-develop', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-develop', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-develop', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      ...ciLaunch('ci-develop', fixture),
+      notification('code-develop'),
+      notification('spec-develop'),
+      notification('doc-develop'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({ customType: 'pr-boundary-fix-follow-up' }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
   });
 
   it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
@@ -1484,58 +1822,6 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
-  });
-
-  it('REQ-AGENT-036/REQ-AGENT-063: launches only for the branch actually pushed to an open protected PR', async () => {
-    const unrelated = makeReviewFixture();
-    git(unrelated.repo, 'branch', 'unrelated', unrelated.head);
-    const unrelatedHarness = await registerFixture(unrelated);
-    const unrelatedCommand = 'git push origin unrelated';
-    appendSession(unrelated.sessionFile,
-      assistantTool('push-unrelated', 'bash', { command: unrelatedCommand }),
-      toolResult('push-unrelated', 'bash'),
-    );
-
-    await unrelatedHarness.emit('tool_result', boundaryEvent(unrelatedCommand));
-    expect(unrelatedHarness.sent).toEqual([]);
-
-    const mismatchedSource = makeReviewFixture();
-    git(mismatchedSource.repo, 'branch', 'protected-feature', mismatchedSource.base);
-    mismatchedSource.pr.headRefName = 'protected-feature';
-    const mismatchHarness = await registerFixture(mismatchedSource);
-    const mismatchCommand = 'git push origin protected-feature';
-    appendSession(mismatchedSource.sessionFile,
-      assistantTool('push-mismatch', 'bash', { command: mismatchCommand }),
-      toolResult('push-mismatch', 'bash'),
-    );
-
-    await mismatchHarness.emit('tool_result', boundaryEvent(mismatchCommand));
-    expect(mismatchHarness.sent).toEqual([]);
-
-    const protectedBranch = makeReviewFixture();
-    git(protectedBranch.repo, 'branch', 'protected-feature', protectedBranch.head);
-    protectedBranch.pr.headRefName = 'protected-feature';
-    const protectedHarness = await registerFixture(protectedBranch);
-    const protectedCommand = 'git push origin protected-feature';
-    appendSession(protectedBranch.sessionFile,
-      assistantTool('push-protected', 'bash', { command: protectedCommand }),
-      toolResult('push-protected', 'bash'),
-    );
-
-    await protectedHarness.emit('tool_result', boundaryEvent(protectedCommand));
-    expect(protectedHarness.sent).toHaveLength(1);
-    expect(protectedHarness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
-
-    const deleted = makeReviewFixture();
-    const deletedHarness = await registerFixture(deleted);
-    const deleteCommand = 'git push origin --delete obsolete';
-    appendSession(deleted.sessionFile,
-      assistantTool('push-delete', 'bash', { command: deleteCommand }),
-      toolResult('push-delete', 'bash'),
-    );
-
-    await deletedHarness.emit('tool_result', boundaryEvent(deleteCommand));
-    expect(deletedHarness.sent).toEqual([]);
   });
 
   it('REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces', async () => {
@@ -1607,7 +1893,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await expect(pending).resolves.toEqual(pr);
     expect(observed).toEqual({
       command: 'gh',
-      args: ['pr', 'view', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft'],
+      args: ['pr', 'view', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit'],
       options: { cwd: repo, encoding: 'utf8', timeout: 10_000 },
     });
     let targetedArgs: string[] | undefined;
@@ -1616,32 +1902,14 @@ describe('Pi review reminder and settled enforcement', () => {
       return { stdout: JSON.stringify(pr) };
     }, '42');
     expect(targetedArgs).toEqual([
-      'pr', 'view', '42', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft',
+      'pr', 'view', '42', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit',
     ]);
 
-    await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBeUndefined();
-  });
-
-  it('REQ-AGENT-036: resolves Git configured push destinations without parsing Git config', async () => {
-    const { queryPushBranch } = await plannedEnforcement();
-    const repo = '/tmp/review-push-branch-repo';
-    let observed: { command: string; args: string[]; options: { cwd: string; encoding: 'utf8'; timeout: number } } | undefined;
-
-    await expect(queryPushBranch(repo, 'topic', async (command, args, options) => {
-      observed = { command, args, options };
-      return { stdout: 'origin/review-topic\n' };
-    }, 'origin')).resolves.toBe('review-topic');
-    expect(observed).toEqual({
-      command: 'git',
-      args: ['-c', 'branch.topic.pushRemote=origin', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', 'topic@{push}'],
-      options: { cwd: repo, encoding: 'utf8', timeout: 10_000 },
-    });
-
-    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: 'upstream/review-topic\n' }), 'origin')).resolves.toBeUndefined();
-    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: '\n' }))).resolves.toBeUndefined();
-    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: 'review-topic\n' }))).resolves.toBeUndefined();
-    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: 'refs/remotes/origin/review-topic\n' }))).resolves.toBeUndefined();
-    await expect(queryPushBranch(repo, 'topic', async () => ({ stdout: 'origin/a\norigin/b\n' }))).resolves.toBeUndefined();
+    const { PR_LOOKUP_FAILED } = await plannedEnforcement();
+    await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBe(PR_LOOKUP_FAILED);
+    await expect(queryPr(repo, async () => Promise.reject(Object.assign(new Error('missing'), {
+      stderr: 'no pull requests found for branch "pi"',
+    })))).resolves.toBeUndefined();
   });
 
   it('REQ-AGENT-036 + REQ-AGENT-080 AC6: an unpublished local commit emits no launch plan without a boundary', async () => {
@@ -1691,6 +1959,52 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.sent).toEqual([]);
       expect(ackHead(fixture.repo)).toBe(fixture.base);
     }
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-063: retries transient PR lookup failures', async () => {
+    const fixture = makeReviewFixture();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    const delays: number[] = [];
+    let queries = 0;
+    const { PR_LOOKUP_FAILED, registerReviewEnforcement } = await plannedEnforcement();
+    registerReviewEnforcement(harness.pi, {
+      queryPr: async () => (++queries === 1 ? PR_LOOKUP_FAILED : fixture.pr),
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      headRetryDelaysMs: [0, 10, 20],
+    });
+    appendSession(fixture.sessionFile,
+      assistantTool('transient-pr-lookup', 'bash', { command: 'git status --short' }),
+      toolResult('transient-pr-lookup', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'transient-pr-lookup'));
+
+    expect(queries).toBe(2);
+    expect(delays).toEqual([10]);
+    expect(harness.sent).toHaveLength(1);
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-063: checks an absent matching PR only once', async () => {
+    const fixture = makeReviewFixture();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    const delays: number[] = [];
+    let queries = 0;
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    registerReviewEnforcement(harness.pi, {
+      queryPr: async () => { queries += 1; return undefined; },
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      headRetryDelaysMs: [0, 10, 20],
+    });
+    appendSession(fixture.sessionFile,
+      assistantTool('read-only-no-pr', 'bash', { command: 'git status --short' }),
+      toolResult('read-only-no-pr', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'read-only-no-pr'));
+
+    expect(queries).toBe(1);
+    expect(delays).toEqual([]);
+    expect(harness.sent).toEqual([]);
   });
 
   it('REQ-AGENT-058 + REQ-AGENT-080 AC6: an eligible pushed boundary emits one authoritative launch plan', async () => {
@@ -1766,7 +2080,7 @@ describe('Pi review reminder and settled enforcement', () => {
     appendSession(fixture.sessionFile,
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer'), '2026-07-12T12:00:30.000Z'),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer'), '2026-07-12T12:00:40.000Z'),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head), '2026-07-12T12:00:50.000Z'),
+      ...ciLaunch('ci-1', fixture, '2026-07-12T12:00:50.000Z'),
     );
 
     await harness.emit('agent_settled');
@@ -1843,7 +2157,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer'), '2026-07-12T12:07:00.000Z'),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer'), '2026-07-12T12:07:10.000Z'),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater'), '2026-07-12T12:07:20.000Z'),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head), '2026-07-12T12:07:30.000Z'),
+      ...ciLaunch('ci-1', fixture, '2026-07-12T12:07:30.000Z'),
       notification('doc-1'),
       notification('code-1'),
     );
@@ -1891,7 +2205,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      ...ciLaunch('ci-1', fixture),
       notification('code-1'),
       notification('spec-1'),
       notification('doc-1'),
@@ -1932,7 +2246,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      ...ciLaunch('ci-1', fixture),
       notification('code-1', 'Error'),
       notification('spec-1'),
       notification('doc-1'),
@@ -1960,7 +2274,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
-      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      ...ciLaunch('ci-1', fixture),
       notification('code-1'),
       notification('doc-1'),
     );
@@ -1971,6 +2285,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     const reloadedHarness = await registerFixture(fixture);
     appendSession(fixture.sessionFile, notification('spec-1'), triageMessage());
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
     await reloadedHarness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
@@ -1992,10 +2307,60 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
-  it('REQ-AGENT-036: resumed sessions stay inert until a new eligible boundary', async () => {
+  it('REQ-AGENT-110 AC5: reload recovers one launch plan for a successful boundary whose live handler was missed', async () => {
+    const fixture = makeReviewFixture();
+    const command = [
+      'set -euo pipefail',
+      `cd "${fixture.repo}"`,
+      'git status --short',
+      'git push origin pi',
+    ].join('\n');
+    appendSession(fixture.sessionFile,
+      assistantTool('push-before-reload', 'bash', { command }),
+      toolResult('push-before-reload', 'bash'),
+    );
+
+    const reloadedHarness = await registerFixture(fixture);
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
+    await reloadedHarness.emit('agent_settled');
+    await reloadedHarness.emit('agent_settled');
+
+    expect(reloadedHarness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: expect.objectContaining({
+          boundaryToolUseId: 'push-before-reload',
+          head: fixture.head,
+        }),
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
+  it('REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr.state = 'CLOSED';
+    appendSession(fixture.sessionFile,
+      assistantTool('ineligible-push', 'bash', { command: 'git push origin pi' }),
+      toolResult('ineligible-push', 'bash'),
+    );
+    const initialHarness = await registerFixture(fixture);
+    await initialHarness.emit('tool_result', boundaryEvent('git push origin pi', 'ineligible-push'));
+    expect(initialHarness.sent).toEqual([]);
+
+    fixture.pr.state = 'OPEN';
+    const reloadedHarness = await registerFixture(fixture);
+    await reloadedHarness.emit('session_start', { reason: 'resume' });
+    await reloadedHarness.emit('agent_settled');
+
+    expect(reloadedHarness.sent).toEqual([]);
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-112/REQ-AGENT-121: resumed sessions recover once through FIX and restore Goal pause', async () => {
     const fixture = makeReviewFixture();
     const initialHarness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
+      goalState('goal-1', 'active'),
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
     );
@@ -2011,28 +2376,45 @@ describe('Pi review reminder and settled enforcement', () => {
     await resumedHarness.emit('session_start', { reason: 'resume' });
 
     await resumedHarness.emit('tool_result', boundaryEvent('git switch pi', 'switch-1'));
-    await resumedHarness.emit('agent_end');
-    await resumedHarness.emit('agent_settled');
-
-    expect(prQueries).toBe(0);
-    expect(resumedHarness.sent).toEqual([]);
-    expect(ackHead(fixture.repo)).toBe(fixture.base);
-    expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
-
-    appendSession(fixture.sessionFile,
-      assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
-      toolResult('push-2', 'bash'),
-    );
-    await resumedHarness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
 
     expect(prQueries).toBe(1);
     expect(resumedHarness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
-        details: expect.objectContaining({ boundaryToolUseId: 'push-2', head: fixture.head }),
+        details: expect.objectContaining({ boundaryToolUseId: 'switch-1', head: fixture.head }),
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
+
+    await resumedHarness.emit('tool_result', boundaryEvent('git switch pi', 'switch-1'));
+    expect(prQueries).toBe(1);
+    expect(resumedHarness.sent.filter(({ message }) => message.customType === 'pr-boundary-launch-plan')).toHaveLength(1);
+
+    await resumedHarness.emit('tool_result', boundaryEvent('gh run view 123', 'inspect-2'));
+    expect(prQueries).toBe(2);
+    expect(resumedHarness.sent.filter(({ message }) => message.customType === 'pr-boundary-launch-plan')).toHaveLength(1);
+
+    await resumedHarness.emit('agent_end');
+    await resumedHarness.flushGoalPauses();
+    expect(resumedHarness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
+
+    appendSession(fixture.sessionFile,
+      goalState('goal-1', 'paused'),
+      assistantTool('code-resume', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-resume', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-resume', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      ...ciLaunch('ci-resume', fixture),
+      notification('code-resume'),
+      notification('spec-resume'),
+      notification('doc-resume'),
+      triageMessage(),
+    );
+    await resumedHarness.emit('agent_end');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(resumedHarness.sent.filter(({ message }) => message.customType === 'pr-boundary-fix-follow-up')).toHaveLength(1);
   });
 
   it('REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head', async () => {
@@ -2077,16 +2459,18 @@ describe('Pi review reminder and settled enforcement', () => {
           ...boundaryIdentity(fixture, 'create-1'),
           head: fixture.head,
           ackHead: fixture.head,
-          reviewRange: undefined,
+          reviewRange: `${fixture.base}..${fixture.head}`,
           scope: diffScope(),
           requiredLanes: [],
           launchWaves: launchWaves([], true),
-          ciEvent: 'pr-create',
+          ciEvent: 'push',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(readFileSync(join(fixture.repo, '.git/sdd-review-ack-pr-42'), 'utf8').trim()).toBe(fixture.head);
+    expect(readFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), 'utf8').trim()).toBe(fixture.base);
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(true);
     harness.sent.splice(0);
     await harness.emit('agent_settled');
@@ -2176,7 +2560,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
-  it('REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it', async () => {
+  it('REQ-AGENT-041/REQ-AGENT-119: blocks five times then latches GIVEUP for the same head without acknowledging it', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -2185,7 +2569,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     harness.sent.splice(0);
-    appendSession(fixture.sessionFile, assistantTool('ci-1', 'subagent', ciArgs(fixture.head)));
+    appendSession(fixture.sessionFile, ...ciLaunch('ci-1', fixture));
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       harness.sent.splice(0);
@@ -2205,7 +2589,7 @@ describe('Pi review reminder and settled enforcement', () => {
     harness.sent.splice(0);
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([]);
-    expect(readFileSync(join(fixture.repo, '.git/sdd-review-block-count'), 'utf8').trim()).toBe(`${fixture.head}:GIVEUP`);
+    expect(readFileSync(join(fixture.repo, '.git/sdd-review-count-pr-42'), 'utf8').trim()).toBe(`${fixture.head}:GIVEUP`);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
@@ -2218,6 +2602,8 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-1', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_end');
+    await harness.flushGoalPauses();
     harness.sent.splice(0);
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     fixture.pr.state = 'MERGED';

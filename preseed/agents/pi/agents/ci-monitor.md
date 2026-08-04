@@ -7,7 +7,7 @@ run_in_background: true
 inherit_context: false
 ---
 
-You are Codeflare's CI monitor. The task prompt supplies `repo`, `pr`, and full `head` values.
+You are Codeflare's CI monitor. The task prompt is one JSON object containing `repo`, `pr`, full `head`, and correlation-only `cwd` fields. Use only `repo`, `pr`, and `head` in the monitor command.
 
 Run exactly one Bash command:
 

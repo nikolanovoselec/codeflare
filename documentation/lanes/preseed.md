@@ -64,7 +64,7 @@ In-process subagents always use native fallbacks. The three PR reviewers expose 
 
 `@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` command. Codeflare overrides its startup guidance so assistants do not call or suggest advisor unless the user's current message explicitly requests it.
 
-`pi-web-access` adds `web_search` and `fetch_content`. Both authenticate through Pi's model registry or zero-config Exa MCP, so neither needs a per-user API key.
+`pi-web-access` adds `web_search`, `source_check`, `fetch_content`, and paged `get_search_content`. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Version 0.15 adds TinyFish, an all-provider search route, and a configurable OpenAI Responses endpoint without changing those existing tool contracts. Version 0.14 removed upstream's bundled `librarian`; Codeflare preserves it as an owned skill in both Pi modes and keeps its generated-seed delivery under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
 
 `@narumitw/pi-goal` is pinned at 0.43.0 after review of the [published npm tarball](https://registry.npmjs.org/@narumitw/pi-goal/-/pi-goal-0.43.0.tgz). The MIT package declares `src/index.ts` as its sole Pi extension and provides `/goal`, `goal_complete`, and `goal_blocked` without managing subagent files. On startup, Codeflare creates `~/.pi/agent/pi-goal.json` with `toolVisibility: "after-first-goal"` only when the file is absent. Capability-filtered sessions therefore start narrow and reveal Goal's two terminal tools when `/goal` begins, while every existing Goal preference remains byte-for-byte user-owned. On reload, `capability.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or Goal's user-owned `always` policy already activated both tools, allowing the same Goal to restore without independently widening fresh or completed lazy sessions ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5).
 
@@ -76,7 +76,11 @@ The image build applies `scripts/patch-pi-goal-review-control.mjs` to the exact 
 
 Layout or version drift fails the image build. The weekly Pi-extension shadow-pin workflow installs each proposed pi-goal lock and applies this patch before opening its bump PR, so incompatible upstream changes are rejected at the bump boundary rather than first appearing during deployment ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) Constraints).
 
-For reviewer-bearing PR boundaries, `review-enforcement.ts` records review ownership before requesting a session-local control-channel pause and emitting the review launch plan. If ownership cannot be recorded, review proceeds without pausing the Goal. Review completion requests resume of an owned Goal immediately before emitting the matching acknowledged `pr-boundary-fix-follow-up`, while PR closure requests resume during closure handling. A failed replacement-head ownership write may separately request rollback resume. CI and individual reviewer notifications never request resume. Missing control, Goal replacement, and independent reactivation remain fail-open ([REQ-AGENT-113](../../sdd/spec/agents.md#req-agent-113-review-owned-goal-release) AC1-AC7).
+For reviewer-bearing PR boundaries, `review-enforcement.ts` emits the review launch plan independently. When an active Goal or matching review-owned pause exists, it schedules ownership and pause work after the boundary agent-end handler fully returns. This keeps pi-goal's native pause from aborting the boundary turn or its background tasks. If ownership cannot be recorded or Goal control is unavailable, review proceeds without pausing the Goal. An exact persisted pause retains release ownership even when the bridge response is missing or unsuccessful ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads) AC1-AC3 and Constraints; [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) AC1-AC4 and Constraints).
+
+Review completion requests resume immediately before the matching acknowledged `pr-boundary-fix-follow-up`. If a manual resume wins that request race, authoritative non-paused state clears stale ownership without a false error. PR closure requests resume during closure handling, and a failed replacement-head ownership write may request rollback. CI and individual reviewer notifications never request resume. Missing control, Goal replacement, and independent reactivation remain fail-open ([REQ-AGENT-113](../../sdd/spec/agents.md#req-agent-113-review-owned-goal-release) AC1-AC7; [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) AC5-AC6).
+
+Missing-launch settled recovery emits at most five follow-ups for one unreviewed head, stores its count by PR number in the normal checkout's `.git` directory, and resets only for a different head ([REQ-AGENT-119](../../sdd/spec/agents.md#req-agent-119-settled-review-follow-up-accounting)).
 
 For an open, non-bypassed review, the first settled recovery defers when no reviewer or CI launch is recorded, preventing a recovery message from duplicating the initial plan. Duplicate boundaries do not duplicate the pause, and a replacement PR head transfers ownership of the existing pause instead of stranding it on the superseded head. If that transfer cannot be persisted, the bridge requests rollback; successful rollback clears ownership, while failed rollback retains recoverable ownership for the replacement head's FIX release ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads) AC1-AC7).
 
@@ -84,7 +88,7 @@ For an open, non-bypassed review, the first settled recovery defers when no revi
 
 `web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`). A user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots.
 
-This is a deliberate workaround for an upstream `pi-web-access` bug: `openCuratorBrowser` references `sendCuratorFallbackUpdate` outside its declaring scope and crashes the whole `pi` process whenever the interactive browser-curator fallback tries to open a browser. The container is headless, so `auto-summary` is the only workflow that never reaches that path.
+[pi-web-access 0.14](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) fixes the former interactive-curator fallback crash. The container remains headless, so `auto-summary` is still the only default workflow that can complete without a browser-approval UI; users who deliberately provide such a UI may retain their own `summary-review` setting.
 
 Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC2/AC4/AC6, [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) AC1-AC3, and [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership); source: `entrypoint.sh::warm_pi_npm_dependencies` (filtered context-mode package + tool extensions), `preseed/agents/pi/extensions/context-mode-runtime.ts` (foreground ownership), `preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand` (state-changing `/ctx on|off` persistence + reload), the Pi reviewer agents (Bash-only transport), the main-execution web-search default block, `preseed/agents/pi/skills/advisor/SKILL.md`, and `preseed/agents/pi/package.json`.
 
@@ -232,7 +236,10 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. The Pi entrypoint-owned
+`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Because adapter 2.15+
+reserves a leading `!` for command-backed secrets, the entrypoint doubles that
+prefix only in Pi's generated env value so a provider key beginning with `!`
+remains literal; Claude's value is unchanged. The Pi entrypoint-owned
 `consult-llm` server entry is replaced on each start with `lifecycle: "lazy"`,
 removing the old always-on `keep-alive` / `directTools` fields while preserving
 unrelated user MCP servers in the same file ([REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
@@ -245,13 +252,13 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). Unpublished local commits are not review heads and never authorize pre-push reviewers; only the plan emitted after an eligible push or protected-base PR creation does. On the normal non-bypassed path, that Git action makes the extension emit a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → TRIAGE + ACK → FIX`. Reviewer calls start together; CI starts immediately afterward without waiting. The explicit user-only bypass exception is described below and specified by [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces).
+Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). Unpublished local commits are not review heads and never authorize pre-push reviewers; only the plan emitted after an authoritative checked-out-branch PR-head change does. On the normal non-bypassed path, that Git action makes the extension emit a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → TRIAGE + ACK → FIX`. Reviewer calls start together; CI starts immediately afterward without waiting. The explicit user-only bypass exception is described below and specified by [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces).
 
 ```bash
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap.
+No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. An authoritative checked-out-branch head change uses `event=push` for CI monitoring. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ciBoundaryEvent --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
 After the final reviewer or CI launch, the root ends that turn immediately instead of foreground-waiting, sleeping, polling, resuming, or retrieving an in-flight agent. Native task notifications drive later turns. Public result retrieval is reserved for a terminal notification whose report is truncated or otherwise unavailable.
 
@@ -259,9 +266,11 @@ When reviewers are required, the final runbook section requires every finding to
 
 Malformed or superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the observed 41-character transcription whose first 40 characters exactly equal GitHub's authoritative PR head.
 
-Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted task is relaunched only after a later plan or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
+Non-SDD repositories and default-mode sessions receive CI-only plans. The resolver serializes canonical GitHub repository, PR number, head, and local repository path as one JSON identity. A correlated successful public CI-monitor tool result writes the separate per-PR CI-head checkpoint immediately; agent-end and settled transcript correlation remain idempotent fallbacks, and settled recovery checks the durable head before emitting missing work. Failed or mismatched launches remain retryable, later sessions do not repeat CI for that unchanged head, and enabling review still launches its reviewer lanes without fabricating review acknowledgement. An aborted running monitor may be relaunched only by explicit request; a later automatic plan applies to a changed head. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). On the normal non-bypassed path, successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until a correlated successful native notification or public result retrieval. After every required result, a tool-free structural triage table lets `agent_end` record that checkpoint and emit the next-turn FIX handoff; `agent_settled` remains an idempotent fallback. Delayed terminal evidence can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
+Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). On the normal non-bypassed path, successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until a correlated successful native notification or public result retrieval. The first launch plan for an unchanged head owns that review window; later candidates in the same active session neither replace it nor duplicate its launches. After session resume, the first new authoritative candidate may re-emit that plan and restore its deferred Goal pause ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads)).
+
+After every required result, a tool-free structural triage table lets `agent_end` record that checkpoint and emit the next-turn FIX handoff; `agent_settled` remains an idempotent fallback. Delayed terminal evidence can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
 
 Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. All three use Pi's provider-neutral `medium` thinking level rather than inheriting the root session's level. The foreground-only context-mode extension is intentionally unavailable inside in-process reviewers. Each reviewer invokes the packet CLI through repository-rooted Bash/Node and consumes its JSON in the same processing call; packets are never persisted or handed between calls. Standalone read, grep, Graphify, and indexed batch/global retrieval are unavailable to the lanes. The root waits for every report and alone changes the head.
 
@@ -490,7 +499,7 @@ The generated file is output, never a second ownership source.
 
 `/review` remains separate from PR-boundary review: the command reviews a user-chosen
 scope, while `review-enforcement.ts` handles supported root-session boundaries for
-SDD PRs targeting `main`/`master`. Both use `review-scope`: PR-boundary review and
+SDD PRs targeting `main`/`master`/`develop` ([REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions)). Both use `review-scope`: PR-boundary review and
 `/review --diff` inspect changed hunks plus direct invalidations; `/review --all`
 and `/sdd clean --all` are exhaustive.
 
@@ -519,8 +528,9 @@ response, and ends that turn without mutation. Agent-end enforcement reads live 
 state, records the full-SHA checkpoint, and emits one FIX follow-up; settled enforcement is
 the idempotent fallback, and only that separate turn applies accepted findings. Delayed
 terminal evidence may acknowledge its reviewed head after reload or newer unpublished work
-only while that head remains authoritative.
-Unfinished or replaced work is requested again only by a later supported boundary.
+only while that head remains authoritative. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+If the live result handler never evaluated a persisted successful boundary, the first settled pass after reload emits its missing initial plan once; a live-evaluated ineligible boundary remains inert. Already-launched unfinished or replaced work is requested again only by a later supported boundary. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
 This implements
 [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions),
@@ -528,7 +538,7 @@ This implements
 [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window),
 [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery),
 [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff),
-[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing),
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-candidate-detection),
 [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch),
 [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
@@ -872,7 +882,7 @@ fixes. This implements [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-re
 [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill),
 and [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
-The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.
+The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`. The nudge records the unacknowledged head it emitted so later commands cannot repeat the launch reminder; the Stop hook remains the enforcement fallback and injects FIX only after the root ends its mutation-free triage turn.
 Generated-only `graphify-out/` diffs require no review lanes and are auto-acked
 with a durable audit event; generated artifacts never suppress review for mixed
 diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn
@@ -981,9 +991,11 @@ docs/images:
 - Graphify's cache helpers persist those chunks, with each write restricted to the current `.graphify_uncached.txt` file set so an out-of-scope model attribution cannot replace another file's cache entry.
 - Local Graphify module flows merge, build, cluster, and report output.
 
-Community names are written by the active agent session to `.graphify_labels.json`.
-Pi applies them by regenerating the final user-facing report/html from the graph's
-existing community assignments, never `graphify label` or provider backends.
+Community naming is optional in both Pi and Claude. When requested, the active
+agent session writes `.graphify_labels.json` and regenerates report/html from the
+existing community assignments, never `graphify label` or provider backends. When
+skipped, Graphify's official report/html remain publishable and no labels file is
+required.
 
 Pi's graph refresh menu offers Architecture graph, Full repo AST-only, Full repo
 semantic, and an explicit no-graph option.
@@ -1000,8 +1012,9 @@ semantic, and an explicit no-graph option.
 
 Pi's local build/merge wrappers pass the scanned repo root into Graphify's manifest
 writer, so `graphify-out/manifest.json` stays portable if a repo is moved or
-recloned. Final `graphify-out/graph.html` and `graphify-out/callflow.html` are
-generated after labels are applied, and durable graph commits include both.
+recloned. Durable graph commits include `graphify-out/graph.html` and
+`graphify-out/callflow.html`; labels are applied first only when community naming
+was requested.
 
 Model selection is runtime-specific. Claude Code's graphify skill pins its own reliable extraction model and never escalates to Opus from this workflow. Pi does not name or pin provider-specific models: Pi `Agent` semantic subagents omit a `model` override and inherit whatever model the main Pi session is using unless the user explicitly asks for a different model.
 
@@ -1014,7 +1027,9 @@ The durable committed surface is:
 
 - `graphify-out/graph.json` — queryable graph data, with `.gitattributes` wiring `graphify-out/graph.json merge=graphify`
 - `graphify-out/GRAPH_REPORT.md` — human-readable graph report
-- `graphify-out/graph.html` — interactive visualization, generated after `.graphify_labels.json` is applied so users see named communities
+- `graphify-out/graph.html` — interactive visualization, using optional named communities when `.graphify_labels.json` was requested
+- `graphify-out/callflow.html` — generated call-flow visualization
+- optional `.graphify_labels.json` when the user requests community naming
 - optional `graphify-out/wiki/` if the user requests a wiki export
 
 The Pi graphify skill mirrors the Claude skill's persistence rule: never
@@ -1174,7 +1189,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 ### Resetting Review-Spawn Checkpoints
 
-The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
+The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Any executable `git` or `gh` command is a cheap candidate in both hooks. They emit or enforce only when the normal checkout's current branch has an open `main`, `master`, or `develop` PR whose authoritative head exactly equals local `HEAD` and differs from that PR's checkpoint. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD -->
 
 The same script is additionally registered under `PreToolUse` (empty matcher, all tools) as the mid-turn triage gate ([REQ-AGENT-104](../../sdd/spec/agents.md#req-agent-104-review-acknowledgement-requires-a-published-verdict) AC7). Once every review lane spawned in the transcript has a completed notification and no canonical triage table follows the last of them, every tool except `Read`, `TaskOutput`, `TaskGet`, `TaskList`, and `AskUserQuestion` is refused with a one-line reminder until the table is published.
 
@@ -1205,11 +1220,13 @@ Guard re-injection fails closed on every input class that would otherwise produc
 The Stop hook credits *either* transport, a legacy `Agent` subagent envelope or this `Bash` runner invocation, so migrating a lane never narrows what the gate accepts. `--lane <name>` is the gate's match token: renaming it silently disables review enforcement. The runner must appear in command position, so a quoted mention inside another command credits nothing, and a backgrounded subagent's start receipt is not accepted as completion.
 
 Pi uses the supported command grammar in
-[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize protected-base `gh pr create`, explicit single-branch pushes, and implicit bare, remote-only, or `HEAD` pushes.
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-candidate-detection): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize executable `git` and `gh` commands without interpreting their subcommands, options, selectors, or refspecs. Quoted examples and heredoc payloads remain inert through exact command-position and delimiter handling ([REQ-AGENT-116](../../sdd/spec/agents.md#req-agent-116-heredoc-safe-pr-boundary-classification)).
 
-For an explicit push, Pi resolves the pushed source ref and queries the destination branch's PR. For a bare or `HEAD` push, it asks Git for the configured push branch of the checked-out branch; a remote-only command scopes that lookup to its named remote. Each implicit form pairs the resolved destination with local `HEAD`. Repository resolution comes from the exact executable shell segment: deterministic parent-shell `cd` changes propagate, pipeline cwd changes do not, and unresolved conditional cwd changes fail closed.
+Pi resolves the command repository from the exact executable shell segment, then reads only that repository's checked-out branch and local `HEAD`. Deterministic parent-shell `cd` changes propagate, pipeline cwd changes do not, and unresolved conditional cwd changes fail closed. Command arguments never provide source, destination, configured push branch, or merge identity. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
 
-A launch follows only when that branch and full SHA match the authoritative open PR head targeting `main` or `master`. Branch deletion, tags, dry-run/follow-tag, ambiguous or multi-ref pushes, PR edit/update/merge commands, failed commands, quoted examples, child sessions, passive startup, detached HEAD, and integration-bound PRs are inert; a forced single-branch push still requires the same exact branch-and-head match ([REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing)).
+A launch follows only when the checked-out branch and local full SHA match the authoritative open PR head targeting `main`, `master`, or `develop` ([REQ-AGENT-121](../../sdd/spec/agents.md#req-agent-121-checked-out-branch-boundary-synchronization)). After a merge, the user switches to and synchronizes the merge-target branch; the next successful `git` or `gh` command observes that branch's changed PR head. Feature and integration PRs retain independent incremental bases through PR-number-specific checkpoints ([REQ-AGENT-122](../../sdd/spec/agents.md#req-agent-122-per-pr-review-checkpoints)). <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::ACK_FILE -->
+
+Failed commands, quoted examples, child sessions, passive startup, detached HEAD, nonstandard worktrees, unsynchronized remote heads, and PRs targeting any other integration branch are inert. Command syntax does not grant or deny eligibility ([REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-candidate-detection)).
 <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo -->
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
@@ -1217,11 +1234,11 @@ A launch follows only when that branch and full SHA match the authoritative open
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
 <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
-For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. Agent-end acknowledgement reads Pi's live session entries so the final triage does not race the session-file flush; settled recovery remains the fallback for missing work. Both require the extension-emitted review window for the successful persisted boundary. That window binds the originating tool call, repository root, branch, PR number, protected base, and full head SHA; fresh PR state must still report the same identity. Ambient cwd changes, active-repository changes, an unbound boundary, or a replacement PR are inert.
+For Pi, the acknowledged full SHA is stored at `.git/sdd-review-ack-pr-<number>`. Agent-end acknowledgement reads Pi's live session entries so the final triage does not race the session-file flush; settled recovery remains the fallback for missing work. Both require the extension-emitted review window for the successful persisted boundary. That window binds the originating tool call, repository root, branch, PR number, protected base, and full head SHA; fresh PR state must still report the same identity. Ambient cwd changes, active-repository changes, an unbound boundary, or a replacement PR are inert.
 
 The window lists missing reviewer lanes and, when an acknowledgement exists, the exact acknowledged-to-current range. Every counted public reviewer prompt carries that range. Unmatched calls stay in flight until correlated successful native notification or public result retrieval, and only the reminder head can be acknowledged. Delayed persisted terminal evidence can acknowledge that head after reload or newer unpublished local work while the PR still points to it; unfinished or replaced work may repeat at a later boundary ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
 
-The USER-ONLY `/tmp/review-bypass` sentinel and explicit post-boundary user wording remain review bypass surfaces; agents must not invoke them autonomously. After fresh open-PR identity validation, either surface writes the exact boundary head to `.git/sdd-last-ack-pr-head`, consumes the sentinel when present, and prevents settled missing-review launches for that head. Non-SDD repositories do not consume or act on the sentinel. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
+The USER-ONLY `/tmp/review-bypass` sentinel and explicit post-boundary user wording remain review bypass surfaces; agents must not invoke them autonomously. After fresh open-PR identity validation, either surface writes the exact boundary head to that PR's `.git/sdd-review-ack-pr-<number>` checkpoint, consumes the sentinel when present, and prevents settled missing-review launches for that head. Non-SDD repositories do not consume or act on the sentinel. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 
 A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged. The limit binds the autonomous loop only, so a user-invoked `/sdd clean` passes `purpose=clean` and reports row 23 inert without consulting the script at all ([REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate)).
 
@@ -1258,7 +1275,7 @@ After every required reviewer result arrives, the launch handoff requires an aut
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
 <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md::Finding discipline -->
 
-Pi CI is not part of review completion or acknowledgement. After either eligible Git action, protected-base PR creation or an explicit/implicit exact-head protected-PR push, the extension issues one ordered plan; the root launches required reviewers first, then runs that plan's resolver once with explicit repository cwd and review launch state. CI launches last without waiting for review completion. An empty response means no monitor, and interruption remains aborted until a later plan or explicit request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
+Pi CI is not part of review completion or acknowledgement. After any successful executable `git` or `gh` candidate, the extension issues one ordered plan only when the checked-out branch and local `HEAD` exactly match its authoritative unacknowledged open protected-base PR head; the plan reports `event=push` independently of command syntax. The root launches required reviewers first, then runs that plan's resolver once with explicit repository cwd and review launch state. CI launches last without waiting for review completion. An empty response means no monitor, and interruption remains aborted until a later plan or explicit request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
 
 ---
 
@@ -1298,7 +1315,11 @@ Pi CI is not part of review completion or acknowledgement. After either eligible
 - [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
 - [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) - Supported Boundary Recovery
 - [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff) - Pi Native Review Findings Handoff
-- [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) - PR-Boundary Command Parsing
+- [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-candidate-detection) - PR-Boundary Candidate Detection
+- [REQ-AGENT-116](../../sdd/spec/agents.md#req-agent-116-heredoc-safe-pr-boundary-classification) - Heredoc-safe PR-boundary classification
+- [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) - Non-disruptive review-owned Goal control
+- [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) - Enterprise consult-LLM unavailability
+- [REQ-AGENT-119](../../sdd/spec/agents.md#req-agent-119-settled-review-follow-up-accounting) - Settled review follow-up accounting
 - [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
 - [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) - consult-llm Invocation and Model-Selection Behavior
 - [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring
