@@ -20,6 +20,13 @@ import { pathToFileURL } from 'node:url';
 const ROOT = '/opt/codeflare/openvscode';
 const CODE_SERVER_ROOT = '/opt/code-server';
 const EXTENSION_NAME = 'codeflare-agent-sidebar';
+const NPM_TOOLS_NODE_MODULES = '/opt/codeflare/npm-tools/node_modules';
+const AGENT_PACKAGE_FAMILIES = Object.freeze([
+  Object.freeze({ agent: 'claude-code', directory: '@anthropic-ai', prefix: 'claude-code', keep: Object.freeze(['claude-code', 'claude-code-linux-x64']) }),
+  Object.freeze({ agent: 'codex', directory: '@openai', prefix: 'codex', keep: Object.freeze(['codex', 'codex-linux-x64']) }),
+  Object.freeze({ agent: 'copilot', directory: '@github', prefix: 'copilot', keep: Object.freeze(['copilot', 'copilot-linux-x64']) }),
+  Object.freeze({ agent: 'opencode', directory: '', prefix: 'opencode-', keep: Object.freeze(['opencode-ai', 'opencode-linux-x64']) }),
+]);
 
 export async function verifySelectedAgentLaunchers(
   selection,
@@ -36,6 +43,31 @@ export async function verifySelectedAgentLaunchers(
     }
   }
   return versions;
+}
+
+export async function verifySelectedAgentPackages(
+  selection,
+  {
+    hasCodingAgent,
+    nodeModulesPath = NPM_TOOLS_NODE_MODULES,
+    readDirectory = readdir,
+  },
+) {
+  const inventories = {};
+  for (const family of AGENT_PACKAGE_FAMILIES) {
+    let entries;
+    try {
+      entries = await readDirectory(join(nodeModulesPath, family.directory));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      entries = [];
+    }
+    const actual = entries.filter((name) => name.startsWith(family.prefix)).sort();
+    const expected = hasCodingAgent(selection, family.agent) ? [...family.keep].sort() : [];
+    assert.deepEqual(actual, expected, `${family.agent} package inventory must contain only canonical Linux x64 payloads`);
+    inventories[family.agent] = actual;
+  }
+  return inventories;
 }
 
 export async function verifyUnsupportedInventory(inventory) {
@@ -121,6 +153,7 @@ async function main() {
   await verifyUiStateHelper();
   const { CODING_AGENT_COMMANDS, hasCodingAgent } = await import('file:///opt/codeflare/scripts/coding-agent-selection.mjs');
   const selection = process.env.CODEFLARE_CODING_AGENTS;
+  const agentPackages = await verifySelectedAgentPackages(selection, { hasCodingAgent });
   const agentVersions = await verifySelectedAgentLaunchers(selection, {
     commands: CODING_AGENT_COMMANDS,
     hasCodingAgent,
@@ -134,6 +167,7 @@ async function main() {
     nativeChat,
     officialClaude,
     codeServerRuntime,
+    agentPackages,
     agentVersions,
     claudeVersion,
     piVersion,

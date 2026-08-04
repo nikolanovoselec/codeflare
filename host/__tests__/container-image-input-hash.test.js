@@ -96,6 +96,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/verify-pi-lockstep.mjs',
       'scripts/ci/coding-agent-selection.mjs',
+      'scripts/ci/prune-npm-platform-artifacts.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'src/lib/agent-seed.generated.ts',
@@ -139,9 +140,14 @@ describe('deployment container image input hash', () => {
     const goalPatchTag = imageHashResult().tag;
     assert.notEqual(goalPatchTag, scriptTag);
 
+    write('scripts/ci/prune-npm-platform-artifacts.mjs', 'pruning change\n');
+    commit('pruning change');
+    const pruningTag = imageHashResult().tag;
+    assert.notEqual(pruningTag, goalPatchTag);
+
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
-    assert.notEqual(imageHashResult().tag, goalPatchTag);
+    assert.notEqual(imageHashResult().tag, pruningTag);
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');
