@@ -10,7 +10,7 @@
     "chrome-devtools-mcp": "1.6.0",
     "consult-llm-mcp": "2.13.4",
     "context-mode": "1.0.169",
-    "opencode-ai": "1.18.8"
+    "opencode-ai": "1.18.9"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "0.82.1",
