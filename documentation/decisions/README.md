@@ -2911,7 +2911,7 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12; amended 2026-08-04)
 
 **Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload. The replacement therefore needs one executable request resolver that validates the event, repository, open PR, protected base, and authoritative head before returning one native monitor request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
@@ -2919,9 +2919,11 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 The dedicated agent runs one attached Node process and returns `CI_RESULT` through native task notification. Script timeouts bound runtime; no agent turn cap may replace the verbatim result with a wrapper summary. Malformed and superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the remote-qualified 41-character transcription correction. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi -->
 
+A correlated successful public launch tool result immediately writes the exact per-PR CI-head checkpoint independently from review acknowledgement. Agent-end and settled transcript correlation remain idempotent fallbacks. Settled recovery checks the durable checkpoint before requesting missing CI, so a live transcript snapshot that has not yet incorporated the tool result cannot create a repeated follow-up loop. Failed, mismatched, or transiently unverifiable launches remain retryable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::checkpointCiLaunch --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
 **Alternatives considered:** Repair the shared review/CI handoff; add a durable CI claim; keep the detached shell and watch its log; monitor hard-coded workflows or `gh run list --commit`; or auto-restart after reload. These retain the failures caused by conflicting ownership or disconnected lifecycles. One attached process and one native result path are sufficient.
 
-**Consequences:** CI launch and monitoring truth become behaviorally testable through one boundary plan, one resolver script, and one tiny agent. The separate root-rule trigger is removed, so a Git command cannot create a duplicate launch. Non-SDD repositories and default-mode sessions receive CI-only plans. Reload may abort a monitor without a result; a later eligible boundary plan or explicit user request can start a fresh one. Review and CI never track, wait for, or restart each other, and CI never becomes a review lane. Claude CI behavior is unchanged.
+**Consequences:** CI launch and monitoring truth become behaviorally testable through one boundary plan, one resolver script, and one tiny agent. The separate root-rule trigger is removed, so a Git command cannot create a duplicate launch. Non-SDD repositories and default-mode sessions receive CI-only plans. A successful launch is durable before settled recovery runs, while failures remain retryable; review acknowledgement is unchanged. Reload may abort a monitor without a result; a later eligible boundary plan or explicit user request can start a fresh one. Review and CI never track, wait for, or restart each other, and CI never becomes a review lane. Claude CI behavior is unchanged.
 
 **Related REQ:** [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy), [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed).
 

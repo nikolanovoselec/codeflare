@@ -567,6 +567,7 @@ async function checkpointCiLaunch(
   ]);
   if (repository !== request.repo
     || head !== request.head
+    || pr === PR_LOOKUP_FAILED
     || !isEnforcedPr(pr)
     || branch !== pr.headRefName
     || pr.number !== request.pr
