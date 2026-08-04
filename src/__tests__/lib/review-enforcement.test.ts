@@ -1220,6 +1220,7 @@ describe('Pi review reminder and settled enforcement', () => {
       await first.emit('agent_settled');
       expect(existsSync(join(fixture.repo, '.git', 'sdd-review-ci-pr-42'))).toBe(false);
 
+      git(fixture.repo, 'remote', 'set-url', 'origin', 'ssh://git@ssh.github.com:443/owner/repo.git');
       appendSession(fixture.sessionFile,
         assistantTool('ci-1', 'subagent', ciArgs(fixture)),
         toolResult('ci-1', 'subagent'),

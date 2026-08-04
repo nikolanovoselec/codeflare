@@ -312,7 +312,8 @@ async function githubRepository(repo: string): Promise<string | undefined> {
       ["remote", "get-url", "origin"],
       { cwd: repo, encoding: "utf8", timeout: 10_000 },
     );
-    const remote = String(stdout).trim().replace(/\.git$/, "");
+    const remote = String(stdout).trim().replace(/\.git$/, "")
+      .replace(/^ssh:\/\/git@ssh\.github\.com:443\//, "https://github.com/");
     const match = /github\.com(?::|\/)([^/:\s]+)\/([^/\s]+)$/.exec(remote);
     return match ? `${match[1]}/${match[2]}` : undefined;
   } catch {
@@ -826,7 +827,13 @@ async function acknowledgeCompletedReview(
   if (reviewedAck === reviewedHead) return false;
   const reviewedRange = reviewRange({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
   const reviewedLanes = requiredReviewLanes({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
-  const reviewedFacts = transcriptFacts(ctx, context.file, reviewedLanes, undefined, reviewedHead);
+  const repository = await githubRepository(context.repo);
+  const reviewedFacts = transcriptFacts(ctx, context.file, reviewedLanes, repository ? {
+    repository,
+    repo: context.repo,
+    prNumber: reviewedPr.number,
+    head: reviewedHead,
+  } : undefined, reviewedHead);
   const allReviewedLanesTerminal = reviewedLanes.length > 0
     && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
   if (reviewedFacts.reviewHead !== reviewedHead
@@ -836,6 +843,7 @@ async function acknowledgeCompletedReview(
     || !allReviewedLanesTerminal
     || !reviewedFacts.triageComplete) return false;
 
+  if (reviewedFacts.ciLaunched) checkpointCi(context.repo, reviewedPr.number, reviewedHead);
   if (!acknowledge(context.repo, reviewedPr.number, reviewedHead)) return false;
   const ciEvent = ciBoundaryEvent(classification.event);
   if (!reviewedFacts.ciLaunched && ciEvent) {
