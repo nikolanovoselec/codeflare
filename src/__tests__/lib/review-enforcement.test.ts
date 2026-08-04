@@ -1265,6 +1265,15 @@ describe('Pi review reminder and settled enforcement', () => {
     ]) {
       await harness.emit('tool_result', event);
     }
+
+    const { PR_LOOKUP_FAILED, registerReviewEnforcement } = await plannedEnforcement();
+    const transientHarness = makeHarness(fixture.repo, fixture.sessionFile);
+    await registerReviewEnforcement(transientHarness.pi, {
+      queryPr: async () => PR_LOOKUP_FAILED,
+      deferGoalPause: transientHarness.deferGoalPause,
+    });
+    await transientHarness.emit('tool_result', ciResultEvent(fixture));
+
     expect(existsSync(join(fixture.repo, '.git', 'sdd-review-ci-pr-42'))).toBe(false);
   });
 
