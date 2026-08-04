@@ -478,6 +478,10 @@ function ackHead(repo: string, prNumber = 42): string {
   return readFileSync(path, 'utf8').trim();
 }
 
+function ciHead(repo: string, prNumber = 42): string {
+  return readFileSync(join(repo, '.git', `sdd-review-ci-pr-${prNumber}`), 'utf8').trim();
+}
+
 afterEach(() => {
   rmSync(REVIEW_BYPASS_FILE, { force: true });
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -1175,6 +1179,55 @@ describe('Pi review reminder and settled enforcement', () => {
         '### 1. Start CI immediately',
       ]);
       expect(markdownTableColumns(harness.sent[0]?.message.content)).toEqual([]);
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
+  it('REQ-AGENT-068: checkpoints a launched CI-only head without acknowledging later review', async () => {
+    const fixture = makeReviewFixture();
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+    try {
+      const first = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-1', 'bash'),
+      );
+      await first.emit('tool_result', boundaryEvent());
+      appendSession(fixture.sessionFile,
+        assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+        toolResult('ci-1', 'subagent'),
+      );
+      await first.emit('agent_settled');
+      expect(ciHead(fixture.repo)).toBe(fixture.head);
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
+
+      const header = readFileSync(fixture.sessionFile, 'utf8').split('\n', 1)[0];
+      writeFileSync(fixture.sessionFile, `${header}\n`, 'utf8');
+      const repeated = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('status-2', 'bash', { command: 'git status --short' }),
+        toolResult('status-2', 'bash'),
+      );
+      await repeated.emit('tool_result', boundaryEvent('git status --short', 'status-2'));
+      expect(repeated.sent).toEqual([]);
+
+      delete process.env.SESSION_MODE;
+      writeFileSync(fixture.sessionFile, `${header}\n`, 'utf8');
+      const review = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('status-3', 'bash', { command: 'git status --short' }),
+        toolResult('status-3', 'bash'),
+      );
+      await review.emit('tool_result', boundaryEvent('git status --short', 'status-3'));
+      expect(review.sent[0]?.message.details).toMatchObject({
+        requiredLanes: ALL_LANES,
+        launchWaves: launchWaves(ALL_LANES, false),
+      });
+      expect(review.sent[0]?.message.details?.ciEvent).toBeUndefined();
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
     } finally {
       if (previousMode === undefined) delete process.env.SESSION_MODE;
       else process.env.SESSION_MODE = previousMode;

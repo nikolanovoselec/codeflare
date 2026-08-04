@@ -2315,6 +2315,7 @@ None.
 5. Failed or cancelled checks report `CI_RESULT failure` with provider evidence. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC5: failed and cancelled arbitrary providers report failure with links) -->
 6. Monitoring creates no Codeflare state, log, or PID files. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC6: monitoring creates no Codeflare state, log, or PID files) -->
 7. Malformed or transient provider responses never become success. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC7: malformed and transient GitHub responses never become success) -->
+8. After a public CI monitor launch is recorded, Pi checkpoints that exact PR head independently from review acknowledgement; later sessions do not repeat CI for the unchanged head, while enabling review still requires its reviewer lanes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::checkpointCi --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068: checkpoints a launched CI-only head without acknowledging later review) -->
 
 **Constraints:**
 
@@ -2331,7 +2332,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Automated test ([Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js))
+**Verification:** Automated tests ([Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
 **Status:** Implemented
 

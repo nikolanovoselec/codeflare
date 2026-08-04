@@ -305,7 +305,7 @@ function gitMetadataDirectory(repo: string): string | undefined {
   }
 }
 
-function statePath(repo: string, kind: "ack" | "count", prNumber: number): string | undefined {
+function statePath(repo: string, kind: "ack" | "ci" | "count", prNumber: number): string | undefined {
   const metadata = gitMetadataDirectory(repo);
   return metadata ? join(metadata, `sdd-review-${kind}-pr-${prNumber}`) : undefined;
 }
@@ -323,6 +323,28 @@ function readAck(repo: string, prNumber: number): string | undefined {
     } catch {
       return undefined;
     }
+  }
+}
+
+function readCiHead(repo: string, prNumber: number): string | undefined {
+  const path = statePath(repo, "ci", prNumber);
+  if (!path) return undefined;
+  try {
+    const value = readFileSync(path, "utf8").trim();
+    return fullSha(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function checkpointCi(repo: string, prNumber: number, head: string): boolean {
+  const path = statePath(repo, "ci", prNumber);
+  if (!path || !fullSha(head)) return false;
+  try {
+    writeFileSync(path, `${head}\n`, "utf8");
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -519,7 +541,9 @@ async function launchBoundaryPlan(
   const requiredLanes = reviewsEnabled && !skipReview
     ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
     : [];
-  const ciEvent = ciBoundaryEvent(boundary.classification.event);
+  const ciEvent = readCiHead(review.repo, review.pr.number) === review.pr.headRefOid
+    ? undefined
+    : ciBoundaryEvent(boundary.classification.event);
   if (requiredLanes.length === 0 && !ciEvent) return undefined;
 
   sendLaunchMessage(pi, {
@@ -920,6 +944,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       : [];
     const facts = transcriptFacts(ctx, review.file, requiredLanes, review.pr.headRefOid);
     if (!facts.boundary) return;
+    if (facts.ciLaunched) checkpointCi(review.repo, review.pr.number, review.pr.headRefOid);
     if (deferredSettledRecoveryHead === review.pr.headRefOid) {
       const noLaunchesRecorded = !facts.ciLaunched
         && requiredLanes.every((lane) => facts.lanes[lane].state === "missing");
