@@ -43,7 +43,7 @@ from graphify.analyze import god_nodes, surprising_connections, suggest_question
 from graphify.build import build
 from graphify.cluster import cluster, score_all
 from graphify.detect import detect, save_manifest
-from graphify.export import to_json
+from graphify.export import to_html, to_json
 from graphify.extract import extract
 from graphify.report import generate
 
@@ -242,11 +242,11 @@ report = generate(
 )
 (OUT / 'GRAPH_REPORT.md').write_text(report, encoding='utf-8')
 to_json(module_graph, communities, OUT / 'graph.json', force=True)
-
-for deferred in (OUT / 'graph.html', OUT / 'callflow.html'):
-    if deferred.exists():
-        deferred.unlink()
-print('build-graphify-architecture: graph.html/callflow.html deferred until local labels are applied')
+to_html(module_graph, communities, OUT / 'graph.html', community_labels=None)
+callflow = OUT / 'callflow.html'
+if callflow.exists():
+    callflow.unlink()
+print('build-graphify-architecture: official unlabeled graph.html generated; callflow export follows')
 
 save_manifest(architecture_detection.get('files', {}), manifest_path=str(OUT / 'manifest.json'), kind='ast', root=ROOT)
 print(

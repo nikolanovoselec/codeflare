@@ -1075,7 +1075,7 @@ None.
 2. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) --> <!-- @manual -->
 3. The skill documents the safe build path for large repos (more than 2000 files). <!-- @manual -->
 4. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @manual -->
-5. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, and an optional wiki tree; `.graphify_labels.json` is included only when the user requests community naming, and skipping labels never blocks graph publication. <!-- @manual -->
+5. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, and an optional wiki tree; `.graphify_labels.json` is included only when the user requests community naming, and skipping labels never blocks graph publication. <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi semantic graph publication produces HTML without community labels) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi architecture build writes a portable manifest and unlabeled HTML) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1086,7 +1086,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Manual check
+**Verification:** Behavioral tests and manual check
 
 **Status:** Implemented
 

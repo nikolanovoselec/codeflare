@@ -128,11 +128,10 @@ detect_result = json.loads(Path('.graphify_detect.json').read_text())
 G = build_merge([sem], graph_path=out / 'graph.json', prune_sources=None, dedup=True, root=root)
 communities = cluster(G)
 cohesion = score_all(G, communities)
-labels_path = out / '.graphify_labels.json'
-if labels_path.exists():
-    labels = {int(k): v for k, v in json.loads(labels_path.read_text(encoding='utf-8')).items()}
-else:
-    labels = {cid: f'Community {cid}' for cid in communities}
+# A rebuild may change community IDs, so its initial report must never reuse a
+# labels file from an earlier clustering. Optional labels are validated and
+# applied only through local-graphify-labels.sh after this baseline is complete.
+labels = {cid: f'Community {cid}' for cid in communities}
 gods = god_nodes(G)
 surprises = surprising_connections(G, communities)
 questions = suggest_questions(G, communities, labels)

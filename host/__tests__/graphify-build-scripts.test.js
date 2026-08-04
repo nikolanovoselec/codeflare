@@ -124,8 +124,8 @@ def extract(_files, **_kwargs):
     return {'nodes': [{'id': 'src_module', 'label': 'Source Module', 'source_file': 'src.py'}], 'edges': [], 'input_tokens': 0, 'output_tokens': 0}
 `);
   writeFileSync(join(graphify, 'report.py'), `
-def generate(_graph, _communities, _cohesion, _labels, _gods, _surprises, _detection, _tokens, root, suggested_questions=None):
-    return '# Graph Report - ' + str(root)
+def generate(_graph, _communities, _cohesion, labels, _gods, _surprises, _detection, _tokens, root, suggested_questions=None):
+    return '# Graph Report - ' + str(root) + '\n' + ','.join(labels.values())
 `);
   writeFileSync(join(fakeRoot, 'networkx.py'), `
 class NodeView:
@@ -219,7 +219,9 @@ function extractGraphifySkillBashBlock(relativePath, marker) {
   const bodyStart = skill.indexOf('\n', fenceStart) + 1;
   const fenceEnd = skill.indexOf('\n```', bodyStart);
   assert.notEqual(fenceEnd, -1, `${relativePath} has an unterminated bash block after ${marker}`);
-  return skill.slice(bodyStart, fenceEnd).replace('/root/.local/share/uv/tools/graphifyy/bin/python', 'python3');
+  return skill.slice(bodyStart, fenceEnd)
+    .replace('/root/.local/share/uv/tools/graphifyy/bin/python', 'python3')
+    .replace('/home/user/.pi/agent/scripts/build-graphify-ast.sh', resolve(repoRoot, 'preseed/agents/pi/scripts/build-graphify-ast.sh'));
 }
 
 function runSemanticCacheSkillStep(relativePath, marker, outputDirectory) {
@@ -266,6 +268,7 @@ function runPiSemanticBuildStep() {
     nodes: [], edges: [], hyperedges: [], input_tokens: 0, output_tokens: 0,
   }));
   writeFileSync(join(cwd, 'graphify-out/graph.json'), JSON.stringify({ nodes: [], links: [] }));
+  writeFileSync(join(cwd, 'graphify-out/.graphify_labels.json'), JSON.stringify({ 0: 'Stale Label' }));
   const result = spawnSync('bash', ['-lc', extractGraphifySkillBashBlock(
     'preseed/agents/pi/skills/graphify/references/build.md',
     '## Step 4 — local graph rebuild/merge from cached semantic',
@@ -335,20 +338,24 @@ describe('Graphify build preseed', () => {
   it('REQ-AGENT-024 AC5: Pi semantic graph publication produces HTML without community labels', () => {
     const cwd = runPiSemanticBuildStep();
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
-    assert.equal(readFileSync(join(cwd, 'graphify-out/GRAPH_REPORT.md'), 'utf-8').startsWith('# Graph Report'), true);
+    const report = readFileSync(join(cwd, 'graphify-out/GRAPH_REPORT.md'), 'utf-8');
+    assert.match(report, /Community 0/);
+    assert.doesNotMatch(report, /Stale Label/);
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.json'), 'utf-8').includes('src_module'), true);
   });
 
-  it('Pi AST-only build writes a portable manifest rooted at the scanned repo', () => {
+  it('Pi AST-only build writes a portable manifest and unlabeled HTML', () => {
     const { cwd, calls } = runBuildScript('build-graphify-ast.sh');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
     assert.equal(calls[0].root, cwd);
     assert.equal(calls[0].manifest_path, 'graphify-out/manifest.json');
   });
 
-  it('Pi architecture build writes a portable manifest rooted at the scanned repo', () => {
+  it('Pi architecture build writes a portable manifest and unlabeled HTML', () => {
     const { cwd, calls } = runBuildScript('build-graphify-architecture.sh');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
     assert.equal(calls[0].root, cwd);
