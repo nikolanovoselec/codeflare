@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +11,7 @@ import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs'
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'container-image.yml');
+const VALIDATOR = join(ROOT, 'scripts', 'ci', 'validate-trivy-result.mjs');
 
 function vulnerability(overrides = {}) {
   return {
@@ -87,7 +90,7 @@ describe('Trivy bounded exception gate', () => {
       'Node.js@7.28.0',
       'Node.js@8.5.0',
     ]);
-    assert.equal(result.evidence.length, 9);
+    assert.equal(result.evidence.length, 10);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -102,6 +105,30 @@ describe('Trivy bounded exception gate', () => {
       'CVE-2026-69192 ip-address 10.1.0 at Node.js '
       + '[path=opt/pi/package.json; purl=pkg:npm/ip-address@10.1.0]',
     ));
+  });
+
+  it('emits scanner identities for every accepted occurrence', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'trivy-gate-'));
+    try {
+      const input = report();
+      const reviewed = input.Results[1].Vulnerabilities.find(
+        (finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.1.0',
+      );
+      reviewed.PkgPath = 'opt/pi/package.json';
+      reviewed.PkgIdentifier = { PURL: 'pkg:npm/ip-address@10.1.0' };
+      const reportPath = join(directory, 'report.json');
+      writeFileSync(reportPath, JSON.stringify(input));
+
+      const output = execFileSync(process.execPath, [VALIDATOR, reportPath], { encoding: 'utf8' });
+      const identities = output.split('\n').filter((line) => line.startsWith('Observed reviewed Trivy identity:'));
+      assert.equal(identities.length, 10);
+      assert.match(
+        output,
+        /Observed reviewed Trivy identity: CVE-2026-69192 ip-address 10\.1\.0 at Node\.js \[path=opt\/pi\/package\.json; purl=pkg:npm\/ip-address@10\.1\.0\]/,
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('rejects the retired gh x/text finding', () => {
