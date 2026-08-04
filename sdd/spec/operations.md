@@ -68,7 +68,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. A cache-bust forces an image rebuild without changing the content-addressed tag. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 3. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
 4. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
-5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, path, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
+5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, package path, package URL, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 6. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 7. A freshly built image passes packaged Pi/Claude inventory, cold-readiness, process, resource, and prefixed-proxy smoke before vulnerability scan or push. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
 
@@ -86,7 +86,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated workflow-ownership test; deployment image evidence
 
-**Status:** Partial — package-path evidence for the six new Node.js findings is pending a deployment scan before exact path matching can be enabled.
+**Status:** Implemented
 
 ---
 

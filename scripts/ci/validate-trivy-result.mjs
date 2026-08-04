@@ -12,6 +12,7 @@ const REVIEWED_FINDINGS = [
     target: 'usr/local/bin/lazygit',
     vulnerabilityId: 'CVE-2026-56852',
     packageName: 'golang.org/x/text',
+    packagePurl: 'pkg:golang/golang.org/x/text@v0.37.0',
     installedVersion: 'v0.37.0',
     fixedVersion: '0.39.0',
     severity: 'HIGH',
@@ -25,6 +26,8 @@ const REVIEWED_FINDINGS = [
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-69152',
     packageName: 'brace-expansion',
+    packagePath: 'usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json',
+    packagePurl: 'pkg:npm/brace-expansion@5.0.5',
     installedVersion: '5.0.5',
     fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
     severity: 'HIGH',
@@ -37,10 +40,21 @@ const REVIEWED_FINDINGS = [
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-69152',
     packageName: 'brace-expansion',
+    packagePath: 'opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json',
+    packagePurl: 'pkg:npm/brace-expansion@5.0.7',
     installedVersion: '5.0.7',
     fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
     severity: 'HIGH',
-    occurrences: 2,
+  },
+  {
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-69152',
+    packageName: 'brace-expansion',
+    packagePath: 'opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json',
+    packagePurl: 'pkg:npm/brace-expansion@5.0.7',
+    installedVersion: '5.0.7',
+    fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
+    severity: 'HIGH',
   },
   {
     // Integration deployments 30893082736/30893082817 at head 8a745b7 and
@@ -49,20 +63,33 @@ const REVIEWED_FINDINGS = [
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-69192',
     packageName: 'ip-address',
+    packagePath: 'usr/local/lib/node_modules/npm/node_modules/ip-address/package.json',
+    packagePurl: 'pkg:npm/ip-address@10.1.0',
     installedVersion: '10.1.0',
     fixedVersion: '10.3.1',
     severity: 'HIGH',
   },
   {
-    // The same complete scans reported two 10.2.0 declarations. The two Pi
-    // runtime locks and Browser Run lock all resolve the package to 10.4.0.
+    // The same complete scans reported two 10.2.0 declarations. Evidence run
+    // 30896944558 bound them to code-server's VS Code and server package trees.
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-69192',
     packageName: 'ip-address',
+    packagePath: 'opt/code-server/lib/vscode/node_modules/ip-address/package.json',
+    packagePurl: 'pkg:npm/ip-address@10.2.0',
     installedVersion: '10.2.0',
     fixedVersion: '10.3.1',
     severity: 'HIGH',
-    occurrences: 2,
+  },
+  {
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-69192',
+    packageName: 'ip-address',
+    packagePath: 'opt/code-server/node_modules/ip-address/package.json',
+    packagePurl: 'pkg:npm/ip-address@10.2.0',
+    installedVersion: '10.2.0',
+    fixedVersion: '10.3.1',
+    severity: 'HIGH',
   },
   {
     // Node/npm image tooling carries undici 7.28.0. Codeflare does not enable
@@ -71,6 +98,8 @@ const REVIEWED_FINDINGS = [
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-13697',
     packageName: 'undici',
+    packagePath: 'opt/code-server/lib/vscode/node_modules/undici/package.json',
+    packagePurl: 'pkg:npm/undici@7.28.0',
     installedVersion: '7.28.0',
     fixedVersion: '7.29.0, 8.9.0',
     severity: 'HIGH',
@@ -82,10 +111,21 @@ const REVIEWED_FINDINGS = [
     target: 'Node.js',
     vulnerabilityId: 'CVE-2026-13697',
     packageName: 'undici',
+    packagePath: 'opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json',
+    packagePurl: 'pkg:npm/undici@8.5.0',
     installedVersion: '8.5.0',
     fixedVersion: '7.29.0, 8.9.0',
     severity: 'HIGH',
-    occurrences: 2,
+  },
+  {
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-13697',
+    packageName: 'undici',
+    packagePath: 'opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json',
+    packagePurl: 'pkg:npm/undici@8.5.0',
+    installedVersion: '8.5.0',
+    fixedVersion: '7.29.0, 8.9.0',
+    severity: 'HIGH',
   },
 ];
 
@@ -94,6 +134,8 @@ function findingKey(finding) {
     finding.target,
     finding.vulnerabilityId,
     finding.packageName,
+    finding.packagePath ?? '',
+    finding.packagePurl ?? '',
     finding.installedVersion,
     finding.fixedVersion,
     finding.severity,
@@ -180,7 +222,7 @@ export function validateTrivyResult(report) {
   if (findings.length > 0) throw new Error(findings.join('\n'));
 
   return {
-    accepted: REVIEWED_FINDINGS.map((finding) => `${finding.target}@${finding.installedVersion}`),
+    accepted: [...new Set(REVIEWED_FINDINGS.map((finding) => `${finding.target}@${finding.installedVersion}`))],
     evidence,
   };
 }
