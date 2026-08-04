@@ -134,7 +134,7 @@ The run title (`run-name`) resolves and displays the deploy target (production /
 1. **prepare** — blocks production dispatches from non-main branches; resolves the environment name, checkout ref (the exact SHA whose PR Checks ended green), worker name, cache-bust flag, and environment-scoped `CODING_AGENTS` selection once for all downstream jobs.
 2. **build-worker** — builds frontend, then landing (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), uploads `web-ui/dist` as a 1-day artifact.
 3. **container** — calls `container-image.yml` to build, scan, and push the image, or to reuse an existing one:
-   - Hashes `Dockerfile`, ignore/scan policy, `entrypoint.sh`, `host/package.json`, `host/package-lock.json`, `host/tsconfig.json`, `host/src/`, `openvscode/`, `preseed/`, seed and image-smoke scripts, the Pi lockstep verifier, the canonical selected-agent set, and the ISO week.
+   - Hashes `Dockerfile`, ignore/scan policy, `entrypoint.sh`, `host/package.json`, `host/package-lock.json`, `host/tsconfig.json`, `host/src/`, `openvscode/`, `preseed/`, seed, npm platform-pruning, and image-smoke scripts, the Pi lockstep verifier, the canonical selected-agent set, and the ISO week.
    - Changes under `host/__tests__/` do not invalidate the deployment image.
    - If `in-<hash>` already exists in the target registry, the retained image is reused and build/scan/push are skipped.
    - Fresh-image smoke records complete image bytes and identity as evidence; image size has no fixed deployment-failing ceiling.
