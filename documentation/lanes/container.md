@@ -69,7 +69,7 @@ Neither `entrypoint.sh` nor the preseeded `context-mode-runtime.ts` extension fo
 
 **Pi SDK lockstep (build-time):** the runtime image-tools manifest and Pi prewarm manifest commit the same exact Pi version. Both installs consume committed locks with `npm ci`; the image compares the two pins before installation and verifies the installed prewarm version afterward. Pi bump automation updates both manifests, both locks, bundled-dependency integrity pins, and the embedded seed atomically.
 
-The bounded `brace-expansion` 5.0.9 and Undici 7.29.0/8.9.0 lock corrections handle upstream packed shrinkwrap entries until their owning releases include patched dependencies. Each correction is content-addressed by the registry SHA-512 and fails closed on malformed locks.
+The bounded `brace-expansion` 5.0.9 and Undici 7.29.0/8.9.0 lock corrections handle upstream packed shrinkwrap entries until their owning releases include patched dependencies. [`scripts/apply-npm-security-lock-pins.mjs`](../../scripts/apply-npm-security-lock-pins.mjs) content-addresses each correction by the registry SHA-512 and fails closed on malformed locks under [REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence).
 
 ### V8 Compile Cache Warm-Up
 
