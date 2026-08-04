@@ -150,4 +150,4 @@ print(f'Re-clustered: {len(communities)} communities')
 "
 ```
 
-Then run Steps 4-7 as normal (label communities, generate viz, benchmark, clean up, report) - see `references/build.md`.
+Then run Steps 4-7 as normal (optionally label communities, generate viz and callflow, benchmark, clean up, report) - see `references/build.md`.

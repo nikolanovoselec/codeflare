@@ -1,6 +1,6 @@
-# Local main-session community labels
+# Optional local main-session community labels
 
-Load this after any build/refresh produces an unlabeled graph. The core skill's build sections all end by pointing here. This is the only allowed label path in Pi interactive Graphify - never run `graphify label`.
+Load this only when the user requests named communities. Labeling is optional; an unlabeled build or refresh may retain Graphify's official generated report/html and publish without `.graphify_labels.json`. When labels are requested, this is the only allowed label path in Pi interactive Graphify — never run `graphify label`.
 
 1. Prepare a label worklist from the graph's existing community assignments:
 
@@ -12,7 +12,7 @@ bash /home/user/.pi/agent/scripts/local-graphify-labels.sh prepare .
 
 This is the current Pi session doing the inference. It is not a Graphify backend/provider call. Do **not** generate labels with a deterministic keyword script, do **not** reuse a generic label with numeric suffixes, and do **not** fabricate labels for communities you did not inspect.
 
-For large/noisy graphs, check `community_count` in `graphify-out/.graphify_community_label_worklist.json` before labeling. If there are too many communities to label honestly in the main session, stop and tell the user the graph needs a narrower scope or architecture-mode graph. Do not produce garbage labels just to finish.
+For large/noisy graphs, check `community_count` in `graphify-out/.graphify_community_label_worklist.json` before labeling. If there are too many communities to label honestly in the main session, skip the optional labeling layer unless the user chooses a narrower scope or architecture-mode graph. Do not produce garbage labels just to finish, and do not block publication of the underlying graph.
 
 Write one JSON object:
 
@@ -38,10 +38,12 @@ The apply script validates labels before and after regeneration, rejects placeho
 
 Never run `graphify label` in this workflow.
 
-Every completed build/update must finish by running label apply, and label apply must leave `graphify-out/callflow.html` next to the final labeled `graph.html`. The apply script runs:
+When labeling is requested, label apply must leave `graphify-out/callflow.html` next to the final labeled `graph.html`. The apply script runs:
 
 ```bash
 graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html
 ```
 
-If the `graphify export callflow-html` CLI form is unavailable, use the Pi `graphify_export_callflow` tool with explicit paths before reporting completion. Never push or present `graph.html`/`callflow.html` from before label apply as final output.
+If the `graphify export callflow-html` CLI form is unavailable, use the Pi `graphify_export_callflow` tool with explicit paths before reporting completion.
+
+When labeling is skipped, do not run `prepare` or `apply`. Keep Graphify's official `GRAPH_REPORT.md` and `graph.html`, remove `.graphify_labels.json` from the committed update, and generate `callflow.html` directly with the command above. Validate graph structure and both HTML outputs before publication.

@@ -115,6 +115,9 @@ from pathlib import Path
 def to_json(graph, _communities, path, force=False):
     Path(path).write_text(json.dumps({'nodes': list(graph.nodes()), 'links': []}), encoding='utf-8')
     return True
+
+def to_html(_graph, _communities, path, community_labels=None):
+    Path(path).write_text('<html>graph</html>', encoding='utf-8')
 `);
   writeFileSync(join(graphify, 'extract.py'), `
 def extract(_files, **_kwargs):
@@ -250,6 +253,35 @@ function runSemanticCacheSkillStep(relativePath, marker, outputDirectory) {
   return JSON.parse(readFileSync(recordPath, 'utf-8'));
 }
 
+function runPiSemanticBuildStep() {
+  const cwd = mkdtempSync(join(tmpdir(), 'graphify-pi-semantic-'));
+  const fakeRoot = writeFakeGraphify(cwd);
+  const recordPath = join(cwd, 'manifest-calls.json');
+  mkdirSync(join(cwd, 'graphify-out'), { recursive: true });
+  writeFileSync(join(cwd, '.graphify_detect.json'), JSON.stringify({
+    files: { code: ['src.py'], document: [], paper: [], image: [], video: [] },
+    total_files: 1,
+  }));
+  writeFileSync(join(cwd, 'graphify-out/.graphify_semantic.json'), JSON.stringify({
+    nodes: [], edges: [], hyperedges: [], input_tokens: 0, output_tokens: 0,
+  }));
+  writeFileSync(join(cwd, 'graphify-out/graph.json'), JSON.stringify({ nodes: [], links: [] }));
+  const result = spawnSync('bash', ['-lc', extractGraphifySkillBashBlock(
+    'preseed/agents/pi/skills/graphify/references/build.md',
+    '## Step 4 — local graph rebuild/merge from cached semantic',
+  )], {
+    cwd,
+    encoding: 'utf-8',
+    env: {
+      ...process.env,
+      PYTHONPATH: fakeRoot,
+      GRAPHIFY_SAVE_MANIFEST_RECORD: recordPath,
+    },
+  });
+  assert.equal(result.status, 0, `Pi semantic build step failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  return cwd;
+}
+
 function runClaudeGraphifyManifestStep() {
   const cwd = mkdtempSync(join(tmpdir(), 'graphify-claude-skill-'));
   const fakeRoot = writeFakeGraphify(cwd);
@@ -298,6 +330,13 @@ describe('Graphify build preseed', () => {
       const calls = runSemanticCacheSkillStep(testCase.path, testCase.heading, testCase.chunkDir);
       assert.deepEqual(calls[0].allowed_source_files, ['doc.md']);
     }
+  });
+
+  it('REQ-AGENT-024 AC5: Pi semantic graph publication produces HTML without community labels', () => {
+    const cwd = runPiSemanticBuildStep();
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
+    assert.equal(readFileSync(join(cwd, 'graphify-out/GRAPH_REPORT.md'), 'utf-8').startsWith('# Graph Report'), true);
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.json'), 'utf-8').includes('src_module'), true);
   });
 
   it('Pi AST-only build writes a portable manifest rooted at the scanned repo', () => {

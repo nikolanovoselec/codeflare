@@ -116,7 +116,7 @@ from graphify.analyze import god_nodes, surprising_connections, suggest_question
 from graphify.build import build_merge
 from graphify.cluster import cluster, score_all
 from graphify.detect import save_manifest
-from graphify.export import to_json
+from graphify.export import to_html, to_json
 from graphify.report import generate
 root = Path('.').resolve()
 out = Path('graphify-out')
@@ -139,13 +139,14 @@ questions = suggest_questions(G, communities, labels)
 tokens = {'input': sem.get('input_tokens', 0), 'output': sem.get('output_tokens', 0)}
 (out / 'GRAPH_REPORT.md').write_text(generate(G, communities, cohesion, labels, gods, surprises, detect_result, tokens, str(root), suggested_questions=questions), encoding='utf-8')
 to_json(G, communities, out / 'graph.json', force=True)
-for deferred in (out / 'graph.html', out / 'callflow.html'):
-    if deferred.exists():
-        deferred.unlink()
-print('HTML outputs deferred until local labels are applied')
+to_html(G, communities, out / 'graph.html', community_labels=None)
+callflow = out / 'callflow.html'
+if callflow.exists():
+    callflow.unlink()
+print('Official graph.html generated; callflow export follows the optional-label decision')
 save_manifest(detect_result.get('files', {}), manifest_path=str(out / 'manifest.json'), kind='both', root=root)
 print(f"Graph refreshed locally: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities")
 PY
 ```
 
-Then label communities using the **Local main-session community labels** section (see `references/labels.md`).
+If the user requests community labels, use **Optional local main-session community labels** (see `references/labels.md`). Otherwise retain Graphify's official report/html, export `callflow.html`, and publish without `.graphify_labels.json`.

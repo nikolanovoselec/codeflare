@@ -991,9 +991,11 @@ docs/images:
 - Graphify's cache helpers persist those chunks, with each write restricted to the current `.graphify_uncached.txt` file set so an out-of-scope model attribution cannot replace another file's cache entry.
 - Local Graphify module flows merge, build, cluster, and report output.
 
-Community names are written by the active agent session to `.graphify_labels.json`.
-Pi applies them by regenerating the final user-facing report/html from the graph's
-existing community assignments, never `graphify label` or provider backends.
+Community naming is optional in both Pi and Claude. When requested, the active
+agent session writes `.graphify_labels.json` and regenerates report/html from the
+existing community assignments, never `graphify label` or provider backends. When
+skipped, Graphify's official report/html remain publishable and no labels file is
+required.
 
 Pi's graph refresh menu offers Architecture graph, Full repo AST-only, Full repo
 semantic, and an explicit no-graph option.
@@ -1010,8 +1012,9 @@ semantic, and an explicit no-graph option.
 
 Pi's local build/merge wrappers pass the scanned repo root into Graphify's manifest
 writer, so `graphify-out/manifest.json` stays portable if a repo is moved or
-recloned. Final `graphify-out/graph.html` and `graphify-out/callflow.html` are
-generated after labels are applied, and durable graph commits include both.
+recloned. Durable graph commits include `graphify-out/graph.html` and
+`graphify-out/callflow.html`; labels are applied first only when community naming
+was requested.
 
 Model selection is runtime-specific. Claude Code's graphify skill pins its own reliable extraction model and never escalates to Opus from this workflow. Pi does not name or pin provider-specific models: Pi `Agent` semantic subagents omit a `model` override and inherit whatever model the main Pi session is using unless the user explicitly asks for a different model.
 
@@ -1024,7 +1027,9 @@ The durable committed surface is:
 
 - `graphify-out/graph.json` — queryable graph data, with `.gitattributes` wiring `graphify-out/graph.json merge=graphify`
 - `graphify-out/GRAPH_REPORT.md` — human-readable graph report
-- `graphify-out/graph.html` — interactive visualization, generated after `.graphify_labels.json` is applied so users see named communities
+- `graphify-out/graph.html` — interactive visualization, using optional named communities when `.graphify_labels.json` was requested
+- `graphify-out/callflow.html` — generated call-flow visualization
+- optional `.graphify_labels.json` when the user requests community naming
 - optional `graphify-out/wiki/` if the user requests a wiki export
 
 The Pi graphify skill mirrors the Claude skill's persistence rule: never
