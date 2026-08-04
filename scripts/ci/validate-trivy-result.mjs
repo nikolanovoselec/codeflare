@@ -137,6 +137,12 @@ export function validateTrivyResult(report) {
         target: result.Target,
         vulnerabilityId: vulnerability.VulnerabilityID,
         packageName: vulnerability.PkgName,
+        packagePath: typeof vulnerability.PkgPath === 'string' && vulnerability.PkgPath.length > 0
+          ? vulnerability.PkgPath
+          : undefined,
+        packagePurl: typeof vulnerability.PkgIdentifier?.PURL === 'string' && vulnerability.PkgIdentifier.PURL.length > 0
+          ? vulnerability.PkgIdentifier.PURL
+          : undefined,
         installedVersion: vulnerability.InstalledVersion,
         fixedVersion: vulnerability.FixedVersion,
         severity: vulnerability.Severity,
@@ -147,7 +153,8 @@ export function validateTrivyResult(report) {
       if (!reviewed || occurrences >= reviewed.occurrences) {
         findings.push(
           `unexpected HIGH/CRITICAL finding: ${finding.vulnerabilityId} ${finding.packageName} `
-          + `${finding.installedVersion} -> ${finding.fixedVersion} at ${finding.target}`,
+          + `${finding.installedVersion} -> ${finding.fixedVersion} at ${finding.target} `
+          + `[path=${finding.packagePath ?? '<unavailable>'}; purl=${finding.packagePurl ?? '<unavailable>'}]`,
         );
       } else {
         seen.set(key, occurrences + 1);
