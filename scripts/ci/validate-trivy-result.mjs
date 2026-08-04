@@ -214,7 +214,9 @@ export function validateTrivyResult(report) {
       const { finding } = reviewed;
       findings.push(
         `missing reviewed finding: ${finding.vulnerabilityId} ${finding.packageName} `
-        + `${finding.installedVersion} at ${finding.target}; remove or re-review the exception`,
+        + `${finding.installedVersion} at ${finding.target} `
+        + `[path=${finding.packagePath ?? '<unavailable>'}; purl=${finding.packagePurl ?? '<unavailable>'}]; `
+        + 'remove or re-review the exception',
       );
     }
   }

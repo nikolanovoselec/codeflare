@@ -246,7 +246,7 @@ describe('Trivy bounded exception gate', () => {
     );
     assert.throws(
       () => validateTrivyResult(report([report().Results[0], nodeResult])),
-      /missing reviewed finding.*ip-address 10\.2\.0/s,
+      /missing reviewed finding.*ip-address 10\.2\.0.*path=opt\/code-server\/lib\/vscode\/node_modules\/ip-address\/package\.json; purl=pkg:npm\/ip-address@10\.2\.0/s,
     );
   });
 
