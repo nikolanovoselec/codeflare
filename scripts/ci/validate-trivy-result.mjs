@@ -42,6 +42,51 @@ const REVIEWED_FINDINGS = [
     severity: 'HIGH',
     occurrences: 2,
   },
+  {
+    // Integration deployments 30893082736/30893082817 at head 8a745b7 and
+    // image IDs sha256:2ee1ac0/sha256:5847655 reported this stale declaration.
+    // Every committed runtime lock resolves ip-address to patched 10.4.0.
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-69192',
+    packageName: 'ip-address',
+    installedVersion: '10.1.0',
+    fixedVersion: '10.3.1',
+    severity: 'HIGH',
+  },
+  {
+    // The same complete scans reported two 10.2.0 declarations. The two Pi
+    // runtime locks and Browser Run lock all resolve the package to 10.4.0.
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-69192',
+    packageName: 'ip-address',
+    installedVersion: '10.2.0',
+    fixedVersion: '10.3.1',
+    severity: 'HIGH',
+    occurrences: 2,
+  },
+  {
+    // Node/npm image tooling carries undici 7.28.0. Codeflare does not enable
+    // its shared cache interceptor; use remains inside one user's container.
+    // Remove when the pinned Node base image carries undici 7.29.0 or later.
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-13697',
+    packageName: 'undici',
+    installedVersion: '7.28.0',
+    fixedVersion: '7.29.0, 8.9.0',
+    severity: 'HIGH',
+  },
+  {
+    // Two upstream Pi package manifests still declare undici 8.5.0, while both
+    // committed runtime locks override and install patched 8.9.0. The exact
+    // scanner multiplicity remains bounded until upstream updates its metadata.
+    target: 'Node.js',
+    vulnerabilityId: 'CVE-2026-13697',
+    packageName: 'undici',
+    installedVersion: '8.5.0',
+    fixedVersion: '7.29.0, 8.9.0',
+    severity: 'HIGH',
+    occurrences: 2,
+  },
 ];
 
 function findingKey(finding) {

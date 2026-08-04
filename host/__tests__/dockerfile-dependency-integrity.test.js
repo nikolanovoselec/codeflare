@@ -94,6 +94,15 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       }
     }
 
+    for (const lockfile of [npmToolsLock, piLock, browserRunLock]) {
+      const versions = versionsOf(lockfile, 'ip-address');
+      assert.ok(versions.length > 0, 'ip-address must be represented in each affected runtime lock');
+      assert.ok(
+        versions.every((version) => atLeast(version, '10.3.1')),
+        `ip-address versions ${versions.join(', ')} must all be >= 10.3.1`,
+      );
+    }
+
     const browserHonoVersions = versionsOf(browserRunLock, '@hono/node-server');
     assert.ok(browserHonoVersions.length > 0);
     assert.ok(browserHonoVersions.every((version) => atLeast(version, '2.0.5')));

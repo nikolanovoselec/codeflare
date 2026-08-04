@@ -32,6 +32,26 @@ function braceExpansionVulnerability(overrides = {}) {
   };
 }
 
+function ipAddressVulnerability(installedVersion) {
+  return {
+    VulnerabilityID: 'CVE-2026-69192',
+    PkgName: 'ip-address',
+    InstalledVersion: installedVersion,
+    FixedVersion: '10.3.1',
+    Severity: 'HIGH',
+  };
+}
+
+function undiciVulnerability(installedVersion) {
+  return {
+    VulnerabilityID: 'CVE-2026-13697',
+    PkgName: 'undici',
+    InstalledVersion: installedVersion,
+    FixedVersion: '7.29.0, 8.9.0',
+    Severity: 'HIGH',
+  };
+}
+
 function report(results = [
   {
     Target: 'usr/local/bin/lazygit',
@@ -43,6 +63,12 @@ function report(results = [
       braceExpansionVulnerability(),
       braceExpansionVulnerability({ InstalledVersion: '5.0.7' }),
       braceExpansionVulnerability({ InstalledVersion: '5.0.7' }),
+      ipAddressVulnerability('10.1.0'),
+      ipAddressVulnerability('10.2.0'),
+      ipAddressVulnerability('10.2.0'),
+      undiciVulnerability('7.28.0'),
+      undiciVulnerability('8.5.0'),
+      undiciVulnerability('8.5.0'),
     ],
   },
 ]) {
@@ -52,7 +78,15 @@ function report(results = [
 describe('Trivy bounded exception gate', () => {
   it('accepts only the reviewed lazygit and Node.js findings', () => {
     assert.deepEqual(validateTrivyResult(report()), {
-      accepted: ['usr/local/bin/lazygit@v0.37.0', 'Node.js@5.0.5', 'Node.js@5.0.7'],
+      accepted: [
+        'usr/local/bin/lazygit@v0.37.0',
+        'Node.js@5.0.5',
+        'Node.js@5.0.7',
+        'Node.js@10.1.0',
+        'Node.js@10.2.0',
+        'Node.js@7.28.0',
+        'Node.js@8.5.0',
+      ],
     });
   });
 
@@ -113,6 +147,18 @@ describe('Trivy bounded exception gate', () => {
     for (const result of cases) {
       assert.throws(() => validateTrivyResult(report([result])), /unexpected HIGH\/CRITICAL finding/);
     }
+  });
+
+  it('rejects missing occurrences from the reviewed deployment tuples', () => {
+    const nodeResult = structuredClone(report().Results[1]);
+    nodeResult.Vulnerabilities.splice(
+      nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.2.0'),
+      1,
+    );
+    assert.throws(
+      () => validateTrivyResult(report([report().Results[0], nodeResult])),
+      /missing reviewed finding.*ip-address 10\.2\.0/s,
+    );
   });
 
   it('rejects a missing reviewed Node.js finding', () => {
