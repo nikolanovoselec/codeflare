@@ -56,10 +56,6 @@ on:
           run id so each dispatched deploy verifies in its own group.
         type: string
         default: ''
-  schedule:
-    # Nightly full-matrix sweep: every lane runs regardless of diff, catching
-    # flaky tests and dependency/audit drift between pushes.
-    - cron: '30 3 * * *'
 
 concurrency:
   # github.ref is the per-PR merge ref for pull_request events, so two PRs
@@ -117,8 +113,9 @@ jobs:
         with:
           persist-credentials: false
       - id: filter
-        # Diff-based filtering needs a diff: on schedule and manual dispatch
-        # every lane runs unconditionally, so the step is skipped and its
+        # Diff-based filtering needs a diff: when the nightly wrapper calls this
+        # workflow, and on manual dispatch, every lane runs unconditionally, so
+        # the step is skipped and its
         # (empty) outputs are never consulted.
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2

@@ -64,7 +64,10 @@ on: # zizmor: ignore[dangerous-triggers]
 
 concurrency:
   group: deploy-${{ ((github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
-  cancel-in-progress: true
+  # A deploy mutates the worker, secrets, KV, and registry in sequence. Cancelling
+  # it midway can leave a partially configured target, so same-environment runs
+  # queue instead; GitHub retains the newest pending run.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -679,8 +682,17 @@ jobs:
           SERVICE_EMAIL="e2e-service@codeflare.local"
           echo "Seeding service user: ${SERVICE_EMAIL}"
           KV_VALUE="{\"addedBy\":\"deploy\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
-          npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --binding KV --remote 2>/dev/null || \
-          echo "::warning::Could not seed service user in KV (non-fatal)"
+          for attempt in 1 2 3; do
+            if npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --binding KV --remote; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Service-user seed failed (attempt $attempt/3); retrying in 5s"
+              sleep 5
+            fi
+          done
+          echo "::error::Configured service user could not be seeded after 3 attempts"
+          exit 1
         env:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}

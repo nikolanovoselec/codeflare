@@ -1,0 +1,12 @@
+name: Nightly PR Checks
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  full-matrix:
+    uses: ./.github/workflows/test.yml
