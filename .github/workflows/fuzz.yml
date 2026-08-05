@@ -27,10 +27,11 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: .
+          key-prefix: fuzz-root
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         run: mkdir -p web-ui/dist
@@ -40,16 +41,23 @@ jobs:
           FAST_CHECK_NUM_RUNS: '50000'
         run: npx vitest run src/__tests__/fuzz/ --reporter=verbose
 
-      - name: Install frontend dependencies
-        run: cd web-ui && npm ci
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: web-ui
+          key-prefix: fuzz-web-ui
 
       - name: Run frontend fuzz tests
         env:
           FAST_CHECK_NUM_RUNS: '50000'
         run: cd web-ui && npx vitest run src/__tests__/fuzz/ --reporter=verbose
 
-      - name: Install host dependencies and build
-        run: cd host && npm ci && npm run build
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: host
+          key-prefix: fuzz-host
+
+      - name: Build host
+        run: cd host && npm run build
 
       - name: Run host fuzz tests
         env:
