@@ -11,6 +11,10 @@ if [[ -z "$OUTPUT_PATH" ]]; then
   echo 'GITHUB_OUTPUT is required for container reuse selection' >&2
   exit 1
 fi
+if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+  echo '::warning::Registry candidate has no valid manifest digest — building fresh'
+  exit 0
+fi
 
 case "$REGISTRY" in
   dockerhub) IMAGE_REPO="docker.io/${DOCKERHUB_USER:-}/${IMAGE_NAME:-}" ;;
@@ -24,7 +28,7 @@ esac
 PINNED_URI="${IMAGE_REPO}@${DIGEST}"
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 if "$SCRIPT_DIR/verify-container-provenance.sh" "$PINNED_URI" "$REPOSITORY" "$SIGNER_WORKFLOW"; then
-  echo 'reused=true' >> "$OUTPUT_PATH"
+  printf 'reused=true\ndigest=%s\n' "$DIGEST" >> "$OUTPUT_PATH"
   echo "Identical-input image and provenance verified: ${PINNED_URI} — skipping build/scan/push"
 else
   echo '::warning::Existing image has no valid Codeflare build provenance — building fresh'

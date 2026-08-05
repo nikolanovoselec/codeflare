@@ -55,14 +55,16 @@ on:
         # The full registry URI must NOT be an output: it embeds the account id
         # (or Docker Hub username), which is a masked secret, and the runner
         # silently drops any job output that may contain a secret ("Skip output
-        # ... since it may contain secret"). Only the secret-free content-address
-        # tag crosses the job boundary; callers rebuild the URI with their own
-        # secrets in env.
+        # ... since it may contain secret"). Only secret-free identity components
+        # cross the job boundary; callers rebuild the URI with their own secrets.
         description: 'Content-address image tag (in-<hash>); callers rebuild the full registry URI locally'
         value: ${{ jobs.image.outputs.image_tag }}
       reused:
         description: '"true" when an identical-input image already existed and build+scan+push were skipped'
         value: ${{ jobs.image.outputs.reused }}
+      verified_digest:
+        description: 'Digest authorized for retained-image deployment; empty for a fresh image'
+        value: ${{ jobs.image.outputs.verified_digest }}
 
 permissions:
   contents: read
@@ -91,6 +93,7 @@ jobs:
       # Secret-free by construction (see workflow_call outputs comment above).
       image_tag: ${{ steps.hash.outputs.tag }}
       reused: ${{ steps.reuse.outputs.reused || 'false' }}
+      verified_digest: ${{ steps.reuse.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

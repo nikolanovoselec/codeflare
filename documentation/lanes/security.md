@@ -593,11 +593,11 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 **Threat:** A deploy could promote a container with a fixable HIGH/CRITICAL vulnerability or an exception that has drifted beyond its reviewed artifact.
 
-**Mitigation:** Every deploy invokes Trivy through reusable `container-image.yml`. Identical-input deploys reuse the scanned image, bounded by the seven-day weekly salt in [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images). `ignore-unfixed: true` limits the gate to vulnerabilities with an available fix; reviewed exceptions remain artifact-specific and fail closed on drift.
+**Mitigation:** Every deploy invokes Trivy through reusable `container-image.yml`. Identical-input deploys reuse the scanned image, bounded by the seven-day weekly salt in [AD112](../decisions/README.md#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images). A retained digest is reused only after provenance verifies against the reusable workflow; failure triggers a fresh build and scan, while authorized deployment binds the verified digest. `ignore-unfixed: true` limits the gate to vulnerabilities with an available fix; reviewed exceptions remain artifact-specific and fail closed on drift.
 
 **Verification:** The reusable workflow blocks image publication before a successful scan. Successful validation logs the scanner-provided package path and PURL for every accepted occurrence, using `<unavailable>` when either field is absent, so reviewed exceptions can be audited and later bound to exact package identities. [Trivy gate tests](../../host/__tests__/trivy-exception-gate.test.js) cover scan ordering, unfixed handling, bounded exceptions, and the emitted occurrence evidence.
 
-**Implements:** [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push).
+**Implements:** [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-042](../../sdd/spec/operations.md#req-ops-042-retained-container-image-provenance).
 
 **Suppression policy (`.trivyignore`):** With `ignore-unfixed`, the allowlist is now for **fixable** CVEs that are consciously accepted — a fix exists but cannot be applied yet (typically a vendored CLI such as rclone/lazygit/an npm CLI, fixed upstream but not yet rebuilt). A CVE is added only when both of:
 

@@ -137,7 +137,7 @@ The run title (`run-name`) resolves and displays the deploy target (production /
 3. **container** — calls `container-image.yml` to build, scan, and push the image, or to reuse an existing one:
    - Hashes `Dockerfile`, ignore/scan policy, `entrypoint.sh`, `host/package.json`, `host/package-lock.json`, `host/tsconfig.json`, `host/src/`, `openvscode/`, `preseed/`, seed, npm platform-pruning, and image-smoke scripts, the Pi lockstep verifier, the canonical selected-agent set, and the ISO week.
    - Changes under `host/__tests__/` do not invalidate the deployment image.
-   - If `in-<hash>` already exists, the workflow resolves its registry digest and cryptographically verifies GitHub provenance against `container-image.yml`. Only then is build/scan/push skipped; missing or invalid provenance falls back to a fresh image.
+   - If `in-<hash>` already exists, the workflow resolves its registry digest and cryptographically verifies GitHub provenance against `container-image.yml`. Only then is build/scan/push skipped; deployment binds that digest. Missing or invalid provenance falls back to a fresh image.
    - Fresh-image smoke records complete image bytes and identity as evidence; image size has no fixed deployment-failing ceiling.
 
      Reuse preserves the original scan and uploaded SBOM without regenerating them, but verifies the retained digest's signed provenance before trusting that evidence. The first deployment under a new ISO-week identity rebuilds and rescans an unchanged image, bounding a reused CVE verdict to seven days without claiming an unconditional scheduled rebuild.
@@ -151,7 +151,8 @@ The run title (`run-name`) resolves and displays the deploy target (production /
    - Downloads the dist artifact, resolves/creates the KV namespace, and patches `wrangler.toml`.
    - Applies worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB; all tiers default to 10 max instances, `MAX_INSTANCES` overrides) and points `image` at the pre-pushed registry URI.
    - Runs `npx wrangler deploy` with `--var` runtime config inside the same bounded retry loop (30×30s — a transient CF control-plane error such as 100146 "Worker version not found" never wastes the completed build).
-   - Uploads all worker secrets in **one `wrangler secret bulk` call** (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, mode-gated Resend/Stripe/OAuth/AIG secrets, optional `ENCRYPTION_KEY`); when service auth is configured, seeds its service user through a bounded retry and fails rather than reporting a partially configured deployment as green.
+   - Uploads all worker secrets in **one `wrangler secret bulk` call** (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, mode-gated Resend/Stripe/OAuth/AIG secrets, optional `ENCRYPTION_KEY`).
+     - When service auth is configured, a bounded retry seeds its service user; failure leaves deployment red.
    - Finally prunes old registry images via `scripts/ci/prune-registry.mjs` — best-effort, digest-alias-protected; keeps the 10 newest tags, the deployed tag, and any tag whose creation time failed to resolve.
    - The unresolved-creation-time hold is fail-closed — a flaked config-blob fetch never deletes a potentially recent image; such tags become prunable again once a later run resolves them.
    - Always (even on failure) publishes a **Deploy summary** table (environment, worker, image tag, whether the image was reused) to the run summary.
@@ -162,7 +163,8 @@ Application test suites are not re-run in deployment—the exact SHA already pas
 
 Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend and frontend matrices explicitly expose all five and three legs concurrently. The required summary is the only fan-in. An affected PR Checks run completes within three minutes ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
 
-- **changes:** `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, and `workflows`. `changes.outputs.full` (the filter step's own `skipped` outcome) is the single flag meaning "no diff was filtered, run everything". The [nightly wrapper](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) calls this workflow under a separate name; its scheduled context skips filtering and executes the full matrix without matching Deploy's `PR Checks` trigger.
+- **changes:** `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, and `workflows`. `changes.outputs.full` means "no diff was filtered, run everything".
+  - The [nightly wrapper](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) skips filtering and runs the full matrix without matching Deploy's `PR Checks` trigger.
 - **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --package-lock-only --audit-level=high --omit=dev` (both, independent of restored `node_modules`; [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)), and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
 - **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).

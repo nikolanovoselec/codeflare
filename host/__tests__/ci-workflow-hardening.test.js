@@ -51,6 +51,10 @@ describe('deployment workflow safety', () => {
     assert.equal(resolve.run, 'node scripts/ci/normalize-https-origin.mjs "$RAW_BASE" base_url');
     assert.equal(setup.outputs.base_url, '${{ steps.target.outputs.base_url }}');
     assert.equal(step(setup, 'Smoke test').env.E2E_BASE_URL, '${{ steps.target.outputs.base_url }}');
+
+    const workflowContract = JSON.stringify(stress.jobs);
+    assert.doesNotMatch(workflowContract, /CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID/);
+    assert.doesNotMatch(workflowContract, /\b(?:npx\s+)?wrangler\s|kv\s+key\s+put|secret\s+put/);
   });
 });
 

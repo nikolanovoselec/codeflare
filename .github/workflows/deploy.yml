@@ -510,12 +510,13 @@ jobs:
           sed -n '30,52p' wrangler.toml
 
       - name: Point wrangler.toml to pre-pushed image
-        # Only the secret-free image tag crosses the job boundary (a full URI
-        # output embeds the masked account id / registry username and the runner
-        # drops it: "Skip output ... since it may contain secret"). The URI is
-        # rebuilt here from secrets this job already holds.
+        # The full URI embeds a masked account id / registry username, so only
+        # secret-free identity components cross the job boundary. Reused images
+        # bind the exact verified digest; fresh images retain their new tag.
         env:
           IMAGE_TAG: ${{ needs.container.outputs.image_tag }}
+          VERIFIED_DIGEST: ${{ needs.container.outputs.verified_digest }}
+          REUSED: ${{ needs.container.outputs.reused }}
           REGISTRY_KIND: ${{ needs.prepare.outputs.registry }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -524,10 +525,23 @@ jobs:
             echo "::error::container job produced no image tag"
             exit 1
           fi
-          if [ "$REGISTRY_KIND" = "dockerhub" ]; then
-            REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${WORKER_NAME}-container:${IMAGE_TAG}"
+          if [ "$REUSED" = "true" ]; then
+            if [[ ! "$VERIFIED_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "::error::reused image has no valid verified digest"
+              exit 1
+            fi
+            IMAGE_REFERENCE="@${VERIFIED_DIGEST}"
           else
-            REGISTRY_URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${WORKER_NAME}-container:${IMAGE_TAG}"
+            if [ -n "$VERIFIED_DIGEST" ]; then
+              echo "::error::fresh image unexpectedly carried a verified retained digest"
+              exit 1
+            fi
+            IMAGE_REFERENCE=":${IMAGE_TAG}"
+          fi
+          if [ "$REGISTRY_KIND" = "dockerhub" ]; then
+            REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${WORKER_NAME}-container${IMAGE_REFERENCE}"
+          else
+            REGISTRY_URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${WORKER_NAME}-container${IMAGE_REFERENCE}"
           fi
           sed -i "s|image = \"./Dockerfile\"|image = \"${REGISTRY_URI}\"|" wrangler.toml
           echo "--- Verifying image config ---"

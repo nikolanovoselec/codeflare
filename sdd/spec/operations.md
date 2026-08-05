@@ -31,7 +31,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The deploy workflow triggers automatically from successful main-push PR Checks. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) -->
+1. The deploy workflow triggers automatically from successful main-push PR Checks. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, and deployment. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 4. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
@@ -476,7 +476,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Fuzz testing uses fast-check with 50,000 iterations for property-based testing. <!-- @manual -->
 3. The fuzz workflow runs weekly (Sunday 04:00 UTC). <!-- @manual -->
 4. The fuzz workflow supports `workflow_dispatch`. <!-- @manual -->
-5. Root, frontend, and host fuzz dependencies use the shared lock-keyed, bounded-retry installer before their suites execute. <!-- @impl: .github/actions/install-deps/action.yml::runs --> <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (shared CI components) -->
+5. Root, frontend, and host fuzz dependencies use the shared lock-keyed, bounded-retry installer before their suites execute. <!-- @impl: .github/actions/install-deps/action.yml::runs --> <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (shared CI components) --> <!-- @test: host/__tests__/install-deps.test.js (shared dependency installer contract) -->
 
 **Constraints:** Extended runs retain the workflow timeout; dependency installation remains bounded and retryable.
 
@@ -1094,9 +1094,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Reuse selection operates on a digest-pinned registry URI. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (fails closed on missing provenance or malformed identities) -->
 2. Provenance verifies against Codeflare's reusable image workflow and SLSA provenance predicate. <!-- @impl: scripts/ci/verify-container-provenance.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (cryptographically verifies the digest against the owned reusable workflow) -->
 3. Successful verification publishes reuse. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
-4. Failed verification publishes no reuse and falls back to a fresh build. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
+4. A reused deployment binds the exact verified digest rather than its mutable tag. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (binds retained deployments to the verified digest instead of the mutable tag) -->
+5. Failed verification publishes no reuse. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
+6. A no-reuse decision runs the complete fresh-image path. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (runs the complete fresh-image path whenever reuse is not authorized) -->
 
-**Constraints:** Cache bust and uncovered Dockerfile sources disable reuse before provenance selection; registry credentials remain short-lived and step-scoped.
+**Constraints:** Cache bust and uncovered Dockerfile sources disable reuse before provenance selection; registry credentials remain short-lived and step-scoped; retained-image deployment requires the exported verified digest.
 
 **Priority:** P0
 
@@ -1142,7 +1144,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Stress Test writes its configured target through the validated HTTPS-origin output boundary. <!-- @impl: scripts/ci/normalize-https-origin.mjs --> <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/normalize-https-origin.test.js (writes a validated named workflow output when requested) --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
 2. Smoke verification consumes the validated target output. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
-3. Stress Test writes no Worker secret, KV entry, or deployment resource. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
+3. Stress Test writes no Worker secret, KV entry, or deployment resource. <!-- @impl: .github/workflows/stress-test.yml::jobs --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
 
 **Constraints:** The workflow targets integration only; Deploy owns service-auth secret and service-user provisioning.
 
