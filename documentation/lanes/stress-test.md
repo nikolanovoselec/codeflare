@@ -379,3 +379,4 @@ The Timekeeper DO receives pings every 60 seconds from each active container ses
 ## Specification Coverage
 
 - [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing-validates-rate-limits-and-concurrency) - Stress testing validates rate limits and concurrency
+- [REQ-OPS-044](../../sdd/spec/operations.md#req-ops-044-read-only-stress-target-verification) - Read-only stress target verification

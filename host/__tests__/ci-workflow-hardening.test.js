@@ -50,7 +50,7 @@ describe('deployment workflow safety', () => {
     const resolve = step(setup, 'Resolve target');
     assert.equal(resolve.run, 'node scripts/ci/normalize-https-origin.mjs "$RAW_BASE" base_url');
     assert.equal(setup.outputs.base_url, '${{ steps.target.outputs.base_url }}');
-    assert.ok(step(setup, 'Smoke test'));
+    assert.equal(step(setup, 'Smoke test').env.E2E_BASE_URL, '${{ steps.target.outputs.base_url }}');
   });
 });
 

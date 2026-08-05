@@ -279,7 +279,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(proxy).toMatch(/prefixed_http=ready|prefixed_ws=ready|root-scoped initial asset URL/);
   });
 
-  it('REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target', () => {
+  it('REQ-OPS-045 AC1: maximizes workload parallelism for the sub-three-minute target', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const directWorkloads = [
       'quality', 'typecheck', 'workflow-audit', 'bundle-size',

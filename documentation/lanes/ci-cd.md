@@ -292,6 +292,7 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 - [REQ-OPS-042](../../sdd/spec/operations.md#req-ops-042-retained-container-image-provenance) - Retained container image provenance
 - [REQ-OPS-043](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) - Isolated nightly full-matrix verification
 - [REQ-OPS-044](../../sdd/spec/operations.md#req-ops-044-read-only-stress-target-verification) - Read-only stress target verification
+- [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance) - Parallel PR Checks performance
 
 ---
 

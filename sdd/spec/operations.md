@@ -105,7 +105,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
 7. PR Checks never build, scan, run, or publish the session container image; the deployment image workflow owns the complete-image build, packaged smoke, vulnerability scan, SBOM, and push. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
-8. An affected PR Checks run targets completion within three minutes by starting every workload directly after classification and exposing all backend and frontend matrix legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target) --> <!-- @manual: Confirm the exact-head PR Checks run completes in under three minutes. -->
 
 **Constraints:**
 
@@ -372,6 +371,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. Three failed seed attempts fail deployment instead of publishing partial configuration as successful. <!-- @impl: scripts/ci/seed-service-user.sh --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/seed-service-user.test.js (fails after three unsuccessful writes) -->
 
 **Constraints:** Secrets are written after worker creation; absent service auth skips seeding, while configured seeding fails closed.
+
 **Priority:** P0
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
@@ -479,6 +479,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. Root, frontend, and host fuzz dependencies use the shared lock-keyed, bounded-retry installer before their suites execute. <!-- @impl: .github/actions/install-deps/action.yml::runs --> <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (shared CI components) -->
 
 **Constraints:** Extended runs retain the workflow timeout; dependency installation remains bounded and retryable.
+
 **Priority:** P1
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
@@ -690,7 +691,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
-5. Pull-request runs omit the unsharded coverage lanes from their critical path; push, merge-group, scheduled, and manually dispatched full runs retain both threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target) -->
+5. Pull-request runs omit the unsharded coverage lanes from their critical path; push, merge-group, scheduled, and manually dispatched full runs retain both threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC1: maximizes workload parallelism for the sub-three-minute target) -->
 
 **Constraints:**
 
@@ -1092,7 +1093,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Reuse selection operates on a digest-pinned registry URI. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (fails closed on missing provenance or malformed identities) -->
 2. Provenance verifies against Codeflare's reusable image workflow and SLSA provenance predicate. <!-- @impl: scripts/ci/verify-container-provenance.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (cryptographically verifies the digest against the owned reusable workflow) -->
-3. Successful verification publishes reuse; failed verification publishes no reuse and falls back to a fresh build. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
+3. Successful verification publishes reuse. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
+4. Failed verification publishes no reuse and falls back to a fresh build. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
 
 **Constraints:** Cache bust and uncovered Dockerfile sources disable reuse before provenance selection; registry credentials remain short-lived and step-scoped.
 
@@ -1138,8 +1140,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Stress Test writes its configured target through the validated HTTPS-origin output boundary before smoke verification. <!-- @impl: scripts/ci/normalize-https-origin.mjs --> <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/normalize-https-origin.test.js (writes a validated named workflow output when requested) --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
-2. Stress Test writes no Worker secret, KV entry, or deployment resource. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
+1. Stress Test writes its configured target through the validated HTTPS-origin output boundary. <!-- @impl: scripts/ci/normalize-https-origin.mjs --> <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/normalize-https-origin.test.js (writes a validated named workflow output when requested) --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
+2. Smoke verification consumes the validated target output. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
+3. Stress Test writes no Worker secret, KV entry, or deployment resource. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
 
 **Constraints:** The workflow targets integration only; Deploy owns service-auth secret and service-user provisioning.
 
@@ -1148,6 +1151,28 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-008](#req-ops-008-stress-testing-validates-rate-limits-and-concurrency), [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks)
 
 **Verification:** Automated target-output and workflow-boundary tests; stress-run evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-045: Parallel PR Checks performance
+
+**Intent:** Affected pull requests receive complete required-check feedback within the operational target without serializing independent workloads.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. An affected PR Checks run targets completion within three minutes by starting every workload directly after classification and exposing all backend and frontend matrix legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC1: maximizes workload parallelism for the sub-three-minute target) --> <!-- @manual: Confirm the exact-head PR Checks run completes in under three minutes. -->
+
+**Constraints:** Path filtering may skip unaffected lanes; full-run coverage policy remains owned by [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)
+
+**Verification:** Automated workflow concurrency contract; exact-head PR Checks duration evidence
 
 **Status:** Implemented
 
