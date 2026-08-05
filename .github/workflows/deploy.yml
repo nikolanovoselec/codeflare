@@ -672,27 +672,7 @@ jobs:
           SAAS_MODE_VAR: ${{ vars.SAAS_MODE }}
 
       - name: Seed service user in KV (stress-test identity, optional)
-        run: |
-          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
-          if [ -z "${AUTH_SECRET}" ]; then
-            echo "No service-auth secret — skipping KV service-user seed"
-            exit 0
-          fi
-          # Fixed email matching the worker's X-Service-Auth identity
-          SERVICE_EMAIL="e2e-service@codeflare.local"
-          echo "Seeding service user: ${SERVICE_EMAIL}"
-          KV_VALUE="{\"addedBy\":\"deploy\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
-          for attempt in 1 2 3; do
-            if npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --binding KV --remote; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "::warning::Service-user seed failed (attempt $attempt/3); retrying in 5s"
-              sleep 5
-            fi
-          done
-          echo "::error::Configured service user could not be seeded after 3 attempts"
-          exit 1
+        run: scripts/ci/seed-service-user.sh
         env:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}

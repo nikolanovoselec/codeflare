@@ -23,20 +23,33 @@ describe('deployment workflow safety', () => {
     assert.equal(deploy.concurrency['cancel-in-progress'], false);
   });
 
-  it('fails a configured deployment when service-user seeding exhausts bounded retries', () => {
+  it('wires deployment to the behaviorally tested service-user seed boundary', () => {
     const seed = step(deploy.jobs.deploy, 'Seed service user in KV (stress-test identity, optional)');
-    assert.ok(seed);
-    assert.match(seed.run, /for attempt in 1 2 3/);
-    assert.match(seed.run, /wrangler kv key put/);
-    assert.match(seed.run, /exit 1/);
-    assert.doesNotMatch(seed.run, /non-fatal/);
+    assert.equal(seed.run, 'scripts/ci/seed-service-user.sh');
+    assert.deepEqual(Object.keys(seed.env).sort(), [
+      'CF_ACCESS_CLIENT_SECRET',
+      'CLOUDFLARE_ACCOUNT_ID',
+      'CLOUDFLARE_API_TOKEN',
+      'OAUTH_E2E_TEST_SECRET',
+    ]);
   });
 
-  it('keeps stress tests read-only against the deployed target', () => {
+  it('keeps stress tests read-only and wires target resolution to the validated boundary', () => {
     const setup = stress.jobs.setup;
-    const source = JSON.stringify(setup);
-    assert.doesNotMatch(source, /CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID/);
-    assert.doesNotMatch(source, /wrangler|secret put|kv key put/);
+    assert.deepEqual(Object.keys(setup.env).sort(), [
+      'CF_ACCESS_CLIENT_ID',
+      'CF_ACCESS_CLIENT_SECRET',
+      'OAUTH_E2E_TEST_SECRET',
+    ]);
+    assert.deepEqual(setup.steps.map((candidate) => candidate.name ?? candidate.uses), [
+      'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+      'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+      'Resolve target',
+      'Smoke test',
+    ]);
+    const resolve = step(setup, 'Resolve target');
+    assert.match(resolve.run, /node scripts\/ci\/normalize-https-origin\.mjs "\$RAW_BASE"/);
+    assert.equal(setup.outputs.base_url, '${{ steps.target.outputs.base_url }}');
     assert.ok(step(setup, 'Smoke test'));
   });
 });
@@ -67,14 +80,24 @@ describe('least-privilege workflow boundaries', () => {
 });
 
 describe('shared CI components', () => {
-  it('uses the lock-keyed dependency installer for every fuzz package tree', () => {
-    const installs = fuzz.jobs.fuzz.steps.filter((candidate) => candidate.uses === './.github/actions/install-deps');
+  it('installs every fuzz package tree before its corresponding suite', () => {
+    const steps = fuzz.jobs.fuzz.steps;
+    const installs = steps.filter((candidate) => candidate.uses === './.github/actions/install-deps');
     assert.deepEqual(installs.map((candidate) => candidate.with), [
       { directory: '.', 'key-prefix': 'fuzz-root' },
       { directory: 'web-ui', 'key-prefix': 'fuzz-web-ui' },
       { directory: 'host', 'key-prefix': 'fuzz-host' },
     ]);
-    assert.doesNotMatch(JSON.stringify(fuzz.jobs.fuzz.steps), /npm ci/);
+    for (const [directory, suite] of [
+      ['.', 'Run backend fuzz tests (extended iterations)'],
+      ['web-ui', 'Run frontend fuzz tests'],
+      ['host', 'Run host fuzz tests'],
+    ]) {
+      const installIndex = steps.findIndex((candidate) => candidate.with?.directory === directory);
+      const suiteIndex = steps.findIndex((candidate) => candidate.name === suite);
+      assert.ok(installIndex >= 0 && installIndex < suiteIndex, `${directory} dependencies must precede ${suite}`);
+    }
+    assert.doesNotMatch(JSON.stringify(steps), /npm ci/);
   });
 
   it('normalizes the pentest target once and fans six probes out from that output', () => {

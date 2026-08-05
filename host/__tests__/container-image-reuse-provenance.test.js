@@ -5,10 +5,11 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { parse as parseYaml } from 'yaml';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SCRIPT = join(ROOT, 'scripts', 'ci', 'verify-container-provenance.sh');
-const WORKFLOW = readFileSync(join(ROOT, '.github', 'workflows', 'container-image.yml'), 'utf8');
+const WORKFLOW = parseYaml(readFileSync(join(ROOT, '.github', 'workflows', 'container-image.yml'), 'utf8'));
 const fixtures = [];
 afterEach(() => fixtures.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
 
@@ -44,13 +45,12 @@ describe('retained deployment image provenance', () => {
     }
   });
 
-  it('allows reuse only after the provenance verifier succeeds', () => {
-    const reuse = WORKFLOW.slice(
-      WORKFLOW.indexOf('      - name: Check registry for an existing identical-input image'),
-      WORKFLOW.indexOf('      - name: Write cache buster'),
-    );
-    assert.match(reuse, /verify-container-provenance\.sh/);
-    assert.ok(reuse.indexOf('verify-container-provenance.sh') < reuse.indexOf('reused=true'));
-    assert.match(reuse, /provenance.*building fresh/is);
+  it('wires retained-image reuse to the behaviorally tested verifier', () => {
+    const job = WORKFLOW.jobs.image;
+    const reuse = job.steps.find((step) => step.id === 'reuse');
+    assert.equal(reuse.env.GH_TOKEN, '${{ github.token }}');
+    assert.equal(reuse.run.match(/scripts\/ci\/verify-container-provenance\.sh/g)?.length, 1);
+    assert.match(reuse.run, /if scripts\/ci\/verify-container-provenance\.sh/);
+    assert.equal(job.outputs.reused, "${{ steps.reuse.outputs.reused || 'false' }}");
   });
 });
