@@ -59,13 +59,6 @@ function undiciVulnerability(installedVersion, overrides = {}) {
 
 function report(results = [
   {
-    Target: 'usr/local/bin/lazygit',
-    Vulnerabilities: [vulnerability({
-      InstalledVersion: 'v0.37.0',
-      PkgIdentifier: { PURL: 'pkg:golang/golang.org/x/text@v0.37.0' },
-    })],
-  },
-  {
     Target: 'Node.js',
     Vulnerabilities: [
       braceExpansionVulnerability({
@@ -113,10 +106,9 @@ function report(results = [
 }
 
 describe('Trivy bounded exception gate', () => {
-  it('accepts only the reviewed lazygit and Node.js findings', () => {
+  it('accepts only the reviewed Node.js findings', () => {
     const result = validateTrivyResult(report());
     assert.deepEqual(result.accepted, [
-      'usr/local/bin/lazygit@v0.37.0',
       'Node.js@5.0.5',
       'Node.js@5.0.7',
       'Node.js@10.1.0',
@@ -124,7 +116,7 @@ describe('Trivy bounded exception gate', () => {
       'Node.js@7.28.0',
       'Node.js@8.5.0',
     ]);
-    assert.equal(result.evidence.length, 10);
+    assert.equal(result.evidence.length, 9);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -146,7 +138,6 @@ describe('Trivy bounded exception gate', () => {
       const identities = output.split('\n').filter((line) => line.startsWith('Observed reviewed Trivy identity:'));
       const prefix = 'Observed reviewed Trivy identity: ';
       assert.deepEqual(identities, [
-        `${prefix}CVE-2026-56852 golang.org/x/text v0.37.0 at usr/local/bin/lazygit [path=<unavailable>; purl=pkg:golang/golang.org/x/text@v0.37.0]`,
         `${prefix}CVE-2026-69152 brace-expansion 5.0.5 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.5]`,
         `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.7]`,
         `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.7]`,
@@ -162,62 +153,36 @@ describe('Trivy bounded exception gate', () => {
     }
   });
 
-  it('rejects the retired gh x/text finding', () => {
-    const input = report([
-      { Target: 'usr/bin/gh', Vulnerabilities: [vulnerability()] },
-      ...report().Results,
-    ]);
-    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*usr\/bin\/gh/s);
-  });
-
-  it('rejects a missing or installed-version-drifted reviewed finding', () => {
-    assert.throws(() => validateTrivyResult(report([])), /missing reviewed finding.*lazygit/s);
-    assert.throws(
-      () => validateTrivyResult(report([{
-        Target: 'usr/local/bin/lazygit',
-        Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.38.0' })],
-      }])),
-      /unexpected HIGH\/CRITICAL finding.*v0\.38\.0/s,
-    );
-  });
-
-  it('rejects duplicate findings and fixed-version or severity drift', () => {
-    const cases = [
-      report([{
-        Target: 'usr/local/bin/lazygit',
-        Vulnerabilities: [
-          vulnerability({ InstalledVersion: 'v0.37.0' }),
-          vulnerability({ InstalledVersion: 'v0.37.0' }),
-        ],
-      }]),
-      report([{
-        Target: 'usr/local/bin/lazygit',
-        Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0', FixedVersion: '0.39.1' })],
-      }]),
-      report([{
-        Target: 'usr/local/bin/lazygit',
-        Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0', Severity: 'CRITICAL' })],
-      }]),
-    ];
-    for (const input of cases) {
-      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+  it('rejects retired gh and lazygit x/text findings', () => {
+    for (const target of ['usr/bin/gh', 'usr/local/bin/lazygit']) {
+      const input = report([
+        {
+          Target: target,
+          Vulnerabilities: [vulnerability({
+            InstalledVersion: 'v0.37.0',
+            PkgIdentifier: { PURL: 'pkg:golang/golang.org/x/text@v0.37.0' },
+          })],
+        },
+        ...report().Results,
+      ]);
+      assert.throws(() => validateTrivyResult(input), new RegExp(`unexpected HIGH/CRITICAL finding.*${target}`, 's'));
     }
   });
 
-  it('rejects target, vulnerability-ID, or package drift independently', () => {
-    const cases = [
-      { Target: 'usr/bin/other', Vulnerabilities: [vulnerability({ InstalledVersion: 'v0.37.0' })] },
-      {
-        Target: 'usr/local/bin/lazygit',
-        Vulnerabilities: [vulnerability({ VulnerabilityID: 'CVE-2099-0001', InstalledVersion: 'v0.37.0' })],
-      },
-      {
-        Target: 'usr/local/bin/lazygit',
-        Vulnerabilities: [vulnerability({ PkgName: 'other', InstalledVersion: 'v0.37.0' })],
-      },
-    ];
-    for (const result of cases) {
-      assert.throws(() => validateTrivyResult(report([result])), /unexpected HIGH\/CRITICAL finding/);
+  it('rejects duplicate reviewed findings', () => {
+    const input = report();
+    input.Results[0].Vulnerabilities.push(structuredClone(input.Results[0].Vulnerabilities[0]));
+    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+  });
+
+  it('rejects vulnerability-ID or package drift independently', () => {
+    for (const change of [
+      { VulnerabilityID: 'CVE-2099-0001' },
+      { PkgName: 'other' },
+    ]) {
+      const input = report();
+      Object.assign(input.Results[0].Vulnerabilities[0], change);
+      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
     }
   });
 
@@ -227,7 +192,7 @@ describe('Trivy bounded exception gate', () => {
       { PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.1.0?other' } },
     ]) {
       const input = report();
-      const reviewed = input.Results[1].Vulnerabilities.find(
+      const reviewed = input.Results[0].Vulnerabilities.find(
         (finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.1.0',
       );
       Object.assign(reviewed, change);
@@ -239,13 +204,13 @@ describe('Trivy bounded exception gate', () => {
   });
 
   it('rejects missing occurrences from the reviewed deployment tuples', () => {
-    const nodeResult = structuredClone(report().Results[1]);
+    const nodeResult = structuredClone(report().Results[0]);
     nodeResult.Vulnerabilities.splice(
       nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.2.0'),
       1,
     );
     assert.throws(
-      () => validateTrivyResult(report([report().Results[0], nodeResult])),
+      () => validateTrivyResult(report([nodeResult])),
       /missing reviewed finding.*ip-address 10\.2\.0.*path=opt\/code-server\/lib\/vscode\/node_modules\/ip-address\/package\.json; purl=pkg:npm\/ip-address@10\.2\.0/s,
     );
   });
@@ -253,7 +218,6 @@ describe('Trivy bounded exception gate', () => {
   it('rejects a missing reviewed Node.js finding', () => {
     assert.throws(
       () => validateTrivyResult(report([
-        report().Results[0],
         {
           Target: 'Node.js',
           Vulnerabilities: [
@@ -275,7 +239,7 @@ describe('Trivy bounded exception gate', () => {
     ];
     for (const changed of cases) {
       assert.throws(
-        () => validateTrivyResult(report([report().Results[0], changed])),
+        () => validateTrivyResult(report([changed])),
         /unexpected HIGH\/CRITICAL finding/,
       );
     }
@@ -283,7 +247,6 @@ describe('Trivy bounded exception gate', () => {
 
   it('reports every unexpected and missing finding together', () => {
     const input = report([
-      report().Results[0],
       { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability()] },
       {
         Target: 'usr/bin/other',

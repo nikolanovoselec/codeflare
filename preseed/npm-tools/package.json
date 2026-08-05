@@ -10,7 +10,7 @@
     "chrome-devtools-mcp": "1.6.0",
     "consult-llm-mcp": "2.13.4",
     "context-mode": "1.0.169",
-    "opencode-ai": "1.18.8"
+    "opencode-ai": "1.18.9"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "0.82.1",
@@ -19,7 +19,7 @@
   },
   "overrides": {
     "@hono/node-server": "2.0.12",
-    "brace-expansion": "5.0.8",
+    "brace-expansion": "5.0.9",
     "protobufjs": "7.6.5",
     "undici": "8.9.0",
     "ws": "8.21.1"

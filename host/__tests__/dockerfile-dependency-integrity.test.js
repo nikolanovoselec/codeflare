@@ -6,6 +6,8 @@ import { describe, it } from 'node:test';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
+const rootLock = readJson('package-lock.json');
+const sidebarLock = readJson('openvscode/agent-sidebar/package-lock.json');
 const npmToolsPackage = readJson('preseed/npm-tools/package.json');
 const npmToolsLock = readJson('preseed/npm-tools/package-lock.json');
 const piPackage = readJson('preseed/agents/pi/package.json');
@@ -76,7 +78,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
 
   it('pins patched versions across every affected committed runtime tree', () => {
     const floors = {
-      'brace-expansion': '5.0.8',
+      'brace-expansion': '5.0.9',
       protobufjs: '7.6.5',
       undici: '8.9.0',
       ws: '8.21.0',
@@ -102,6 +104,22 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
         `ip-address versions ${versions.join(', ')} must all be >= 10.3.1`,
       );
     }
+
+    for (const lockfile of [rootLock, wranglerLock]) {
+      const versions = versionsOf(lockfile, 'undici');
+      assert.ok(versions.length > 0, 'undici must be represented in each 7.x runtime lock');
+      assert.ok(versions.every((version) => atLeast(version, '7.29.0')));
+    }
+
+    for (const lockfile of [rootLock, browserRunLock, npmToolsLock, piLock]) {
+      const versions = versionsOf(lockfile, 'hono');
+      assert.ok(versions.length > 0, 'hono must be represented in each affected runtime lock');
+      assert.ok(versions.every((version) => atLeast(version, '4.12.34')));
+    }
+
+    const postcssVersions = versionsOf(sidebarLock, 'postcss');
+    assert.ok(postcssVersions.length > 0);
+    assert.ok(postcssVersions.every((version) => atLeast(version, '8.5.23')));
 
     const browserHonoVersions = versionsOf(browserRunLock, '@hono/node-server');
     assert.ok(browserHonoVersions.length > 0);
