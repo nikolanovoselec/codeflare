@@ -3215,7 +3215,7 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Category:** Architecture, Operations
 
-**Status:** Accepted (2026-07-20); amended 2026-08-02 to keep container construction exclusively in deployment
+**Status:** Accepted (2026-07-20); amended 2026-08-02 to keep container construction exclusively in deployment; amended 2026-08-05 to partition scheduled verification and verify retained-image provenance
 
 **Context:** PR Checks ran as one serial job (~10 min: lint → knip → build → backend tests → host → frontend → landing → typecheck → audit) regardless of what changed, with the backend suite forced to `maxWorkers: 1` by the Workers-pool teardown crash and gated by a grep-on-prose guard duplicated in test.yml and deploy.yml. Deploy was a single 729-line job that re-ran the entire test suite it had already gated on via `workflow_run`, rebuilt and rescanned the multi-GB container image on every deploy even when no container input changed, and carried a 533-line Docker Hub near-copy (`deploy-dockerhub.yml`).
 
@@ -3234,13 +3234,14 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 - The `/health` smoke check and the public `/health` route were both removed later; the deploy currently performs no post-deploy verification.
 - Container build/smoke/scan/push moves exclusively to reusable `container-image.yml`; PR Checks never construct, load, run, publish, or authenticate a container image.
 - Deployment alone imports and publishes the GHCR-backed BuildKit cache. Login failure disables cache use; export errors cannot fail the image build.
-- Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned image.
-- A COPY-coverage guard disables reuse when the hash list goes stale; the weekly salt bounds agent-`@latest` and CVE-verdict staleness at seven days.
-- The scripted e2e suite is deleted rather than repaired; the k6 stress suites move to `stress/` and keep the deploy-time service-auth secret + KV service-user seeding. `zizmor.yml` audits the workflows themselves (SARIF, informational).
+- Images are tagged `in-<hash>` over every Dockerfile COPY source plus an ISO-week salt; identical-input deploys reuse the already-scanned digest only after its GitHub provenance verifies against the reusable image workflow.
+- A COPY-coverage gap or invalid retained-image provenance disables reuse. The first deploy under a new weekly identity rebuilds and rescans; no unconditional scheduled image build is implied.
+- Scheduled full-matrix checks call `test.yml` through a separately named wrapper, so Deploy's `workflow_run` trigger matches post-merge `PR Checks` but not nightly verification.
+- The scripted e2e suite is deleted rather than repaired; the k6 stress suites move to `stress/`. Deploy exclusively owns service-auth secret and KV service-user provisioning; Stress Test validates the deployed target without Cloudflare mutation credentials. `zizmor.yml` audits the workflows themselves (SARIF, informational).
 
 **2026-08-02 amendment:** PR Checks target a sub-three-minute critical path by running every workload lane at maximum parallelism and never building a container image. Deployment is the sole owner of image build, packaged smoke, scan, SBOM, provenance, and push. The exact-tree PR receipt proves source verification only.
 
-**Consequences:** PR wall-clock drops to the slowest source-validation lane, docs-only changes skip every path-gated workload lane, and PRs never pay the multi-gigabyte image cost. Deploys skip build and scan for unchanged container inputs. Retained-image reuse preserves the original scan and uploaded SBOM without regenerating or revalidating them. Provenance exists only if the original post-push attestation succeeded, and reuse does not check it. The weekly salt bounds the reused CVE verdict to seven days.
+**Consequences:** PR wall-clock drops to the slowest source-validation lane, docs-only changes skip every path-gated workload lane, and PRs never pay the multi-gigabyte image cost. Nightly verification retains the same matrix without creating a daily skipped Deploy run. Deploys skip build and scan for unchanged container inputs only when the retained digest's signed provenance verifies; the original scan and SBOM are reused rather than regenerated. Missing provenance safely costs a fresh build. Same-environment deploys queue instead of cancelling partial mutation, and configured service-user seed failure leaves the deployment red.
 
 The ordinary-suite guard cannot pass an empty run or depend on reporter prose; coverage requires its table and rejects reported failures or threshold misses. Accepted trade-offs are replicated test scaffolding across split test files (vi.mock hoisting is per module) and no scripted browser e2e; deployed-UI verification uses the agent-driven browser-e2e path.
 

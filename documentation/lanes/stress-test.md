@@ -25,13 +25,13 @@ Implements [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing
 ## Prerequisites
 
 1. **Integration worker deployed** with `STRESS_TEST_MODE=active` (disables all rate limits - required because all VUs share one service identity)
-2. **GitHub `integration` environment** with secrets (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and variables (`E2E_BASE_URL`, `CLOUDFLARE_WORKER_NAME`)
-3. **Repository-level secrets** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (used by setup job to push `SERVICE_AUTH_SECRET` and seed KV via wrangler)
-4. **`STRESS_TEST_CONCURRENCY`** variable set in the `integration` environment (optional, defaults to `0` which uses baseline VU counts)
+2. **Deploy completed with service authentication configured.** Deploy writes `SERVICE_AUTH_SECRET` and fail-closed seeds `e2e-service@codeflare.local`; Stress Test only validates and exercises that deployed state.
+3. **GitHub `integration` environment** with secrets (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and variable `E2E_BASE_URL`.
+4. **`STRESS_TEST_CONCURRENCY`** variable set in the `integration` environment (optional, defaults to `0` which uses baseline VU counts).
 
 ## Running
 
-Go to **Actions > Stress Test > Run workflow**. Select a suite or leave as `all`.
+Go to **Actions > Stress Test > Run workflow**. Select a suite or leave as `all`. The setup job rejects a non-origin target, confirms reachability and service authentication, and does not mutate Worker secrets, KV, or deployment resources.
 
 To scale concurrency, set `STRESS_TEST_CONCURRENCY` in **Settings > Environments > integration > Environment variables**:
 
@@ -255,8 +255,7 @@ wrangler deploy --env integration
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `STRESS_TEST_CONCURRENCY` | `0` | k6 virtual user scaling factor |
-| `E2E_BASE_URL` | - | Target worker URL |
-| `CLOUDFLARE_WORKER_NAME` | - | Worker name for wrangler secret/KV operations |
+| `E2E_BASE_URL` | - | Target Worker HTTPS origin |
 
 ### GitHub secrets
 
@@ -265,14 +264,8 @@ wrangler deploy --env integration
 | Secret | Purpose |
 |--------|---------|
 | `CF_ACCESS_CLIENT_ID` | Service token ID for CF Access |
-| `CF_ACCESS_CLIENT_SECRET` | Service token secret (also pushed as `SERVICE_AUTH_SECRET` and used as `X-Service-Auth` header) |
-
-**Repository-level secrets** (used by setup job for wrangler):
-
-| Secret | Purpose |
-|--------|---------|
-| `CLOUDFLARE_API_TOKEN` | Wrangler API access for `secret put` and KV operations |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account for wrangler commands |
+| `CF_ACCESS_CLIENT_SECRET` | Service token secret used by the probe; Deploy owns the matching Worker secret and service-user seed |
+| `OAUTH_E2E_TEST_SECRET` | Optional service-auth fallback used when CF Access credentials are not configured |
 
 ## Workflow Architecture
 
