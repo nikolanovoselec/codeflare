@@ -150,7 +150,7 @@ describe('retained deployment image provenance', () => {
     assert.equal(fresh.config, 'image = "docker.io/account/worker-container:in-0123456789abcdef"\n');
   });
 
-  it('runs the complete fresh-image path whenever reuse is not authorized', () => {
+  it('gates required fresh-image stages on no reuse', () => {
     const freshSteps = [
       'Build container image',
       'Verify packaged native Pi Chat and official Claude',

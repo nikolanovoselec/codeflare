@@ -1096,7 +1096,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Successful verification publishes reuse. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
 4. A reused deployment binds the exact verified digest rather than its mutable tag. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (binds retained deployments to the verified digest instead of the mutable tag) -->
 5. Failed verification publishes no reuse. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
-6. A no-reuse decision runs the complete fresh-image path. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (runs the complete fresh-image path whenever reuse is not authorized) -->
+6. Build, packaged smoke, vulnerability scan, and push are each gated on no reuse. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (gates required fresh-image stages on no reuse) -->
 
 **Constraints:** Cache bust and uncovered Dockerfile sources disable reuse before provenance selection; registry credentials remain short-lived and step-scoped; retained-image deployment requires the exported verified digest.
 
@@ -1144,7 +1144,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Stress Test writes its configured target through the validated HTTPS-origin output boundary. <!-- @impl: scripts/ci/normalize-https-origin.mjs --> <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/normalize-https-origin.test.js (writes a validated named workflow output when requested) --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
 2. Smoke verification consumes the validated target output. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
-3. Stress Test writes no Worker secret, KV entry, or deployment resource. <!-- @impl: .github/workflows/stress-test.yml::jobs --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
+3. The Stress Test setup job writes no Worker secret, KV entry, or deployment resource. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
 
 **Constraints:** The workflow targets integration only; Deploy owns service-auth secret and service-user provisioning.
 
