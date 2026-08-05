@@ -181,8 +181,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Check registry for an existing identical-input image
-        id: reuse
+      - name: Resolve existing identical-input image digest
+        id: candidate
         if: inputs.cache-bust == '' && steps.hash.outputs.no_reuse == '0'
         env:
           TAG: ${{ steps.hash.outputs.tag }}
@@ -190,7 +190,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           DIGEST=''
           if [ "${REGISTRY}" = "dockerhub" ]; then
@@ -223,7 +222,8 @@ jobs:
               "https://registry.cloudflare.com/v2/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}/manifests/${TAG}" || echo 000)
             if [ "$CODE" = "200" ]; then
               DIGEST=$(tr -d '\r' < "$HEADERS" | awk 'tolower($1) == "docker-content-digest:" { print $2 }')
-              if ! printf '%s' "$PASSWORD" | docker login registry.cloudflare.com --username "$USERNAME" --password-stdin >/dev/null; then
+              if [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] && \
+                ! printf '%s' "$PASSWORD" | docker login registry.cloudflare.com --username "$USERNAME" --password-stdin >/dev/null; then
                 echo "::warning::Could not authenticate provenance verifier to the registry — building fresh"
                 DIGEST=''
               fi
@@ -237,23 +237,22 @@ jobs:
             *) echo "::warning::Registry returned malformed digest '${DIGEST}' — building fresh"; DIGEST='' ;;
           esac
 
-          VERIFIED=false
           if [ -n "$DIGEST" ]; then
-            PINNED_URI="${IMAGE_REPO}@${DIGEST}"
-            if scripts/ci/verify-container-provenance.sh \
-              "$PINNED_URI" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY/.github/workflows/container-image.yml"; then
-              VERIFIED=true
-            else
-              echo "::warning::Existing image has no valid Codeflare build provenance — building fresh"
-            fi
+            echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           fi
-          if [ "${REGISTRY}" = "cloudflare" ]; then
-            docker logout registry.cloudflare.com >/dev/null 2>&1 || true
-          fi
-          if [ "$VERIFIED" = "true" ]; then
-            echo "reused=true" >> "$GITHUB_OUTPUT"
-            echo "Identical-input image and provenance verified: ${URI} — skipping build/scan/push"
-          fi
+
+      - name: Authorize retained image reuse
+        id: reuse
+        if: inputs.cache-bust == '' && steps.hash.outputs.no_reuse == '0' && steps.candidate.outputs.digest != ''
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/container-image.yml
+        run: scripts/ci/select-container-reuse.sh
 
       - name: Write cache buster (force fresh npm install layers)
         if: steps.reuse.outputs.reused != 'true' && inputs.cache-bust != ''

@@ -1,14 +1,16 @@
 #!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 
-const [raw, ...extra] = process.argv.slice(2);
+const [raw, outputName, ...extra] = process.argv.slice(2);
 
 function fail(message) {
   process.stderr.write(`Invalid target origin: ${message}\n`);
   process.exit(1);
 }
 
-if (extra.length > 0 || typeof raw !== 'string' || raw.length === 0) fail('provide exactly one value');
+if (extra.length > 0 || typeof raw !== 'string' || raw.length === 0) fail('provide a target and optional output name');
+if (outputName !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(outputName)) fail('output name is malformed');
 if (raw.trim() !== raw || /[\u0000-\u001f\u007f]/.test(raw)) fail('whitespace and control characters are not allowed');
 
 const explicitScheme = raw.match(/^([A-Za-z][A-Za-z0-9+.-]*):\/\//)?.[1]?.toLowerCase();
@@ -30,4 +32,10 @@ if (url.hostname.length > 253 || !url.hostname.split('.').every((label) => /^(?!
 }
 
 url.protocol = 'https:';
-process.stdout.write(`${url.origin}\n`);
+if (outputName === undefined) {
+  process.stdout.write(`${url.origin}\n`);
+} else {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) fail('GITHUB_OUTPUT is required when an output name is provided');
+  appendFileSync(outputPath, `${outputName}=${url.origin}\n`, { encoding: 'utf8' });
+}

@@ -48,7 +48,7 @@ describe('deployment workflow safety', () => {
       'Smoke test',
     ]);
     const resolve = step(setup, 'Resolve target');
-    assert.match(resolve.run, /node scripts\/ci\/normalize-https-origin\.mjs "\$RAW_BASE"/);
+    assert.equal(resolve.run, 'node scripts/ci/normalize-https-origin.mjs "$RAW_BASE" base_url');
     assert.equal(setup.outputs.base_url, '${{ steps.target.outputs.base_url }}');
     assert.ok(step(setup, 'Smoke test'));
   });
@@ -103,6 +103,10 @@ describe('shared CI components', () => {
   it('normalizes the pentest target once and fans six probes out from that output', () => {
     const target = pentest.jobs.target;
     assert.equal(target.outputs.target, '${{ steps.normalize.outputs.target }}');
+    assert.equal(
+      step(target, 'Normalize target URL').run,
+      'node scripts/ci/normalize-https-origin.mjs "$RAW_TARGET" target',
+    );
     const probes = ['security-headers', 'tls', 'auth-gate', 'info-disclosure', 'injection', 'http-methods'];
     for (const name of probes) {
       const job = pentest.jobs[name];

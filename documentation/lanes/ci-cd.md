@@ -128,7 +128,7 @@ Job graph: `verify-existing` → optional `verify` → `prepare` → (`build-wor
 
 `workflow_run` already carries its exact green gate. After verification succeeds, `outcome` fails an eligible non-cancelled run in which nothing was deployed, so a green Deploy means a deploy happened. Workflow cancellation remains cancelled without forcing `outcome` to run. The same-repository green-`push` gate is repeated on every downstream gated job because a job skipped via `if:` counts as success for `needs:` resolution. Same-environment deploys queue rather than cancelling an active mutating run; different environments keep independent concurrency groups. <!-- @impl: .github/workflows/deploy.yml::outcome --> <!-- @impl: scripts/ci/assert-deploy-outcome.mjs::deployOutcome -->
 
-(Implements [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-026](../../sdd/spec/operations.md#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified), [REQ-OPS-028](../../sdd/spec/operations.md#req-ops-028-deploy-verification-and-outcome-gate), [REQ-OPS-029](../../sdd/spec/operations.md#req-ops-029-automatic-manual-deploy-verification-reuse), and [REQ-OPS-031](../../sdd/spec/operations.md#req-ops-031-trusted-deployment-container-build-cache).)
+(Implements [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-026](../../sdd/spec/operations.md#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified), [REQ-OPS-028](../../sdd/spec/operations.md#req-ops-028-deploy-verification-and-outcome-gate), [REQ-OPS-029](../../sdd/spec/operations.md#req-ops-029-automatic-manual-deploy-verification-reuse), [REQ-OPS-031](../../sdd/spec/operations.md#req-ops-031-trusted-deployment-container-build-cache), and [REQ-OPS-042](../../sdd/spec/operations.md#req-ops-042-retained-container-image-provenance).)
 
 The run title (`run-name`) resolves and displays the deploy target (production / enterprise / enterprise integration / integration) plus the source ref, so the Actions list and `gh run list` answer "what did this deploy to?" without opening the run. The inline `verify` job passes its own `github.run_id` to `test.yml` as `concurrency_key`, which is appended to that workflow's concurrency group — without it, dispatching two environment deploys off one branch puts both inline verifies in the same group and the second cancels the first, surfacing as a cancelled run that deployed nothing.
 
@@ -162,7 +162,7 @@ Application test suites are not re-run in deployment—the exact SHA already pas
 
 Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend and frontend matrices explicitly expose all five and three legs concurrently. The required summary is the only fan-in. The target for an affected PR run is under three minutes.
 
-- **changes:** `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, and `workflows`. `changes.outputs.full` (the filter step's own `skipped` outcome) is the single flag meaning "no diff was filtered, run everything". The nightly wrapper calls this workflow under a separate name; its scheduled context skips filtering and executes the full matrix without matching Deploy's `PR Checks` trigger.
+- **changes:** `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, and `workflows`. `changes.outputs.full` (the filter step's own `skipped` outcome) is the single flag meaning "no diff was filtered, run everything". The [nightly wrapper](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) calls this workflow under a separate name; its scheduled context skips filtering and executes the full matrix without matching Deploy's `PR Checks` trigger.
 - **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --package-lock-only --audit-level=high --omit=dev` (both, independent of restored `node_modules`; [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)), and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
 - **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
@@ -289,6 +289,9 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 - [REQ-OPS-026](../../sdd/spec/operations.md#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified) - Concurrent deploy dispatches are legible and independently verified
 - [REQ-OPS-028](../../sdd/spec/operations.md#req-ops-028-deploy-verification-and-outcome-gate) - Deploy verification and outcome gate
 - [REQ-OPS-029](../../sdd/spec/operations.md#req-ops-029-automatic-manual-deploy-verification-reuse) - Automatic manual-deploy verification reuse
+- [REQ-OPS-042](../../sdd/spec/operations.md#req-ops-042-retained-container-image-provenance) - Retained container image provenance
+- [REQ-OPS-043](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) - Isolated nightly full-matrix verification
+- [REQ-OPS-044](../../sdd/spec/operations.md#req-ops-044-read-only-stress-target-verification) - Read-only stress target verification
 
 ---
 

@@ -46,10 +46,7 @@ jobs:
         id: target
         env:
           RAW_BASE: ${{ vars.E2E_BASE_URL }}
-        run: |
-          BASE=$(node scripts/ci/normalize-https-origin.mjs "$RAW_BASE")
-          echo "base_url=$BASE" >> "$GITHUB_OUTPUT"
-          echo "Target: $BASE"
+        run: node scripts/ci/normalize-https-origin.mjs "$RAW_BASE" base_url
 
       - name: Smoke test
         env:
