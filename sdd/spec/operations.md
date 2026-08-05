@@ -31,7 +31,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+1. The deploy workflow triggers automatically from successful main-push PR Checks. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, and deployment. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 4. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
@@ -58,13 +58,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-002: Docker image build, vulnerability scan, and registry push
 
-**Intent:** Every deploy resolves a container image whose build inputs are content-hashed into its tag. Changed inputs trigger a build, a HIGH/CRITICAL vulnerability scan with allowlisted exceptions, and a push to the target registry; unchanged inputs reuse the already-scanned image. The pipeline fails before push on any unexcepted finding.
+**Intent:** Every deploy resolves a container image whose build inputs are content-hashed into its tag. Changed inputs trigger a build, a HIGH/CRITICAL vulnerability scan with allowlisted exceptions, and a push to the target registry. The pipeline fails before push on any unexcepted finding.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The container image is built in the CI runner whenever its hashed inputs and weekly salt produce a tag not yet present in the target registry; otherwise the existing image is reused without rebuild or rescan. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) --> <!-- @manual -->
+1. The CI runner builds the image when its hashed inputs and weekly salt produce a registry-missing tag. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
 2. A cache-bust forces an image rebuild without changing the content-addressed tag. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 3. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/container-image.yml::severity = HIGH,CRITICAL --> <!-- @manual -->
 4. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
@@ -78,7 +78,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - The hash covers copied production paths, Dockerfile, deployment image workflow, ignore and scan policy, and the weekly salt.
 - Cache-bust disables reuse without changing the content-addressed tag.
 - A COPY coverage gap disables reuse.
-- The weekly hash salt bounds reuse: an unchanged image is rebuilt and rescanned at least once per ISO week.
+- The weekly hash salt gives unchanged inputs a new image identity on the first deployment of each ISO week.
 
 **Priority:** P0
 
@@ -98,21 +98,19 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The PR-check workflow triggers on every pull request to the main or develop branch, on push to the main branch, on manual dispatch, and on a nightly schedule. <!-- @manual -->
+1. PR Checks runs for pull requests to main or develop, pushes to main, and manual dispatches. <!-- @impl: .github/workflows/test.yml --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
 3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml::runs --> <!-- @manual -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
 7. PR Checks never build, scan, run, or publish the session container image; the deployment image workflow owns the complete-image build, packaged smoke, vulnerability scan, SBOM, and push. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
-8. An affected PR Checks run targets completion within three minutes by starting every workload directly after classification and exposing all backend and frontend matrix legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target) --> <!-- @manual: Confirm the exact-head PR Checks run completes in under three minutes. -->
 
 **Constraints:**
 
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
 - Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
-- All lanes also run unconditionally on the nightly schedule, bypassing the path filter.
 - The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the report and reconciliation gates in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) — not serialization — are what keep the result trustworthy.
 - Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence); backend and frontend coverage run only when their path filter is affected or the workflow is a full run.
 
@@ -120,7 +118,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js)); workflow-trigger, lint, typecheck, and audit ACs verified manually
+**Verification:** Automated tests ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js)); lint, typecheck, and audit ACs verified in CI
 
 **Status:** Implemented
 
@@ -139,6 +137,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/pentest.md](../../documentation/lanes/pentest.md#test-results). <!-- @manual -->
 4. A legacy-TLS verdict is derived from the server's own answer to a handshake the probe issues itself. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (passes when the server refuses the version with an alert) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (fails when the server accepts the version and returns a ServerHello) -->
 5. An answer that does not establish whether the version is supported reports inconclusive rather than a pass. <!-- @impl: scripts/ci/tls-legacy-probe.py::probe --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, on an alert that is not about the version) --> <!-- @test: host/__tests__/tls-legacy-probe.test.js (is inconclusive, never a pass, when nothing is listening) -->
+6. Target validation rejects paths, credentials, IP or single-label hosts, control characters, queries, and fragments. <!-- @impl: scripts/ci/normalize-https-origin.mjs --> <!-- @test: host/__tests__/normalize-https-origin.test.js (pentest target normalization) -->
+7. All six probes consume the target job's single normalized output. <!-- @impl: .github/workflows/pentest.yml::target --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (shared CI components) -->
 
 **Constraints:**
 
@@ -149,7 +149,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated test ([host/__tests__/tls-legacy-probe.test.js](../../host/__tests__/tls-legacy-probe.test.js))
+**Verification:** Automated tests ([tls-legacy-probe](../../host/__tests__/tls-legacy-probe.test.js), [normalize-https-origin](../../host/__tests__/normalize-https-origin.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js))
 
 **Status:** Implemented
 
@@ -239,7 +239,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test ([rate-limit](../../src/__tests__/middleware/rate-limit.test.ts))
+**Verification:** Automated tests ([rate-limit](../../src/__tests__/middleware/rate-limit.test.ts), [workflow-stress-test](../../host/__tests__/workflow-stress-test.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js))
 
 **Status:** Implemented
 
@@ -367,17 +367,16 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The worker name is configurable per environment. <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) --> <!-- @manual -->
 2. The worker is deployed with runtime configuration variables applied. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 3. Required worker secrets are written after deployment. <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) --> <!-- @manual -->
-4. The service user (stress-test identity) is seeded into the allowlist when the CF Access service-token secret is configured. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
+4. The service user is seeded only when a service-auth secret is configured. <!-- @impl: scripts/ci/seed-service-user.sh --> <!-- @test: host/__tests__/seed-service-user.test.js (does nothing when neither service-auth secret is configured) --> <!-- @test: host/__tests__/seed-service-user.test.js (writes the fixed admin identity once when the first attempt succeeds) -->
+5. Three failed seed attempts fail deployment instead of publishing partial configuration as successful. <!-- @impl: scripts/ci/seed-service-user.sh --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/seed-service-user.test.js (fails after three unsuccessful writes) -->
 
-**Constraints:**
-
-- Secrets are set after worker deployment, as secret writes target a worker that must already exist.
+**Constraints:** Secrets are written after worker creation; absent service auth skips seeding, while configured seeding fails closed.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test ([access](../../src/__tests__/lib/access.test.ts))
+**Verification:** Automated tests ([seed-service-user](../../host/__tests__/seed-service-user.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js)); deployment evidence
 
 **Status:** Implemented
 
@@ -477,16 +476,15 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Fuzz testing uses fast-check with 50,000 iterations for property-based testing. <!-- @manual -->
 3. The fuzz workflow runs weekly (Sunday 04:00 UTC). <!-- @manual -->
 4. The fuzz workflow supports `workflow_dispatch`. <!-- @manual -->
+5. Root, frontend, and host fuzz dependencies use the shared lock-keyed, bounded-retry installer before their suites execute. <!-- @impl: .github/actions/install-deps/action.yml::runs --> <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (shared CI components) --> <!-- @test: host/__tests__/install-deps.test.js (shared dependency installer contract) -->
 
-**Constraints:**
-
-- Fuzz iteration count is calibrated to keep PR-blocking jobs under the 10-minute CI budget; weekly runs are unbounded.
+**Constraints:** Extended runs retain the workflow timeout; dependency installation remains bounded and retryable.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated protected-branch trigger contract for AC1; manual verification for AC2, AC3, and AC4.
+**Verification:** Automated protected-branch trigger and shared-installer contracts; CI evidence for the extended iteration count and scheduled/manual routes.
 
 **Status:** Implemented
 
@@ -693,7 +691,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
-5. Pull-request runs omit the unsharded coverage lanes from their critical path; push, merge-group, scheduled, and manually dispatched full runs retain both threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target) -->
+5. Pull-request runs omit the unsharded coverage lanes from their critical path; push, merge-group, scheduled, and manually dispatched full runs retain both threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: omits coverage lanes from the pull-request critical path) -->
 
 **Constraints:**
 
@@ -776,11 +774,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The run title resolves and displays the environment being deployed, so dispatches are distinguishable in the run list without opening them. <!-- @impl: .github/workflows/deploy.yml::run-name --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (names each run after the environment it resolved) -->
 2. Each dispatch verifies in its own concurrency group, keyed by that run's id, so a later dispatch cannot cancel an earlier one's verification and turn a verified commit into a failed gate. <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @impl: .github/workflows/test.yml::concurrency --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (gives each dispatch its own verify concurrency group) -->
+3. Deployments targeting the same environment are serialized without cancelling the active run, so a newer run cannot interrupt worker, secret, KV, or registry mutation mid-sequence. <!-- @impl: .github/workflows/deploy.yml::concurrency --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (deployment workflow safety) -->
 
-**Constraints:**
-
-- A called workflow inherits the caller's concurrency context, so the discriminator has to be supplied by the caller; the reusable workflow's own group cannot separate them.
-- The discriminator defaults to empty, leaving the group unchanged for every other caller of the reusable workflow.
+**Constraints:** Called verification uses a per-run discriminator; deploy serialization remains environment-scoped.
 
 **Priority:** P2
 
@@ -912,6 +908,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Release signing is separate from deployment container provenance; neither substitutes for the other.
 - Workflow dependencies and the Cosign release are immutable pins reviewed in source.
 - The signing job alone receives least-privilege write, identity, and attestation permissions; repository-wide permissions remain read-only.
+- The GitHub API token is step-scoped to release validation and upload; archive construction, installer, signing, and attestation steps do not receive it. <!-- @test: host/__tests__/ci-workflow-hardening.test.js (least-privilege workflow boundaries) -->
 - A repeated recovery dispatch replaces only the four assets owned by this workflow.
 
 **Priority:** P1
@@ -941,6 +938,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - GitHub still permits creating other pull requests; the required status blocks their merge.
 - A fork branch named `develop` cannot satisfy the promotion check.
 - The validation command consumes pull-request metadata through environment variables and never executes branch or repository names as shell code.
+- The policy check receives no repository permission because it uses only event metadata. <!-- @test: host/__tests__/ci-workflow-hardening.test.js (least-privilege workflow boundaries) -->
 
 **Priority:** P0
 
@@ -1080,6 +1078,106 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
 **Verification:** Automated test (workflow-structure and fake-Docker tests execute cache-enabled and cache-unavailable build paths and assert the exact import/export arguments and permissions).
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-042: Retained container image provenance
+
+**Intent:** A retained image can bypass build and scan only when its exact registry digest carries verifiable Codeflare build provenance.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Reuse selection operates on a digest-pinned registry URI. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (fails closed on missing provenance or malformed identities) -->
+2. Provenance verifies against Codeflare's reusable image workflow and SLSA provenance predicate. <!-- @impl: scripts/ci/verify-container-provenance.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (cryptographically verifies the digest against the owned reusable workflow) -->
+3. Successful verification publishes reuse. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
+4. A reused deployment binds the exact verified digest rather than its mutable tag. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (binds retained deployments to the verified digest instead of the mutable tag) -->
+5. Failed verification publishes no reuse. <!-- @impl: scripts/ci/select-container-reuse.sh --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
+6. Build, packaged smoke, vulnerability scan, and push are each gated on no reuse. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (gates required fresh-image stages on no reuse) -->
+
+**Constraints:** Cache bust and uncovered Dockerfile sources disable reuse before provenance selection; registry credentials remain short-lived and step-scoped; retained-image deployment requires the exported verified digest.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
+
+**Verification:** Automated provenance and reuse-selection boundary tests; deployment image evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-043: Isolated nightly full-matrix verification
+
+**Intent:** Nightly verification reuses the complete PR Checks matrix without sharing the workflow identity that authorizes production deployment.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. A separately named workflow schedules the reusable PR Checks matrix nightly at 03:30 UTC. <!-- @impl: .github/workflows/nightly-pr-checks.yml::full-matrix --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (keeps scheduled verification outside the deploy-triggering workflow identity) -->
+2. The nightly call runs the canonical full matrix without copying its lanes. <!-- @impl: .github/workflows/nightly-pr-checks.yml::full-matrix --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (calls the canonical full matrix without copying any test lane) -->
+3. Deploy continues listening only to the direct `PR Checks` workflow identity. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (keeps scheduled verification outside the deploy-triggering workflow identity) -->
+
+**Constraints:** The required `test` context and direct PR Checks entry points remain unchanged; the nightly caller receives no secrets.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** Automated workflow-routing contract; next scheduled-run evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-044: Read-only stress target verification
+
+**Intent:** Stress Test validates an already provisioned integration deployment without repairing or mutating it before measurement.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Stress Test writes its configured target through the validated HTTPS-origin output boundary. <!-- @impl: scripts/ci/normalize-https-origin.mjs --> <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/normalize-https-origin.test.js (writes a validated named workflow output when requested) --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (limits stress setup to probe credentials and validated target steps) -->
+2. Smoke verification consumes the validated target output. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (limits stress setup to probe credentials and validated target steps) -->
+3. Setup contains only checkout, Node setup, target normalization, and smoke verification steps. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (limits stress setup to probe credentials and validated target steps) -->
+4. Setup receives only the three service-auth probe credentials. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (limits stress setup to probe credentials and validated target steps) -->
+
+**Constraints:** The workflow targets integration only; Deploy owns service-auth secret and service-user provisioning.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-OPS-008](#req-ops-008-stress-testing-validates-rate-limits-and-concurrency), [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks)
+
+**Verification:** Automated target-output and workflow-boundary tests; stress-run evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-045: Parallel PR Checks performance
+
+**Intent:** Affected pull requests receive complete required-check feedback within the operational target without serializing independent workloads.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. An affected PR Checks run completes within three minutes. <!-- @manual: Confirm the exact-head PR Checks run completes in under three minutes. -->
+2. Every affected workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
+3. Backend and frontend matrices expose all five and three legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend and frontend matrix leg concurrently) -->
+
+**Constraints:** Path filtering may skip unaffected lanes; full-run coverage policy remains owned by [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)
+
+**Verification:** Automated direct-start and matrix-concurrency tests; manual exact-head duration check
 
 **Status:** Implemented
 

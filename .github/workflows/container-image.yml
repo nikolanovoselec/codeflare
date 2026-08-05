@@ -55,14 +55,16 @@ on:
         # The full registry URI must NOT be an output: it embeds the account id
         # (or Docker Hub username), which is a masked secret, and the runner
         # silently drops any job output that may contain a secret ("Skip output
-        # ... since it may contain secret"). Only the secret-free content-address
-        # tag crosses the job boundary; callers rebuild the URI with their own
-        # secrets in env.
+        # ... since it may contain secret"). Only secret-free identity components
+        # cross the job boundary; callers rebuild the URI with their own secrets.
         description: 'Content-address image tag (in-<hash>); callers rebuild the full registry URI locally'
         value: ${{ jobs.image.outputs.image_tag }}
       reused:
         description: '"true" when an identical-input image already existed and build+scan+push were skipped'
         value: ${{ jobs.image.outputs.reused }}
+      verified_digest:
+        description: 'Digest authorized for retained-image deployment; empty for a fresh image'
+        value: ${{ jobs.image.outputs.verified_digest }}
 
 permissions:
   contents: read
@@ -91,6 +93,7 @@ jobs:
       # Secret-free by construction (see workflow_call outputs comment above).
       image_tag: ${{ steps.hash.outputs.tag }}
       reused: ${{ steps.reuse.outputs.reused || 'false' }}
+      verified_digest: ${{ steps.reuse.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,8 +106,8 @@ jobs:
           RAW_CODING_AGENTS: ${{ inputs.coding-agents }}
         run: |
           # Every path the Dockerfile COPYs, plus the Dockerfile itself. The
-          # weekly salt forces at most one rebuild+rescan per ISO week even
-          # with unchanged inputs (fresh apt resolution and CVE verdict).
+          # weekly salt gives each ISO week a new identity, so the first deploy
+          # that week rebuilds+rescans unchanged inputs (fresh apt/CVE verdict).
           # .dockerignore decides what the COPYs actually include and
           # .trivyignore decides which CVEs the scan tolerates. Neither was
           # hashed, so deleting a suppression left the tag identical, the reuse
@@ -181,8 +184,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Check registry for an existing identical-input image
-        id: reuse
+      - name: Resolve existing identical-input image digest
+        id: candidate
         if: inputs.cache-bust == '' && steps.hash.outputs.no_reuse == '0'
         env:
           TAG: ${{ steps.hash.outputs.tag }}
@@ -191,41 +194,68 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
+          DIGEST=''
           if [ "${REGISTRY}" = "dockerhub" ]; then
-            URI="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}:${TAG}"
-            if docker manifest inspect "$URI" >/dev/null 2>&1; then
-              echo "reused=true" >> "$GITHUB_OUTPUT"
-              echo "Identical-input image already in registry: ${URI} — skipping build/scan/push"
-            else
-              echo "No existing image for tag ${TAG} — building"
+            IMAGE_REPO="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}"
+            URI="${IMAGE_REPO}:${TAG}"
+            MANIFEST=$(docker manifest inspect --verbose "$URI" 2>/dev/null) || MANIFEST=''
+            if [ -n "$MANIFEST" ]; then
+              DIGEST=$(printf '%s' "$MANIFEST" | jq -r 'if type == "array" then .[0].Descriptor.digest else .Descriptor.digest end // empty')
             fi
           else
+            IMAGE_REPO="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}"
+            URI="${IMAGE_REPO}:${TAG}"
             # Short-lived pull creds via the same CF API the prune script uses.
             # Any failure here degrades to a fresh build (safe direction).
             CRED=$(curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/containers/registries/registry.cloudflare.com/credentials" \
               -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' \
               --data '{"expiration_minutes":10,"permissions":["pull"]}') || CRED='{}'
             if [ "$(printf '%s' "$CRED" | jq -r .success)" != "true" ]; then
-              echo "::warning::could not mint registry credentials — building fresh"
+              echo "::warning::Could not mint registry credentials — building fresh"
               exit 0
             fi
-            # Mask the minted credential before it can reach a log. It is a live
-            # registry password with a 10-minute window; without this any later
-            # `set -x`, jq error, or debug dump prints it verbatim.
-            echo "::add-mask::$(printf '%s' "$CRED" | jq -r .result.password)"
-            AUTH=$(printf '%s:%s' "$(printf '%s' "$CRED" | jq -r .result.username)" "$(printf '%s' "$CRED" | jq -r .result.password)" | base64 -w0)
+            USERNAME=$(printf '%s' "$CRED" | jq -r .result.username)
+            PASSWORD=$(printf '%s' "$CRED" | jq -r .result.password)
+            echo "::add-mask::${PASSWORD}"
+            AUTH=$(printf '%s:%s' "$USERNAME" "$PASSWORD" | base64 -w0)
             echo "::add-mask::${AUTH}"
             ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
-            CODE=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
+            HEADERS=$(mktemp)
+            CODE=$(curl -sS -o /dev/null -D "$HEADERS" -w '%{http_code}' -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
               "https://registry.cloudflare.com/v2/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}/manifests/${TAG}" || echo 000)
             if [ "$CODE" = "200" ]; then
-              URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}:${TAG}"
-              echo "reused=true" >> "$GITHUB_OUTPUT"
-              echo "Identical-input image already in registry: ${URI} — skipping build/scan/push"
-            else
-              echo "No existing image for tag ${TAG} (HTTP ${CODE}) — building"
+              DIGEST=$(tr -d '\r' < "$HEADERS" | awk 'tolower($1) == "docker-content-digest:" { print $2 }')
+              if [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] && \
+                ! printf '%s' "$PASSWORD" | docker login registry.cloudflare.com --username "$USERNAME" --password-stdin >/dev/null; then
+                echo "::warning::Could not authenticate provenance verifier to the registry — building fresh"
+                DIGEST=''
+              fi
             fi
+            rm -f "$HEADERS"
           fi
+
+          case "$DIGEST" in
+            sha256:[a-f0-9][a-f0-9]*) ;;
+            '') echo "No existing digest for tag ${TAG} — building" ;;
+            *) echo "::warning::Registry returned malformed digest '${DIGEST}' — building fresh"; DIGEST='' ;;
+          esac
+
+          if [ -n "$DIGEST" ]; then
+            echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authorize retained image reuse
+        id: reuse
+        if: inputs.cache-bust == '' && steps.hash.outputs.no_reuse == '0' && steps.candidate.outputs.digest != ''
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/container-image.yml
+        run: scripts/ci/select-container-reuse.sh
 
       - name: Write cache buster (force fresh npm install layers)
         if: steps.reuse.outputs.reused != 'true' && inputs.cache-bust != ''

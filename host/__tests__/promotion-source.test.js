@@ -45,7 +45,7 @@ describe('REQ-OPS-036: protected main promotion source', () => {
 
   it('wires the validator to the protected promotion bases', () => {
     assert.deepEqual(workflow.on.pull_request.branches, ['main', 'master']);
-    assert.equal(workflow.permissions.contents, 'read');
+    assert.deepEqual(workflow.permissions, {});
     assert.equal(job.name, 'Develop promotion source');
     assert.equal(validationStep.env.BASE_REF, '${{ github.base_ref }}');
     assert.equal(validationStep.env.HEAD_REF, '${{ github.head_ref }}');

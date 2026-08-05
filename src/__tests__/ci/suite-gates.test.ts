@@ -279,7 +279,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(proxy).toMatch(/prefixed_http=ready|prefixed_ws=ready|root-scoped initial asset URL/);
   });
 
-  it('REQ-OPS-003 AC8: maximizes workload parallelism for the sub-three-minute target', () => {
+  it('REQ-OPS-045 AC2: starts every affected workload directly after classification', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const directWorkloads = [
       'quality', 'typecheck', 'workflow-audit', 'bundle-size',
@@ -287,10 +287,27 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       'landing-tests', 'host-tests', 'browser-ide',
     ];
     for (const name of directWorkloads) expect(testWorkflow.jobs[name].needs).toBe('changes');
-    expect((testWorkflow.jobs['backend-tests'] as { strategy?: { 'max-parallel'?: number } }).strategy?.['max-parallel']).toBe(5);
-    expect((testWorkflow.jobs['frontend-tests'] as { strategy?: { 'max-parallel'?: number } }).strategy?.['max-parallel']).toBe(3);
-    for (const name of ['coverage-backend', 'coverage-frontend']) {
-      expect((testWorkflow.jobs[name] as { if?: string }).if).toContain("github.event_name != 'pull_request'");
+  });
+
+  it('REQ-OPS-045 AC3: exposes every backend and frontend matrix leg concurrently', () => {
+    const { testWorkflow } = readCacheWorkflowContract();
+    for (const [name, expectedLegs] of [['backend-tests', 5], ['frontend-tests', 3]] as const) {
+      const strategy = (testWorkflow.jobs[name] as {
+        strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
+      }).strategy;
+      expect(strategy?.matrix?.include).toHaveLength(expectedLegs);
+      expect(strategy?.['max-parallel']).toBe(strategy?.matrix?.include?.length);
+    }
+  });
+
+  it('REQ-OPS-022 AC5: omits coverage lanes from the pull-request critical path', () => {
+    const { testWorkflow } = readCacheWorkflowContract();
+    const expectedConditions = {
+      'coverage-backend': "github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.backend == 'true')",
+      'coverage-frontend': "github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.webui == 'true')",
+    };
+    for (const [name, condition] of Object.entries(expectedConditions)) {
+      expect((testWorkflow.jobs[name] as { if?: string }).if).toBe(condition);
     }
   });
 

@@ -64,7 +64,10 @@ on: # zizmor: ignore[dangerous-triggers]
 
 concurrency:
   group: deploy-${{ ((github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
-  cancel-in-progress: true
+  # A deploy mutates the worker, secrets, KV, and registry in sequence. Cancelling
+  # it midway can leave a partially configured target, so same-environment runs
+  # queue instead; GitHub retains the newest pending run.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -507,12 +510,13 @@ jobs:
           sed -n '30,52p' wrangler.toml
 
       - name: Point wrangler.toml to pre-pushed image
-        # Only the secret-free image tag crosses the job boundary (a full URI
-        # output embeds the masked account id / registry username and the runner
-        # drops it: "Skip output ... since it may contain secret"). The URI is
-        # rebuilt here from secrets this job already holds.
+        # The full URI embeds a masked account id / registry username, so only
+        # secret-free identity components cross the job boundary. Reused images
+        # bind the exact verified digest; fresh images retain their new tag.
         env:
           IMAGE_TAG: ${{ needs.container.outputs.image_tag }}
+          VERIFIED_DIGEST: ${{ needs.container.outputs.verified_digest }}
+          REUSED: ${{ needs.container.outputs.reused }}
           REGISTRY_KIND: ${{ needs.prepare.outputs.registry }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -521,10 +525,23 @@ jobs:
             echo "::error::container job produced no image tag"
             exit 1
           fi
-          if [ "$REGISTRY_KIND" = "dockerhub" ]; then
-            REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${WORKER_NAME}-container:${IMAGE_TAG}"
+          if [ "$REUSED" = "true" ]; then
+            if [[ ! "$VERIFIED_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "::error::reused image has no valid verified digest"
+              exit 1
+            fi
+            IMAGE_REFERENCE="@${VERIFIED_DIGEST}"
           else
-            REGISTRY_URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${WORKER_NAME}-container:${IMAGE_TAG}"
+            if [ -n "$VERIFIED_DIGEST" ]; then
+              echo "::error::fresh image unexpectedly carried a verified retained digest"
+              exit 1
+            fi
+            IMAGE_REFERENCE=":${IMAGE_TAG}"
+          fi
+          if [ "$REGISTRY_KIND" = "dockerhub" ]; then
+            REGISTRY_URI="docker.io/${DOCKERHUB_USER}/${WORKER_NAME}-container${IMAGE_REFERENCE}"
+          else
+            REGISTRY_URI="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${WORKER_NAME}-container${IMAGE_REFERENCE}"
           fi
           sed -i "s|image = \"./Dockerfile\"|image = \"${REGISTRY_URI}\"|" wrangler.toml
           echo "--- Verifying image config ---"
@@ -669,18 +686,7 @@ jobs:
           SAAS_MODE_VAR: ${{ vars.SAAS_MODE }}
 
       - name: Seed service user in KV (stress-test identity, optional)
-        run: |
-          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
-          if [ -z "${AUTH_SECRET}" ]; then
-            echo "No service-auth secret — skipping KV service-user seed"
-            exit 0
-          fi
-          # Fixed email matching the worker's X-Service-Auth identity
-          SERVICE_EMAIL="e2e-service@codeflare.local"
-          echo "Seeding service user: ${SERVICE_EMAIL}"
-          KV_VALUE="{\"addedBy\":\"deploy\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
-          npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --binding KV --remote 2>/dev/null || \
-          echo "::warning::Could not seed service user in KV (non-fatal)"
+        run: scripts/ci/seed-service-user.sh
         env:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
