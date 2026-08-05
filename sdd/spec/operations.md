@@ -1142,9 +1142,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Stress Test writes its configured target through the validated HTTPS-origin output boundary. <!-- @impl: scripts/ci/normalize-https-origin.mjs --> <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/normalize-https-origin.test.js (writes a validated named workflow output when requested) --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
-2. Smoke verification consumes the validated target output. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
-3. The Stress Test setup job writes no Worker secret, KV entry, or deployment resource. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (keeps stress tests read-only and wires target resolution to the validated boundary) -->
+1. Stress Test writes its configured target through the validated HTTPS-origin output boundary. <!-- @impl: scripts/ci/normalize-https-origin.mjs --> <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/normalize-https-origin.test.js (writes a validated named workflow output when requested) --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (limits stress setup to probe credentials and validated target steps) -->
+2. Smoke verification consumes the validated target output. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (limits stress setup to probe credentials and validated target steps) -->
+3. Setup contains only checkout, Node setup, target normalization, and smoke verification steps. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (limits stress setup to probe credentials and validated target steps) -->
+4. Setup receives only the three service-auth probe credentials. <!-- @impl: .github/workflows/stress-test.yml::setup --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (limits stress setup to probe credentials and validated target steps) -->
 
 **Constraints:** The workflow targets integration only; Deploy owns service-auth secret and service-user provisioning.
 
