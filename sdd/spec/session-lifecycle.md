@@ -593,16 +593,39 @@ None.
 4. The deliberate-stop marker is durable before that write, so a concurrent metrics tick reading a stopped record with no marker present cannot mistake it for a false stop and re-assert running. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (records the session stopped BEFORE clearing the identifiers that write needs) -->
 5. A restart path that tears the container down goes on to start it, so the marker that teardown persisted is always cleared by a fresh start rather than left to hold the session stopped. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy) -->
 6. A restart path that tears the container down records the session running again, so the authoritative stopped gate does not end the client's reconnects while the container is coming back up. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy) -->
-7. Three consecutive metrics ticks in which neither `/activity` nor `/health` responds reset the Durable Object without stopping the still-running container or writing its session stopped, allowing the reconstructed object to reattach to the existing container and PTY; a genuine fresh container start clears any partial streak from the prior lifecycle. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC7: resets the Durable Object after three consecutive ticks where neither container probe responds) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC7: clears a prior lifecycle transport-failure streak on a fresh container start) -->
-8. Any response from either independent container probe clears the persisted reconstruction-failure streak, including an HTTP non-OK response, because transport reachability rather than endpoint health is the reconstruction signal. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC8: any responding probe clears the reconstruction failure streak) -->
 
-**Constraints:** The bound applies to the poll, not to the tick: the exits that deliberately stop the loop (a confirmed exit, an idle stop, a zombie DO, a stop already issued) must keep ending it. A transport reconstruction never changes KV session status and never signals or destroys the container. A persisted deliberate-stop marker suppresses both reconstruction and alarm re-arm so recovery cannot interrupt teardown.
+**Constraints:** Bounds apply to awaited polls; confirmed lifecycle exits must still end the alarm loop.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit)
 
 **Verification:** Automated test ([metrics alarm survives an unanswered poll](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-021: Unreachable container transport reconstructs without replacing the workload
+
+**Intent:** A stale coordinator attachment must recover without stopping a live container, changing its authoritative session status, or overcounting usage during accelerated confirmation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A running session whose transport remains unreachable across the confirmation window reconstructs its coordinator without stopping the workload or recording the session stopped. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1: resets the Durable Object after three consecutive ticks where neither container probe responds) -->
+2. A fresh container lifecycle clears transport-recovery evidence left by the prior lifecycle. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC2: clears a prior lifecycle transport-failure streak on a fresh container start) -->
+3. A response from either independent reachability check clears pending transport recovery, regardless of response status. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC3: any responding probe clears the reconstruction failure streak) -->
+4. Accelerated transport-confirmation retries neither add billable usage nor contact the quota service. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4: confirmation retries do not add billable usage or ping Timekeeper) -->
+
+**Constraints:** Recovery must not signal or destroy the workload. Deliberate teardown suppresses recovery and re-arming.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering)
+
+**Verification:** Automated test ([transport reconstruction preserves the workload and usage cadence](../../src/__tests__/container-metrics.test.ts)); deployed reattachment smoke check pending
 
 **Status:** Implemented
 

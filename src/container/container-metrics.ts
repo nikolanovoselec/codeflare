@@ -305,13 +305,18 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number):
  * is an application problem, but it proves the private TCP attachment works.
  * Only complete failures count. On the third consecutive complete failure,
  * reset the Durable Object without stopping the container. The Containers SDK
- * constructor detects the still-running process and reattaches its monitor, so
- * the browser can reconnect to the existing PTY instead of losing the session.
+ * constructor has a running-container reattachment path; reconnecting through
+ * it remains a deployed smoke check rather than a unit-tested contract.
  */
+type TransportReconciliation = {
+  nextDelaySec: number;
+  recordUsage: boolean;
+};
+
 async function reconcileContainerTransport(
   ctx: DurableObjectState,
   anyProbeResponded: boolean,
-): Promise<number | null> {
+): Promise<TransportReconciliation | null> {
   try {
     const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
     if (typeof shutdownRequested === 'number') {
@@ -324,6 +329,22 @@ async function reconcileContainerTransport(
     });
   }
 
+  let currentStreak: number;
+  try {
+    const stored = await ctx.storage.get<number>(TRANSPORT_FAILURE_STREAK_KEY);
+    currentStreak = typeof stored === 'number' && stored >= 0 ? stored : 0;
+  } catch (err) {
+    logger.warn('collectMetrics: failed to read transport failure streak', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // Unknown cadence must not become billable. A responding probe can return
+    // to the normal schedule; a complete failure gets another confirmation.
+    return {
+      nextDelaySec: anyProbeResponded ? 60 : TRANSPORT_FAILURE_RETRY_SECONDS,
+      recordUsage: false,
+    };
+  }
+
   if (anyProbeResponded) {
     try {
       await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
@@ -332,13 +353,11 @@ async function reconcileContainerTransport(
         error: err instanceof Error ? err.message : String(err),
       });
     }
-    return 60;
+    return { nextDelaySec: 60, recordUsage: currentStreak === 0 };
   }
 
-  let nextStreak: number;
+  const nextStreak = currentStreak + 1;
   try {
-    const stored = await ctx.storage.get<number>(TRANSPORT_FAILURE_STREAK_KEY);
-    nextStreak = (typeof stored === 'number' && stored >= 0 ? stored : 0) + 1;
     if (nextStreak < TRANSPORT_FAILURE_ABORT_THRESHOLD) {
       await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, nextStreak);
     } else {
@@ -350,7 +369,7 @@ async function reconcileContainerTransport(
     logger.warn('collectMetrics: failed to persist transport failure streak', {
       error: err instanceof Error ? err.message : String(err),
     });
-    return TRANSPORT_FAILURE_RETRY_SECONDS;
+    return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
   }
 
   if (nextStreak >= TRANSPORT_FAILURE_ABORT_THRESHOLD) {
@@ -365,7 +384,10 @@ async function reconcileContainerTransport(
     consecutiveFailures: nextStreak,
     abortThreshold: TRANSPORT_FAILURE_ABORT_THRESHOLD,
   });
-  return TRANSPORT_FAILURE_RETRY_SECONDS;
+  return {
+    nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS,
+    recordUsage: currentStreak === 0,
+  };
 }
 
 /**
@@ -608,16 +630,18 @@ export async function collectMetrics(
     logger.warn('collectMetrics: fetch/write failed', { error: err instanceof Error ? err.message : String(err) });
   }
 
-  const nextMetricsDelaySec = await reconcileContainerTransport(
+  const transportReconciliation = await reconcileContainerTransport(
     ctx,
     activityProbeResponded || healthProbeResponded,
   );
-  if (nextMetricsDelaySec === null) {
+  if (transportReconciliation === null) {
     return; // A deliberate stop owns the lifecycle; do not re-arm or reset its DO.
   }
 
-  // Timekeeper usage ping (SaaS mode only)
-  if (isSaasModeActive(env.SAAS_MODE)
+  // Timekeeper usage ping (SaaS mode only). A tick scheduled after a complete
+  // transport failure is a 5-second confirmation, not another billable minute.
+  if (transportReconciliation.recordUsage
+      && isSaasModeActive(env.SAAS_MODE)
       && state._bucketName
       && state._userEmail
       && env.TIMEKEEPER) {
@@ -667,6 +691,7 @@ export async function collectMetrics(
     }
   } else {
     logger.info('Timekeeper ping skipped', {
+      recordUsage: transportReconciliation.recordUsage,
       saasMode: isSaasModeActive(env.SAAS_MODE),
       bucketName: !!state._bucketName,
       userEmail: !!state._userEmail,
@@ -678,7 +703,7 @@ export async function collectMetrics(
   // re-arm, onStart() will restart the loop on next container start.
   if (ctx.container?.running) {
     try {
-      await callbacks.schedule(nextMetricsDelaySec, 'collectMetrics');
+      await callbacks.schedule(transportReconciliation.nextDelaySec, 'collectMetrics');
     } catch {
       // DO is shutting down or destroyed
     }

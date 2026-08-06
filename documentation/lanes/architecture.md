@@ -442,7 +442,7 @@ stateDiagram-v2
 
 (`error` — like `initializing` and `stopping` — is a frontend-ephemeral state, never persisted ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) AC2); it resolves to `stopped` on the next batch-status poll, not via a KV write. The SDK's `onError()` fires on a **running** container's unexpected exit, hence the `running --> stopped` transition above.)
 
-**Transport reconstruction (running process, unreachable port):** `ctx.container.running` proves process existence, not that the Durable Object can still reach the private container port. `collectMetrics()` persists a streak only when both `/activity` and `/health` fail in the same tick, retries the first two complete failures after 5 s, then calls `ctx.abort()` on the third. The Durable Object reconstructs around the still-running container, the Containers SDK reattaches its monitor, and the browser can reconnect to the existing PTY. This path does not write `stopped`, signal the container, or run final sync because the workload is preserved rather than restarted ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC7-AC8).
+**Transport reconstruction (running process, unreachable port):** `ctx.container.running` proves process existence, not that the Durable Object can still reach the private container port. `collectMetrics()` persists a streak only when both `/activity` and `/health` fail in the same tick, retries the first two complete failures after 5 s, then calls `ctx.abort()` on the third. This path does not write `stopped`, signal the container, run final sync, or bill the accelerated confirmation ticks ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-reconstructs-without-replacing-the-workload) AC1-AC4). The SDK constructor's running-container path is expected to reattach its monitor; browser reconnection to the existing PTY remains a deployed smoke check, not a unit-tested contract.
 
 **Stop (unexpected exit):** A crash, deploy-roll, or platform idle-reap exits the container without a graceful `stop()`, so the SDK fires `onError()` (**not** `onStop()`). `onError()` opens the persisted not-running confirmation window and re-arms `collectMetrics()`; the `collectMetrics()` `!running` branch writes `stopped` only after the reading persists across that window. KV converges to `stopped` rather than dangling at `running`, without letting one transient platform reading kick a live user out. See rationale #5 / #17 and [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
 
@@ -460,23 +460,14 @@ Newly started sessions have a 3-minute startup guard (`session-polling.ts`) duri
 
 ```mermaid
 flowchart TD
-    subgraph IdleStop["Idle stop"]
-        I1["collectMetrics()"] --> I2["KV stopped + stop(SIGTERM)"]
-        I2 --> I3["onStop clears schedule"]
-    end
-    subgraph UserStopDelete["User stop / delete"]
-        U1["Worker writes or clears KV"] --> U2["container.destroy()"]
-        U2 --> U3["identifiers cleared before onStop"]
-    end
-    subgraph TransportRecovery["Running but unreachable"]
-        R1["/activity + /health both fail 3 times"] --> R2["ctx.abort reconstructs DO"]
-        R2 --> R3["SDK reattaches to existing container + PTY"]
-    end
-    subgraph UnexpectedExit["Unexpected exit"]
-        X1["crash / reap"] --> X2["onError or collectMetrics writes stopped"]
-    end
+    I1["Idle timeout"] --> I2["KV stopped + stop(SIGTERM)"]
+    I2 --> I3["onStop clears schedule"]
+    U1["User stop / delete"] --> U2["container.destroy()"]
+    U2 --> U3["identifiers cleared before onStop"]
+    R1["Both probes fail 3 times"] --> R2["ctx.abort reconstructs DO"]
+    X1["Unexpected exit"] --> X2["onError or collectMetrics writes stopped"]
     U3 -.-> K["prevents session resurrection"]
-    R3 -.-> A["KV remains running"]
+    R2 -.-> A["container + KV running preserved"]
     X2 -.-> B["KV status authoritative (AD70)"]
 ```
 

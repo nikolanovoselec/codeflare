@@ -225,7 +225,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    it('REQ-SESSION-020 AC7: clears a prior lifecycle transport-failure streak on a fresh container start', async () => {
+    it('REQ-SESSION-021 AC2: clears a prior lifecycle transport-failure streak on a fresh container start', async () => {
       const ctx = (containerInstance as unknown as { ctx: { storage: { put: (key: string, value: unknown) => Promise<void> } } }).ctx;
       await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, 2);
 
@@ -386,7 +386,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     }, 25_000);
 
-    it('REQ-SESSION-020 AC7: resets the Durable Object after three consecutive ticks where neither container probe responds', async () => {
+    it('REQ-SESSION-021 AC1: resets the Durable Object after three consecutive ticks where neither container probe responds', async () => {
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456',
         name: 'Test',
@@ -417,7 +417,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stoppedWrite).toBeUndefined();
     });
 
-    it('REQ-SESSION-020 AC8: any responding probe clears the reconstruction failure streak', async () => {
+    it('REQ-SESSION-021 AC3: any responding probe clears the reconstruction failure streak', async () => {
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456',
         name: 'Test',
@@ -445,6 +445,57 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
 
       expect(testState.abortReasons).toEqual([]);
+    });
+
+    it('REQ-SESSION-021 AC4: confirmation retries do not add billable usage or ping Timekeeper', async () => {
+      testState.storedBucketName = 'test-bucket';
+      testState.storedSessionId = 'testsession123456';
+      testState.storedUserEmail = 'quota@example.com';
+
+      const timekeeperStub = {
+        fetch: vi.fn(async () =>
+          new Response(JSON.stringify({ quotaExceeded: false, totalMonthlySeconds: 60 }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        ),
+      };
+      const TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+      );
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      await vi.waitFor(
+        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
+
+      testState.tcpFetchShouldFail = true;
+      testState.scheduleCalls = [];
+      await instance.collectMetrics();
+      await instance.collectMetrics();
+
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect((instance as unknown as { _usageSeconds: number })._usageSeconds).toBe(60);
+      expect(testState.scheduleCalls).toEqual([
+        [5, 'collectMetrics'],
+        [5, 'collectMetrics'],
+      ]);
     });
 
     it('should re-arm schedule if container is still running', async () => {
