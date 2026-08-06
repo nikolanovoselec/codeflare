@@ -573,6 +573,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
       expect(mockLogger.error).toHaveBeenCalledWith(
         'collectMetrics: container transport recovery exhausted',
+        undefined,
         expect.objectContaining({
           durableObjectId: 'mock-do-id',
           recoveryAttemptId: expect.any(String),
@@ -617,6 +618,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
       expect(mockLogger.error).toHaveBeenCalledWith(
         'collectMetrics: invalid transport recovery record; suppressing reconstruction',
+        undefined,
         { durableObjectId: 'mock-do-id', valueType: 'object' },
       );
     });

@@ -484,6 +484,7 @@ async function reconcileActiveTransportRecovery(
     }
     logger.error(
       'collectMetrics: container transport recovery exhausted',
+      undefined,
       transportRecoveryLogContext(ctx, exhaustedRecovery, probes),
     );
     return { nextDelaySec: 60, recordUsage: false };
@@ -510,6 +511,7 @@ async function reconcileActiveTransportRecovery(
     transportRecoveryLogContext(ctx, nextRecovery, probes),
   );
   ctx.abort(TRANSPORT_ABORT_REASON);
+  return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
 }
 
 async function reconcileContainerTransport(
@@ -549,10 +551,14 @@ async function reconcileContainerTransport(
       : 0;
     const storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
     if (storedRecovery !== undefined && storedRecovery !== null && !isTransportRecoveryRecord(storedRecovery)) {
-      logger.error('collectMetrics: invalid transport recovery record; suppressing reconstruction', {
-        durableObjectId: ctx.id.toString(),
-        valueType: typeof storedRecovery,
-      });
+      logger.error(
+        'collectMetrics: invalid transport recovery record; suppressing reconstruction',
+        undefined,
+        {
+          durableObjectId: ctx.id.toString(),
+          valueType: typeof storedRecovery,
+        },
+      );
       await ctx.storage.delete(TRANSPORT_RECOVERY_KEY);
       return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
     }
