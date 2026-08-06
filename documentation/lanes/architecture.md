@@ -442,7 +442,9 @@ stateDiagram-v2
 
 (`error` — like `initializing` and `stopping` — is a frontend-ephemeral state, never persisted ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) AC2); it resolves to `stopped` on the next batch-status poll, not via a KV write. The SDK's `onError()` fires on a **running** container's unexpected exit, hence the `running --> stopped` transition above.)
 
-**Transport reconstruction (running process, unreachable port):** `ctx.container.running` proves process existence, not that the Durable Object can still reach the private container port. `collectMetrics()` persists a streak only when both `/activity` and `/health` fail in the same tick, retries the first two complete failures after 5 s, then calls `ctx.abort()` on the third. This path does not write `stopped`, signal the container, run final sync, or bill the accelerated confirmation ticks ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC1-AC7). The SDK constructor's running-container path is expected to reattach its monitor; browser reconnection to the existing PTY remains a deployed smoke check, not a unit-tested contract.
+**Transport reconstruction (running process, unreachable host):** `ctx.container.running` proves process existence, not host readiness. `/activity` and `/health` are separate routes on the same port 8080 Node server and event loop, so both failing does not distinguish a stale DO attachment from container networking, listener, CPU, or host-process failure. `collectMetrics()` confirms three complete failures at 5 s cadence, persists a correlated recovery attempt, then calls `ctx.abort()` without writing `stopped`, signalling the container, running final sync, or billing accelerated ticks ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC1-AC7).
+
+A post-reset host response confirms recovery, clears the attempt, and restores 60 s metrics. Continued failure permits one more reconstruction after three confirmations; three failures after the second attempt mark recovery exhausted and retain 60 s checks with normal usage accounting, without another reset. Reset, confirmation, success, and exhaustion logs correlate the DO and attempt identities, counts, elapsed time, container state, and classified route observations. An unreadable `shutdownRequested` marker suppresses both reconstruction and alarm re-arming ([REQ-SESSION-022](../../sdd/spec/session-lifecycle.md#req-session-022-transport-recovery-is-durable-observable-and-bounded) AC1-AC6). The SDK constructor's running-container path is expected to reattach its monitor; browser reconnection to the existing PTY remains a deployed smoke check, not an automated-contract claim.
 
 **Stop (unexpected exit):** A crash, deploy-roll, or platform idle-reap exits the container without a graceful `stop()`, so the SDK fires `onError()` (**not** `onStop()`). `onError()` opens the persisted not-running confirmation window and re-arms `collectMetrics()`; the `collectMetrics()` `!running` branch writes `stopped` only after the reading persists across that window. KV converges to `stopped` rather than dangling at `running`, without letting one transient platform reading kick a live user out. See rationale #5 / #17 and [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
 
@@ -464,10 +466,13 @@ flowchart TD
     I2 --> I3["onStop clears schedule"]
     U1["User stop / delete"] --> U2["container.destroy()"]
     U2 --> U3["identifiers cleared before onStop"]
-    R1["Both probes fail 3 times"] --> R2["ctx.abort reconstructs DO"]
+    R1["Both host routes fail 3 times"] --> R2["Persist attempt + ctx.abort"]
+    R2 --> R3{"Host responds after reset?"}
+    R3 -->|"Yes"| A["Clear attempt; 60s metrics"]
+    R3 -->|"No after max 2 resets"| E["Exhausted; 60s checks"]
     X1["Unexpected exit"] --> X2["onError or collectMetrics writes stopped"]
     U3 -.-> K["prevents session resurrection"]
-    R2 -.-> A["container + KV running preserved"]
+    R2 -.-> P["container + KV running preserved"]
     X2 -.-> B["KV status authoritative (AD70)"]
 ```
 

@@ -88,10 +88,12 @@ const NOT_RUNNING_CONFIRM_MS = 90_000;
 // Worker is stuck with a failed connection to container services. The running
 // proxy path does not: it can leave ctx.container.running=true while every port
 // fetch times out forever. Persist the streak across DO hibernation and reset
-// the DO after three ticks where neither independent host endpoint responds.
+// the DO after three ticks where neither route on the shared host server responds.
 export const TRANSPORT_FAILURE_STREAK_KEY = 'metricsTransportFailureStreak';
+export const TRANSPORT_RECOVERY_KEY = 'metricsTransportRecovery';
 const TRANSPORT_FAILURE_ABORT_THRESHOLD = 3;
 const TRANSPORT_FAILURE_RETRY_SECONDS = 5;
+const TRANSPORT_RECOVERY_MAX_ATTEMPTS = 2;
 const TRANSPORT_ABORT_REASON = 'container transport unresponsive after 3 complete probe failures';
 
 // Budget the DO gives the in-container final sync (drainFinalSync) to complete
@@ -301,44 +303,273 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number):
 /**
  * Record whether this tick proved that the DO-to-container transport is alive.
  *
- * Either endpoint responding is sufficient: an HTTP non-OK or malformed body
- * is an application problem, but it proves the private TCP attachment works.
- * Only complete failures count. On the third consecutive complete failure,
- * reset the Durable Object without stopping the container. The Containers SDK
- * constructor has a running-container reattachment path; reconnecting through
- * it remains a deployed smoke check rather than a unit-tested contract.
+ * Either host route responding is sufficient: an HTTP non-OK or malformed body
+ * is an application problem, but it proves the private TCP path works. Both
+ * routes share port 8080, the Node process, and its event loop, so total failure
+ * does not identify whether the DO attachment, container network, or host is
+ * wedged. Persist correlated recovery evidence before resetting the Durable
+ * Object, confirm recovery only from a later response, and stop resetting after
+ * two attempts while preserving slower checks. The Containers SDK constructor
+ * has a running-container reattachment path; reconnecting through it remains a
+ * deployed smoke check rather than a unit-tested contract.
  */
 type TransportReconciliation = {
   nextDelaySec: number;
   recordUsage: boolean;
 };
 
-async function reconcileContainerTransport(
+type ProbeFailureCategory = 'timeout' | 'network-lost' | 'connection-refused' | 'other';
+
+type ProbeObservation = {
+  responded: boolean;
+  durationMs: number;
+  status?: number;
+  error?: string;
+  category?: ProbeFailureCategory;
+};
+
+type TransportProbeObservations = {
+  activity: ProbeObservation;
+  health: ProbeObservation;
+};
+
+type TransportRecoveryRecord = {
+  attemptId: string;
+  startedAt: number;
+  lastAttemptAt: number;
+  attemptCount: number;
+  postResetFailureCount: number;
+  totalFailureCount: number;
+  status: 'resetting' | 'exhausted';
+};
+
+function isTransportRecoveryRecord(value: unknown): value is TransportRecoveryRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.attemptId !== 'string'
+      || record.attemptId.length === 0
+      || record.attemptId.length > 128
+      || !Number.isSafeInteger(record.startedAt)
+      || (record.startedAt as number) <= 0
+      || !Number.isSafeInteger(record.lastAttemptAt)
+      || (record.lastAttemptAt as number) < (record.startedAt as number)
+      || !Number.isSafeInteger(record.attemptCount)
+      || !Number.isSafeInteger(record.postResetFailureCount)
+      || !Number.isSafeInteger(record.totalFailureCount)) {
+    return false;
+  }
+
+  const attemptCount = record.attemptCount as number;
+  const postResetFailureCount = record.postResetFailureCount as number;
+  const totalFailureCount = record.totalFailureCount as number;
+  if (attemptCount < 1
+      || attemptCount > TRANSPORT_RECOVERY_MAX_ATTEMPTS
+      || postResetFailureCount < 0
+      || totalFailureCount < attemptCount * TRANSPORT_FAILURE_ABORT_THRESHOLD + postResetFailureCount) {
+    return false;
+  }
+
+  if (record.status === 'resetting') {
+    return postResetFailureCount < TRANSPORT_FAILURE_ABORT_THRESHOLD;
+  }
+  return record.status === 'exhausted'
+    && attemptCount === TRANSPORT_RECOVERY_MAX_ATTEMPTS
+    && postResetFailureCount === TRANSPORT_FAILURE_ABORT_THRESHOLD;
+}
+
+function classifyProbeFailure(error: unknown): ProbeFailureCategory {
+  const name = error instanceof Error ? error.name.toLowerCase() : '';
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (name.includes('timeout') || message.includes('timed out') || message.includes('timeout') || message === 'aborted') {
+    return 'timeout';
+  }
+  if (message.includes('network connection lost')) return 'network-lost';
+  if (message.includes('connection refused') || message.includes('econnrefused')) return 'connection-refused';
+  return 'other';
+}
+
+function failedProbeObservation(error: unknown, startedAt: number): ProbeObservation {
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim();
+  return {
+    responded: false,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    error: message.slice(0, 256),
+    category: classifyProbeFailure(error),
+  };
+}
+
+async function persistTransportRecovery(
   ctx: DurableObjectState,
-  anyProbeResponded: boolean,
-): Promise<TransportReconciliation | null> {
+  record: TransportRecoveryRecord,
+): Promise<void> {
+  await ctx.storage.put(TRANSPORT_RECOVERY_KEY, record);
+  await ctx.storage.sync();
+}
+
+async function clearTransportRecoveryState(ctx: DurableObjectState): Promise<void> {
+  let firstError: unknown;
   try {
-    const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
-    if (typeof shutdownRequested === 'number') {
-      await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
-      return null;
-    }
+    await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
   } catch (err) {
-    logger.warn('collectMetrics: failed to read shutdown marker before transport recovery', {
+    firstError = err;
+  }
+  try {
+    await ctx.storage.delete(TRANSPORT_RECOVERY_KEY);
+  } catch (err) {
+    if (firstError === undefined) firstError = err;
+  }
+  if (firstError !== undefined) throw firstError;
+}
+
+function transportRecoveryLogContext(
+  ctx: DurableObjectState,
+  recovery: TransportRecoveryRecord,
+  probes: TransportProbeObservations,
+) {
+  return {
+    durableObjectId: ctx.id.toString(),
+    recoveryAttemptId: recovery.attemptId,
+    recoveryAttempt: recovery.attemptCount,
+    totalFailures: recovery.totalFailureCount,
+    elapsedMs: Math.max(0, Date.now() - recovery.startedAt),
+    containerRunning: ctx.container?.running ?? false,
+    probes,
+  };
+}
+
+async function reconcileActiveTransportRecovery(
+  ctx: DurableObjectState,
+  recovery: TransportRecoveryRecord,
+  probes: TransportProbeObservations,
+): Promise<TransportReconciliation> {
+  if (recovery.status === 'exhausted') {
+    // The transition to exhausted is logged once. Keep normal metering and the
+    // watchdog alive without emitting another error every minute.
+    return { nextDelaySec: 60, recordUsage: true };
+  }
+
+  const nextPostResetFailures = recovery.postResetFailureCount + 1;
+  const nextTotalFailures = recovery.totalFailureCount + 1;
+  if (nextPostResetFailures < TRANSPORT_FAILURE_ABORT_THRESHOLD) {
+    const nextRecovery: TransportRecoveryRecord = {
+      ...recovery,
+      postResetFailureCount: nextPostResetFailures,
+      totalFailureCount: nextTotalFailures,
+    };
+    try {
+      await persistTransportRecovery(ctx, nextRecovery);
+    } catch (err) {
+      logger.warn('collectMetrics: failed to persist post-reconstruction confirmation', {
+        ...transportRecoveryLogContext(ctx, recovery, probes),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { nextDelaySec: 60, recordUsage: false };
+    }
+    logger.warn('collectMetrics: post-reconstruction transport confirmation failed', {
+      ...transportRecoveryLogContext(ctx, nextRecovery, probes),
+      consecutiveFailures: nextPostResetFailures,
+    });
+    return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
+  }
+
+  if (recovery.attemptCount >= TRANSPORT_RECOVERY_MAX_ATTEMPTS) {
+    const exhaustedRecovery: TransportRecoveryRecord = {
+      ...recovery,
+      postResetFailureCount: nextPostResetFailures,
+      totalFailureCount: nextTotalFailures,
+      status: 'exhausted',
+    };
+    try {
+      await persistTransportRecovery(ctx, exhaustedRecovery);
+    } catch (err) {
+      logger.warn('collectMetrics: failed to persist transport recovery exhaustion', {
+        ...transportRecoveryLogContext(ctx, recovery, probes),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
+    }
+    logger.error(
+      'collectMetrics: container transport recovery exhausted',
+      transportRecoveryLogContext(ctx, exhaustedRecovery, probes),
+    );
+    return { nextDelaySec: 60, recordUsage: false };
+  }
+
+  const nextRecovery: TransportRecoveryRecord = {
+    ...recovery,
+    lastAttemptAt: Date.now(),
+    attemptCount: recovery.attemptCount + 1,
+    postResetFailureCount: 0,
+    totalFailureCount: nextTotalFailures,
+  };
+  try {
+    await persistTransportRecovery(ctx, nextRecovery);
+  } catch (err) {
+    logger.warn('collectMetrics: failed to persist repeated transport reconstruction', {
+      ...transportRecoveryLogContext(ctx, recovery, probes),
       error: err instanceof Error ? err.message : String(err),
     });
+    return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
+  }
+  logger.warn(
+    'collectMetrics: resetting Durable Object to retry container transport recovery',
+    transportRecoveryLogContext(ctx, nextRecovery, probes),
+  );
+  ctx.abort(TRANSPORT_ABORT_REASON);
+}
+
+async function reconcileContainerTransport(
+  ctx: DurableObjectState,
+  probes: TransportProbeObservations,
+): Promise<TransportReconciliation | null> {
+  const anyProbeResponded = probes.activity.responded || probes.health.responded;
+  let shutdownRequested: number | undefined;
+  try {
+    shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
+  } catch (err) {
+    logger.warn('collectMetrics: failed to read shutdown marker; suppressing transport reconstruction', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+      probes,
+    });
+    return null;
+  }
+  if (typeof shutdownRequested === 'number') {
+    try {
+      await clearTransportRecoveryState(ctx);
+    } catch (err) {
+      logger.warn('collectMetrics: failed to clear transport recovery state during shutdown', {
+        durableObjectId: ctx.id.toString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return null;
   }
 
   let currentStreak: number;
+  let recovery: TransportRecoveryRecord | null;
   try {
-    const stored = await ctx.storage.get<number>(TRANSPORT_FAILURE_STREAK_KEY);
-    currentStreak = typeof stored === 'number' && stored >= 0 ? stored : 0;
+    const storedStreak = await ctx.storage.get<number>(TRANSPORT_FAILURE_STREAK_KEY);
+    currentStreak = Number.isSafeInteger(storedStreak) && (storedStreak as number) >= 0
+      ? storedStreak as number
+      : 0;
+    const storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
+    if (storedRecovery !== undefined && storedRecovery !== null && !isTransportRecoveryRecord(storedRecovery)) {
+      logger.error('collectMetrics: invalid transport recovery record; suppressing reconstruction', {
+        durableObjectId: ctx.id.toString(),
+        valueType: typeof storedRecovery,
+      });
+      await ctx.storage.delete(TRANSPORT_RECOVERY_KEY);
+      return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
+    }
+    recovery = storedRecovery == null ? null : storedRecovery;
   } catch (err) {
-    logger.warn('collectMetrics: failed to read transport failure streak', {
+    logger.warn('collectMetrics: failed to read transport recovery state', {
+      durableObjectId: ctx.id.toString(),
       error: err instanceof Error ? err.message : String(err),
     });
-    // Unknown cadence must not become billable. A responding probe can return
-    // to the normal schedule; a complete failure gets another confirmation.
     return {
       nextDelaySec: anyProbeResponded ? 60 : TRANSPORT_FAILURE_RETRY_SECONDS,
       recordUsage: false,
@@ -347,42 +578,75 @@ async function reconcileContainerTransport(
 
   if (anyProbeResponded) {
     try {
-      await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
+      await clearTransportRecoveryState(ctx);
     } catch (err) {
-      logger.warn('collectMetrics: failed to clear transport failure streak', {
+      logger.warn('collectMetrics: failed to clear transport recovery state', {
+        ...(recovery
+          ? transportRecoveryLogContext(ctx, recovery, probes)
+          : { durableObjectId: ctx.id.toString() }),
         error: err instanceof Error ? err.message : String(err),
       });
     }
-    return { nextDelaySec: 60, recordUsage: currentStreak === 0 };
+    if (recovery) {
+      logger.info(
+        'collectMetrics: container transport recovery confirmed',
+        transportRecoveryLogContext(ctx, recovery, probes),
+      );
+    }
+    return {
+      nextDelaySec: 60,
+      recordUsage: recovery?.status === 'exhausted' || (currentStreak === 0 && recovery === null),
+    };
+  }
+
+  if (recovery) {
+    return reconcileActiveTransportRecovery(ctx, recovery, probes);
   }
 
   const nextStreak = currentStreak + 1;
   try {
-    if (nextStreak < TRANSPORT_FAILURE_ABORT_THRESHOLD) {
-      await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, nextStreak);
-    } else {
-      // Clear before abort so the reconstructed DO gets a fresh confirmation
-      // window if the underlying container, rather than the attachment, is bad.
-      await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
-    }
+    await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, nextStreak);
   } catch (err) {
     logger.warn('collectMetrics: failed to persist transport failure streak', {
+      durableObjectId: ctx.id.toString(),
       error: err instanceof Error ? err.message : String(err),
     });
     return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
   }
 
   if (nextStreak >= TRANSPORT_FAILURE_ABORT_THRESHOLD) {
+    const now = Date.now();
+    const nextRecovery: TransportRecoveryRecord = {
+      attemptId: crypto.randomUUID(),
+      startedAt: now,
+      lastAttemptAt: now,
+      attemptCount: 1,
+      postResetFailureCount: 0,
+      totalFailureCount: nextStreak,
+      status: 'resetting',
+    };
+    try {
+      await persistTransportRecovery(ctx, nextRecovery);
+    } catch (err) {
+      logger.warn('collectMetrics: failed to persist transport recovery attempt', {
+        ...transportRecoveryLogContext(ctx, nextRecovery, probes),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
+    }
     logger.warn('collectMetrics: resetting Durable Object to reconstruct container transport', {
+      ...transportRecoveryLogContext(ctx, nextRecovery, probes),
       consecutiveFailures: nextStreak,
-      containerRunning: ctx.container?.running ?? false,
     });
     ctx.abort(TRANSPORT_ABORT_REASON);
   }
 
   logger.warn('collectMetrics: complete container probe failure, retrying quickly', {
+    durableObjectId: ctx.id.toString(),
     consecutiveFailures: nextStreak,
     abortThreshold: TRANSPORT_FAILURE_ABORT_THRESHOLD,
+    containerRunning: ctx.container?.running ?? false,
+    probes,
   });
   return {
     nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS,
@@ -506,13 +770,18 @@ export async function collectMetrics(
     });
   }
   const sleepMs = parseSleepAfterMs(idleTimeoutPref);
-  let activityProbeResponded = false;
-  let healthProbeResponded = false;
+  const activityProbeStartedAt = Date.now();
+  let activityProbe: ProbeObservation = { responded: false, durationMs: 0 };
+  let healthProbe: ProbeObservation = { responded: false, durationMs: 0 };
 
   try {
     const activityPort = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
     const activityRes = await pollContainer(activityPort, 'http://localhost/activity', CONTAINER_POLL_BUDGET_MS);
-    activityProbeResponded = true;
+    activityProbe = {
+      responded: true,
+      durationMs: Math.max(0, Date.now() - activityProbeStartedAt),
+      status: activityRes.status,
+    };
     if (!activityRes.ok) {
       logger.warn('collectMetrics: /activity returned non-OK', { status: activityRes.status });
     } else {
@@ -548,15 +817,22 @@ export async function collectMetrics(
       });
     }
   } catch (err) {
-    logger.warn('collectMetrics: activity check failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    const error = err instanceof Error ? err.message : String(err);
+    if (!activityProbe.responded) {
+      activityProbe = failedProbeObservation(err, activityProbeStartedAt);
+    }
+    logger.warn('collectMetrics: activity check failed', { error });
   }
 
+  const healthProbeStartedAt = Date.now();
   try {
     const tcpPort = ctx.container.getTcpPort(8080);
     const res = await pollContainer(tcpPort, 'http://localhost/health', CONTAINER_POLL_BUDGET_MS);
-    healthProbeResponded = true;
+    healthProbe = {
+      responded: true,
+      durationMs: Math.max(0, Date.now() - healthProbeStartedAt),
+      status: res.status,
+    };
 
     if (!res.ok) {
       // Health endpoint returned non-200 (e.g. container still booting).
@@ -627,15 +903,21 @@ export async function collectMetrics(
       }
     }
   } catch (err) {
-    logger.warn('collectMetrics: fetch/write failed', { error: err instanceof Error ? err.message : String(err) });
+    const error = err instanceof Error ? err.message : String(err);
+    if (!healthProbe.responded) {
+      healthProbe = failedProbeObservation(err, healthProbeStartedAt);
+    }
+    logger.warn('collectMetrics: fetch/write failed', { error });
   }
 
-  const transportReconciliation = await reconcileContainerTransport(
-    ctx,
-    activityProbeResponded || healthProbeResponded,
-  );
+  const transportReconciliation = await reconcileContainerTransport(ctx, {
+    activity: activityProbe,
+    health: healthProbe,
+  });
   if (transportReconciliation === null) {
-    return; // A deliberate stop owns the lifecycle; do not re-arm or reset its DO.
+    // Deliberate teardown owns the lifecycle, or its ownership cannot be read.
+    // Fail closed: do not re-arm or reset the Durable Object.
+    return;
   }
 
   // Timekeeper usage ping (SaaS mode only). A tick scheduled after a complete

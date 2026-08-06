@@ -702,6 +702,20 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await instance.destroy();
 
       expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
+      expect(mockStorage.delete).toHaveBeenCalledWith('metricsTransportRecovery');
+    });
+
+    it('REQ-SESSION-022 AC1: clears transport recovery independently when later teardown cleanup fails', async () => {
+      mockStorage.delete.mockImplementation(async (key: string) => {
+        if (key === '_sessionId') throw new Error('storage unavailable');
+      });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      await expect(instance.destroy()).resolves.toBeUndefined();
+
+      const deletedKeys = mockStorage.delete.mock.calls.map((call) => call[0]);
+      expect(deletedKeys).toContain('metricsTransportRecovery');
+      expect(deletedKeys.indexOf('metricsTransportRecovery')).toBeLessThan(deletedKeys.indexOf('_sessionId'));
     });
 
     it('deletes SESSION_ID_KEY to prevent onStop from resurrecting KV entry', async () => {
