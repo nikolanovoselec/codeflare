@@ -608,13 +608,13 @@ None.
 
 ### REQ-SESSION-021: Unreachable container transport reconstructs without replacing the workload
 
-**Intent:** A stale coordinator attachment must recover without stopping a live container, changing its authoritative session status, or overcounting usage during accelerated confirmation.
+**Intent:** A stale coordinator attachment must initiate recovery without stopping a live container, changing its authoritative session status, or overcounting usage during accelerated confirmation.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A running session whose transport remains unreachable across the confirmation window reconstructs its coordinator. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
+1. A running session whose transport remains unreachable across the confirmation window initiates coordinator reconstruction. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
 2. Coordinator reconstruction does not stop the running workload. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
 3. Coordinator reconstruction does not record the session stopped. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
 4. A fresh container lifecycle clears transport-recovery evidence left by the prior lifecycle. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4: clears a prior lifecycle transport-failure streak on a fresh container start) -->
@@ -628,7 +628,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering)
 
-**Verification:** Automated test ([transport reconstruction preserves the workload and usage cadence](../../src/__tests__/container-metrics.test.ts)); deployed reattachment smoke check pending
+**Verification:** Automated test ([transport reconstruction preserves the workload and usage cadence](../../src/__tests__/container-metrics.test.ts)); successful SDK reattachment remains a deployed smoke check outside AC1
 
 **Status:** Implemented
 
