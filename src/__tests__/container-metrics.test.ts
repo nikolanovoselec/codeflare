@@ -23,8 +23,13 @@ const testState = vi.hoisted(() => ({
     syncStatus: 'success',
   } as Record<string, string>,
   tcpFetchShouldFail: false,
+  activityFetchShouldFail: false,
+  healthFetchShouldFail: false,
+  activityStatus: 200,
+  healthStatus: 200,
   stopCalls: 0,
   scheduleCalls: [] as Array<[number, string]>,
+  abortReasons: [] as string[],
   activityHangs: false,
   kvRef: null as MockKV | null,
   // REQ-SESSION-011: POST /internal/final-sync (drainFinalSync). finalSyncStatus
@@ -44,6 +49,7 @@ vi.mock('@cloudflare/containers', () => {
       container: { running: boolean; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
       storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string) => Promise<void> };
       blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>;
+      abort: (reason: string) => never;
     };
     env: Record<string, unknown>;
     envVars: Record<string, string> | undefined;
@@ -68,7 +74,9 @@ vi.mock('@cloudflare/containers', () => {
                   headers: { 'Content-Type': 'application/json' },
                 });
               }
-              if (testState.tcpFetchShouldFail) {
+              if (testState.tcpFetchShouldFail
+                  || (url.includes('/activity') && testState.activityFetchShouldFail)
+                  || (url.includes('/health') && testState.healthFetchShouldFail)) {
                 throw new Error('Connection refused');
               }
               // A wedged container: the TCP connect succeeds and nothing is ever
@@ -85,7 +93,7 @@ vi.mock('@cloudflare/containers', () => {
                 ? testState.activityResult
                 : testState.healthResult;
               return new Response(JSON.stringify(body), {
-                status: 200,
+                status: url.includes('/activity') ? testState.activityStatus : testState.healthStatus,
                 headers: { 'Content-Type': 'application/json' },
               });
             },
@@ -109,6 +117,10 @@ vi.mock('@cloudflare/containers', () => {
           };
         })(),
         blockConcurrencyWhile: async (fn: () => Promise<void>) => fn(),
+        abort: (reason: string): never => {
+          testState.abortReasons.push(reason);
+          throw new Error('mock Durable Object abort');
+        },
       };
       this.env = {
         KV: null, // will be set per test
@@ -148,7 +160,12 @@ vi.mock('../lib/logger', () => ({
 
 // Import AFTER mocks are set up
 import { container } from '../container/index';
-import { drainFinalSync, FINAL_SYNC_BUDGET_MS, CONTAINER_POLL_BUDGET_MS } from '../container/container-metrics';
+import {
+  drainFinalSync,
+  FINAL_SYNC_BUDGET_MS,
+  CONTAINER_POLL_BUDGET_MS,
+  TRANSPORT_FAILURE_STREAK_KEY,
+} from '../container/container-metrics';
 
 describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
@@ -160,6 +177,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
     testState.tcpFetchShouldFail = false;
+    testState.activityFetchShouldFail = false;
+    testState.healthFetchShouldFail = false;
+    testState.activityStatus = 200;
+    testState.healthStatus = 200;
     testState.activityHangs = false;
     testState.activityResult = {
       hasActiveConnections: true,
@@ -173,6 +194,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       syncStatus: 'success',
     };
     testState.scheduleCalls = [];
+    testState.abortReasons = [];
     testState.stopCalls = 0;
     testState.storedSleepAfter = undefined;
     testState.storedUserEmail = undefined;
@@ -201,6 +223,20 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       // Check that schedule was called with correct args
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    });
+
+    it('REQ-SESSION-020 AC7: clears a prior lifecycle transport-failure streak on a fresh container start', async () => {
+      const ctx = (containerInstance as unknown as { ctx: { storage: { put: (key: string, value: unknown) => Promise<void> } } }).ctx;
+      await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, 2);
+
+      await containerInstance.onStart();
+
+      testState.scheduleCalls = [];
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
     });
   });
 
@@ -288,6 +324,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(sessionPut).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([]);
     });
 
     // REQ-SESSION-018 AC4: a live container whose KV was wrongly flipped to
@@ -349,6 +386,67 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     }, 25_000);
 
+    it('REQ-SESSION-020 AC7: resets the Durable Object after three consecutive ticks where neither container probe responds', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      testState.tcpFetchShouldFail = true;
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([
+        [5, 'collectMetrics'],
+        [5, 'collectMetrics'],
+      ]);
+
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+
+      expect(testState.abortReasons).toEqual(['container transport unresponsive after 3 complete probe failures']);
+      expect(testState.stopCalls).toBe(0);
+      const stoppedWrite = mockKV.put.mock.calls.find((call: unknown[]) => {
+        if (typeof call[0] !== 'string' || !(call[0] as string).includes('testsession123456')) return false;
+        try { return (JSON.parse(call[1] as string) as Session).status === 'stopped'; } catch { return false; }
+      });
+      expect(stoppedWrite).toBeUndefined();
+    });
+
+    it('REQ-SESSION-020 AC8: any responding probe clears the reconstruction failure streak', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      // /activity still fails, but /health answers with 503. The non-OK response
+      // still proves the DO-to-container attachment recovered and clears the streak.
+      testState.tcpFetchShouldFail = false;
+      testState.activityFetchShouldFail = true;
+      testState.healthStatus = 503;
+      await containerInstance.collectMetrics();
+
+      testState.activityFetchShouldFail = false;
+      testState.healthStatus = 200;
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+    });
+
     it('should re-arm schedule if container is still running', async () => {
       const session: Session = {
         id: 'testsession123456',
@@ -363,7 +461,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.scheduleCalls = [];
       await containerInstance.collectMetrics();
 
-      // Should re-arm with schedule(5, 'collectMetrics')
+      // Healthy transport returns to the normal 60-second cadence.
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
@@ -1054,6 +1152,11 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
     testState.tcpFetchShouldFail = false;
+    testState.activityFetchShouldFail = false;
+    testState.healthFetchShouldFail = false;
+    testState.activityStatus = 200;
+    testState.healthStatus = 200;
+    testState.abortReasons = [];
     testState.finalSyncCalls = 0;
     testState.finalSyncStatus = 200;
     testState.callOrder = [];

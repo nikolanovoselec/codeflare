@@ -17,6 +17,7 @@ import {
   updateKvStatus,
   openNotRunningConfirmation,
   SHUTDOWN_REQUESTED_KEY,
+  TRANSPORT_FAILURE_STREAK_KEY,
   FINAL_SYNC_BUDGET_MS,
   type MetricsState,
   type MetricsCallbacks,
@@ -51,6 +52,7 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   // shutdown marker a prior destroy() left in storage, so a later transient
   // false-stopped on this run can self-heal (REQ-SESSION-018 AC4).
   try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
+  try { await host.ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY); } catch { /* best-effort */ }
   updateEnvVars(host);
   await updateKvStatus(host.ctx, host.env, host._bucketName, 'running', 'lastStartedAt');
   // Also set lastActiveAt to start time so the frontend timer icon
@@ -204,6 +206,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     await host.ctx.storage.delete('fastStartEnabled');
     await host.ctx.storage.delete('tabConfig');
     await host.ctx.storage.delete('sleepAfter');
+    await host.ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
     // Drop the persisted auth token: the next session under this DO ID will
     // be a different container instance with a fresh token, so reusing the
     // old one would let an unrelated request out of a previous lifecycle

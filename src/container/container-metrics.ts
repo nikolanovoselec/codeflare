@@ -83,6 +83,17 @@ export const SHUTDOWN_REQUESTED_KEY = 'shutdownRequested';
 // stopped (REQ-SESSION-018 AC3).
 const NOT_RUNNING_CONFIRM_MS = 90_000;
 
+// A running process is not proof that the Durable Object can still reach it.
+// Cloudflare's Containers SDK already resets the DO during startup when the
+// Worker is stuck with a failed connection to container services. The running
+// proxy path does not: it can leave ctx.container.running=true while every port
+// fetch times out forever. Persist the streak across DO hibernation and reset
+// the DO after three ticks where neither independent host endpoint responds.
+export const TRANSPORT_FAILURE_STREAK_KEY = 'metricsTransportFailureStreak';
+const TRANSPORT_FAILURE_ABORT_THRESHOLD = 3;
+const TRANSPORT_FAILURE_RETRY_SECONDS = 5;
+const TRANSPORT_ABORT_REASON = 'container transport unresponsive after 3 complete probe failures';
+
 // Budget the DO gives the in-container final sync (drainFinalSync) to complete
 // before a stop (REQ-SESSION-011 AC4). 120s pairs with the 135s teardown
 // hard-cap in destroy() (120s sync + 15s for the actual stop). The host
@@ -288,12 +299,83 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number):
 // ---------------------------------------------------------------------------
 
 /**
+ * Record whether this tick proved that the DO-to-container transport is alive.
+ *
+ * Either endpoint responding is sufficient: an HTTP non-OK or malformed body
+ * is an application problem, but it proves the private TCP attachment works.
+ * Only complete failures count. On the third consecutive complete failure,
+ * reset the Durable Object without stopping the container. The Containers SDK
+ * constructor detects the still-running process and reattaches its monitor, so
+ * the browser can reconnect to the existing PTY instead of losing the session.
+ */
+async function reconcileContainerTransport(
+  ctx: DurableObjectState,
+  anyProbeResponded: boolean,
+): Promise<number | null> {
+  try {
+    const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
+    if (typeof shutdownRequested === 'number') {
+      await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
+      return null;
+    }
+  } catch (err) {
+    logger.warn('collectMetrics: failed to read shutdown marker before transport recovery', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (anyProbeResponded) {
+    try {
+      await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
+    } catch (err) {
+      logger.warn('collectMetrics: failed to clear transport failure streak', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return 60;
+  }
+
+  let nextStreak: number;
+  try {
+    const stored = await ctx.storage.get<number>(TRANSPORT_FAILURE_STREAK_KEY);
+    nextStreak = (typeof stored === 'number' && stored >= 0 ? stored : 0) + 1;
+    if (nextStreak < TRANSPORT_FAILURE_ABORT_THRESHOLD) {
+      await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, nextStreak);
+    } else {
+      // Clear before abort so the reconstructed DO gets a fresh confirmation
+      // window if the underlying container, rather than the attachment, is bad.
+      await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
+    }
+  } catch (err) {
+    logger.warn('collectMetrics: failed to persist transport failure streak', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return TRANSPORT_FAILURE_RETRY_SECONDS;
+  }
+
+  if (nextStreak >= TRANSPORT_FAILURE_ABORT_THRESHOLD) {
+    logger.warn('collectMetrics: resetting Durable Object to reconstruct container transport', {
+      consecutiveFailures: nextStreak,
+      containerRunning: ctx.container?.running ?? false,
+    });
+    ctx.abort(TRANSPORT_ABORT_REASON);
+  }
+
+  logger.warn('collectMetrics: complete container probe failure, retrying quickly', {
+    consecutiveFailures: nextStreak,
+    abortThreshold: TRANSPORT_FAILURE_ABORT_THRESHOLD,
+  });
+  return TRANSPORT_FAILURE_RETRY_SECONDS;
+}
+
+/**
  * Collect health metrics, detect idle state, ping Timekeeper, and re-arm the schedule.
  *
  * Mutates `state` (lastSeenInputAt, _usageSeconds) in place.
  *
  * ALARM-LOOP LIFECYCLE: this runs as a one-shot DO alarm that re-arms itself
- * (callbacks.schedule(60, ...)) ONLY while ctx.container.running. If the
+ * after 60s normally or 5s while confirming a complete transport failure,
+ * ONLY while ctx.container.running. If the
  * container is not running on entry, the loop marks the session stopped (the
  * authoritative catch-all for an exit the SDK surfaced as onError, not onStop)
  * and returns WITHOUT re-arming; onStart() restarts the loop on the next start.
@@ -402,10 +484,13 @@ export async function collectMetrics(
     });
   }
   const sleepMs = parseSleepAfterMs(idleTimeoutPref);
+  let activityProbeResponded = false;
+  let healthProbeResponded = false;
 
   try {
     const activityPort = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
     const activityRes = await pollContainer(activityPort, 'http://localhost/activity', CONTAINER_POLL_BUDGET_MS);
+    activityProbeResponded = true;
     if (!activityRes.ok) {
       logger.warn('collectMetrics: /activity returned non-OK', { status: activityRes.status });
     } else {
@@ -449,6 +534,7 @@ export async function collectMetrics(
   try {
     const tcpPort = ctx.container.getTcpPort(8080);
     const res = await pollContainer(tcpPort, 'http://localhost/health', CONTAINER_POLL_BUDGET_MS);
+    healthProbeResponded = true;
 
     if (!res.ok) {
       // Health endpoint returned non-200 (e.g. container still booting).
@@ -522,6 +608,14 @@ export async function collectMetrics(
     logger.warn('collectMetrics: fetch/write failed', { error: err instanceof Error ? err.message : String(err) });
   }
 
+  const nextMetricsDelaySec = await reconcileContainerTransport(
+    ctx,
+    activityProbeResponded || healthProbeResponded,
+  );
+  if (nextMetricsDelaySec === null) {
+    return; // A deliberate stop owns the lifecycle; do not re-arm or reset its DO.
+  }
+
   // Timekeeper usage ping (SaaS mode only)
   if (isSaasModeActive(env.SAAS_MODE)
       && state._bucketName
@@ -584,7 +678,7 @@ export async function collectMetrics(
   // re-arm, onStart() will restart the loop on next container start.
   if (ctx.container?.running) {
     try {
-      await callbacks.schedule(60, 'collectMetrics');
+      await callbacks.schedule(nextMetricsDelaySec, 'collectMetrics');
     } catch {
       // DO is shutting down or destroyed
     }
