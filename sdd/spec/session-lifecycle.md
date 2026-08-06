@@ -606,7 +606,7 @@ None.
 
 ---
 
-### REQ-SESSION-021: Unreachable container transport reconstructs without replacing the workload
+### REQ-SESSION-021: Unreachable container transport initiates coordinator reconstruction
 
 **Intent:** A stale coordinator attachment must initiate recovery without stopping a live container, changing its authoritative session status, or overcounting usage during accelerated confirmation.
 
