@@ -650,7 +650,10 @@ None.
 6. Recovery logs correlate DO and attempt identities, counts, elapsed time, container state, and classified per-route observations. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC1-AC2: confirms recovery only after a post-reset probe responds and keeps metrics armed) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC3-AC4: bounds a persistently unreachable host to two reconstructions and keeps slow checks armed) -->
 7. Malformed recovery state cannot authorize coordinator reconstruction. <!-- @impl: src/container/container-metrics.ts::isTransportRecoveryRecord --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC7: malformed recovery state cannot authorize reconstruction) -->
 
-**Constraints:** Recovery hardening must not stop the workload or change authoritative session status. Confirmed recovery resumes normal metrics cadence; failed evidence deletion retains five-second, non-billable confirmation.
+**Constraints:**
+- Recovery hardening must not stop the workload or change authoritative session status.
+- Confirmed recovery resumes normal metrics cadence.
+- Failed evidence deletion retains five-second, non-billable confirmation.
 
 **Priority:** P0
 
