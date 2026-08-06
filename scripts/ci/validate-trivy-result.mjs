@@ -119,8 +119,8 @@ const REVIEWED_FINDINGS = [
     // package pair. The content-addressed image tag changes with build inputs,
     // so bind its target shape plus each package PURL/version and multiplicity.
     // Remove when apt resolves 16.02+really26.02+dfsg-0+deb12u1 or later.
-    target: 'container image (debian 12.15)',
-    targetPattern: '^[a-z0-9][a-z0-9._/-]*-container:in-[a-f0-9]{16} \\(debian 12\\.15\\)$',
+    target: 'codeflare integration image (debian 12.15)',
+    targetPattern: '^codeflare-integration-container:in-[a-f0-9]{16} \\(debian 12\\.15\\)$',
     vulnerabilityId: 'CVE-2026-14266',
     packageName: 'p7zip',
     packagePurl: 'pkg:deb/debian/p7zip@16.02%2Breally26.01%2Bdfsg-0%2Bdeb12u1?arch=amd64&distro=debian-12.15',
@@ -129,8 +129,8 @@ const REVIEWED_FINDINGS = [
     severity: 'HIGH',
   },
   {
-    target: 'container image (debian 12.15)',
-    targetPattern: '^[a-z0-9][a-z0-9._/-]*-container:in-[a-f0-9]{16} \\(debian 12\\.15\\)$',
+    target: 'codeflare integration image (debian 12.15)',
+    targetPattern: '^codeflare-integration-container:in-[a-f0-9]{16} \\(debian 12\\.15\\)$',
     vulnerabilityId: 'CVE-2026-14266',
     packageName: 'p7zip-full',
     packagePurl: 'pkg:deb/debian/p7zip-full@16.02%2Breally26.01%2Bdfsg-0%2Bdeb12u1?arch=amd64&distro=debian-12.15',

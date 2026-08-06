@@ -135,7 +135,7 @@ describe('Trivy bounded exception gate', () => {
       'Node.js@10.2.0',
       'Node.js@7.28.0',
       'Node.js@8.5.0',
-      'container image (debian 12.15)@16.02+really26.01+dfsg-0+deb12u1',
+      'codeflare integration image (debian 12.15)@16.02+really26.01+dfsg-0+deb12u1',
     ]);
     assert.equal(result.evidence.length, 11);
   });
@@ -208,7 +208,7 @@ describe('Trivy bounded exception gate', () => {
       (input) => { input.Results[1].Vulnerabilities[0].Severity = 'CRITICAL'; },
       (input) => { input.Results[1].Vulnerabilities[0].PkgPath = 'other/package'; },
       (input) => { input.Results[1].Vulnerabilities[0].PkgIdentifier.PURL += '&other=true'; },
-      (input) => { input.Results[1].Target = 'other (debian 12.15)'; },
+      (input) => { input.Results[1].Target = 'other-container:in-0123456789abcdef (debian 12.15)'; },
     ];
 
     for (const mutate of mutations) {
