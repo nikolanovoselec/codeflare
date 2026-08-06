@@ -614,12 +614,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. A running session whose transport remains unreachable across the confirmation window reconstructs its coordinator without stopping the workload or recording the session stopped. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1: resets the Durable Object after three consecutive ticks where neither container probe responds) -->
-2. A fresh container lifecycle clears transport-recovery evidence left by the prior lifecycle. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC2: clears a prior lifecycle transport-failure streak on a fresh container start) -->
-3. A response from either independent reachability check clears pending transport recovery, regardless of response status. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC3: any responding probe clears the reconstruction failure streak) -->
-4. Accelerated transport-confirmation retries neither add billable usage nor contact the quota service. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4: confirmation retries do not add billable usage or ping Timekeeper) -->
+1. A running session whose transport remains unreachable across the confirmation window reconstructs its coordinator. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
+2. Coordinator reconstruction does not stop the running workload. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
+3. Coordinator reconstruction does not record the session stopped. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
+4. A fresh container lifecycle clears transport-recovery evidence left by the prior lifecycle. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4: clears a prior lifecycle transport-failure streak on a fresh container start) -->
+5. A response from either independent reachability check clears pending transport recovery, regardless of response status. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC5: any responding probe clears the reconstruction failure streak) -->
+6. Accelerated transport-confirmation retries do not add billable usage. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC6-AC7: confirmation retries do not add billable usage or ping Timekeeper) -->
+7. Accelerated transport-confirmation retries do not contact the quota service. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC6-AC7: confirmation retries do not add billable usage or ping Timekeeper) -->
 
-**Constraints:** Recovery must not signal or destroy the workload. Deliberate teardown suppresses recovery and re-arming.
+**Constraints:** Recovery must neither signal nor destroy the workload and must remain suppressed, together with alarm re-arming, during deliberate teardown.
 
 **Priority:** P0
 

@@ -225,7 +225,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    it('REQ-SESSION-021 AC2: clears a prior lifecycle transport-failure streak on a fresh container start', async () => {
+    it('REQ-SESSION-021 AC4: clears a prior lifecycle transport-failure streak on a fresh container start', async () => {
       const ctx = (containerInstance as unknown as { ctx: { storage: { put: (key: string, value: unknown) => Promise<void> } } }).ctx;
       await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, 2);
 
@@ -386,7 +386,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     }, 25_000);
 
-    it('REQ-SESSION-021 AC1: resets the Durable Object after three consecutive ticks where neither container probe responds', async () => {
+    it('REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status', async () => {
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456',
         name: 'Test',
@@ -417,7 +417,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stoppedWrite).toBeUndefined();
     });
 
-    it('REQ-SESSION-021 AC3: any responding probe clears the reconstruction failure streak', async () => {
+    it('REQ-SESSION-021 AC5: any responding probe clears the reconstruction failure streak', async () => {
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456',
         name: 'Test',
@@ -447,7 +447,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.abortReasons).toEqual([]);
     });
 
-    it('REQ-SESSION-021 AC4: confirmation retries do not add billable usage or ping Timekeeper', async () => {
+    it('REQ-SESSION-021 AC6-AC7: confirmation retries do not add billable usage or ping Timekeeper', async () => {
       testState.storedBucketName = 'test-bucket';
       testState.storedSessionId = 'testsession123456';
       testState.storedUserEmail = 'quota@example.com';
