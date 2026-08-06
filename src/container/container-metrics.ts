@@ -409,18 +409,10 @@ async function persistTransportRecovery(
 }
 
 async function clearTransportRecoveryState(ctx: DurableObjectState): Promise<void> {
-  let firstError: unknown;
-  try {
-    await ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
-  } catch (err) {
-    firstError = err;
-  }
-  try {
-    await ctx.storage.delete(TRANSPORT_RECOVERY_KEY);
-  } catch (err) {
-    if (firstError === undefined) firstError = err;
-  }
-  if (firstError !== undefined) throw firstError;
+  await ctx.storage.delete([
+    TRANSPORT_FAILURE_STREAK_KEY,
+    TRANSPORT_RECOVERY_KEY,
+  ]);
 }
 
 function transportRecoveryLogContext(
@@ -586,6 +578,7 @@ async function reconcileContainerTransport(
           : { durableObjectId: ctx.id.toString() }),
         error: err instanceof Error ? err.message : String(err),
       });
+      return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
     }
     if (recovery) {
       logger.info(

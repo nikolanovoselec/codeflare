@@ -39,6 +39,7 @@ const testState = vi.hoisted(() => ({
   finalSyncStatus: 200,
   callOrder: [] as string[],
   storageGetFailures: new Set<string>(),
+  storageDeleteFailures: new Set<string>(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ vi.mock('@cloudflare/containers', () => {
     ctx: {
       id: { toString: () => string };
       container: { running: boolean; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
-      storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string) => Promise<void>; sync: () => Promise<void> };
+      storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string | string[]) => Promise<void>; sync: () => Promise<void> };
       blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>;
       abort: (reason: string) => never;
     };
@@ -117,7 +118,12 @@ vi.mock('@cloudflare/containers', () => {
               return store.has(key) ? (store.get(key) as T) : undefined;
             },
             put: vi.fn(async (key: string, value: unknown) => { store.set(key, value); }),
-            delete: vi.fn(async (key: string) => { store.delete(key); }),
+            delete: vi.fn(async (keys: string | string[]) => {
+              const keyList = Array.isArray(keys) ? keys : [keys];
+              const failedKey = keyList.find((key) => testState.storageDeleteFailures.has(key));
+              if (failedKey) throw new Error(`storage delete failed: ${failedKey}`);
+              for (const key of keyList) store.delete(key);
+            }),
             sync: vi.fn(async () => {}),
           };
         })(),
@@ -215,6 +221,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.finalSyncStatus = 200;
     testState.callOrder = [];
     testState.storageGetFailures.clear();
+    testState.storageDeleteFailures.clear();
 
     // Create a container instance with mock env
     containerInstance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
@@ -486,6 +493,42 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
           elapsedMs: expect.any(Number),
           containerRunning: true,
         }),
+      );
+    });
+
+    it('REQ-SESSION-022 AC2: does not confirm recovery or restore normal cadence until recovery evidence is cleared', async () => {
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      const recovery = await storage().get<{ attemptId: string }>(TRANSPORT_RECOVERY_KEY);
+
+      testState.tcpFetchShouldFail = false;
+      testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.scheduleCalls = [];
+      mockLogger.info.mockClear();
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        'collectMetrics: container transport recovery confirmed',
+        expect.anything(),
+      );
+
+      testState.storageDeleteFailures.clear();
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([
+        [5, 'collectMetrics'],
+        [60, 'collectMetrics'],
+      ]);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'collectMetrics: container transport recovery confirmed',
+        expect.objectContaining({ recoveryAttemptId: recovery?.attemptId }),
       );
     });
 
