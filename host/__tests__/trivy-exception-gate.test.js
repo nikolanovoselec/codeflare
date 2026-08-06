@@ -12,6 +12,7 @@ import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs'
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'container-image.yml');
 const VALIDATOR = join(ROOT, 'scripts', 'ci', 'validate-trivy-result.mjs');
+const TRIVYIGNORE = join(ROOT, '.trivyignore');
 
 function vulnerability(overrides = {}) {
   return {
@@ -106,6 +107,15 @@ function report(results = [
 }
 
 describe('Trivy bounded exception gate', () => {
+  it('accepts the temporary p7zip XZ RCE exception exactly once', () => {
+    const activeExceptions = readFileSync(TRIVYIGNORE, 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith('#'));
+
+    assert.equal(activeExceptions.filter((entry) => entry === 'CVE-2026-14266').length, 1);
+  });
+
   it('accepts only the reviewed Node.js findings', () => {
     const result = validateTrivyResult(report());
     assert.deepEqual(result.accepted, [

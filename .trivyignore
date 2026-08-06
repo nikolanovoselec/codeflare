@@ -142,6 +142,16 @@ CVE-2025-11002
 # p7zip is unmaintained, so Debian bookworm ships no fix (flagged on p7zip + p7zip-full).
 CVE-2026-48095
 
+# p7zip/p7zip-full 16.02+really26.01+dfsg-0+deb12u1: XZ chunked-data
+# heap buffer overflow permitting code execution after opening a malicious file.
+# Integration runs 31102705391 and 31105573226 found the same two Debian package
+# tuples; Debian has published 16.02+really26.02+dfsg-0+deb12u1, but the bookworm
+# mirror used by the image build still resolved 26.01. Exploitation is local,
+# high-complexity, and requires the session owner to preview/open a crafted archive;
+# impact remains inside that user's authenticated, single-tenant container. Remove
+# once the image's apt upgrade resolves the patched Debian package.
+CVE-2026-14266
+
 # zlib 1.2.13: integer overflow in zipOpenNewFileInZip4_64 (will_not_fix in bookworm)
 # Only affects minizip API for creating ZIP files — container doesn't create ZIPs.
 CVE-2023-45853
