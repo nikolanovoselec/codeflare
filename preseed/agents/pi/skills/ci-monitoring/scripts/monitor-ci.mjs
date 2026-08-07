@@ -55,7 +55,7 @@ export async function resolveCiMonitorRequest({ event, changed, repo, pr: reques
     || changed !== true
     || !repo
     || !cwd
-    || (expectedHead !== undefined && !/^[0-9a-f]{40}$/i.test(expectedHead))
+    || !/^[0-9a-f]{40}$/i.test(expectedHead ?? '')
     || !['launched', 'not-required'].includes(reviewState)
     || !Number.isInteger(requestedPr)
     || requestedPr <= 0) return null;
@@ -79,7 +79,7 @@ export async function resolveCiMonitorRequest({ event, changed, repo, pr: reques
     !Number.isInteger(resolvedPr.number) ||
     resolvedPr.number !== requestedPr ||
     !/^[0-9a-f]{40}$/i.test(resolvedPr.headRefOid ?? '') ||
-    (expectedHead !== undefined && resolvedPr.headRefOid !== expectedHead)
+    resolvedPr.headRefOid !== expectedHead
   ) return null;
 
   return {

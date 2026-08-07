@@ -620,8 +620,6 @@ None.
 4. A fresh lifecycle arms monitoring only after prior transport-failure and recovery state has been cleared together. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4: does not arm metrics when startup cannot clear %s) -->
 5. Any response from either host route ends the unreachable-transport failure sequence, regardless of HTTP status. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC5: any responding probe clears the reconstruction failure streak) -->
 
-**Constraints:** Recovery remains suppressed, together with alarm re-arming, during deliberate teardown.
-
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering)

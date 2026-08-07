@@ -703,7 +703,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-098: reports head drift instead of acknowledging a superseded review', async () => {
+  it('REQ-AGENT-126 AC3: reports head drift instead of acknowledging a superseded review', async () => {
     const fixture = makeReviewFixture();
     const reviewedHead = fixture.head;
     const harness = await registerFixture(fixture);
@@ -1258,7 +1258,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-068: checkpoints a successful CI launch before stale live transcript recovery', async () => {
+  it('REQ-AGENT-125: checkpoints a successful CI launch before stale live transcript recovery', async () => {
     const fixture = makeReviewFixture();
     const previousMode = process.env.SESSION_MODE;
     process.env.SESSION_MODE = 'default';
@@ -1289,7 +1289,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-068: failed or mismatched direct CI launch results remain retryable', async () => {
+  it('REQ-AGENT-125: failed or mismatched direct CI launch results remain retryable', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     for (const event of [
@@ -1318,7 +1318,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ciHead(fixture.repo)).toBe(fixture.head);
   });
 
-  it('REQ-AGENT-068: checkpoints a launched CI-only head without acknowledging later review', async () => {
+  it('REQ-AGENT-125: checkpoints a launched CI-only head without acknowledging later review', async () => {
     const fixture = makeReviewFixture();
     const previousMode = process.env.SESSION_MODE;
     process.env.SESSION_MODE = 'default';

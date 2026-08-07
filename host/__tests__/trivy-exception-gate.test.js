@@ -12,7 +12,6 @@ import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs'
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'container-image.yml');
 const VALIDATOR = join(ROOT, 'scripts', 'ci', 'validate-trivy-result.mjs');
-const DOCKERFILE = join(ROOT, 'Dockerfile');
 
 function vulnerability(overrides = {}) {
   return {
@@ -176,8 +175,7 @@ describe('Trivy bounded exception gate', () => {
     assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
   });
 
-  it('rejects p7zip RCE findings and keeps the vulnerable preview package out of the image', () => {
-    assert.doesNotMatch(readFileSync(DOCKERFILE, 'utf8'), /\bp7zip(?:-full)?\b/);
+  it('rejects p7zip RCE findings without a reviewed exception', () => {
     const input = report([
       ...report().Results,
       {

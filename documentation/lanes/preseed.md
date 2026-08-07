@@ -266,7 +266,7 @@ When reviewers are required, the final runbook section requires every finding to
 
 Malformed or superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the observed 41-character transcription whose first 40 characters exactly equal GitHub's authoritative PR head.
 
-Non-SDD repositories and default-mode sessions receive CI-only plans. The resolver serializes canonical GitHub repository, PR number, head, and local repository path as one JSON identity. A correlated successful public CI-monitor tool result writes the separate per-PR CI-head checkpoint immediately; agent-end and settled transcript correlation remain idempotent fallbacks, and settled recovery checks the durable head before emitting missing work. Failed or mismatched launches remain retryable, later sessions do not repeat CI for that unchanged head, and enabling review still launches its reviewer lanes without fabricating review acknowledgement. An aborted running monitor may be relaunched only by explicit request; a later automatic plan applies to a changed head. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
+Non-SDD repositories and default-mode sessions receive CI-only plans. The resolver serializes canonical GitHub repository, PR number, head, and local repository path as one JSON identity. A correlated successful public CI-monitor tool result writes the separate per-PR CI-head checkpoint immediately; agent-end and settled transcript correlation remain idempotent fallbacks, and settled recovery checks the durable head before emitting missing work. Failed or mismatched launches remain retryable, later sessions do not repeat CI for that unchanged head, and enabling review still launches its reviewer lanes without fabricating review acknowledgement. An aborted running monitor may be relaunched only by explicit request; a later automatic plan applies to a changed head. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) and [REQ-AGENT-125](../../sdd/spec/agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint).
 
 Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). On the normal non-bypassed path, successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until a correlated successful native notification or public result retrieval. The first launch plan for an unchanged head owns that review window; later candidates in the same active session neither replace it nor duplicate its launches. After session resume, the first new authoritative candidate may re-emit that plan and restore its deferred Goal pause ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads)).
 
@@ -547,7 +547,8 @@ This implements
 [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context),
 [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract),
 [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport),
-[REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), and
+[REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier),
+[REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift), and
 [REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate),
 following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
@@ -565,6 +566,7 @@ submits its zero-or-one JSON request unchanged once. The dedicated agent runs on
 attached monitor. Review acknowledgement has no CI condition, and interruption is
 intentionally not recovered automatically. This implements
 [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring),
+[REQ-AGENT-125](../../sdd/spec/agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint),
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
 [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), and
 [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent).
@@ -1325,6 +1327,7 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 - [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
 - [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) - consult-llm Invocation and Model-Selection Behavior
 - [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring
+- [REQ-AGENT-125](../../sdd/spec/agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint) - Pi CI Result and Launch Checkpoint
 - [REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring) - Pi consult-llm MCP lazy wiring
 - [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy) - Claude on-demand CI monitoring policy
 - [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) - PR-Boundary Review Agent Dispatch
@@ -1338,6 +1341,7 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 - [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) - Pi Reviewer Direct Evidence Transport
 - [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) - CI Monitor Head Correction
 - [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier) - Pi Review Triage Acknowledgement Barrier
+- [REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift) - Pi Review Checkpoint Persistence and Head Drift
 - [REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate) - Deterministic Round-Limit Gate
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 - [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile) - Pi Extraction Request Profile
