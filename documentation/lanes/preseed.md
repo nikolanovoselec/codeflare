@@ -62,9 +62,9 @@ The repository-owned `native-notifications.ts` extension is seeded in both modes
 
 In-process subagents always use native fallbacks. The three PR reviewers expose only `bash` and consume their exact packet through the Bash/Node transport.
 
-`@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` command. Codeflare overrides its startup guidance so assistants do not call or suggest advisor unless the user's current message explicitly requests it.
+`@juicesharp/rpiv-advisor` 2.2 adds one identical-input retry for a transient empty model response while preserving immediate abort/error propagation. It provides the user-invoked `advisor` tool and user-only `/advisor` command. Codeflare overrides its startup guidance so assistants do not call or suggest advisor unless the user's current message explicitly requests it.
 
-`pi-web-access` adds `web_search`, `source_check`, `fetch_content`, and paged `get_search_content`. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Version 0.15 adds TinyFish, an all-provider search route, and a configurable OpenAI Responses endpoint without changing those existing tool contracts. Version 0.14 removed upstream's bundled `librarian`; Codeflare preserves it as an owned skill in both Pi modes and keeps its generated-seed delivery under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
+`pi-web-access` 0.17 adds filtered zero-config Exa routing and configurable public tool names without changing Codeflare's default `web_search`, `source_check`, `fetch_content`, or paged `get_search_content` contracts. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Upstream no longer supplies its duplicate `librarian`; Codeflare preserves the workflow as an owned skill in both Pi modes and keeps its generated-seed delivery under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
 
 `@narumitw/pi-goal` is pinned at 0.43.0 after review of the [published npm tarball](https://registry.npmjs.org/@narumitw/pi-goal/-/pi-goal-0.43.0.tgz). The MIT package declares `src/index.ts` as its sole Pi extension and provides `/goal`, `goal_complete`, and `goal_blocked` without managing subagent files. On startup, Codeflare creates `~/.pi/agent/pi-goal.json` with `toolVisibility: "after-first-goal"` only when the file is absent. Capability-filtered sessions therefore start narrow and reveal Goal's two terminal tools when `/goal` begins, while every existing Goal preference remains byte-for-byte user-owned. On reload, `capability.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or Goal's user-owned `always` policy already activated both tools, allowing the same Goal to restore without independently widening fresh or completed lazy sessions ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5).
 
@@ -84,7 +84,7 @@ Missing-launch settled recovery emits at most five follow-ups for one unreviewed
 
 For an open, non-bypassed review, the first settled recovery defers when no reviewer or CI launch is recorded, preventing a recovery message from duplicating the initial plan. Duplicate boundaries do not duplicate the pause, and a replacement PR head transfers ownership of the existing pause instead of stranding it on the superseded head. If that transfer cannot be persisted, the bridge requests rollback; successful rollback clears ownership, while failed rollback retains recoverable ownership for the replacement head's FIX release ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads) AC1-AC7).
 
-`@juicesharp/rpiv-todo` is pinned at 2.1.0; the session-isolation correction shipped upstream in 2.0.0 and remains intact: task state is keyed by Pi session ID and context-free rendering stays bound to the foreground slot. The temporary [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) source override that mirrored this fix while npm was at 1.20.0 is retired — no postinstall guard or payload remains, and a host test guards that the pin names the reviewed release ([REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)).
+`@juicesharp/rpiv-todo` is pinned at 2.2.0; its overlay now loads lazily and omitted update fields produce recoverable model guidance, while the session-isolation correction shipped upstream in 2.0.0 remains intact: task state is keyed by Pi session ID and context-free rendering stays bound to the foreground slot. The temporary [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) source override that mirrored this fix while npm was at 1.20.0 is retired — no postinstall guard or payload remains, and a host test guards that the pin names the reviewed release ([REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)).
 
 `web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`). A user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots.
 
@@ -236,7 +236,7 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Because adapter 2.15+
+`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Adapter 2.16 adds JSONC configuration, direct-tool unregister cleanup, and MCP elicitation without changing Codeflare's proxy contract. Because adapter 2.15+
 reserves a leading `!` for command-backed secrets, the entrypoint doubles that
 prefix only in Pi's generated env value so a provider key beginning with `!`
 remains literal; Claude's value is unchanged. The Pi entrypoint-owned
@@ -941,6 +941,8 @@ The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
 ## Graphify ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
+
+Graphify 0.9.34–0.9.35 is a correctness update: shortest paths and callflow now respect stored edge direction, ignored-file pruning and merge shrink protection fail closed, and Java external annotations no longer collapse into local classes. The owned Claude and Pi query references preserve directed traversal as the default and never reinterpret an absent reverse path as permission to walk edges backwards.
 
 ### Graph-first soft nudge ([REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) AC1)
 
