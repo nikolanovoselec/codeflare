@@ -608,58 +608,98 @@ None.
 
 ### REQ-SESSION-021: Unreachable container transport initiates coordinator reconstruction
 
-**Intent:** Unreachable transport to a running container must initiate recovery without stopping the workload, changing its authoritative session status, or overcounting usage during accelerated confirmation.
+**Intent:** A running session with persistently unreachable host transport must enter recovery without stopping its workload or changing its authoritative status.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A running session whose transport remains unreachable across the confirmation window initiates coordinator reconstruction. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
-2. Coordinator reconstruction does not stop the running workload. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
-3. Coordinator reconstruction does not record the session stopped. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
-4. A fresh container lifecycle clears transport-recovery evidence left by the prior lifecycle. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start) -->
-5. Any host-route response, regardless of status, proves container transport reachability. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC5: any responding probe clears the reconstruction failure streak) -->
-6. Accelerated transport-confirmation retries do not add billable usage. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC6-AC7: confirmation retries do not add billable usage or ping Timekeeper) -->
-7. Accelerated transport-confirmation retries do not contact the quota service. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC6-AC7: confirmation retries do not add billable usage or ping Timekeeper) -->
+1. A running session whose host transport remains unreachable throughout the confirmation window enters recovery. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
+2. The running workload remains available to the recovery process rather than being stopped or destroyed. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
+3. The session remains authoritatively recorded as running throughout that recovery attempt. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) -->
+4. A fresh lifecycle arms monitoring only after prior transport-failure and recovery state has been cleared together. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4: does not arm metrics when startup cannot clear %s) -->
+5. Any response from either host route ends the unreachable-transport failure sequence, regardless of HTTP status. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC5: any responding probe clears the reconstruction failure streak) -->
 
-**Constraints:** Recovery must neither signal nor destroy the workload and must remain suppressed, together with alarm re-arming, during deliberate teardown.
+**Constraints:** Recovery remains suppressed, together with alarm re-arming, during deliberate teardown.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering)
 
-**Verification:** Automated test ([transport reconstruction preserves the workload and usage cadence](../../src/__tests__/container-metrics.test.ts)); successful SDK reattachment remains a deployed smoke check outside AC1
+**Verification:** Automated test ([transport reconstruction preserves the running workload](../../src/__tests__/container-metrics.test.ts)); successful SDK reattachment remains a deployed smoke check outside AC1
 
 **Status:** Implemented
 
 ---
 
-### REQ-SESSION-022: Transport recovery is durable, observable, and bounded
+### REQ-SESSION-022: Transport recovery is confirmed and bounded
 
-**Intent:** Coordinator reconstruction must leave durable evidence, confirm recovery from a real host response, and stop resetting when reconstruction cannot restore transport.
+**Intent:** Operators must see recovery confirm only after restored host reachability and stop restarting after a bounded number of unsuccessful attempts.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Recovery returns to normal monitoring only after a reconstructed coordinator receives a host response and confirms the incident complete. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC1-AC2: confirms recovery only after a reconstructed instance probes the existing container) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC2: does not confirm recovery or restore normal cadence until recovery evidence is cleared) -->
+2. One transport incident initiates at most two coordinator restart attempts. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC3-AC4: bounds a persistently unreachable host to two reconstructions and keeps slow checks armed) -->
+3. Exhausted recovery retains 60-second monitoring without another restart. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC3-AC4: bounds a persistently unreachable host to two reconstructions and keeps slow checks armed) -->
+4. When deliberate-stop ownership cannot be established, recovery performs no restart and arms no further alarm. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC5: suppresses reconstruction and re-arming when deliberate-stop ownership cannot be read) -->
+
+**Constraints:** Confirmed recovery resumes normal metrics cadence; failed confirmation retains five-second monitoring.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-021](#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-024](#req-session-024-transport-recovery-evidence-is-durable-and-observable)
+
+**Verification:** Automated test ([bounded transport recovery](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-023: Accelerated recovery preserves usage and quota
+
+**Intent:** A user's accelerated recovery confirmations must not consume usage or change quota while transport recovery remains unresolved.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Recovery evidence survives coordinator reconstruction until confirmed recovery or the container lifecycle ends. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-022 AC1: clears transport recovery independently when later teardown cleanup fails) -->
-2. Post-reconstruction recovery reaches confirmed state only upon durable evidence deletion following a host response. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC1-AC2: confirms recovery only after a post-reset probe responds and keeps metrics armed) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC2: does not confirm recovery or restore normal cadence until recovery evidence is cleared) -->
-3. One transport incident initiates at most two coordinator reconstructions. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC3-AC4: bounds a persistently unreachable host to two reconstructions and keeps slow checks armed) -->
-4. Exhausted recovery retains 60-second checks and normal usage accounting without another reset. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC3-AC4: bounds a persistently unreachable host to two reconstructions and keeps slow checks armed) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC4: exhausted watchdog ticks resume SaaS usage accounting before and after transport responds) -->
-5. Unreadable deliberate-stop ownership suppresses reconstruction and alarm re-arming. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC5: suppresses reconstruction and re-arming when deliberate-stop ownership cannot be read) -->
-6. Recovery logs correlate DO and attempt identities, counts, elapsed time, container state, and classified per-route observations. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC1-AC2: confirms recovery only after a post-reset probe responds and keeps metrics armed) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC3-AC4: bounds a persistently unreachable host to two reconstructions and keeps slow checks armed) -->
-7. Malformed recovery state cannot authorize coordinator reconstruction. <!-- @impl: src/container/container-metrics.ts::isTransportRecoveryRecord --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC7: malformed recovery state cannot authorize reconstruction) -->
+1. Accelerated confirmation ticks add no billable usage. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-023 AC1-AC2: confirmation retries do not add billable usage or ping Timekeeper) -->
+2. Accelerated confirmation ticks leave the user's quota unchanged. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-023 AC1-AC2: confirmation retries do not add billable usage or ping Timekeeper) -->
+3. Exhausted recovery resumes normal usage accounting on its 60-second monitoring cadence. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-023 AC3: exhausted watchdog ticks resume SaaS usage accounting before and after transport responds) -->
 
-**Constraints:**
-- Recovery hardening must not stop the workload or change authoritative session status.
-- Confirmed recovery resumes normal metrics cadence.
-- Failed evidence deletion retains five-second, non-billable confirmation.
+**Constraints:** Accounting changes only with the monitoring cadence; recovery does not create a second usage source.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-021](#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-022](#req-session-022-transport-recovery-is-confirmed-and-bounded)
+
+**Verification:** Automated test ([transport recovery usage accounting](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-024: Transport recovery evidence is durable and observable
+
+**Intent:** Operators must retain a correlated incident record across coordinator replacement and reject invalid state as authority for another restart.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. An incident remains identifiable across coordinator replacement until recovery is confirmed or the container lifecycle ends. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC1-AC2: confirms recovery only after a reconstructed instance probes the existing container) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-022 AC1: clears transport recovery independently when later teardown cleanup fails) -->
+2. Recovery events expose coordinator and attempt identities, counts, elapsed time, container state, and classified route observations. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC3-AC4: bounds a persistently unreachable host to two reconstructions and keeps slow checks armed) -->
+3. Invalid incident state cannot authorize another coordinator restart. <!-- @impl: src/container/container-metrics.ts::isTransportRecoveryRecord --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-024 AC3: malformed recovery state cannot authorize reconstruction) -->
+
+**Constraints:** Lifecycle cleanup attempts incident removal independently from unrelated operational cleanup.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-021](#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction)
 
-**Verification:** Automated test ([bounded and correlated transport recovery](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Automated test ([durable and correlated transport recovery evidence](../../src/__tests__/container-metrics.test.ts))
 
 **Status:** Implemented
 

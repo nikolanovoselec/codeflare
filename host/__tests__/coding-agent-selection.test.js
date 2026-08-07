@@ -39,6 +39,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
   it('derives an npm manifest containing only selected coding agents plus shared tools', async () => {
     const { selectedNpmManifest } = await selector();
     const manifest = JSON.parse(readFileSync(join(ROOT, 'preseed/npm-tools/package.json'), 'utf8'));
+    const originalCopilotVersion = manifest.dependencies['@github/copilot'];
     const selected = selectedNpmManifest(manifest, 'claude-code,codex,pi');
 
     assert.equal(selected.dependencies['@anthropic-ai/claude-code'], manifest.dependencies['@anthropic-ai/claude-code']);
@@ -49,7 +50,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.equal(selected.dependencies['chrome-devtools-mcp'], manifest.dependencies['chrome-devtools-mcp']);
     assert.equal(selected.dependencies['@github/copilot'], undefined);
     assert.equal(selected.dependencies['opencode-ai'], undefined);
-    assert.deepEqual(manifest.dependencies['@github/copilot'], '1.0.75', 'the source manifest must not be mutated');
+    assert.equal(manifest.dependencies['@github/copilot'], originalCopilotVersion, 'the source manifest must not be mutated');
   });
 
   it('the packaged-image smoke starts selected launchers and requires omitted launchers to be absent', async () => {

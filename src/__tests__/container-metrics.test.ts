@@ -40,6 +40,7 @@ const testState = vi.hoisted(() => ({
   callOrder: [] as string[],
   storageGetFailures: new Set<string>(),
   storageDeleteFailures: new Set<string>(),
+  storageStore: new Map<string, unknown>(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -107,7 +108,7 @@ vi.mock('@cloudflare/containers', () => {
           // Map-backed so put/get/delete actually round-trip (the
           // collectMetrics not-running confirmation marker relies on it). The
           // special-cased identifier keys still read from testState.
-          const store = new Map<string, unknown>();
+          const store = testState.storageStore;
           return {
             get: async <T>(key: string): Promise<T | undefined> => {
               if (testState.storageGetFailures.has(key)) throw new Error(`storage read failed: ${key}`);
@@ -188,6 +189,14 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   };
   const storage = (): TestStorage =>
     (containerInstance as unknown as { ctx: { storage: TestStorage } }).ctx.storage;
+  const createContainerInstance = (): InstanceType<typeof container> => {
+    const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+      {},
+      { KV: mockKV, LOG_LEVEL: 'silent' },
+    );
+    (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+    return instance;
+  };
 
   beforeEach(async () => {
     mockKV = createMockKV();
@@ -222,15 +231,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.callOrder = [];
     testState.storageGetFailures.clear();
     testState.storageDeleteFailures.clear();
+    testState.storageStore.clear();
 
-    // Create a container instance with mock env
-    containerInstance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
-      {}, // DurableObjectState (mocked via vi.mock)
-      { KV: mockKV, LOG_LEVEL: 'silent' },
-    );
-
-    // Set the KV reference on the env
-    (containerInstance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+    containerInstance = createContainerInstance();
   });
 
   afterEach(() => {
@@ -267,6 +270,21 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.abortReasons).toEqual([]);
       expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
     });
+
+    it.each([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY])(
+      'REQ-SESSION-021 AC4: does not arm metrics when startup cannot clear %s',
+      async (failedKey) => {
+        await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 2);
+        await storage().put(TRANSPORT_RECOVERY_KEY, { status: 'resetting' });
+        testState.storageDeleteFailures.add(failedKey);
+
+        await expect(containerInstance.onStart()).rejects.toThrow(`storage delete failed: ${failedKey}`);
+
+        expect(testState.scheduleCalls).toEqual([]);
+        expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(2);
+        expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toEqual({ status: 'resetting' });
+      },
+    );
   });
 
   describe('collectMetrics', () => {
@@ -468,12 +486,13 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-022 AC1-AC2: confirms recovery only after a post-reset probe responds and keeps metrics armed', async () => {
+    it('REQ-SESSION-022 AC1-AC2: confirms recovery only after a reconstructed instance probes the existing container', async () => {
       testState.tcpFetchShouldFail = true;
       await containerInstance.collectMetrics();
       await containerInstance.collectMetrics();
       await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
       const recovery = await storage().get<{ attemptId: string }>(TRANSPORT_RECOVERY_KEY);
+      containerInstance = createContainerInstance();
 
       testState.tcpFetchShouldFail = false;
       testState.scheduleCalls = [];
@@ -502,6 +521,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
       await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
       const recovery = await storage().get<{ attemptId: string }>(TRANSPORT_RECOVERY_KEY);
+      containerInstance = createContainerInstance();
 
       testState.tcpFetchShouldFail = false;
       testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
@@ -537,10 +557,12 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
       await containerInstance.collectMetrics();
       await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      containerInstance = createContainerInstance();
 
       await containerInstance.collectMetrics();
       await containerInstance.collectMetrics();
       await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      containerInstance = createContainerInstance();
 
       testState.scheduleCalls = [];
       await containerInstance.collectMetrics();
@@ -598,7 +620,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
-    it('REQ-SESSION-022 AC7: malformed recovery state cannot authorize reconstruction', async () => {
+    it('REQ-SESSION-024 AC3: malformed recovery state cannot authorize reconstruction', async () => {
       const now = Date.now();
       await storage().put(TRANSPORT_RECOVERY_KEY, {
         attemptId: 'invalid-exhausted-state',
@@ -653,7 +675,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.abortReasons).toEqual([]);
     });
 
-    it('REQ-SESSION-021 AC6-AC7: confirmation retries do not add billable usage or ping Timekeeper', async () => {
+    it('REQ-SESSION-023 AC1-AC2: confirmation retries do not add billable usage or ping Timekeeper', async () => {
       testState.storedBucketName = 'test-bucket';
       testState.storedSessionId = 'testsession123456';
       testState.storedUserEmail = 'quota@example.com';
@@ -704,7 +726,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       ]);
     });
 
-    it('REQ-SESSION-022 AC4: exhausted watchdog ticks resume SaaS usage accounting before and after transport responds', async () => {
+    it('REQ-SESSION-023 AC3: exhausted watchdog ticks resume SaaS usage accounting before and after transport responds', async () => {
       testState.storedBucketName = 'test-bucket';
       testState.storedSessionId = 'testsession123456';
       testState.storedUserEmail = 'quota@example.com';

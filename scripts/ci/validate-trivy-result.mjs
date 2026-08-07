@@ -114,30 +114,6 @@ const REVIEWED_FINDINGS = [
     fixedVersion: '7.29.0, 8.9.0',
     severity: 'HIGH',
   },
-  {
-    // Integration runs 31102705391 and 31105573226 reported this exact Debian
-    // package pair. The content-addressed image tag changes with build inputs,
-    // so bind its target shape plus each package PURL/version and multiplicity.
-    // Remove when apt resolves 16.02+really26.02+dfsg-0+deb12u1 or later.
-    target: 'codeflare integration image (debian 12.15)',
-    targetPattern: '^codeflare-integration-container:in-[a-f0-9]{16} \\(debian 12\\.15\\)$',
-    vulnerabilityId: 'CVE-2026-14266',
-    packageName: 'p7zip',
-    packagePurl: 'pkg:deb/debian/p7zip@16.02%2Breally26.01%2Bdfsg-0%2Bdeb12u1?arch=amd64&distro=debian-12.15',
-    installedVersion: '16.02+really26.01+dfsg-0+deb12u1',
-    fixedVersion: '16.02+really26.02+dfsg-0+deb12u1',
-    severity: 'HIGH',
-  },
-  {
-    target: 'codeflare integration image (debian 12.15)',
-    targetPattern: '^codeflare-integration-container:in-[a-f0-9]{16} \\(debian 12\\.15\\)$',
-    vulnerabilityId: 'CVE-2026-14266',
-    packageName: 'p7zip-full',
-    packagePurl: 'pkg:deb/debian/p7zip-full@16.02%2Breally26.01%2Bdfsg-0%2Bdeb12u1?arch=amd64&distro=debian-12.15',
-    installedVersion: '16.02+really26.01+dfsg-0+deb12u1',
-    fixedVersion: '16.02+really26.02+dfsg-0+deb12u1',
-    severity: 'HIGH',
-  },
 ];
 
 function matchesReviewedFinding(reviewed, finding) {

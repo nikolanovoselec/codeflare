@@ -12,6 +12,7 @@ import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs'
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'container-image.yml');
 const VALIDATOR = join(ROOT, 'scripts', 'ci', 'validate-trivy-result.mjs');
+const DOCKERFILE = join(ROOT, 'Dockerfile');
 
 function vulnerability(overrides = {}) {
   return {
@@ -53,19 +54,6 @@ function undiciVulnerability(installedVersion, overrides = {}) {
     InstalledVersion: installedVersion,
     FixedVersion: '7.29.0, 8.9.0',
     Severity: 'HIGH',
-    ...overrides,
-  };
-}
-
-function p7zipVulnerability(packageName, overrides = {}) {
-  const version = '16.02+really26.01+dfsg-0+deb12u1';
-  return {
-    VulnerabilityID: 'CVE-2026-14266',
-    PkgName: packageName,
-    InstalledVersion: version,
-    FixedVersion: '16.02+really26.02+dfsg-0+deb12u1',
-    Severity: 'HIGH',
-    PkgIdentifier: { PURL: `pkg:deb/debian/${packageName}@16.02%2Breally26.01%2Bdfsg-0%2Bdeb12u1?arch=amd64&distro=debian-12.15` },
     ...overrides,
   };
 }
@@ -114,13 +102,6 @@ function report(results = [
       }),
     ],
   },
-  {
-    Target: 'codeflare-integration-container:in-2cff5a5fadebd9a6 (debian 12.15)',
-    Vulnerabilities: [
-      p7zipVulnerability('p7zip'),
-      p7zipVulnerability('p7zip-full'),
-    ],
-  },
 ]) {
   return { Results: results };
 }
@@ -135,9 +116,8 @@ describe('Trivy bounded exception gate', () => {
       'Node.js@10.2.0',
       'Node.js@7.28.0',
       'Node.js@8.5.0',
-      'codeflare integration image (debian 12.15)@16.02+really26.01+dfsg-0+deb12u1',
     ]);
-    assert.equal(result.evidence.length, 11);
+    assert.equal(result.evidence.length, 9);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -168,8 +148,6 @@ describe('Trivy bounded exception gate', () => {
         `${prefix}CVE-2026-13697 undici 7.28.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/undici/package.json; purl=pkg:npm/undici@7.28.0]`,
         `${prefix}CVE-2026-13697 undici 8.5.0 at Node.js [path=opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json; purl=pkg:npm/undici@8.5.0]`,
         `${prefix}CVE-2026-13697 undici 8.5.0 at Node.js [path=opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json; purl=pkg:npm/undici@8.5.0]`,
-        `${prefix}CVE-2026-14266 p7zip 16.02+really26.01+dfsg-0+deb12u1 at codeflare-integration-container:in-2cff5a5fadebd9a6 (debian 12.15) [path=<unavailable>; purl=pkg:deb/debian/p7zip@16.02%2Breally26.01%2Bdfsg-0%2Bdeb12u1?arch=amd64&distro=debian-12.15]`,
-        `${prefix}CVE-2026-14266 p7zip-full 16.02+really26.01+dfsg-0+deb12u1 at codeflare-integration-container:in-2cff5a5fadebd9a6 (debian 12.15) [path=<unavailable>; purl=pkg:deb/debian/p7zip-full@16.02%2Breally26.01%2Bdfsg-0%2Bdeb12u1?arch=amd64&distro=debian-12.15]`,
       ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -198,27 +176,22 @@ describe('Trivy bounded exception gate', () => {
     assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
   });
 
-  it('rejects missing, duplicate, or drifted p7zip package identities', () => {
-    const mutations = [
-      (input) => { input.Results[1].Vulnerabilities.pop(); },
-      (input) => { input.Results[1].Vulnerabilities.push(structuredClone(input.Results[1].Vulnerabilities[0])); },
-      (input) => { input.Results[1].Vulnerabilities[0].PkgName = 'other'; },
-      (input) => { input.Results[1].Vulnerabilities[0].InstalledVersion = '26.00'; },
-      (input) => { input.Results[1].Vulnerabilities[0].FixedVersion = '26.03'; },
-      (input) => { input.Results[1].Vulnerabilities[0].Severity = 'CRITICAL'; },
-      (input) => { input.Results[1].Vulnerabilities[0].PkgPath = 'other/package'; },
-      (input) => { input.Results[1].Vulnerabilities[0].PkgIdentifier.PURL += '&other=true'; },
-      (input) => { input.Results[1].Target = 'other-container:in-0123456789abcdef (debian 12.15)'; },
-    ];
-
-    for (const mutate of mutations) {
-      const input = report();
-      mutate(input);
-      assert.throws(
-        () => validateTrivyResult(input),
-        /unexpected HIGH\/CRITICAL finding|missing reviewed finding/,
-      );
-    }
+  it('rejects p7zip RCE findings and keeps the vulnerable preview package out of the image', () => {
+    assert.doesNotMatch(readFileSync(DOCKERFILE, 'utf8'), /\bp7zip(?:-full)?\b/);
+    const input = report([
+      ...report().Results,
+      {
+        Target: 'codeflare-integration-container:in-2cff5a5fadebd9a6 (debian 12.15)',
+        Vulnerabilities: [{
+          VulnerabilityID: 'CVE-2026-14266',
+          PkgName: 'p7zip-full',
+          InstalledVersion: '16.02+really26.01+dfsg-0+deb12u1',
+          FixedVersion: '16.02+really26.02+dfsg-0+deb12u1',
+          Severity: 'HIGH',
+        }],
+      },
+    ]);
+    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
   });
 
   it('rejects vulnerability-ID or package drift independently', () => {

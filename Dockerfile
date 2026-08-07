@@ -119,7 +119,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     fzf \
     # Yazi preview dependencies
     file \
-    p7zip-full \
     bat \
     unzip \
     # Sandbox for OpenAI Codex
