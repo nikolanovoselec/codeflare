@@ -198,7 +198,9 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # immutable upstream VS Code gitlink are all pinned. The artifact embeds the
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
-# the immutable release tag and owns every literal in this block.
+# the immutable release tag and owns every literal in this block. code-server 4.131.0
+# permits js-yaml 4.x but ships 4.2.0; keep its root dependency on the fixed
+# compatible release until an upstream archive includes GHSA-5p4m-2wfm-xmqj.
 RUN CODE_SERVER_VERSION="4.131.0" && \
     CODE_SERVER_SHA256="f6316f0b14ef5c12ed6e67e0154dd02ccf5e66112064687d7e93c51763105361" && \
     CODE_SERVER_COMMIT="a3fc2899bd0fcd388253c0e79ce33b8acd48c688" && \
@@ -210,6 +212,8 @@ RUN CODE_SERVER_VERSION="4.131.0" && \
     echo "${CODE_SERVER_SHA256}  /tmp/code-server.tar.gz" | sha256sum -c - && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
+    npm install --prefix /opt/code-server --no-save --package-lock=false --ignore-scripts --omit=dev --no-audit --no-fund js-yaml@4.3.1 && \
+    test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "4.3.1" && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
     test "$(jq -r .version /opt/code-server/package.json)" = "$CODE_SERVER_VERSION" && \
