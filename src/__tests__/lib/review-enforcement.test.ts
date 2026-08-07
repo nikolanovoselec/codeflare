@@ -2338,6 +2338,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
 
     const postAckHarness = await registerFixture(fixture);
+    await postAckHarness.emit('agent_end');
     await postAckHarness.emit('agent_settled');
     expect(postAckHarness.sent).toEqual([]);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
