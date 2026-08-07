@@ -23,8 +23,13 @@ const testState = vi.hoisted(() => ({
     syncStatus: 'success',
   } as Record<string, string>,
   tcpFetchShouldFail: false,
+  activityFetchShouldFail: false,
+  healthFetchShouldFail: false,
+  activityStatus: 200,
+  healthStatus: 200,
   stopCalls: 0,
   scheduleCalls: [] as Array<[number, string]>,
+  abortReasons: [] as string[],
   activityHangs: false,
   kvRef: null as MockKV | null,
   // REQ-SESSION-011: POST /internal/final-sync (drainFinalSync). finalSyncStatus
@@ -33,6 +38,9 @@ const testState = vi.hoisted(() => ({
   finalSyncCalls: 0,
   finalSyncStatus: 200,
   callOrder: [] as string[],
+  storageGetFailures: new Set<string>(),
+  storageDeleteFailures: new Set<string>(),
+  storageStore: new Map<string, unknown>(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -41,15 +49,18 @@ const testState = vi.hoisted(() => ({
 vi.mock('@cloudflare/containers', () => {
   class MockContainer {
     ctx: {
+      id: { toString: () => string };
       container: { running: boolean; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
-      storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string) => Promise<void> };
+      storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string | string[]) => Promise<void>; sync: () => Promise<void> };
       blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>;
+      abort: (reason: string) => never;
     };
     env: Record<string, unknown>;
     envVars: Record<string, string> | undefined;
 
     constructor() {
       this.ctx = {
+        id: { toString: () => 'mock-do-id' },
         container: {
           get running() { return testState.containerRunning; },
           getTcpPort: () => ({
@@ -68,7 +79,9 @@ vi.mock('@cloudflare/containers', () => {
                   headers: { 'Content-Type': 'application/json' },
                 });
               }
-              if (testState.tcpFetchShouldFail) {
+              if (testState.tcpFetchShouldFail
+                  || (url.includes('/activity') && testState.activityFetchShouldFail)
+                  || (url.includes('/health') && testState.healthFetchShouldFail)) {
                 throw new Error('Connection refused');
               }
               // A wedged container: the TCP connect succeeds and nothing is ever
@@ -85,7 +98,7 @@ vi.mock('@cloudflare/containers', () => {
                 ? testState.activityResult
                 : testState.healthResult;
               return new Response(JSON.stringify(body), {
-                status: 200,
+                status: url.includes('/activity') ? testState.activityStatus : testState.healthStatus,
                 headers: { 'Content-Type': 'application/json' },
               });
             },
@@ -95,9 +108,10 @@ vi.mock('@cloudflare/containers', () => {
           // Map-backed so put/get/delete actually round-trip (the
           // collectMetrics not-running confirmation marker relies on it). The
           // special-cased identifier keys still read from testState.
-          const store = new Map<string, unknown>();
+          const store = testState.storageStore;
           return {
             get: async <T>(key: string): Promise<T | undefined> => {
+              if (testState.storageGetFailures.has(key)) throw new Error(`storage read failed: ${key}`);
               if (key === '_sessionId') return testState.storedSessionId as T;
               if (key === 'bucketName') return testState.storedBucketName as T;
               if (key === 'sleepAfter') return testState.storedSleepAfter as T;
@@ -105,10 +119,20 @@ vi.mock('@cloudflare/containers', () => {
               return store.has(key) ? (store.get(key) as T) : undefined;
             },
             put: vi.fn(async (key: string, value: unknown) => { store.set(key, value); }),
-            delete: vi.fn(async (key: string) => { store.delete(key); }),
+            delete: vi.fn(async (keys: string | string[]) => {
+              const keyList = Array.isArray(keys) ? keys : [keys];
+              const failedKey = keyList.find((key) => testState.storageDeleteFailures.has(key));
+              if (failedKey) throw new Error(`storage delete failed: ${failedKey}`);
+              for (const key of keyList) store.delete(key);
+            }),
+            sync: vi.fn(async () => {}),
           };
         })(),
         blockConcurrencyWhile: async (fn: () => Promise<void>) => fn(),
+        abort: (reason: string): never => {
+          testState.abortReasons.push(reason);
+          throw new Error('mock Durable Object abort');
+        },
       };
       this.env = {
         KV: null, // will be set per test
@@ -148,11 +172,31 @@ vi.mock('../lib/logger', () => ({
 
 // Import AFTER mocks are set up
 import { container } from '../container/index';
-import { drainFinalSync, FINAL_SYNC_BUDGET_MS, CONTAINER_POLL_BUDGET_MS } from '../container/container-metrics';
+import {
+  drainFinalSync,
+  FINAL_SYNC_BUDGET_MS,
+  CONTAINER_POLL_BUDGET_MS,
+  TRANSPORT_FAILURE_STREAK_KEY,
+  TRANSPORT_RECOVERY_KEY,
+} from '../container/container-metrics';
 
 describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
   let containerInstance: InstanceType<typeof container>;
+  type TestStorage = {
+    get: <T>(key: string) => Promise<T | undefined>;
+    put: (key: string, value: unknown) => Promise<void>;
+  };
+  const storage = (): TestStorage =>
+    (containerInstance as unknown as { ctx: { storage: TestStorage } }).ctx.storage;
+  const createContainerInstance = (): InstanceType<typeof container> => {
+    const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+      {},
+      { KV: mockKV, LOG_LEVEL: 'silent' },
+    );
+    (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+    return instance;
+  };
 
   beforeEach(async () => {
     mockKV = createMockKV();
@@ -160,6 +204,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
     testState.tcpFetchShouldFail = false;
+    testState.activityFetchShouldFail = false;
+    testState.healthFetchShouldFail = false;
+    testState.activityStatus = 200;
+    testState.healthStatus = 200;
     testState.activityHangs = false;
     testState.activityResult = {
       hasActiveConnections: true,
@@ -173,6 +221,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       syncStatus: 'success',
     };
     testState.scheduleCalls = [];
+    testState.abortReasons = [];
     testState.stopCalls = 0;
     testState.storedSleepAfter = undefined;
     testState.storedUserEmail = undefined;
@@ -180,15 +229,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.finalSyncCalls = 0;
     testState.finalSyncStatus = 200;
     testState.callOrder = [];
+    testState.storageGetFailures.clear();
+    testState.storageDeleteFailures.clear();
+    testState.storageStore.clear();
 
-    // Create a container instance with mock env
-    containerInstance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
-      {}, // DurableObjectState (mocked via vi.mock)
-      { KV: mockKV, LOG_LEVEL: 'silent' },
-    );
-
-    // Set the KV reference on the env
-    (containerInstance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+    containerInstance = createContainerInstance();
   });
 
   afterEach(() => {
@@ -202,6 +247,44 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       // Check that schedule was called with correct args
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
+
+    it('REQ-SESSION-021 AC4 + REQ-SESSION-022 AC1: clears prior transport recovery state on a fresh container start', async () => {
+      await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 2);
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'old-attempt',
+        startedAt: Date.now() - 60_000,
+        lastAttemptAt: Date.now() - 30_000,
+        attemptCount: 1,
+        postResetFailureCount: 0,
+        totalFailureCount: 3,
+        status: 'resetting',
+      });
+
+      await containerInstance.onStart();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      testState.scheduleCalls = [];
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+    });
+
+    it.each([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY])(
+      'REQ-SESSION-021 AC4: does not arm metrics when startup cannot clear %s',
+      async (failedKey) => {
+        await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 2);
+        await storage().put(TRANSPORT_RECOVERY_KEY, { status: 'resetting' });
+        testState.storageDeleteFailures.add(failedKey);
+
+        await expect(containerInstance.onStart()).rejects.toThrow(`storage delete failed: ${failedKey}`);
+
+        expect(testState.scheduleCalls).toEqual([]);
+        expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(2);
+        expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toEqual({ status: 'resetting' });
+      },
+    );
   });
 
   describe('collectMetrics', () => {
@@ -288,6 +371,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(sessionPut).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([]);
     });
 
     // REQ-SESSION-018 AC4: a live container whose KV was wrongly flipped to
@@ -349,6 +433,366 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     }, 25_000);
 
+    it('REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      testState.tcpFetchShouldFail = true;
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([
+        [5, 'collectMetrics'],
+        [5, 'collectMetrics'],
+      ]);
+
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+
+      expect(testState.abortReasons).toEqual(['container transport unresponsive after 3 complete probe failures']);
+      expect(testState.stopCalls).toBe(0);
+      const stoppedWrite = mockKV.put.mock.calls.find((call: unknown[]) => {
+        if (typeof call[0] !== 'string' || !(call[0] as string).includes('testsession123456')) return false;
+        try { return (JSON.parse(call[1] as string) as Session).status === 'stopped'; } catch { return false; }
+      });
+      expect(stoppedWrite).toBeUndefined();
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
+        attemptId: expect.any(String),
+        attemptCount: 1,
+        postResetFailureCount: 0,
+        totalFailureCount: 3,
+        status: 'resetting',
+      });
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'collectMetrics: resetting Durable Object to reconstruct container transport',
+        expect.objectContaining({
+          durableObjectId: 'mock-do-id',
+          recoveryAttemptId: expect.any(String),
+          recoveryAttempt: 1,
+          totalFailures: 3,
+          containerRunning: true,
+          probes: {
+            activity: expect.objectContaining({ responded: false, category: 'connection-refused', error: 'Connection refused', durationMs: expect.any(Number) }),
+            health: expect.objectContaining({ responded: false, category: 'connection-refused', error: 'Connection refused', durationMs: expect.any(Number) }),
+          },
+        }),
+      );
+    });
+
+    it('REQ-SESSION-022 AC1-AC2: confirms recovery only after a reconstructed instance probes the existing container', async () => {
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      const recovery = await storage().get<{ attemptId: string }>(TRANSPORT_RECOVERY_KEY);
+      containerInstance = createContainerInstance();
+
+      testState.tcpFetchShouldFail = false;
+      testState.scheduleCalls = [];
+      mockLogger.info.mockClear();
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'collectMetrics: container transport recovery confirmed',
+        expect.objectContaining({
+          durableObjectId: 'mock-do-id',
+          recoveryAttemptId: recovery?.attemptId,
+          recoveryAttempt: 1,
+          totalFailures: 3,
+          elapsedMs: expect.any(Number),
+          containerRunning: true,
+        }),
+      );
+    });
+
+    it('REQ-SESSION-022 AC2: does not confirm recovery or restore normal cadence until recovery evidence is cleared', async () => {
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      const recovery = await storage().get<{ attemptId: string }>(TRANSPORT_RECOVERY_KEY);
+      containerInstance = createContainerInstance();
+
+      testState.tcpFetchShouldFail = false;
+      testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.scheduleCalls = [];
+      mockLogger.info.mockClear();
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        'collectMetrics: container transport recovery confirmed',
+        expect.anything(),
+      );
+
+      testState.storageDeleteFailures.clear();
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([
+        [5, 'collectMetrics'],
+        [60, 'collectMetrics'],
+      ]);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'collectMetrics: container transport recovery confirmed',
+        expect.objectContaining({ recoveryAttemptId: recovery?.attemptId }),
+      );
+    });
+
+    it('REQ-SESSION-022 AC3-AC4: bounds a persistently unreachable host to two reconstructions and keeps slow checks armed', async () => {
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      containerInstance = createContainerInstance();
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      containerInstance = createContainerInstance();
+
+      testState.scheduleCalls = [];
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toHaveLength(2);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      expect(testState.scheduleCalls.slice(-2)).toEqual([
+        [60, 'collectMetrics'],
+        [60, 'collectMetrics'],
+      ]);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'collectMetrics: post-reconstruction transport confirmation failed',
+        expect.objectContaining({
+          durableObjectId: 'mock-do-id',
+          recoveryAttemptId: expect.any(String),
+          recoveryAttempt: expect.any(Number),
+          probes: {
+            activity: expect.objectContaining({ category: 'connection-refused', error: 'Connection refused', durationMs: expect.any(Number) }),
+            health: expect.objectContaining({ category: 'connection-refused', error: 'Connection refused', durationMs: expect.any(Number) }),
+          },
+        }),
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'collectMetrics: container transport recovery exhausted',
+        undefined,
+        expect.objectContaining({
+          durableObjectId: 'mock-do-id',
+          recoveryAttemptId: expect.any(String),
+          recoveryAttempt: 2,
+          totalFailures: 9,
+          containerRunning: true,
+        }),
+      );
+    });
+
+    it('REQ-SESSION-022 AC5: suppresses reconstruction and re-arming when deliberate-stop ownership cannot be read', async () => {
+      testState.storageGetFailures.add('shutdownRequested');
+      testState.tcpFetchShouldFail = true;
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([]);
+    });
+
+    it('REQ-SESSION-024 AC3: malformed recovery state cannot authorize reconstruction', async () => {
+      const now = Date.now();
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'invalid-exhausted-state',
+        startedAt: now,
+        lastAttemptAt: now,
+        attemptCount: 1,
+        postResetFailureCount: 3,
+        totalFailureCount: 6,
+        status: 'exhausted',
+      });
+      testState.tcpFetchShouldFail = true;
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'collectMetrics: invalid transport recovery record; suppressing reconstruction',
+        undefined,
+        { durableObjectId: 'mock-do-id', valueType: 'object' },
+      );
+    });
+
+    it('REQ-SESSION-021 AC5: any responding probe clears the reconstruction failure streak', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      // /activity still fails, but /health answers with 503. The non-OK response
+      // still proves the DO-to-container attachment recovered and clears the streak.
+      testState.tcpFetchShouldFail = false;
+      testState.activityFetchShouldFail = true;
+      testState.healthStatus = 503;
+      await containerInstance.collectMetrics();
+
+      testState.activityFetchShouldFail = false;
+      testState.healthStatus = 200;
+      testState.tcpFetchShouldFail = true;
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      expect(testState.abortReasons).toEqual([]);
+    });
+
+    it('REQ-SESSION-023 AC1-AC2: confirmation retries do not add billable usage or ping Timekeeper', async () => {
+      testState.storedBucketName = 'test-bucket';
+      testState.storedSessionId = 'testsession123456';
+      testState.storedUserEmail = 'quota@example.com';
+
+      const timekeeperStub = {
+        fetch: vi.fn(async () =>
+          new Response(JSON.stringify({ quotaExceeded: false, totalMonthlySeconds: 60 }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        ),
+      };
+      const TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+      );
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      await vi.waitFor(
+        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
+
+      testState.tcpFetchShouldFail = true;
+      testState.scheduleCalls = [];
+      await instance.collectMetrics();
+      await instance.collectMetrics();
+
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect((instance as unknown as { _usageSeconds: number })._usageSeconds).toBe(60);
+      expect(testState.scheduleCalls).toEqual([
+        [5, 'collectMetrics'],
+        [5, 'collectMetrics'],
+      ]);
+    });
+
+    it('REQ-SESSION-023 AC3: exhausted watchdog ticks resume SaaS usage accounting before and after transport responds', async () => {
+      testState.storedBucketName = 'test-bucket';
+      testState.storedSessionId = 'testsession123456';
+      testState.storedUserEmail = 'quota@example.com';
+
+      const timekeeperStub = {
+        fetch: vi.fn(async () =>
+          new Response(JSON.stringify({ quotaExceeded: false, totalMonthlySeconds: 120 }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        ),
+      };
+      const TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+      );
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      await vi.waitFor(
+        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
+      const instanceStorage = (instance as unknown as { ctx: { storage: TestStorage } }).ctx.storage;
+      const now = Date.now();
+      await instanceStorage.put(TRANSPORT_FAILURE_STREAK_KEY, 3);
+      await instanceStorage.put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'recovery-exhausted',
+        startedAt: now,
+        lastAttemptAt: now,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+
+      testState.tcpFetchShouldFail = true;
+      testState.scheduleCalls = [];
+      await instance.collectMetrics();
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect((instance as unknown as { _usageSeconds: number })._usageSeconds).toBe(60);
+
+      testState.tcpFetchShouldFail = false;
+      await instance.collectMetrics();
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(2);
+      expect((instance as unknown as { _usageSeconds: number })._usageSeconds).toBe(120);
+      expect(await instanceStorage.get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([
+        [60, 'collectMetrics'],
+        [60, 'collectMetrics'],
+      ]);
+    });
+
     it('should re-arm schedule if container is still running', async () => {
       const session: Session = {
         id: 'testsession123456',
@@ -363,7 +807,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.scheduleCalls = [];
       await containerInstance.collectMetrics();
 
-      // Should re-arm with schedule(5, 'collectMetrics')
+      // Healthy transport returns to the normal 60-second cadence.
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
@@ -1054,9 +1498,15 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
     testState.tcpFetchShouldFail = false;
+    testState.activityFetchShouldFail = false;
+    testState.healthFetchShouldFail = false;
+    testState.activityStatus = 200;
+    testState.healthStatus = 200;
+    testState.abortReasons = [];
     testState.finalSyncCalls = 0;
     testState.finalSyncStatus = 200;
     testState.callOrder = [];
+    testState.storageGetFailures.clear();
     testState.stopCalls = 0;
     testState.scheduleCalls = [];
     testState.storedSleepAfter = undefined;

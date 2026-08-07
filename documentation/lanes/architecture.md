@@ -435,13 +435,20 @@ stateDiagram-v2
     initializing --> error : error
     running --> stopping : stop
     stopping --> stopped : poll stopped
+    running --> running : 3 complete probe failures (DO reconstructs, container and PTY preserved)
     running --> stopped : collectMetrics (idle &gt; idleTimeoutPref)
     running --> stopped : onError / collectMetrics (unexpected exit: crash, deploy-roll, platform reap)
 ```
 
 (`error` — like `initializing` and `stopping` — is a frontend-ephemeral state, never persisted ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) AC2); it resolves to `stopped` on the next batch-status poll, not via a KV write. The SDK's `onError()` fires on a **running** container's unexpected exit, hence the `running --> stopped` transition above.)
 
-**Stop (unexpected exit):** A crash, deploy-roll, or platform idle-reap exits the container without a graceful `stop()`, so the SDK fires `onError()` (**not** `onStop()`). `onError()` writes KV `status: 'stopped'` (guarded on `!ctx.container.running`); if it is skipped, the `collectMetrics()` `!running` branch writes `stopped` on the next 60s tick. Either way KV converges to `stopped` rather than dangling at `running`. See rationale #5 / #17 and [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
+**Transport reconstruction (running process, unreachable host):** `ctx.container.running` proves process existence, not host readiness. `/activity` and `/health` are separate routes on the same port 8080 Node server and event loop, so both failing does not distinguish a stale DO attachment from container networking, listener, CPU, or host-process failure. `collectMetrics()` confirms three complete failures at 5 s cadence, persists a correlated recovery attempt, then calls `ctx.abort()` without writing `stopped`, signalling the container, or running final sync ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC1-AC5). Accelerated confirmation preserves usage and quota under [REQ-SESSION-023](../../sdd/spec/session-lifecycle.md#req-session-023-accelerated-recovery-preserves-usage-and-quota).
+
+A post-reset host response confirms recovery only after durable evidence is successfully cleared, then restores 60 s metrics. A failed clear retains the evidence and five-second, non-billable confirmation cadence. Continued failure permits one more reconstruction after three confirmations; three failures after the second attempt mark recovery exhausted and retain 60 s checks with normal usage accounting, without another reset.
+
+Reset, confirmation, success, and exhaustion logs correlate the DO and attempt identities, counts, elapsed time, container state, and classified route observations. An unreadable `shutdownRequested` marker suppresses both reconstruction and alarm re-arming ([REQ-SESSION-022](../../sdd/spec/session-lifecycle.md#req-session-022-transport-recovery-is-confirmed-and-bounded); [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-evidence-is-durable-and-observable)). The SDK constructor's running-container path is expected to reattach its monitor; browser reconnection to the existing PTY remains a deployed smoke check, not an automated-contract claim.
+
+**Stop (unexpected exit):** A crash, deploy-roll, or platform idle-reap exits the container without a graceful `stop()`, so the SDK fires `onError()` (**not** `onStop()`). `onError()` opens the persisted not-running confirmation window and re-arms `collectMetrics()`; the `collectMetrics()` `!running` branch writes `stopped` only after the reading persists across that window. KV converges to `stopped` rather than dangling at `running`, without letting one transient platform reading kick a live user out. See rationale #5 / #17 and [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
 
 **Stop (idle):** `collectMetrics()` poll -> `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)` -> `idleMs > parseSleepAfterMs(idleTimeoutPref)` -> write KV `status: 'stopped'` (with `lastActiveAt`) -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule.
 
@@ -457,19 +464,18 @@ Newly started sessions have a 3-minute startup guard (`session-polling.ts`) duri
 
 ```mermaid
 flowchart TD
-    subgraph IdleStop["Idle stop"]
-        I1["collectMetrics()"] --> I2["KV stopped + stop(SIGTERM)"]
-        I2 --> I3["onStop clears schedule"]
-    end
-    subgraph UserStopDelete["User stop / delete"]
-        U1["Worker writes or clears KV"] --> U2["container.destroy()"]
-        U2 --> U3["identifiers cleared before onStop"]
-    end
-    subgraph UnexpectedExit["Unexpected exit"]
-        X1["crash / reap"] --> X2["onError or collectMetrics writes stopped"]
-    end
+    I1["Idle timeout"] --> I2["KV stopped + stop(SIGTERM)"]
+    I2 --> I3["onStop clears schedule"]
+    U1["User stop / delete"] --> U2["container.destroy()"]
+    U2 --> U3["identifiers cleared before onStop"]
+    R1["Both host routes fail 3 times"] --> R2["Persist attempt + ctx.abort"]
+    R2 --> R3{"Host responds after reset?"}
+    R3 -->|"Yes"| A["Clear attempt; 60s metrics"]
+    R3 -->|"No after max 2 resets"| E["Exhausted; 60s checks"]
+    X1["Unexpected exit"] --> X2["onError or collectMetrics writes stopped"]
     U3 -.-> K["prevents session resurrection"]
-    X2 -.-> A["KV status authoritative (AD70)"]
+    R2 -.-> P["container + KV running preserved"]
+    X2 -.-> B["KV status authoritative (AD70)"]
 ```
 
 **Restart (same bucket):** `setBucketName` -> 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, `tabConfig`, and `fastStartEnabled` in DO storage for KV reconciliation and preference updates) -> `startAndWaitForPorts()` -> `onStart()` re-arms metrics

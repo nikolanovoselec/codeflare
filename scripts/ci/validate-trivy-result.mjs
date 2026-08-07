@@ -116,17 +116,18 @@ const REVIEWED_FINDINGS = [
   },
 ];
 
-function findingKey(finding) {
-  return [
-    finding.target,
-    finding.vulnerabilityId,
-    finding.packageName,
-    finding.packagePath ?? '',
-    finding.packagePurl ?? '',
-    finding.installedVersion,
-    finding.fixedVersion,
-    finding.severity,
-  ].join('\u0000');
+function matchesReviewedFinding(reviewed, finding) {
+  const targetMatches = reviewed.targetPattern
+    ? new RegExp(reviewed.targetPattern).test(finding.target)
+    : reviewed.target === finding.target;
+  return targetMatches
+    && reviewed.vulnerabilityId === finding.vulnerabilityId
+    && reviewed.packageName === finding.packageName
+    && reviewed.packagePath === finding.packagePath
+    && reviewed.packagePurl === finding.packagePurl
+    && reviewed.installedVersion === finding.installedVersion
+    && reviewed.fixedVersion === finding.fixedVersion
+    && reviewed.severity === finding.severity;
 }
 
 export function validateTrivyResult(report) {
@@ -134,11 +135,7 @@ export function validateTrivyResult(report) {
     throw new Error('Trivy report must contain a Results array');
   }
 
-  const expected = new Map(REVIEWED_FINDINGS.map((finding) => [
-    findingKey(finding),
-    { finding, occurrences: finding.occurrences ?? 1 },
-  ]));
-  const seen = new Map();
+  const seen = REVIEWED_FINDINGS.map(() => 0);
   const findings = [];
   const evidence = [];
 
@@ -177,17 +174,16 @@ export function validateTrivyResult(report) {
         fixedVersion: vulnerability.FixedVersion,
         severity: vulnerability.Severity,
       };
-      const key = findingKey(finding);
-      const reviewed = expected.get(key);
-      const occurrences = seen.get(key) ?? 0;
-      if (!reviewed || occurrences >= reviewed.occurrences) {
+      const reviewedIndex = REVIEWED_FINDINGS.findIndex((reviewed, index) =>
+        seen[index] < (reviewed.occurrences ?? 1) && matchesReviewedFinding(reviewed, finding));
+      if (reviewedIndex === -1) {
         findings.push(
           `unexpected HIGH/CRITICAL finding: ${finding.vulnerabilityId} ${finding.packageName} `
           + `${finding.installedVersion} -> ${finding.fixedVersion} at ${finding.target} `
           + `[path=${finding.packagePath ?? '<unavailable>'}; purl=${finding.packagePurl ?? '<unavailable>'}]`,
         );
       } else {
-        seen.set(key, occurrences + 1);
+        seen[reviewedIndex] += 1;
         evidence.push(
           `${finding.vulnerabilityId} ${finding.packageName} ${finding.installedVersion} at ${finding.target} `
           + `[path=${finding.packagePath ?? '<unavailable>'}; purl=${finding.packagePurl ?? '<unavailable>'}]`,
@@ -196,9 +192,9 @@ export function validateTrivyResult(report) {
     }
   }
 
-  for (const [key, reviewed] of expected) {
-    if ((seen.get(key) ?? 0) < reviewed.occurrences) {
-      const { finding } = reviewed;
+  for (const [index, finding] of REVIEWED_FINDINGS.entries()) {
+    const occurrences = finding.occurrences ?? 1;
+    if (seen[index] < occurrences) {
       findings.push(
         `missing reviewed finding: ${finding.vulnerabilityId} ${finding.packageName} `
         + `${finding.installedVersion} at ${finding.target} `

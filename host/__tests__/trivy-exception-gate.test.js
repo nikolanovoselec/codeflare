@@ -105,8 +105,8 @@ function report(results = [
   return { Results: results };
 }
 
-describe('Trivy bounded exception gate', () => {
-  it('accepts only the reviewed Node.js findings', () => {
+describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
+  it('accepts only the reviewed HIGH/CRITICAL findings', () => {
     const result = validateTrivyResult(report());
     assert.deepEqual(result.accepted, [
       'Node.js@5.0.5',
@@ -172,6 +172,23 @@ describe('Trivy bounded exception gate', () => {
   it('rejects duplicate reviewed findings', () => {
     const input = report();
     input.Results[0].Vulnerabilities.push(structuredClone(input.Results[0].Vulnerabilities[0]));
+    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+  });
+
+  it('rejects p7zip RCE findings without a reviewed exception', () => {
+    const input = report([
+      ...report().Results,
+      {
+        Target: 'codeflare-integration-container:in-2cff5a5fadebd9a6 (debian 12.15)',
+        Vulnerabilities: [{
+          VulnerabilityID: 'CVE-2026-14266',
+          PkgName: 'p7zip-full',
+          InstalledVersion: '16.02+really26.01+dfsg-0+deb12u1',
+          FixedVersion: '16.02+really26.02+dfsg-0+deb12u1',
+          Severity: 'HIGH',
+        }],
+      },
+    ]);
     assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
   });
 

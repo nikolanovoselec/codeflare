@@ -5,7 +5,7 @@ Load this when the user asks a question against an existing graph, or runs `/gra
 Use the first-party native Pi tools for every graphify query - repo, Vault, and cross-repo/global alike. They resolve the graph automatically (the active repo's `graphify-out/graph.json` when you are in a cloned repo, otherwise the merged global graph at `/home/user/.graphify/global-graph.json`, which holds the Vault plus every globally-added repo). You do not pass a graph path.
 
 - Broad context: `graphify_query({ question, mode: "bfs" })` - "what is X connected to"
-- Trace/path: `graphify_query({ question, mode: "dfs" })` or `graphify_path` - "how does X reach Y"
+- Trace/path: `graphify_query({ question, mode: "dfs" })` or `graphify_path` - "how does X reach Y"; Graphify 0.9.34+ follows edge direction by default, so an absent reverse path is meaningful rather than a cue to silently traverse edges backwards
 - Node details: `graphify_explain({ concept })`
 
 Answer using **only** what the tool output contains. Quote `source_location` when citing a specific fact. If the graph lacks enough information, say so - do not hallucinate edges.

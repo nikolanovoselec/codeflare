@@ -133,7 +133,7 @@ function assertResult(output, status) {
   return lines;
 }
 
-test('REQ-AGENT-068 AC7: command execution is bounded when a provider hangs', async () => {
+test('REQ-AGENT-068 constraint: command execution is bounded when a provider hangs', async () => {
   const result = await runCommand(
     process.execPath,
     ['-e', 'setTimeout(() => {}, 200)'],
@@ -152,6 +152,7 @@ test('REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once', a
     changed: true,
     repo: REPO,
     pr: PR,
+    head: HEAD,
     cwd: REQUEST_CWD,
     reviewState: 'launched',
     runner: async (_command, args) => {
@@ -170,13 +171,29 @@ test('REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once', a
   ]);
 });
 
-test('REQ-AGENT-068 AC8: CI request identity preserves repository paths containing whitespace', async () => {
+test('REQ-AGENT-068 AC1: CI resolver rejects a live head that differs from the review plan', async () => {
+  const request = await resolveCiMonitorRequest({
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    pr: PR,
+    head: HEAD,
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
+    runner: async () => commandResult(openPr({ headRefOid: NEXT_HEAD })),
+  });
+
+  assert.equal(request, null);
+});
+
+test('REQ-AGENT-125 AC4: CI request identity preserves repository paths containing whitespace', async () => {
   const cwd = '/workspace/codeflare project';
   const request = await resolveCiMonitorRequest({
     event: 'push',
     changed: true,
     repo: REPO,
     pr: PR,
+    head: HEAD,
     cwd,
     reviewState: 'not-required',
     runner: async () => commandResult(openPr()),
@@ -193,6 +210,7 @@ test('REQ-AGENT-068 AC1: eligible PR creation uses the affected repository cwd',
     changed: true,
     repo: REPO,
     pr: PR,
+    head: HEAD,
     cwd: REQUEST_CWD,
     reviewState: 'launched',
     runner: async (_command, args, options) => {
@@ -206,12 +224,14 @@ test('REQ-AGENT-068 AC1: eligible PR creation uses the affected repository cwd',
   assert.equal(lookupCwd, REQUEST_CWD);
 });
 
-test('REQ-AGENT-068 AC1: CI request requires explicit review launch state and repository cwd', async () => {
-  const base = { event: 'pr-create', changed: true, repo: REPO, pr: PR, runner: async () => commandResult(openPr()) };
+test('REQ-AGENT-068 AC1: CI request requires explicit head, review launch state, and repository cwd', async () => {
+  const base = { event: 'pr-create', changed: true, repo: REPO, pr: PR, head: HEAD, runner: async () => commandResult(openPr()) };
 
   assert.equal(await resolveCiMonitorRequest({ ...base, cwd: REQUEST_CWD }), null);
   assert.equal(await resolveCiMonitorRequest({ ...base, reviewState: 'launched' }), null);
   assert.equal(await resolveCiMonitorRequest({ ...base, cwd: REQUEST_CWD, reviewState: 'pending' }), null);
+  assert.equal(await resolveCiMonitorRequest({ ...base, head: undefined, cwd: REQUEST_CWD, reviewState: 'launched' }), null);
+  assert.equal(await resolveCiMonitorRequest({ ...base, head: HEAD.slice(1), cwd: REQUEST_CWD, reviewState: 'launched' }), null);
 });
 
 test('REQ-AGENT-068 AC1: missing or malformed affected PR numbers fail closed', async () => {
@@ -220,6 +240,7 @@ test('REQ-AGENT-068 AC1: missing or malformed affected PR numbers fail closed', 
     event: 'push',
     changed: true,
     repo: REPO,
+    head: HEAD,
     cwd: REQUEST_CWD,
     reviewState: 'launched',
     runner: async () => {
@@ -240,6 +261,7 @@ test('REQ-AGENT-068 AC1: a mismatched resolved PR number fails closed', async ()
     changed: true,
     repo: REPO,
     pr: PR,
+    head: HEAD,
     cwd: REQUEST_CWD,
     reviewState: 'launched',
     runner: async () => commandResult(openPr({ number: PR + 1 })),
@@ -254,6 +276,7 @@ test('REQ-AGENT-068 AC1: develop-bound pushes resolve a CI monitor request', asy
     changed: true,
     repo: REPO,
     pr: PR,
+    head: HEAD,
     cwd: REQUEST_CWD,
     reviewState: 'launched',
     runner: async () => commandResult(openPr({ baseRefName: 'develop' })),
@@ -275,6 +298,7 @@ test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, and closed PR events r
       ...event,
       repo: REPO,
       pr: PR,
+      head: HEAD,
       cwd: REQUEST_CWD,
       reviewState: 'launched',
       runner: async () => commandResult(pr),
@@ -330,7 +354,7 @@ test('REQ-AGENT-068 AC3: a changed terminal fingerprint resets the stability req
   assert.equal(github.checkCalls(), 3);
 });
 
-test('REQ-AGENT-068 AC5: failed and cancelled arbitrary providers report failure with links', async () => {
+test('REQ-AGENT-125 AC1: failed and cancelled arbitrary providers report failure with links', async () => {
   const failed = check('Vendor A / shard 9', 'fail', { workflow: 'Provider Alpha', state: 'FAILURE' });
   const cancelled = check('queue-check', 'cancel', { workflow: 'Provider Beta', state: 'CANCELLED' });
   const { output, github } = await runMonitor({ checks: [[failed, cancelled]] });
@@ -382,7 +406,7 @@ test('REQ-AGENT-090 AC2: unrelated malformed heads remain invalid', async () => 
   assert.equal(github.checkCalls(), 0);
 });
 
-test('REQ-AGENT-068 AC7: malformed and transient GitHub responses never become success', async () => {
+test('REQ-AGENT-125 AC3: malformed and transient GitHub responses never become success', async () => {
   const { output, time } = await runMonitor({
     checks: [commandResult('{not-json', 1), new Error('temporary network failure')],
     fallbackChecks: [check('still-running', 'pending')],
@@ -393,7 +417,7 @@ test('REQ-AGENT-068 AC7: malformed and transient GitHub responses never become s
   assert.ok(time.elapsed() >= 30 * 60_000);
 });
 
-test('REQ-AGENT-068 AC7: pending checks enforce the thirty-minute total timeout', async () => {
+test('REQ-AGENT-068 constraint: pending checks enforce the thirty-minute total timeout', async () => {
   const { output, time } = await runMonitor({
     fallbackChecks: [check('long-running', 'pending')],
   });
@@ -425,7 +449,7 @@ test('REQ-AGENT-068 AC4: a superseded head prevents terminal success', async () 
   assert.equal(github.checkCalls(), 2);
 });
 
-test('REQ-AGENT-068 AC4/AC5: a superseded head prevents terminal failure', async () => {
+test('REQ-AGENT-068 AC4/REQ-AGENT-125 AC1: a superseded head prevents terminal failure', async () => {
   const { output, github } = await runMonitor({
     heads: [HEAD, NEXT_HEAD],
     checks: [[check('unit', 'fail')]],
@@ -437,7 +461,7 @@ test('REQ-AGENT-068 AC4/AC5: a superseded head prevents terminal failure', async
   assert.equal(github.checkCalls(), 1);
 });
 
-test('REQ-AGENT-068 AC6: monitoring creates no Codeflare state, log, or PID files', async () => {
+test('REQ-AGENT-125 AC2: monitoring creates no Codeflare state, log, or PID files', async () => {
   const repo = mkdtempSync(join(tmpdir(), 'pi-ci-monitor-'));
   const time = fakeClock();
   const github = monitorRunner({

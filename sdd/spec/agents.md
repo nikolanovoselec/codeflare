@@ -2302,35 +2302,47 @@ None.
 
 ### REQ-AGENT-068: Independent Pi CI Monitoring
 
-**Intent:** Pi CI monitoring must have one owner and one result path. The root Git workflow launches one dedicated background agent for an eligible PR targeting `main`, `master`, or `develop`, and that agent runs one attached deterministic monitor whose native task result is independent of PR review.
+**Intent:** One background agent must monitor one exact protected-base PR head through a bounded, deterministic provider loop.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. An eligible head-changing boundary targeting `main`, `master`, or `develop` resolves its affected PR to one complete public `ci-monitor` request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: develop-bound pushes resolve a CI monitor request) -->
+1. An eligible boundary resolves one public `ci-monitor` request only while its required full head equals the live protected-base PR head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: CI resolver rejects a live head that differs from the review plan) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: CI request requires explicit head, review launch state, and repository cwd) -->
 2. Valid check JSON remains usable when GitHub CLI returns a pending or failure exit status. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: valid check JSON is parsed despite gh exit statuses 1 and 8) -->
 3. CI success requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint) -->
 4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
-5. Failed or cancelled checks report `CI_RESULT failure` with provider evidence. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC5: failed and cancelled arbitrary providers report failure with links) -->
-6. Monitoring creates no Codeflare state, log, or PID files. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC6: monitoring creates no Codeflare state, log, or PID files) -->
-7. Malformed or transient provider responses never become success. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC7: malformed and transient GitHub responses never become success) -->
-8. After a correlated public CI monitor launch succeeds for the exact canonical GitHub repository, local repository path, PR, and head, Pi checkpoints that PR head directly from the tool result and independently from review acknowledgement; settled recovery honors that checkpoint even if its live transcript is stale, failed or mismatched launches remain retryable, later sessions do not repeat CI for the unchanged head, and enabling review still requires its reviewer lanes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::checkpointCiLaunch --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068: checkpoints a successful CI launch before stale live transcript recovery) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068: failed or mismatched direct CI launch results remain retryable) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC8: CI request identity preserves repository paths containing whitespace) -->
 
-**Constraints:**
-
-- The root Pi Git workflow rule is the sole automatic trigger.
-- Review handoffs and shutdown never restart CI.
-- Empty checks time out after five minutes.
-- Provider commands are individually bounded.
-- Total monitoring is bounded at thirty minutes.
-- The dedicated agent and script are seeded in Standard and Pro modes.
-- The CI agent is report-only; the main session owns fixes and Git writes.
-- Claude CI behavior in [REQ-AGENT-070](#req-agent-070-claude-on-demand-ci-monitoring-policy) is unchanged.
+**Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at thirty minutes; the root Pi Git workflow is the sole automatic trigger; Claude behavior is unchanged.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+
+**Verification:** Automated test ([Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-125: Pi CI result and launch checkpoint
+
+**Intent:** CI must report provider failure faithfully and persist one exact successful launch identity without coupling that checkpoint to review acknowledgement.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Failed or cancelled checks report `CI_RESULT failure` with provider evidence. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: failed and cancelled arbitrary providers report failure with links) -->
+2. Monitoring creates no Codeflare state, log, or PID files. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC2: monitoring creates no Codeflare state, log, or PID files) -->
+3. Malformed or transient provider responses never become success. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC3: malformed and transient GitHub responses never become success) -->
+4. A correlated successful public monitor launch checkpoints its exact canonical repository, local path, PR, and head independently from review acknowledgement; failed or mismatched launches remain retryable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::checkpointCiLaunch --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-125: checkpoints a successful CI launch before stale live transcript recovery) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-125: failed or mismatched direct CI launch results remain retryable) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC4: CI request identity preserves repository paths containing whitespace) -->
+
+**Constraints:** The monitor is report-only and seeded in Standard and Pro modes; review handoffs and shutdown never restart it; later sessions do not repeat an unchanged checkpointed head; enabling review still requires its lanes.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-098](#req-agent-098-pi-review-triage-acknowledgement-barrier)
 
 **Verification:** Automated tests ([Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
@@ -2969,17 +2981,36 @@ None.
 2. Agent-end enforcement acknowledges and emits one FIX follow-up only after every required terminal result and a structural triage table. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: recognizes structural triage only after all reviewer notifications) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-074: agent end acknowledges triage from live session state before disk flush) -->
 3. Later same-head boundary candidates do not replace the active review window. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) -->
 4. Settled enforcement provides the acknowledgement fallback when agent-end enforcement did not complete it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage) -->
-5. The persisted acknowledgement suppresses duplicate FIX follow-ups across later agent-end or settled events and reloads. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/055/074 + REQ-AGENT-080 AC6: delayed completion acknowledges the pushed review head, not unpublished local work) -->
-6. The FIX follow-up requests no reviewer or CI launch for the acknowledged head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage) -->
 
-**Constraints:**
-
-- Review acknowledgement remains independent of CI completion.
-- Fixes begin only in the post-acknowledgement follow-up turn.
+**Constraints:** Review acknowledgement remains independent of CI completion; fixes begin only in the post-acknowledgement follow-up turn.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-074](#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection)
+
+**Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-126: Pi review checkpoint persistence and head drift
+
+**Intent:** A completed review checkpoint must remain idempotent and must never authorize FIX after its PR head changes.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A persisted acknowledgement suppresses duplicate FIX follow-ups across later agent-end, settled, and reload events. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/055/074 + REQ-AGENT-080 AC6: delayed completion acknowledges the pushed review head, not unpublished local work) -->
+2. The FIX follow-up requests no reviewer or CI launch for the acknowledged head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage) -->
+3. If the live PR head differs after complete triage, agent-end writes no acknowledgement or FIX handoff and emits one visible triggering handoff naming both heads. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendHeadDriftFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-126 AC3: reports head drift instead of acknowledging a superseded review) -->
+
+**Constraints:** A superseded review remains historical evidence only; it never acknowledges the replacement head.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-098](#req-agent-098-pi-review-triage-acknowledgement-barrier)
 
 **Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 

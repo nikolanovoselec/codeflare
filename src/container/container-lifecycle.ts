@@ -17,6 +17,8 @@ import {
   updateKvStatus,
   openNotRunningConfirmation,
   SHUTDOWN_REQUESTED_KEY,
+  TRANSPORT_FAILURE_STREAK_KEY,
+  TRANSPORT_RECOVERY_KEY,
   FINAL_SYNC_BUDGET_MS,
   type MetricsState,
   type MetricsCallbacks,
@@ -51,6 +53,10 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   // shutdown marker a prior destroy() left in storage, so a later transient
   // false-stopped on this run can self-heal (REQ-SESSION-018 AC4).
   try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
+  // Recovery residue is one startup prerequisite. A batch delete prevents a
+  // partial clear, and a failure leaves metrics unarmed rather than letting the
+  // new lifecycle inherit an exhausted record or a near-abort failure streak.
+  await host.ctx.storage.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
   updateEnvVars(host);
   await updateKvStatus(host.ctx, host.env, host._bucketName, 'running', 'lastStartedAt');
   // Also set lastActiveAt to start time so the frontend timer icon
@@ -197,6 +203,9 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     await updateKvStatus(host.ctx, host.env, host._bucketName, 'stopped', 'lastActiveAt');
   } catch { /* teardown proceeds regardless */ }
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
+  // Recovery residue must not survive teardown even when another operational
+  // key deletion fails below.
+  try { await host.ctx.storage.delete(TRANSPORT_RECOVERY_KEY); } catch { /* best-effort */ }
   try {
     await host.ctx.storage.delete(SESSION_ID_KEY);
     await host.ctx.storage.delete('bucketName');
@@ -204,6 +213,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     await host.ctx.storage.delete('fastStartEnabled');
     await host.ctx.storage.delete('tabConfig');
     await host.ctx.storage.delete('sleepAfter');
+    await host.ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
     // Drop the persisted auth token: the next session under this DO ID will
     // be a different container instance with a fresh token, so reusing the
     // old one would let an unrelated request out of a previous lifecycle

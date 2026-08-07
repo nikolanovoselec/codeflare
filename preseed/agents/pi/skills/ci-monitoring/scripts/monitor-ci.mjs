@@ -50,8 +50,15 @@ async function readHead({ repo, pr, runner, cwd }) {
   }
 }
 
-export async function resolveCiMonitorRequest({ event, changed, repo, pr: requestedPr, cwd, reviewState, runner = runCommand } = {}) {
-  if (!['push', 'pr-create'].includes(event) || changed !== true || !repo || !cwd || !['launched', 'not-required'].includes(reviewState) || !Number.isInteger(requestedPr) || requestedPr <= 0) return null;
+export async function resolveCiMonitorRequest({ event, changed, repo, pr: requestedPr, head: expectedHead, cwd, reviewState, runner = runCommand } = {}) {
+  if (!['push', 'pr-create'].includes(event)
+    || changed !== true
+    || !repo
+    || !cwd
+    || !/^[0-9a-f]{40}$/i.test(expectedHead ?? '')
+    || !['launched', 'not-required'].includes(reviewState)
+    || !Number.isInteger(requestedPr)
+    || requestedPr <= 0) return null;
 
   const lookupArgs = ['pr', 'view', String(requestedPr), '--repo', repo, '--json', 'number,state,baseRefName,headRefOid'];
   let result;
@@ -71,7 +78,8 @@ export async function resolveCiMonitorRequest({ event, changed, repo, pr: reques
     !['main', 'master', 'develop'].includes(resolvedPr.baseRefName) ||
     !Number.isInteger(resolvedPr.number) ||
     resolvedPr.number !== requestedPr ||
-    !/^[0-9a-f]{40}$/i.test(resolvedPr.headRefOid ?? '')
+    !/^[0-9a-f]{40}$/i.test(resolvedPr.headRefOid ?? '') ||
+    resolvedPr.headRefOid !== expectedHead
   ) return null;
 
   return {

@@ -5,7 +5,7 @@ Load this when the user asks a question against an existing graph, or runs `/gra
 For graph queries, prefer the MCP tools directly - they are always available when a graph exists and resolve the active repo's `graphify-out/graph.json` (or the merged global graph) automatically:
 
 - `mcp__graphify__query_graph` - broad context / BFS-style "what is X connected to"
-- `mcp__graphify__shortest_path` - trace a chain between two named concepts
+- `mcp__graphify__shortest_path` - trace a directed chain between two named concepts; Graphify 0.9.34+ respects edge direction by default, so set `undirected=true` only when the user explicitly wants an orientation-agnostic path
 - `mcp__graphify__get_node`, `mcp__graphify__get_neighbors` - node details and immediate edges
 - `mcp__graphify__get_community`, `mcp__graphify__god_nodes` - community membership and hubs
 

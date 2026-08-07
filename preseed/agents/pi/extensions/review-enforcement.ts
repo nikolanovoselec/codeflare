@@ -670,6 +670,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "- `changed`: `true`",
       "- `repo`: `<owner/repo>`",
       `- \`pr\`: \`${input.pr.number}\``,
+      `- \`head\`: \`${input.pr.headRefOid}\``,
       `- \`cwd\`: \`${input.repo}\``,
       `- \`reviewState\`: \`${input.reviewers.length > 0 ? "launched" : "not-required"}\``,
       "",
@@ -765,6 +766,39 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     content,
     display: true,
     details,
+  }, { deliverAs: "followUp", triggerTurn: true });
+}
+
+function headDriftAlreadyReported(ctx: ReviewContext, reviewedHead: string, liveHead: string): boolean {
+  return (liveEntries(ctx) ?? []).some((entry) => entry.type === "custom_message"
+    && entry.customType === "pr-boundary-head-drift"
+    && entry.details?.reviewedHead === reviewedHead
+    && entry.details?.liveHead === liveHead);
+}
+
+function sendHeadDriftFollowUp(
+  pi: ReviewPi,
+  ctx: ReviewContext,
+  pr: PrState,
+  reviewedHead: string,
+  range: string | undefined,
+): void {
+  if (headDriftAlreadyReported(ctx, reviewedHead, pr.headRefOid)) return;
+  pi.sendMessage({
+    customType: "pr-boundary-head-drift",
+    content: [
+      "## PR boundary — reviewed head superseded",
+      "",
+      `- Reviewed head: \`${reviewedHead}\``,
+      `- Live PR head: \`${pr.headRefOid}\``,
+      `- Scope: ${scopeSummary(pr, range)}`,
+      "- Review acknowledgement: `not written`",
+      "- FIX follow-up: `not started`",
+      "",
+      "The PR changed before acknowledgement, so the completed review cannot authorize fixes on the live head. Synchronize the checked-out PR branch, then let the next eligible Git boundary create one replacement review and CI plan for the live head.",
+    ].join("\n"),
+    display: true,
+    details: { reviewedHead, liveHead: pr.headRefOid, prNumber: pr.number },
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
@@ -870,7 +904,6 @@ async function acknowledgeCompletedReview(
     || reviewedPr.number !== preview.reviewPrNumber
     || reviewedPr.baseRefName !== preview.reviewBase
     || reviewedPr.headRefName !== preview.reviewBranch
-    || reviewedPr.headRefOid !== preview.reviewHead
     || !reviewEnabled(context.repo)
     || preview.bypassed
     || bypassSentinelPresent()) return false;
@@ -895,6 +928,11 @@ async function acknowledgeCompletedReview(
     || reviewedFacts.reviewBranch !== reviewedPr.headRefName
     || !allReviewedLanesTerminal
     || !reviewedFacts.triageComplete) return false;
+
+  if (reviewedPr.headRefOid !== reviewedHead) {
+    sendHeadDriftFollowUp(pi, ctx, reviewedPr, reviewedHead, reviewedRange);
+    return false;
+  }
 
   if (reviewedFacts.ciLaunched) checkpointCi(context.repo, reviewedPr.number, reviewedHead);
   if (!acknowledge(context.repo, reviewedPr.number, reviewedHead)) return false;

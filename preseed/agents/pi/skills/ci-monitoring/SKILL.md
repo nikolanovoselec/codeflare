@@ -1,7 +1,7 @@
 ---
 name: ci-monitoring
 description: Launch an independent Pi CI monitor after an eligible Git event or user request.
-version: 2.0.0
+version: 2.0.1
 ---
 
 # Independent Pi CI Monitoring
@@ -9,10 +9,10 @@ version: 2.0.0
 The Pi PR-boundary extension is the sole automatic dispatcher. Run this resolver only when its launch plan includes a CI wave (or when the user explicitly requests monitoring). Issue every reviewer call in the plan first, then run the resolver once without waiting for reviewer completion:
 
 ```bash
-node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
+node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> head=<boundary-plan-head> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-The explicit repository, affected PR number, and cwd bind lookup to the boundary's exact PR independently of the session's starting directory or checked-out branch. The review state keeps CI last in launch order without coupling its execution or result to review. No stdout means no action. Otherwise parse the single JSON object and submit it exactly once to the public `subagent` tool without changing any field. It launches `ci-monitor` in the background with no inherited conversation and no agent turn cap; the attached script timeout bounds execution.
+The explicit repository, affected PR number, reviewed head, and cwd bind lookup to the boundary's exact PR independently of the session's starting directory or checked-out branch. The resolver returns no request when the live PR head differs from the boundary plan, preventing review and CI from observing different heads. The review state keeps CI last in launch order without coupling its execution or result to review. No stdout means no action. Otherwise parse the single JSON object and submit it exactly once to the public `subagent` tool without changing any field. It launches `ci-monitor` in the background with no inherited conversation and no agent turn cap; the attached script timeout bounds execution.
 
 An explicit user request may also launch `ci-monitor` for a known open PR using this exact prompt:
 
