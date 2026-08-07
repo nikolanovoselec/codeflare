@@ -80,7 +80,7 @@ function bindImage({ reused, digest = '' }) {
   return { result, config: readFileSync(config, 'utf8') };
 }
 
-describe('retained deployment image provenance', () => {
+describe('REQ-OPS-042: retained deployment image provenance', () => {
   it('cryptographically verifies the digest against the owned reusable workflow', () => {
     const { result, command } = verify();
     assert.equal(result.status, 0, result.stderr);

@@ -105,7 +105,7 @@ function report(results = [
   return { Results: results };
 }
 
-describe('Trivy bounded exception gate', () => {
+describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   it('accepts only the reviewed HIGH/CRITICAL findings', () => {
     const result = validateTrivyResult(report());
     assert.deepEqual(result.accepted, [
