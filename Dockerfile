@@ -198,22 +198,30 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # immutable upstream VS Code gitlink are all pinned. The artifact embeds the
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
-# the immutable release tag and owns every literal in this block. code-server 4.131.0
-# permits js-yaml 4.x but ships 4.2.0; keep its root dependency on the fixed
-# compatible release until an upstream archive includes GHSA-5p4m-2wfm-xmqj.
+# the immutable release tag and owns the five code-server literals below.
+# code-server 4.131.0 permits js-yaml 4.x but ships 4.2.0; the separately
+# integrity-pinned overlay remains until an upstream archive includes the fix.
 RUN CODE_SERVER_VERSION="4.131.0" && \
     CODE_SERVER_SHA256="f6316f0b14ef5c12ed6e67e0154dd02ccf5e66112064687d7e93c51763105361" && \
     CODE_SERVER_COMMIT="a3fc2899bd0fcd388253c0e79ce33b8acd48c688" && \
     CODE_SERVER_CODE_VERSION="1.131.0" && \
     CODE_SERVER_VSCODE_COMMIT="3a03d6f72d628a7741c29f456b4ddbb5ae68502c" && \
+    JS_YAML_VERSION="4.3.1" && \
+    JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
       "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/code-server.tar.gz && \
     echo "${CODE_SERVER_SHA256}  /tmp/code-server.tar.gz" | sha256sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/js-yaml/-/js-yaml-${JS_YAML_VERSION}.tgz" \
+      -o /tmp/js-yaml.tgz && \
+    echo "${JS_YAML_SHA512}  /tmp/js-yaml.tgz" | sha512sum -c - && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
-    npm install --prefix /opt/code-server --no-save --package-lock=false --ignore-scripts --omit=dev --no-audit --no-fund js-yaml@4.3.1 && \
-    test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "4.3.1" && \
+    rm -rf /opt/code-server/node_modules/js-yaml && \
+    mkdir -p /opt/code-server/node_modules/js-yaml && \
+    tar -xzf /tmp/js-yaml.tgz -C /opt/code-server/node_modules/js-yaml --strip-components=1 && \
+    test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "$JS_YAML_VERSION" && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
     test "$(jq -r .version /opt/code-server/package.json)" = "$CODE_SERVER_VERSION" && \
@@ -234,7 +242,7 @@ RUN CODE_SERVER_VERSION="4.131.0" && \
     /usr/local/bin/code-server --version && \
     test ! -e /usr/local/bin/openvscode-server && \
     test ! -e /opt/openvscode-server && \
-    rm -f /tmp/code-server.tar.gz
+    rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz
 
 # Fixed immutable inventories: Codeflare's native Pi participant, Anthropic's
 # exact official Claude extension, and an empty unsupported-agent inventory.
