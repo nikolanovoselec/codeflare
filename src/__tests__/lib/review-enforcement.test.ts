@@ -578,6 +578,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(markdownValue(plan, '- `changed`: ')).toBe('`true`');
     expect(markdownValue(plan, '- `repo`: ')).toBe('`<owner/repo>`');
     expect(markdownValue(plan, '- `pr`: ')).toBe('`42`');
+    expect(markdownValue(plan, '- `head`: ')).toBe(`\`${fixture.head}\``);
     expect(markdownValue(plan, '- `cwd`: ')).toBe(`\`${fixture.repo}\``);
     expect(markdownValue(plan, '- `reviewState`: ')).toBe('`launched`');
     expect(markdownTableColumns(plan)).toEqual([
@@ -697,6 +698,41 @@ describe('Pi review reminder and settled enforcement', () => {
       message: expect.objectContaining({
         customType: 'pr-boundary-fix-follow-up',
         details: { head: fixture.head, reviewRange: `${fixture.base}..${fixture.head}` },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    });
+  });
+
+  it('REQ-AGENT-098: reports head drift instead of acknowledging a superseded review', async () => {
+    const fixture = makeReviewFixture();
+    const reviewedHead = fixture.head;
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-drift', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-drift', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-drift'));
+    appendSession(fixture.sessionFile,
+      assistantTool('code-drift', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-drift', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-drift', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-drift'),
+      notification('spec-drift'),
+      notification('doc-drift'),
+      triageMessage(),
+    );
+    const liveHead = 'd'.repeat(40);
+    fixture.pr.headRefOid = liveHead;
+
+    await harness.emit('agent_end');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(harness.sent.filter(({ message }) => message.customType === 'pr-boundary-fix-follow-up')).toEqual([]);
+    expect(harness.sent.at(-1)).toEqual({
+      message: expect.objectContaining({
+        customType: 'pr-boundary-head-drift',
+        display: true,
+        details: { reviewedHead, liveHead, prNumber: fixture.pr.number },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     });

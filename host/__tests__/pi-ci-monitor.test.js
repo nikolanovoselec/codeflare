@@ -170,6 +170,21 @@ test('REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once', a
   ]);
 });
 
+test('REQ-AGENT-068 AC1: CI resolver rejects a live head that differs from the review plan', async () => {
+  const request = await resolveCiMonitorRequest({
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    pr: PR,
+    head: HEAD,
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
+    runner: async () => commandResult(openPr({ headRefOid: NEXT_HEAD })),
+  });
+
+  assert.equal(request, null);
+});
+
 test('REQ-AGENT-068 AC8: CI request identity preserves repository paths containing whitespace', async () => {
   const cwd = '/workspace/codeflare project';
   const request = await resolveCiMonitorRequest({

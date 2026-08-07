@@ -26,10 +26,10 @@ Unpublished local commits are never PR-boundary review heads. Launch `code-revie
 2. Immediately run wave 2 exactly once:
 
    ```bash
-   node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
+   node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<number> head=<boundary-plan-head> cwd=<absolute-repo-root> reviewState=<launched|not-required>
    ```
 
-3. No stdout means no monitor. Otherwise submit the sole JSON object unchanged once through public `subagent`; CI is the last launch.
+3. No stdout means the live PR no longer matches the boundary plan; do not launch CI or acknowledge that review. Otherwise submit the sole JSON object unchanged once through public `subagent`; CI is the last launch.
 
 After the final launch, end the turn immediately. Do not run `sleep`, foreground waits, polling, resume an in-flight agent, or retrieve an in-flight result. Let native task notifications drive subsequent turns. After a terminal notification, public result retrieval is allowed only when the report is truncated or otherwise unavailable.
 
