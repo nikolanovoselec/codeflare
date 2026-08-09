@@ -287,7 +287,7 @@ async function handleSubscriptionDeleted(
   // when user initiates cancellation (that's cancel_at_period_end: true on
   // subscription.updated, which keeps the subscription active).
   try {
-    const bucketName = await resolveBucketName(c.env, email);
+    const bucketName = await resolveBucketName(env, email);
     const { endpoint } = await getR2Config(env);
     // Subscription is gone, user is no longer Custom-tier, so the gate is
     // explicitly closed. cleanup: true also removes any context-mode files
@@ -405,7 +405,7 @@ export async function syncSubscriptionState(
   const newMode = (patch.subscribedMode as string) ?? previousMode;
   if (previousMode !== newMode) {
     try {
-      const bucketName = await resolveBucketName(c.env, email);
+      const bucketName = await resolveBucketName(env, email);
       const { endpoint } = await getR2Config(env);
       // Tier-gate context-mode preseed: unlimited (Custom) tier in Pro mode only.
       // Reads tier from the patch when present, falling back to the existing record.
