@@ -43,7 +43,13 @@ graph TD
 
 ### Worker (Hono Router)
 
-**File:** `src/index.ts`
+**Responsibility:** Serve as the public HTTP/API gateway, apply authentication and routing policy, and dispatch session work to the owning Durable Objects.
+
+**Inputs:** HTTP and WebSocket requests, Worker bindings, setup state, and verified user identity.
+
+**Outputs:** API and asset responses, WebSocket upgrades, and calls to session-scoped Durable Objects.
+
+**Source:** `src/index.ts` and `src/middleware/auth.ts`.
 
 Entry point and API gateway. Handles routing, WebSocket upgrade interception, authentication (CF Access JWT or GitHub OIDC session cookies), container lifecycle through Durable Objects, and CORS with configurable allowed origins.
 
@@ -68,7 +74,15 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `index.ts` is the thin DO class shell; it delegates config (`setBucketName`; and `ensureVaultKey`, now superseded for vault encryption by the HKDF `getVaultEncryptionKey` per [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) to `container-config.ts`, lifecycle hooks (onStart/onStop/alarm) to `container-lifecycle.ts`, internal `/_internal/*` dispatch to `container-router.ts`, and idle enforcement/metrics to `container-metrics.ts`.
+**Responsibility:** Own one session container's configuration, startup, proxying, metrics, idle enforcement, and teardown lifecycle.
+
+**Inputs:** Session and bucket identity, container preferences and credentials, internal control requests, and activity metrics.
+
+**Outputs:** Container lifecycle transitions, authenticated proxied responses, persisted session status, and usage metrics.
+
+**Source:** `src/container/index.ts`, `src/container/container-config.ts`, `src/container/container-lifecycle.ts`, `src/container/container-router.ts`, and `src/container/container-metrics.ts`.
+
+`src/container/index.ts` extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `index.ts` is the thin DO class shell; it delegates config (`setBucketName`; and `ensureVaultKey`, now superseded for vault encryption by the HKDF `getVaultEncryptionKey` per [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) to `container-config.ts`, lifecycle hooks (onStart/onStop/alarm) to `container-lifecycle.ts`, internal `/_internal/*` dispatch to `container-router.ts`, and idle enforcement/metrics to `container-metrics.ts`.
 
 Together these own the full lifecycle of a single session's container: startup, idle enforcement via `collectMetrics()`, request proxying with auth token injection, and graceful shutdown with a 135-second budget for final bisync. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` for per-user usage tracking.
 
@@ -76,7 +90,13 @@ For Container DO internals including the `collectMetrics()` loop, `destroy()` ov
 
 ### LlmInterceptor (Enterprise Mode)
 
-**File:** `src/llm-interceptor.ts`
+**Responsibility:** Route enterprise agent LLM traffic through the configured Cloudflare AI Gateway without exposing the gateway credential to the container.
+
+**Inputs:** Intercepted provider HTTPS requests, session route catalog and identity metadata, and Worker-held AI Gateway configuration.
+
+**Outputs:** Authenticated AI Gateway requests, normalized streaming responses, and bounded request-time errors when routing is unavailable.
+
+**Source:** `src/llm-interceptor.ts` and `src/container/container-interception.ts`.
 
 A `WorkerEntrypoint` that transparently proxies agent LLM traffic to the customer's AI Gateway when `ENTERPRISE_MODE=active`. Instantiated per container session by the Container DO via `ctx.container.interceptOutboundHttps` + `ctx.exports`. The interceptor receives every outbound HTTPS connection the container opens to the LLM provider host (`api.openai.com`), strips the placeholder credential injected by `entrypoint.sh`, and forwards to the AI Gateway **REST API** first (`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/<path>`, authenticated with `Authorization: Bearer <AIG_TOKEN>` using the Workers AI scope, plus a `cf-aig-gateway-id` header).
 
@@ -98,7 +118,13 @@ The gateway URL (`AIG_GATEWAY_URL`) and token (`AIG_TOKEN`) live exclusively in 
 
 ### EgressController (Strict Gateway Egress, Enterprise Mode)
 
-**File:** `src/egress-controller.ts` (transport helpers in `src/lib/controller-egress.ts`)
+**Responsibility:** Force otherwise-unclaimed enterprise internet traffic through the configured Cloudflare Gateway boundary while preserving explicit own-account exemptions.
+
+**Inputs:** Catch-all intercepted HTTPS and WebSocket requests, strict-egress state, account identity, and the VPC egress binding.
+
+**Outputs:** Gateway-proxied responses, direct own-account platform requests, bridged WebSockets, or fail-closed boundary errors.
+
+**Source:** `src/egress-controller.ts`, `src/lib/controller-egress.ts`, and `src/container/container-interception.ts`.
 
 A `WorkerEntrypoint` the Container DO wires as the catch-all (`interceptOutboundHttps('*', controller)`) only when the optional **Strict Gateway Egress** toggle is ON ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)). Whereas `LlmInterceptor`/`GitHubInterceptor` own specific hosts and stamp the real credential, the `EgressController` is a **transparent proxy** for every other host: it stamps no `Authorization`/`cf-aig-*`/identity header, preserves the caller's `authorization`/`cookie` on the request and `set-cookie` on the response, strips only the eight RFC 7230 hop-by-hop headers, and forwards with `redirect:'manual'` through the Workers VPC `env.EGRESS.fetch` (and from there the customer's Cloudflare Gateway). Its only job is to force otherwise-unintercepted **direct-internet** traffic onto the mandatory Gateway boundary.
 
@@ -120,7 +146,13 @@ See [Strict Gateway Egress](#strict-gateway-egress) for the data flow, [Security
 
 ### CloudflareBrowserInterceptor (non-enterprise OAuth mode)
 
-**File:** `src/cloudflare-browser-interceptor.ts` (wired in `src/container/container-interception.ts::cloudflareOauthApi`).
+**Responsibility:** Inject a current user-scoped Cloudflare OAuth or enterprise Browser Rendering token at the Worker boundary for REST and CDP WebSocket traffic.
+
+**Inputs:** Intercepted Cloudflare API or AI Gateway requests, the session-bound bucket identity, and Worker-held token state.
+
+**Outputs:** Re-authenticated upstream HTTP requests, bridged WebSocket traffic, or a fail-closed authentication response.
+
+**Source:** `src/cloudflare-browser-interceptor.ts` and `src/container/container-interception.ts::cloudflareOauthApi`.
 
 The same `WorkerEntrypoint` that injects the enterprise Browser Rendering token ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)) serves a **second mode** for **non-enterprise Connect-to-Cloudflare OAuth** sessions ([REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)). Because a dashboard OAuth access token is short-lived and nothing can refresh an env var inside a running container, the container is given only the non-secret placeholder `codeflare-oauth`, and this interceptor is wired for `api.cloudflare.com` to re-stamp **every** request (all paths — the OAuth token is full-scope) with a token freshly minted by `getValidCloudflareToken(bucket)` (refreshed via the stored per-user `refresh_token`).
 
@@ -131,6 +163,14 @@ The OAuth mode also intercepts the AI Gateway data-plane host `gateway.ai.cloudf
 The OAuth CF-API interception-registry entry (`cloudflareOauthApi`, container-interception.ts) is double-guarded — it acts only when `!isEnterpriseMode(env)` **and** the container's `CLOUDFLARE_API_TOKEN` equals the OAuth placeholder (distinct from the enterprise `codeflare-enterprise` value) — so it can never wire or collide on `api.cloudflare.com` in enterprise, and the enterprise branch above is unchanged. The GitHub interceptor is not involved: non-enterprise git stays direct (GitHub tokens are long-lived). See [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
 
 ### GitHub Integration
+
+**Responsibility:** Connect a user's GitHub identity to repository browsing, cloning, and in-session GitHub access while preserving mode-specific credential boundaries.
+
+**Inputs:** Authenticated GitHub API requests, OAuth tokens, repository selections, and session/bucket identity.
+
+**Outputs:** Connection and repository metadata, contained clone requests, and mode-appropriate GitHub credentials or intercepted traffic.
+
+**Source:** `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, and `web-ui/src/components/github/`.
 
 A GitHub panel sits beside the R2 storage panel: a connected user browses and clones their repos, and the in-session agent acts with the user's own GitHub permissions. The panel renders whenever GitHub is enabled — there is no session-tier gate — and GitHub leads as the default right-column face on every session ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
 
@@ -200,7 +240,15 @@ Browser IDE launch generations record PID, process group, start time, and a rand
 
 ### Terminal Server (node-pty)
 
-**File:** `host/src/server.ts` - Node.js/TypeScript server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
+**Responsibility:** Own the in-container PTY sessions, terminal WebSocket protocol, activity tracking, and private health/control endpoints.
+
+**Inputs:** Authenticated WebSocket and HTTP requests, terminal control frames, user input, and PTY output.
+
+**Outputs:** Raw terminal output and control frames, PTY writes, activity/health metrics, and internal sync-trigger responses.
+
+**Source:** `host/src/server.ts`, `host/src/session.ts`, `host/src/terminal-ws.ts`, and `host/src/request-router.ts`.
+
+The Node.js/TypeScript server runs inside the container on port 8080 for WebSocket, REST, health, and metrics traffic.
 
 Sync handled entirely by `entrypoint.sh` (15-minute daemon, SIGUSR1-interruptible for manual triggers). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. The user-facing manual trigger surface is the Worker route `POST /api/sessions/sync`, which fans out per-session to each of the user's running containers; the per-container host endpoint it reaches is `POST /internal/bisync-trigger`, which reads `/tmp/sync-daemon.pid` and sends SIGUSR1 to the daemon. See [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) and [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui). Activity tracking (WebSocket connection state + user input timestamps: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`) for hibernation decisions via `GET /activity`. Unknown JSON `type` strings are silently ignored (guard against future message types leaking to PTY).
 
@@ -254,7 +302,13 @@ There is no Worker/host route, event store, queue, retry, polling loop, wake pat
 
 ### Landing (Astro, prerendered)
 
-**Directory:** `landing/`
+**Responsibility:** Produce and serve the public, mode-aware marketing experience as prerendered static assets under `/landing`.
+
+**Inputs:** Astro content and components, shared design tokens, build-time product copy, and browser navigation/motion preferences.
+
+**Outputs:** Static landing HTML, CSS, scripts, metadata, and long-cacheable fingerprinted assets.
+
+**Source:** `landing/` and the Worker static-assets binding in `src/index.ts`.
 
 The public enterprise marketing site ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)). Builds to static HTML in `web-ui/dist/landing/` (base path `/landing`), so the existing `[assets]` binding serves it with no extra deployment. The Worker long-caches content-hashed Astro `/_astro/` and Vite `/assets/` build assets (`Cache-Control: public, max-age=31536000, immutable`) while HTML and missing-asset SPA fallbacks keep their revalidating default. The landing layout and SPA shell both declare `color-scheme: dark` with an inline root paint so cross-document navigations (landing ↔ `/login`) never flash a white canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)).
 

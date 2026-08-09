@@ -590,7 +590,10 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 
 ## Preferences
 
-GET `/api/preferences`, PATCH `/api/preferences`
+| Method | Path | Auth | Implements | Description |
+|--------|------|------|------------|-------------|
+| GET | `/api/preferences` | Session cookie | [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env), [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) | Return the authenticated user's stored preferences, with effective enterprise session mode applied and legacy preset state omitted. |
+| PATCH | `/api/preferences` | Session cookie | [REQ-MEM-011](../../sdd/spec/memory.md#req-mem-011-session-mode-storage-resolution-and-propagation), [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env), [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants), [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) | Strictly validate and merge supplied preference fields, persist them, reconcile agent configs after a mode change, and return the effective preferences. Limited to 20 requests/minute per rate-limit key. |
 
 `UserPreferences` fields:
 
@@ -614,11 +617,11 @@ Under enterprise mode, the response's `sessionMode` is always `'advanced'`. GET 
 
 ## LLM API Keys
 
-| Method | Success contract | Enterprise response |
-|---|---|---|
-| GET `/api/llm-keys` | Returns masked keys (`****` + last 4 characters), never full keys. | `403` before KV access. |
-| PUT `/api/llm-keys` | Sets or clears keys from `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`; `null` deletes, omission leaves unchanged, and strings set values. Returns masked keys. With `ENCRYPTION_KEY`, values use AES-256-GCM before KV storage. | `403` before KV access. |
-| DELETE `/api/llm-keys` | Removes all LLM keys from KV. | `403` before KV access. |
+| Method | Path | Auth | Implements | Description |
+|--------|------|------|------------|-------------|
+| GET | `/api/llm-keys` | Session cookie | [REQ-AGENT-009](../../sdd/spec/agents.md#req-agent-009-llm-api-key-storage-encrypted-in-kv), [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) | Return masked keys (`****` plus the last four characters), never full keys; enterprise mode returns `403` before KV access. |
+| PUT | `/api/llm-keys` | Session cookie | [REQ-AGENT-009](../../sdd/spec/agents.md#req-agent-009-llm-api-key-storage-encrypted-in-kv), [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) | Set or clear `{ openaiApiKey?: string \| null, geminiApiKey?: string \| null }`; `null` deletes, omission preserves, strings validate and set, and the response masks stored keys. With `ENCRYPTION_KEY`, values use AES-256-GCM; enterprise mode returns `403` before KV access. |
+| DELETE | `/api/llm-keys` | Session cookie | [REQ-AGENT-009](../../sdd/spec/agents.md#req-agent-009-llm-api-key-storage-encrypted-in-kv), [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) | Remove all LLM keys from KV and return `{ success: true }`; enterprise mode returns `403` before KV access. |
 
 Enterprise deployments reject per-user LLM-key management under [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) AC2. <!-- @impl: src/routes/llm-keys.ts::app.use -->
 

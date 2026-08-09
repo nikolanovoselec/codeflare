@@ -454,6 +454,11 @@
       "advanced"
     ]
   },
+  "skills/doc-enforce-shape/scripts/check-shape.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/doc-enforce-truth/SKILL.md": {
     "modes": [
       "advanced"

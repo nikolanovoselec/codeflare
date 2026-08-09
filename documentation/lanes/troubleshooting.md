@@ -107,23 +107,43 @@ See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sd
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
-API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/landing/*", "/assets/*"]` in the `[assets]` section of `wrangler.toml` (a missing control-plane path is served as the static SPA at the edge; `/login` missing breaks the onboarding rewrite, `/api/*` missing breaks setup/auth, and `/assets/*` missing bypasses the immutable Vite-asset policy).
+**Symptom:** An API request returns the SPA's HTML shell instead of JSON.
+
+**Cause:** The request path is missing from the Static Assets `run_worker_first` control-plane list, so the edge serves the SPA fallback before Worker routing.
+
+**Fix:** Ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/landing/*", "/assets/*"]` is present in the `[assets]` section of `wrangler.toml`. A missing `/login` breaks the onboarding rewrite, a missing `/api/*` breaks setup/auth, and a missing `/assets/*` bypasses the immutable Vite-asset policy.
 
 ### `/setup` Shows "Access Denied"
 
-Check `GET /api/setup/status` returns JSON. Verify `setup:complete` in KV is absent/false for first-time setup.
+**Symptom:** Opening `/setup` displays an Access Denied response instead of the setup flow.
+
+**Cause:** Setup status is not reaching the Worker as JSON, or KV already marks setup complete.
+
+**Fix:** Check that `GET /api/setup/status` returns JSON and verify `setup:complete` in KV is absent or false for first-time setup.
 
 ### Auth Error After Successful Access Login
 
-Stale `setup:auth_domain` (JWT mismatch), stale `setup:access_aud`, or email casing mismatch. Re-run setup configure. Confirm user keys are lowercase.
+**Symptom:** Cloudflare Access login succeeds, but Codeflare rejects the resulting authenticated request.
+
+**Cause:** `setup:auth_domain` or `setup:access_aud` is stale, causing JWT verification drift, or a stored user key has noncanonical email casing.
+
+**Fix:** Re-run setup configuration and confirm user keys are lowercase.
 
 ### HTTP 500 After Login
 
-Take the `X-Request-ID` value off the 500 response and match it to the `requestId` field on the `Unexpected error` line in `wrangler tail codeflare --status error`. <!-- @impl: src/index.ts::requestId --> Then check the callback the deployment actually redirects to (the `redirect_uri` test under [Onboarding GitHub Sign-in Bounces to the Landing](#onboarding-github-sign-in-bounces-to-the-landing--app-shows-authentication-required)), and confirm `OAUTH_JWT_SECRET` is listed by `wrangler secret list`. The three checks separate a request-handling failure, a provider mismatch, and invalid session issuance without rotating credentials blindly.
+**Symptom:** The login flow returns HTTP 500 after the identity provider redirects to Codeflare.
+
+**Cause:** The failure may be in request handling, the deployed OAuth callback may not match the provider registration, or session signing may lack `OAUTH_JWT_SECRET`.
+
+**Fix:** Take the `X-Request-ID` value from the 500 response and match it to the `requestId` field on the `Unexpected error` line in `wrangler tail codeflare --status error`. <!-- @impl: src/index.ts::requestId --> Then check the callback the deployment actually redirects to (the `redirect_uri` test under [Onboarding GitHub Sign-in Bounces to the Landing](#onboarding-github-sign-in-bounces-to-the-landing--app-shows-authentication-required)), and confirm `OAUTH_JWT_SECRET` is listed by `wrangler secret list`. These checks separate the three causes without rotating credentials blindly.
 
 ### "Unable to find your Access application!"
 
-Browser retained stale Access session. Test in incognito. Clear CF Access cookies. Confirm one managed app with correct destinations.
+**Symptom:** Cloudflare reports that it cannot find the Access application for the Codeflare destination.
+
+**Cause:** The browser retained a stale Access session, or the managed application no longer has the correct destination.
+
+**Fix:** Test in an incognito window, clear Cloudflare Access cookies, and confirm exactly one managed application has the correct destinations.
 
 ### Onboarding GitHub Sign-in Bounces to the Landing / `/app` Shows "Authentication required"
 
@@ -233,7 +253,13 @@ Every scroll route is buffer-authoritative — touch gestures, mouse wheel (capt
 
 ### Container Stuck at "Waiting for Services"
 
-The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.
+**Symptom:** Container startup remains on the Waiting for Services screen and never reports ready.
+
+**Cause:** Initial R2 sync or PTY pre-warm has not completed; missing credentials, an unavailable bucket, or an entrypoint failure can keep the initialization flag absent.
+
+**Fix:** Check `GET /api/container/startup-status?sessionId=xxx`, inspect `details.syncError`, verify the terminal process and R2 credentials, and inspect `/tmp/sync.log` plus container warnings.
+
+The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready.
 
 **Port-wait timeout (container killed before reaching the loading screen):** Cloudflare kills a container that does not bind port 8080 within ~10-15s. Since PR #364 the terminal server binds port 8080 at the very start of `entrypoint.sh` - before R2 sync - so this should no longer occur. If it does, check that `node dist/server.js` in `/app/host` exits cleanly: `cat /tmp/terminal.pid` then `kill -0 $(cat /tmp/terminal.pid)`.
 
@@ -261,7 +287,11 @@ Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `de
 
 ### Secrets Lost After Worker Deletion
 
-`wrangler delete` nukes all secrets. Re-set with `wrangler secret put`.
+**Symptom:** A recreated Worker starts without credentials that were configured before deletion.
+
+**Cause:** `wrangler delete` removes the Worker's secrets with the deployment.
+
+**Fix:** Restore each required secret with `wrangler secret put` before using the recreated Worker.
 
 ### R2 Bucket Cleanup on User Deletion
 
@@ -273,9 +303,12 @@ If worker-level R2 credentials are not configured (e.g., setup was interrupted),
 
 ### Chrome in CI (Ubuntu 22.04)
 
-`apt install chromium-browser` on Ubuntu 22.04 installs a snap wrapper, NOT real Chromium. Without snapd (which GitHub Actions runners don't have), it installs with exit 0 but provides nothing usable.
+**Symptom:** Chromium installation exits successfully, but CI has no usable browser executable.
 
-**Solution:** Install Chrome via Puppeteer, then install shared libraries individually:
+**Cause:** On Ubuntu 22.04, `apt install chromium-browser` installs a snap wrapper; GitHub Actions runners do not provide the snapd environment it needs.
+
+**Fix:** Install Chrome through Puppeteer, then install its required shared libraries individually.
+
 ```bash
 npx puppeteer browsers install chrome
 sudo apt-get install -yqq --no-install-recommends \
