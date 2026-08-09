@@ -60,6 +60,7 @@ AUTH_TTL_SEC=600
 AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null) || true
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null) || true
 TOOL_USE_ID=$(echo "$INPUT" | jq -r '.tool_use_id // empty' 2>/dev/null) || true
+RESPONSE_AGENT_ID=$(echo "$INPUT" | jq -r '.tool_response.agentId // .tool_response.agent_id // empty' 2>/dev/null) || true
 
 safe_correlation_id() {
     local value="$1"
@@ -71,6 +72,7 @@ safe_correlation_id() {
 }
 AGENT_ID=$(safe_correlation_id "$AGENT_ID")
 TOOL_USE_ID=$(safe_correlation_id "$TOOL_USE_ID")
+RESPONSE_AGENT_ID=$(safe_correlation_id "$RESPONSE_AGENT_ID")
 
 # Common case: no deferred capture. Remove only this session's ephemeral
 # authorization; correlation never leaves the session-local counter directory.
@@ -80,9 +82,9 @@ if [[ ! -f "$VARS_FILE" ]]; then
 fi
 
 # Every create/bind/claim/expiry transition is serialized. PreToolUse records
-# the parent spawn's tool_use_id; the authoritative SubagentStart event binds
-# that pending invocation to the actual child agent_id. No identifier-equality
-# assumption, prompt token, or first-arriving-child guess authorizes a caller.
+# the parent spawn's tool_use_id; PostToolUse for that same invocation binds the
+# actual agentId returned by the Agent tool. No identifier-equality assumption,
+# prompt token, or first-arriving-child guess authorizes a caller.
 exec 9>"$AUTH_LOCK"
 AUTH_LOCKED=0
 flock -w 2 -x 9 || AUTH_LOCKED=$?
@@ -109,13 +111,15 @@ if (( AUTH_LOCKED == 0 )) && [[ "$TOOL_NAME" == "Task" || "$TOOL_NAME" == "Agent
     fi
 fi
 
-# Bind the actual child only from the authoritative child-start event. The
-# event carries both the parent invocation and the newly assigned child id.
-if [[ "$HOOK_EVENT" == "SubagentStart" ]]; then
-    if (( AUTH_LOCKED == 0 )) && [[ -n "$TOOL_USE_ID" && -n "$AGENT_ID" && "$AGENT_TYPE" == "memory-capture" && -f "$AUTH_FILE" ]]; then
+# Bind the actual child only from the authoritative Agent tool result. The
+# PostToolUse payload carries the same parent tool_use_id and the independently
+# assigned child `agentId` in tool_response.
+if [[ "$HOOK_EVENT" == "PostToolUse" && ( "$TOOL_NAME" == "Task" || "$TOOL_NAME" == "Agent" ) ]]; then
+    SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null) || true
+    if (( AUTH_LOCKED == 0 )) && [[ "$SUBAGENT_TYPE" == "memory-capture" && -n "$TOOL_USE_ID" && -n "$RESPONSE_AGENT_ID" && -f "$AUTH_FILE" ]]; then
         AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || true)
         if [[ "$AUTH_STATE" == "pending:$TOOL_USE_ID" ]]; then
-            write_auth "bound:$AGENT_ID"
+            write_auth "bound:$RESPONSE_AGENT_ID"
         fi
     fi
     exit 0

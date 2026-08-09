@@ -146,7 +146,7 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
   it('advanced mode registers each managed hook on its own event type', () => {
     const { advanced } = settingsConfigs();
 
-    for (const event of ['PreToolUse', 'PostToolUse', 'SubagentStart', 'UserPromptSubmit', 'Stop']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop']) {
       assert.ok(hookEntries(advanced, event).length > 0, `${event} should carry at least one hook`);
     }
 
@@ -159,8 +159,8 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     assert.ok(commandFor('PreToolUse', 'block-local-builds.sh'), 'local-build blocker belongs on PreToolUse');
     assert.ok(commandFor('PostToolUse', 'git-push-review-reminder.sh'), 'push reminder belongs on PostToolUse');
     assert.ok(commandFor('UserPromptSubmit', 'memory-capture.sh'), 'memory capture belongs on UserPromptSubmit');
-    assert.ok(commandFor('SubagentStart', 'memory-capture-block.sh'),
-      'child correlation binds on the authoritative SubagentStart event');
+    assert.ok(commandFor('PostToolUse', 'memory-capture-block.sh'),
+      'child correlation binds from the authoritative Agent tool result');
     assert.ok(commandFor('Stop', 'enforce-review-spawn.sh'), 'review-spawn enforcement belongs on Stop');
   });
 

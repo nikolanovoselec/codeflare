@@ -215,14 +215,32 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
       tool_input: {},
     }).status, 2);
 
-    // The authoritative child-start event binds the parent invocation to the
+    // A malformed result cannot bind an arbitrary first-arriving child.
+    assert.equal(runHook(fx, {
+      hook_event_name: 'PostToolUse',
+      session_id: sessionId,
+      tool_name: 'Agent',
+      tool_use_id: 'spawn-private-id',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+      tool_response: { status: 'async_launched' },
+    }).status, 0);
+    assert.equal(runHook(fx, {
+      session_id: sessionId,
+      agent_id: 'first-arriving-child',
+      agent_type: 'memory-capture',
+      tool_name: 'Read',
+      tool_input: {},
+    }).status, 2);
+
+    // The authoritative Agent tool result binds the parent invocation to the
     // independently assigned child id; no identifier-equality assumption.
     assert.equal(runHook(fx, {
-      hook_event_name: 'SubagentStart',
+      hook_event_name: 'PostToolUse',
       session_id: sessionId,
+      tool_name: 'Agent',
       tool_use_id: 'spawn-private-id',
-      agent_id: 'actual-capture-child',
-      agent_type: 'memory-capture',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+      tool_response: { status: 'async_launched', agentId: 'actual-capture-child' },
     }).status, 0);
     const accepted = runHook(fx, {
       session_id: sessionId,
@@ -321,11 +339,12 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
     assert.ok(winner);
     const loser = winner === 'spawn-a' ? 'spawn-b' : 'spawn-a';
     assert.equal(runHook(fx, {
-      hook_event_name: 'SubagentStart',
+      hook_event_name: 'PostToolUse',
       session_id: sessionId,
+      tool_name: 'Agent',
       tool_use_id: loser,
-      agent_id: 'wrong-child',
-      agent_type: 'memory-capture',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+      tool_response: { status: 'async_launched', agentId: 'wrong-child' },
     }).status, 0);
     assert.equal(runHook(fx, {
       session_id: sessionId,
@@ -335,11 +354,12 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
       tool_input: {},
     }).status, 2);
     assert.equal(runHook(fx, {
-      hook_event_name: 'SubagentStart',
+      hook_event_name: 'PostToolUse',
       session_id: sessionId,
+      tool_name: 'Agent',
       tool_use_id: winner,
-      agent_id: 'winner-child',
-      agent_type: 'memory-capture',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+      tool_response: { status: 'async_launched', agentId: 'winner-child' },
     }).status, 0);
     assert.equal(runHook(fx, {
       session_id: sessionId,
