@@ -594,7 +594,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(out).toContain('<!doctype html>');
       expect(out).toContain('<script>');
       // Flips the SB-side encryption gate
-      expect(out).toContain("storageRef.setItem('enableEncryption'");
+      expect(out).toMatch(/storageRef\.setItem\(["']enableEncryption["']/);
       // Registers our SW shim under the per-session scope
       expect(out).toContain('serviceWorker.register');
       expect(out).toContain('service_worker.js');

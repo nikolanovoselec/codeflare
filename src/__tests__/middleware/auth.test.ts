@@ -172,6 +172,7 @@ describe('Auth Middleware', () => {
     function makeEnv(overrides: Partial<Env> = {}): Env {
       return {
         KV: mockKV as unknown as KVNamespace,
+        CONTAINER: createBucketOwnerNamespace(),
         ...overrides,
       } as Env;
     }
@@ -229,6 +230,7 @@ describe('Auth Middleware', () => {
       app.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          CONTAINER: createBucketOwnerNamespace(),
           ...envOverrides,
         } as Env;
         return next();
@@ -357,7 +359,11 @@ describe('Auth Middleware', () => {
     function createAdminApp(envOverrides: Partial<Env> = { ENTERPRISE_MODE: 'active' }) {
       const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
       app.use('*', async (c, next) => {
-        c.env = { KV: mockKV as unknown as KVNamespace, ...envOverrides } as Env;
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CONTAINER: createBucketOwnerNamespace(),
+          ...envOverrides,
+        } as Env;
         return next();
       });
       app.use('*', authMiddleware);
