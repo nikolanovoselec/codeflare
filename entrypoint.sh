@@ -328,16 +328,17 @@ SYNC_MODE="${SYNC_MODE:-none}"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # Vault syncs, but Vault/graphify-out/ is mostly derived. Persist ONLY the
     # cumulative graph (vault-graph.json - REQ-MEM-009 source of truth; the
-    # global graph is rebuilt from it at boot) and the vault-extract content-hash
-    # manifest (REQ-VAULT-026: the durable
-    # change-detection high-water mark — it MUST survive restart so a restored
-    # vault is not re-extracted whole). The per-run graph.json, chunks, labels,
+    # global graph is rebuilt from it at boot), the vault-extract content-hash
+    # manifest, and its durable first-initialization record (REQ-VAULT-026: both
+    # MUST survive restart so a missing restore cannot be mistaken for a fresh
+    # vault and rebaseline unextracted edits). The per-run graph.json, chunks, labels,
     # GRAPH_REPORT.md, cache/ and graphify's own manifest.json are regenerated
     # by the next extraction and have no R2 value. These allow-rules MUST precede
     # both the graphify-out exclusion and "+ Vault/**" (rclone first-match order).
     VAULT_FILTER=(
         --filter "+ Vault/graphify-out/vault-graph.json"
         --filter "+ Vault/graphify-out/vault-extract-manifest.json"
+        --filter "+ Vault/graphify-out/vault-extract-initialized"
         --filter "- Vault/graphify-out/**"
         --filter "+ Vault/**"
     )
@@ -2000,7 +2001,10 @@ init_user_vault() {
     # file dropped here round-trips to R2 and is visible in the storage panel.
     mkdir -p "$USER_HOME/Uploads" "$USER_HOME/Temporary"
 
-    if [ ! -d "$VAULT" ]; then
+    local VAULT_EXISTED_AT_BOOT=0
+    if [ -d "$VAULT" ]; then
+        VAULT_EXISTED_AT_BOOT=1
+    else
         echo "[entrypoint] Initializing vault skeleton at $VAULT"
         mkdir -p "$VAULT"
     fi
@@ -2045,13 +2049,22 @@ init_user_vault() {
     done
 
     # One-time cleanup: legacy "Global Graph.md" pages from earlier installs
-    # link to a non-existent global-graph.html (404). Drop the page and the
-    # never-generated viz file on every boot - idempotent, also catches
-    # vaults restored from R2 snapshots that predate this cleanup.
-    if [ -f "$VAULT/Raw/Graphs/Global Graph.md" ] \
-       && [ ! -f "$PRESEED_DIR/Raw/Graphs/Global Graph.md" ]; then
-        rm -f "$VAULT/Raw/Graphs/Global Graph.md" "$VAULT/Raw/Graphs/global-graph.html" 2>/dev/null
-        echo "[entrypoint] Removed legacy Raw/Graphs/Global Graph.md (viz dropped)"
+    # link to a non-existent global-graph.html (404). Remove each stale artifact
+    # independently whenever the preseed counterpart is absent: either sibling
+    # may already have disappeared on an earlier boot or restore.
+    if [ ! -f "$PRESEED_DIR/Raw/Graphs/Global Graph.md" ]; then
+        local REMOVED_LEGACY_GRAPH=0
+        if [ -f "$VAULT/Raw/Graphs/Global Graph.md" ]; then
+            rm -f "$VAULT/Raw/Graphs/Global Graph.md" 2>/dev/null
+            REMOVED_LEGACY_GRAPH=1
+        fi
+        if [ -f "$VAULT/Raw/Graphs/global-graph.html" ]; then
+            rm -f "$VAULT/Raw/Graphs/global-graph.html" 2>/dev/null
+            REMOVED_LEGACY_GRAPH=1
+        fi
+        if [ "$REMOVED_LEGACY_GRAPH" = "1" ]; then
+            echo "[entrypoint] Removed legacy Raw/Graphs global graph artifact(s)"
+        fi
     fi
 
     # Preseed-managed config pages. Always overwritten from preseed on every boot
@@ -2160,20 +2173,32 @@ init_user_vault() {
     [ -f "$HOOK_CACHE/vault-extract.last" ] || touch "$HOOK_CACHE/vault-extract.last"
     [ -f "$HOOK_CACHE/vault-monitor.tick" ] || touch "$HOOK_CACHE/vault-monitor.tick"
 
-    # Baseline the content-hash manifest ONLY when it is absent — the first
-    # session for this vault. On every later boot the manifest is restored from
-    # R2 (graphify-out/ allow-rule), so we do NOT re-baseline: genuine changes,
-    # including a prior session's unextracted files, are still detected. Recording
-    # content hashes (not stamping an mtime) is what makes detection survive the
-    # R2 restore's mtime reset — the fix for the full-vault re-extraction.
+    # Baseline only before the durable initialization record exists. The record
+    # is R2-allow-listed beside the manifest and contains one byte-plus-newline so
+    # rclone's --min-size 1B policy persists it. A returning Vault whose manifest
+    # is missing or corrupt must remain full-delta eligible; rebuilding a baseline
+    # from current bytes would silently mark unextracted edits as processed.
     local MANIFEST_FILE="$VAULT/graphify-out/vault-extract-manifest.json"
+    local INITIALIZED_FILE="$VAULT/graphify-out/vault-extract-initialized"
     local MANIFEST_SCRIPT="$PLUGIN_DIR/codeflare-vault/scripts/vault-manifest.py"
-    if [ ! -f "$MANIFEST_FILE" ] && [ -f "$MANIFEST_SCRIPT" ]; then
-        if python3 "$MANIFEST_SCRIPT" commit "$VAULT" "$MANIFEST_FILE" 2>/dev/null; then
-            echo "[entrypoint] Vault-extract manifest baselined (first session)"
-        else
-            echo "[entrypoint] Vault-extract manifest baseline deferred"
+    if [ ! -f "$INITIALIZED_FILE" ]; then
+        if [ -f "$MANIFEST_FILE" ] || [ "$VAULT_EXISTED_AT_BOOT" = "1" ]; then
+            # Migration-safe: a Vault restored from an older release may not yet
+            # carry this new marker. Never baseline an already-existing Vault;
+            # if its manifest is absent, empty high-water state preserves every
+            # file as a full-delta candidate.
+            printf '1\n' > "$INITIALIZED_FILE"
+            echo "[entrypoint] Vault-extract durable initialization state recorded"
+        elif [ -f "$MANIFEST_SCRIPT" ]; then
+            if python3 "$MANIFEST_SCRIPT" commit "$VAULT" "$MANIFEST_FILE" 2>/dev/null; then
+                printf '1\n' > "$INITIALIZED_FILE"
+                echo "[entrypoint] Vault-extract manifest baselined (first initialization)"
+            else
+                echo "[entrypoint] Vault-extract manifest baseline deferred"
+            fi
         fi
+    elif [ ! -f "$MANIFEST_FILE" ]; then
+        echo "[entrypoint] WARNING: initialized Vault manifest missing after restore; preserving full-delta eligibility"
     fi
 }
 

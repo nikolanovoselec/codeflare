@@ -971,7 +971,10 @@ export async function rewriteVaultHtmlResponse(
       logger.warn('vault boot-script injection skipped', { error: toErrorMessage(err) });
     }
   }
-  if (wasNoOp && response.status === 200 && isShellPath) {
+  // Warn for every successful editor document whose base rewrite was a no-op,
+  // including deep SPA reloads. A body without a document head is an upstream
+  // error fragment rather than a successfully served editor page.
+  if (wasNoOp && response.status === 200 && (isShellPath || /<head\b/i.test(body))) {
     logger.warn('vault base-href rewrite no-op', { pathname, contentType });
   }
   const headers = new Headers(response.headers);

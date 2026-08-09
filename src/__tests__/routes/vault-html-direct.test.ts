@@ -10,6 +10,7 @@ import {
   filterVaultFsListing,
   isFilteredVaultMutation,
   rewriteVaultBaseHref,
+  rewriteVaultHtmlResponse,
   hasVaultBootstrapCookie,
   inferOriginValidated,
   injectVaultEncryptionConfig,
@@ -106,6 +107,26 @@ describe('CF-045: vault-html direct unit tests', () => {
       const { rewritten, wasNoOp } = rewriteVaultBaseHref('<head></head>', 'aabbccdd11223344');
       expect(rewritten).toBe('<head></head>');
       expect(wasNoOp).toBe(true);
+    });
+
+    it('warns when a successful deep SPA HTML response has no rewritable base href (REQ-VAULT-013 AC4)', async () => {
+      const logger = { warn: vi.fn() };
+      await rewriteVaultHtmlResponse(
+        new Response('<html><head><base href="/already-prefixed/"></head></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+        'aabbccdd11223344',
+        '/Notes/deep/path',
+        '/api/vault/aabbccdd11223344/Notes/deep/path',
+        'text/html',
+        logger,
+      );
+
+      expect(logger.warn).toHaveBeenCalledWith('vault base-href rewrite no-op', {
+        pathname: '/api/vault/aabbccdd11223344/Notes/deep/path',
+        contentType: 'text/html',
+      });
     });
   });
 

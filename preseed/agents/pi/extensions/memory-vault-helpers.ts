@@ -128,6 +128,58 @@ export function parseVaultExtractRequest(value: unknown): VaultExtractRequest | 
   };
 }
 
+const GRAPHIFY_FILE_TYPES = new Set(["code", "document", "concept"]);
+const GRAPHIFY_RELATIONS = new Set(["contains", "references", "conceptually_related_to", "cites"]);
+const GRAPHIFY_CONFIDENCE = new Set(["EXTRACTED", "INFERRED"]);
+
+function nullableString(value: unknown): boolean {
+  return value === null || typeof value === "string";
+}
+
+function finiteNumber(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Validate the canonical chunk written by the bounded Pi extraction contract. */
+export function isGraphifyExtractionChunk(value: unknown): boolean {
+  const chunk = record(value);
+  if (!chunk || !Array.isArray(chunk.nodes) || !Array.isArray(chunk.edges) || !Array.isArray(chunk.hyperedges)) return false;
+  if (!finiteNumber(chunk.input_tokens) || Number(chunk.input_tokens) < 0) return false;
+  if (!finiteNumber(chunk.output_tokens) || Number(chunk.output_tokens) < 0) return false;
+  if (chunk.nodes.some((value) => {
+    const node = record(value);
+    return !node
+      || !nonEmptyString(node.id)
+      || !nonEmptyString(node.label)
+      || typeof node.file_type !== "string"
+      || !GRAPHIFY_FILE_TYPES.has(node.file_type)
+      || !nullableString(node.source_file)
+      || !nullableString(node.source_location)
+      || !nullableString(node.source_url)
+      || !nullableString(node.captured_at)
+      || !nullableString(node.author)
+      || !nullableString(node.contributor);
+  })) return false;
+  if (chunk.edges.some((value) => {
+    const edge = record(value);
+    return !edge
+      || !nonEmptyString(edge.source)
+      || !nonEmptyString(edge.target)
+      || typeof edge.relation !== "string"
+      || !GRAPHIFY_RELATIONS.has(edge.relation)
+      || typeof edge.confidence !== "string"
+      || !GRAPHIFY_CONFIDENCE.has(edge.confidence)
+      || !finiteNumber(edge.confidence_score)
+      || Number(edge.confidence_score) < 0
+      || Number(edge.confidence_score) > 1
+      || !nonEmptyString(edge.source_file)
+      || !nullableString(edge.source_location)
+      || !finiteNumber(edge.weight)
+      || Number(edge.weight) <= 0;
+  })) return false;
+  return true;
+}
+
 export function parseSessionEntries(content: string): any[] {
   const entries: any[] = [];
   for (const line of content.split("\n")) {

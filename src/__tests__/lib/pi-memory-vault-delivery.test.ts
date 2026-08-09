@@ -212,6 +212,7 @@ function makeHarness(options: { child?: boolean } = {}): Harness {
     memoryPromptFile: join(promptsDir, 'memory-agent-prompt.md'),
     vaultPromptFile: join(promptsDir, 'vault-extract-prompt.md'),
     vaultManifestFile: join(vaultRoot, 'graphify-out', 'vault-extract-manifest.json'),
+    vaultInitializationFile: join(vaultRoot, 'graphify-out', 'vault-extract-initialized'),
     vaultMarkerFile: join(cacheDir, 'vault-extract.last'),
   };
   mkdirSync(join(vaultRoot, 'Notes'), { recursive: true });
@@ -820,6 +821,44 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(committedBefore);
     expect(existsSync(vaultPointerPath(harness))).toBe(true);
     expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
+  });
+
+  it('rejects an empty, malformed, or schema-invalid correlated chunk before manifest promotion', async () => {
+    for (const invalidChunk of ['', '{not-json', JSON.stringify({ nodes: [], edges: [] })]) {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
+      writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'invalid-chunk.md'), 'changed\n', 'utf8');
+      await harness.emit('agent_settled');
+      const launch = latestLaunch(harness.pi, 'vault-extract');
+      appendEntry(harness.sessionFile, toolCall('invalid-chunk-vault', 'vault-extract', launch.request), notification('invalid-chunk-vault'));
+      writeFileSync(vaultChunkPath(harness, launch.requestId), invalidChunk, 'utf8');
+
+      await harness.emit('agent_settled');
+      expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(committedBefore);
+      expect(existsSync(vaultPointerPath(harness))).toBe(true);
+      expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
+    }
+  });
+
+  it('treats a later missing or corrupt restored manifest as a full delta instead of rebaselining current Vault bytes', async () => {
+    for (const restoredManifest of [undefined, '{corrupt']) {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      expect(readFileSync(harness.paths.vaultInitializationFile, 'utf8')).toBe('1\n');
+      if (restoredManifest === undefined) rmSync(harness.paths.vaultManifestFile, { force: true });
+      else writeFileSync(harness.paths.vaultManifestFile, restoredManifest, 'utf8');
+      const changed = join(harness.paths.vaultRoot, 'Notes', 'restored-unextracted.md');
+      writeFileSync(changed, 'changed before restore completed\n', 'utf8');
+
+      await harness.emit('agent_settled');
+      expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+      if (restoredManifest === undefined) {
+        expect(existsSync(harness.paths.vaultManifestFile)).toBe(false);
+      } else {
+        expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(restoredManifest);
+      }
+    }
   });
 
   // REQ-VAULT-028: Vault edits remain isolated after extraction starts
