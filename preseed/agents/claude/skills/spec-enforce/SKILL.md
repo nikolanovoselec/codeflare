@@ -317,6 +317,8 @@ Re-triage runs BEFORE other CQ checks this cycle so newly-fixable backlog items 
 
 Older entries lacking this header re-classify as "still-escalated" and emit LOW `backlog-entry-missing-header`. The `/sdd init` scaffold placeholder `_Awaiting first finding._` (entire file body) is recognised as the empty-slot marker and does NOT trigger the finding; only entries that look like real findings but lack the header do.
 
+**Import-triage content gate:** Every real entry in `.init-triage.md` MUST contain non-empty `Context:`, `Recommendation:`, and `Rationale:` fields before enforcement accepts the imported scaffold. Reject a field as HIGH `import-triage-placeholder` when its normalized value is absent; is only a placeholder (`TBD`, `TODO`, `unknown`, `none`, `N/A`, `later`); or is nonspecific boilerplate such as `investigate`, `fix as needed`, or `update later`. Context must identify at least one concrete source locator (file and line/symbol, commit, PR, issue, test, release, or URL); Recommendation must name a candidate behavior and affected target; Rationale must explain why that candidate follows from the cited evidence. Invalid entries stay open and block the import commit until rewritten with substantive guidance.
+
 **No re-triage during SDD transition.** When `transition: true`, the pass is `inert (transition active)`.
 
 ## SDD transition state (legacy-codebase imports)

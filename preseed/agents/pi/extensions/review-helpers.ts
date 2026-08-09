@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { executableShellCommands, shellCommandExecutable } from "./guard-helpers.js";
 
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
 export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |";
@@ -35,8 +36,6 @@ export type TranscriptFacts = {
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
 };
-
-type ShellWords = string[];
 
 type Heredoc = { delimiter: string; stripTabs: boolean };
 
@@ -170,58 +169,21 @@ export function shellSegments(command: string): string[] {
   return executableShellSegments(command).map((segment) => segment.command);
 }
 
-function shellWords(segment: string): ShellWords {
-  const words: string[] = [];
-  let current = "";
-  let quote = "";
-  let escaped = false;
-  for (const char of segment) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-    } else if (char === "\\" && quote !== "'") {
-      escaped = true;
-    } else if ((char === "'" || char === '"') && !quote) {
-      quote = char;
-    } else if (char === quote) {
-      quote = "";
-    } else if (!quote && /\s/.test(char)) {
-      if (current) words.push(current);
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  if (current) words.push(current);
-  return words;
-}
-
-function commandWords(command: string): ShellWords[] {
-  return shellSegments(command).map(shellWords).map((words) => {
-    let index = words[0] === "env" ? 1 : 0;
-    while (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(words[index] ?? "")) index += 1;
-    return words.slice(index);
-  });
-}
-
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  const candidate = commandWords(command).some((words) => words[0] === "git" || words[0] === "gh");
+  const candidate = executableShellCommands(command).some((words) => {
+    const executable = shellCommandExecutable(words);
+    return executable === "git" || executable === "gh";
+  });
   return candidate
     ? { reminder: true, settled: true, event: "push" }
     : { reminder: false, settled: false };
 }
 
-function firstExisting(paths: string[]): string | undefined {
-  return paths.find(existsSync);
-}
-
 export function isReviewTransitionSuspended(repo: string): boolean {
   const nested = existsSync(join(repo, "sdd/spec/config.yml"));
   const config = nested ? join(repo, "sdd/spec/config.yml") : join(repo, "sdd/config.yml");
-  const triage = firstExisting(nested
-    ? [join(repo, "sdd/spec/.init-triage.md"), join(repo, "sdd/spec/.review-queue.md")]
-    : [join(repo, "sdd/.init-triage.md"), join(repo, "sdd/.review-needed.md")]);
-  if (!existsSync(config) || !triage) return false;
+  const triage = nested ? join(repo, "sdd/spec/.init-triage.md") : join(repo, "sdd/.init-triage.md");
+  if (!existsSync(config) || !existsSync(triage)) return false;
   const transition = /^transition:\s*true\s*$/mi.test(readFileSync(config, "utf8"));
   const open = /^\*\*Status:\*\*\s*open\b/mi.test(readFileSync(triage, "utf8"));
   return transition && open;
@@ -404,10 +366,13 @@ export function roundLimitReached(repo: string, lane: ReviewLane): boolean {
     if (!record.trim()) continue;
     const [header, ...fileLines] = record.split("\n");
     const subject = header.slice(header.indexOf(" ") + 1).trim();
+    const touchedLane = fileLines.some((file) => file.trim().startsWith(rule.tree));
     if (BULK_PREFIXES.some((prefix) => subject.startsWith(prefix))) continue;
-    if (!rule.tags.some((tag) => rule.match(subject, tag))) continue;
-    if (!fileLines.some((file) => file.trim().startsWith(rule.tree))) continue;
-    counted += 1;
+    if (!rule.tags.some((tag) => rule.match(subject, tag))) {
+      if (touchedLane) break;
+      continue;
+    }
+    if (touchedLane) counted += 1;
   }
   return counted >= 5;
 }

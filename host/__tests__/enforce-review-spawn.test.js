@@ -274,6 +274,8 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     assert.equal(r.stdout, '');
     assert.equal(pretool(cwd, t, 'Write').status, 2,
       'Write carries no exemption while blocked');
+    assert.equal(pretool(cwd, t, 'AskUserQuestion').status, 2,
+      'questions cannot bypass a completed round awaiting its verdict table');
   });
 
   it('allows read-only tools during the blocked window', () => {
@@ -1574,6 +1576,43 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       assert.match(r.stdout, /"decision"\s*:\s*"block"/);
     }
   });
+});
+
+describe('enforce-review-spawn.sh - structural shell boundaries', () => {
+  for (const command of [
+    'git -C . status --short',
+    'if git status --short; then :; fi',
+    'printf "%s\\n" "$(gh pr view)"',
+    'echo ready && "git" status --short',
+  ]) {
+    it(`enforces after executable activity in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const t = writeTranscript(cwd, [COMMAND_LINE(command)]);
+      const r = runHook(cwd, {
+        transcriptPath: t,
+        binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
+      });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    });
+  }
+
+  for (const command of [
+    'printf "%s\\n" "x; git status"',
+    "printf '%s\\n' '$(gh pr view)'",
+    "cat <<'EOF'\ngit status\nEOF",
+  ]) {
+    it(`keeps non-executable lookalikes inert in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const t = writeTranscript(cwd, [COMMAND_LINE(command)]);
+      const r = runHook(cwd, { transcriptPath: t, binDir: ghPoison(cwd) });
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
+    });
+  }
 });
 
 // REQ-AGENT-092 + REQ-AGENT-047: while triage items remain open the entire review pipeline is suspended

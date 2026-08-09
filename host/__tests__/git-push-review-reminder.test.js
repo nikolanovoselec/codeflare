@@ -137,6 +137,38 @@ describe('git-push-review-reminder.sh — substring false-positive guard', () =>
   });
 });
 
+describe('git-push-review-reminder.sh — structural shell boundaries', () => {
+  for (const command of [
+    'git -C . status --short',
+    'if git status --short; then :; fi',
+    'printf "%s\\n" "$(gh pr view)"',
+    'echo ready && "git" status --short',
+  ]) {
+    it(`classifies executable activity in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+    });
+  }
+
+  for (const command of [
+    'printf "%s\\n" "x; git status"',
+    "printf '%s\\n' '$(gh pr view)'",
+    "cat <<'EOF'\ngit status\nEOF",
+  ]) {
+    it(`keeps non-executable lookalikes inert in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, command, fakeGhFails(cwd));
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
+    });
+  }
+});
+
 describe('git-push-review-reminder.sh — vibe-coding gate', () => {
   it('exits 0 silently on git push when sdd/ is missing', () => {
     const cwd = makeFixture();

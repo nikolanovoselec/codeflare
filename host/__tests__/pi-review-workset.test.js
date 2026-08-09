@@ -7,6 +7,12 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { buildReviewPacket, changedInputIntersects } from '../../preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs';
+import {
+  attributionBlockReason,
+  executableShellCommands,
+  shellCommandExecutable,
+} from '../../preseed/agents/pi/extensions/guard-helpers.ts';
+import { monitorCi } from '../../preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs';
 
 const packetScript = fileURLToPath(new URL(
   '../../preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs',
@@ -43,6 +49,16 @@ function fixture() {
   git(repo, 'commit', '-m', 'change');
   return { repo, base, head: git(repo, 'rev-parse', 'HEAD') };
 }
+
+test('REQ-AGENT-052/REQ-AGENT-063: Pi structurally finds executable Git across shell composition', () => {
+  const executable = (command) => executableShellCommands(command).map(shellCommandExecutable).filter(Boolean);
+  assert.deepEqual(executable('if git -C /repo status; then echo "gh pr view"; fi'), ['git', 'echo']);
+  assert.deepEqual(executable('printf "%s" "$(gh pr view)"'), ['gh', 'printf']);
+  assert.deepEqual(executable("printf '%s' '$(git status)'"), ['printf']);
+  assert.deepEqual(executable("cat <<'EOF'\ngit status\nEOF"), ['cat']);
+  assert.ok(attributionBlockReason('git -C /repo commit -m "Generated with Claude"'));
+  assert.ok(attributionBlockReason('env GH_HOST=x gh --repo acme/app pr create --body "Co-Authored-By: bot"'));
+});
 
 test('REQ-AGENT-059 AC6: diff packets contain only lane-owned changed hunks', () => {
   const { repo, base, head } = fixture();
@@ -128,6 +144,36 @@ test('REQ-AGENT-059 AC7: all scope enumerates the lane tree while diff rejects a
 // exceeded the bound on every run read as "this lane has no evidence" and
 // nothing surfaced it. The reviewer can act on a named reason; it cannot act on
 // a key that is simply missing.
+test('REQ-AGENT-125 AC3: stable malformed provider rows never become CI success', async () => {
+  const head = 'a'.repeat(40);
+  let now = 0;
+  const runner = async (_command, args) => {
+    if (args[1] === 'view') {
+      return { stdout: JSON.stringify({ headRefOid: head }), stderr: '', exitCode: 0 };
+    }
+    return {
+      stdout: JSON.stringify([{
+        bucket: 'pass',
+        link: 'not a URL',
+        name: 42,
+        state: null,
+        workflow: {},
+      }]),
+      stderr: '',
+      exitCode: 0,
+    };
+  };
+
+  const output = await monitorCi({
+    repo: 'owner/repo', pr: 42, head, runner,
+    clock: { now: () => now },
+    sleep: async (milliseconds) => { now += milliseconds; },
+  });
+
+  assert.match(output, /^CI_RESULT timeout/m);
+  assert.doesNotMatch(output, /^CI_RESULT success/m);
+});
+
 test('REQ-AGENT-109: an evidence failure is named in the packet, not dropped', () => {
   const isolated = mkdtempSync(join(tmpdir(), 'packet-no-resolver-'));
   const script = join(isolated, 'build-review-packet.mjs');

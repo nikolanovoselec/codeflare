@@ -79,7 +79,7 @@ PRETOOL_COMPLETION_COUNT=""
 if [ -n "$PRETOOL_MODE" ]; then
   TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
   case "$TOOL_NAME" in
-    Read|TaskOutput|TaskGet|TaskList|AskUserQuestion) exit 0 ;;
+    Read|TaskOutput|TaskGet|TaskList) exit 0 ;;
   esac
   [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0
   # Fingerprint cache: the gate's answer can only flip to "block" when a new
@@ -184,31 +184,88 @@ if [ -z "$PRETOOL_MODE" ]; then
 # Stop hook. The fix mirrors the multi-shape parsing already shipped in
 # git-push-review-reminder.sh for issue #317.
 #
-# Match positions inside the command/code value:
-#   1. starts with `git push` - e.g. `"command":"git push origin..."`
-#   2. has a shell separator (;&|) before `git push` - chained pipelines
-#      like `git add . && git push` or `git status; git push`
-# Acceptable false-negative: heredoc/multi-line commands that JSON-encode
-# newlines as `\n` and put `git push` after that. Rare in practice.
-# Acceptable false-positive: still possible if a quoted string ends in a
-# separator, but Layer 2 (PR HEAD SHA) filters these.
+# The structural parser recognizes command position across quoting, Git global
+# options, shell lists/control words, and command substitutions. Quoted prose
+# and heredoc bodies remain inert; authoritative Layer 2 still decides whether
+# the parsed activity corresponds to an eligible PR boundary.
 #
 # ---------------------------------------------------------------------------
-PUSH_LINE=$(awk '
-  function candidate(field) {
-    return field ~ /"(command|code)"[[:space:]]*:[[:space:]]*"(env[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(git|gh)[[:space:]"\047);&|]/ \
-      || field ~ /(\\n|[;&|])[[:space:]]*(git|gh)[[:space:]"\047);&|]/
+candidate_line_numbers() {
+  node - "$TRANSCRIPT" <<'NODE'
+const fs = require('node:fs');
+const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
+const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
+function stripHeredocs(text) {
+  const out = [], pending = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (pending.length) { if (line.replace(/^\t+/, '') === pending[0]) pending.shift(); continue; }
+    out.push(line);
+    for (const match of line.matchAll(/<<-?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g)) pending.push(match[1] || match[2] || match[3]);
   }
-  /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
-    if (candidate($0)) { print NR; next }
+  return out.join('\n');
+}
+function hasCandidate(text) {
+  let found = false;
+  function scan(source) {
+    let word = '', command = true, prefix = false;
+    const finish = () => {
+      if (!word) return;
+      const value = word; word = '';
+      if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
+      if (value === 'git' || value === 'gh') { found = true; command = false; return; }
+      if (prefix && value.startsWith('-')) return;
+      prefix = prefixes.has(value); command = prefix;
+    };
+    const boundary = () => { finish(); command = true; prefix = false; };
+    function substitution(start) {
+      let depth = 1, quote = '', escaped = false;
+      for (let i = start; i < source.length; i++) {
+        const c = source[i];
+        if (escaped) { escaped = false; continue; }
+        if (c === '\\' && quote !== "'") { escaped = true; continue; }
+        if (quote) { if (c === quote) quote = ''; continue; }
+        if (c === "'" || c === '"') { quote = c; continue; }
+        if (c === '(') depth++;
+        else if (c === ')' && --depth === 0) { scan(source.slice(start, i)); return i; }
+      }
+      return source.length;
+    }
+    for (let i = 0; i < source.length && !found; i++) {
+      const c = source[i];
+      if (c === "'") { for (i++; i < source.length && source[i] !== "'"; i++) word += source[i]; continue; }
+      if (c === '"') {
+        for (i++; i < source.length && source[i] !== '"'; i++) {
+          if (source[i] === '\\') word += source[++i] || '';
+          else if (source[i] === '$' && source[i + 1] === '(') i = substitution(i + 2);
+          else if (source[i] === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; }
+          else word += source[i];
+        }
+        continue;
+      }
+      if (c === '\\') { word += source[++i] || ''; continue; }
+      if (c === '$' && source[i + 1] === '(') { i = substitution(i + 2); continue; }
+      if (c === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; continue; }
+      if (/\s/.test(c) || ';&|(){}'.includes(c)) { finish(); if (';&|(){}\n\r'.includes(c)) boundary(); continue; }
+      word += c;
+    }
+    finish();
   }
-  /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
-    if (candidate($0)) { print NR; next }
+  scan(stripHeredocs(text));
+  return found;
+}
+fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
+  let entry; try { entry = JSON.parse(raw); } catch { return; }
+  for (const call of entry?.message?.content?.filter?.((part) => part?.type === 'tool_use') || []) {
+    const input = call.input || {}; let commands = [];
+    if (call.name === 'Bash' && typeof input.command === 'string') commands = [input.command];
+    else if (/ctx_execute$/.test(call.name) && input.language === 'shell' && typeof input.code === 'string') commands = [input.code];
+    else if (/ctx_batch_execute$/.test(call.name) && Array.isArray(input.commands)) commands = input.commands.map((item) => item?.command).filter((value) => typeof value === 'string');
+    if (commands.some(hasCandidate)) { process.stdout.write(`${index + 1}\n`); return; }
   }
-  /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
-    if ($0 ~ /"language"[[:space:]]*:[[:space:]]*"shell"/ && candidate($0)) { print NR; next }
-  }
-' "$TRANSCRIPT" 2>/dev/null | tail -1)
+});
+NODE
+}
+PUSH_LINE=$(candidate_line_numbers 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
 
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
@@ -701,27 +758,7 @@ retroactive_ack_scan() {
   # old_string/new_string content quotes the phrase (e.g. an edit to
   # this hook itself).
   local all_push_lines
-  all_push_lines=$(awk '
-    /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-    }
-    /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-    }
-    /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
-      if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
-      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-    }
-  ' "$TRANSCRIPT")
+  all_push_lines=$(candidate_line_numbers 2>/dev/null)
   [ -n "$all_push_lines" ] || return
 
   # Source the lane classifier so we can compute per-push required lanes.

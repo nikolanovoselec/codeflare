@@ -34,29 +34,17 @@ set +e
 
 INPUT=$(cat 2>/dev/null) || exit 0
 
-# ---------------------------------------------------------------------------
-# Cheap pre-filter — skip if raw input doesn't even mention the trigger
-# substrings. PostToolUse fires on every Bash call, so avoiding the
-# jq cold-start (~30-80ms on a resource-constrained container) here saves seconds of
-# cumulative blocking time over a long session.
-# ---------------------------------------------------------------------------
-case "$INPUT" in
-  *"git "*|*"gh "*) ;; # candidate — authoritative branch-state check follows
-  *) exit 0 ;;
-esac
-
 # Extract the command(s) from any of three supported tool-input shapes:
 #
 #   1. Bash tool             → .tool_input.command           (string)
 #   2. mcp__*__ctx_execute   → .tool_input.code              (string, only when
 #                              .tool_input.language == "shell")
 #   3. mcp__*__ctx_batch_execute → .tool_input.commands[].command (array of
-#                              objects; concatenated with `; ` so the existing
-#                              shell-separator regex matches each command)
+#                              objects; concatenated with `; ` for one structural pass)
 #
 # Issue #317: when context-mode's enforce-ctx-mode.sh denies `gh pr create` /
 # `gh pr merge` in Bash, agents retry through MCP shell tools. Without this
-# multi-shape parsing, the regex below was applied to a JSON shape that has
+# multi-shape parsing, candidate parsing was applied to a JSON shape that has
 # no `.tool_input.command` field, COMMAND was empty, and the review-pipeline
 # directive silently never fired for the redirected invocation.
 COMMAND=$(echo "$INPUT" | jq -r '
@@ -71,10 +59,70 @@ COMMAND=$(echo "$INPUT" | jq -r '
   end
 ' 2>/dev/null) || true
 
-# Any executable git or gh command is a cheap candidate. Command syntax never
-# decides eligibility; the checked-out branch and GitHub PR state do.
-COMMAND=$(printf '%s' "$COMMAND" | tr '\n\r' ';;')
-if ! [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)(env[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(git|gh)([[:space:]]|$) ]]; then
+# Any structurally executable git or gh command is a candidate. Command syntax
+# never decides eligibility; the checked-out branch and GitHub PR state do.
+if ! node - "$COMMAND" <<'NODE'
+const text = process.argv[2];
+const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
+const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
+function stripHeredocs(value) {
+  const out = [], pending = [];
+  for (const line of value.split(/\r?\n/)) {
+    if (pending.length) { if (line.replace(/^\t+/, '') === pending[0]) pending.shift(); continue; }
+    out.push(line);
+    for (const match of line.matchAll(/<<-?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g)) pending.push(match[1] || match[2] || match[3]);
+  }
+  return out.join('\n');
+}
+let found = false;
+function scan(source) {
+  let word = '', command = true, prefix = false;
+  const finish = () => {
+    if (!word) return;
+    const value = word; word = '';
+    if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
+    if (value === 'git' || value === 'gh') { found = true; command = false; return; }
+    if (prefix && value.startsWith('-')) return;
+    prefix = prefixes.has(value); command = prefix;
+  };
+  const boundary = () => { finish(); command = true; prefix = false; };
+  function substitution(start) {
+    let depth = 1, quote = '', escaped = false;
+    for (let i = start; i < source.length; i++) {
+      const c = source[i];
+      if (escaped) { escaped = false; continue; }
+      if (c === '\\' && quote !== "'") { escaped = true; continue; }
+      if (quote) { if (c === quote) quote = ''; continue; }
+      if (c === "'" || c === '"') { quote = c; continue; }
+      if (c === '(') depth++;
+      else if (c === ')' && --depth === 0) { scan(source.slice(start, i)); return i; }
+    }
+    return source.length;
+  }
+  for (let i = 0; i < source.length && !found; i++) {
+    const c = source[i];
+    if (c === "'") { for (i++; i < source.length && source[i] !== "'"; i++) word += source[i]; continue; }
+    if (c === '"') {
+      for (i++; i < source.length && source[i] !== '"'; i++) {
+        if (source[i] === '\\') word += source[++i] || '';
+        else if (source[i] === '$' && source[i + 1] === '(') i = substitution(i + 2);
+        else if (source[i] === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; }
+        else word += source[i];
+      }
+      continue;
+    }
+    if (c === '\\') { word += source[++i] || ''; continue; }
+    if (c === '$' && source[i + 1] === '(') { i = substitution(i + 2); continue; }
+    if (c === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; continue; }
+    if (/\s/.test(c) || ';&|(){}'.includes(c)) { finish(); if (';&|(){}\n\r'.includes(c)) boundary(); continue; }
+    word += c;
+  }
+  finish();
+}
+scan(stripHeredocs(text));
+process.exit(found ? 0 : 1);
+NODE
+then
   exit 0
 fi
 

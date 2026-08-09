@@ -172,9 +172,16 @@ describe('run-review-lane.sh — no-op short-circuit', () => {
 // thing -- a JSON document on stdout -- so a stub that emits a chosen document
 // exercises the runner's reading of it without reimplementing triage.
 function stubTriage(hookScripts, doc) {
+  const triage = {
+    lane: 'code-reviewer',
+    range: null,
+    sdd: { bootstrapped: true, layout: 'nested' },
+    bulkOpAudit: { checked: 0, findings: [] },
+    ...doc,
+  };
   writeFileSync(
     join(hookScripts, 'lib/lane-triage.mjs'),
-    `process.stdout.write(${JSON.stringify(JSON.stringify(doc, null, 2))});\n`,
+    `process.stdout.write(${JSON.stringify(JSON.stringify(triage, null, 2))});\n`,
   );
 }
 
@@ -237,8 +244,8 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     stubEvidence(home, {
       lane: 'code-reviewer',
       docIndex: 'z'.repeat(80000),
-      // Two resolutions the shed also drops. Absent and shed are the same shape
-      // to the lane, so an unnamed loss is re-derived at the cost of a turn.
+      // Compact resolutions must survive when the verbatim index is what
+      // exceeded the cap; otherwise the lane pays to derive them again.
       pending: 'a pending manifest',
       config: 'mode: interactive\nenforce_tdd: true\n',
       references: { checked: 12, unresolved: [{ ref: 'src/gone.ts', resolved: false }] },
@@ -253,8 +260,8 @@ describe('run-review-lane.sh — resolved lookups reach the lane', () => {
     assert.match(argv, /src\/gone\.ts/,
       'the resolutions are the part that removes turns and must survive the shed');
     for (const field of ['pending', 'config']) {
-      assert.match(argv, new RegExp(`"omitted":\\[[^\\]]*"${field}"`),
-        `a dropped resolution must name itself; unnamed, ${field} is indistinguishable from one never carried`);
+      assert.match(argv, new RegExp(`"${field}"`), `${field} is a compact resolution and must survive`);
+      assert.doesNotMatch(argv, new RegExp(`"omitted":\\[[^\\]]*"${field}"`));
     }
     assert.doesNotMatch(argv, /"omitted":\[[^\]]*"specIndex"/,
       'a field the block never carried must not be reported as shed');
@@ -346,6 +353,37 @@ describe('run-review-lane.sh — triage no-op short-circuit', () => {
       'the lane owns the changed file, so only triage can have stopped it -- and it must stop it before the model');
     assert.match(r.stdout, /NO-OP/);
     assert.match(r.stdout, /an SDD transition is active/);
+  });
+
+  it('discards malformed triage instead of presenting it as authoritative', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    writeFileSync(join(hookScripts, 'lib/lane-triage.mjs'),
+      'process.stdout.write("{\\\"decision\\\":\\\"exit-no-op\\\"");\n');
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), true, 'invalid triage must never suppress the review');
+    assert.doesNotMatch(readFileSync(`${witness}.prompt`, 'utf-8'), /<triage>\s*\{/,
+      'invalid triage must be absent so the lane derives it itself');
+    assert.match(r.stderr, /triage was not valid JSON with the required shape/);
+  });
+
+  it('discards valid JSON with a non-triage shape', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    writeFileSync(join(hookScripts, 'lib/lane-triage.mjs'),
+      'process.stdout.write(JSON.stringify({decision:"exit-no-op",reason:"placeholder"}));\n');
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), true, 'wrong-shaped triage must never suppress the review');
+    assert.equal(readFileSync(`${witness}.prompt`, 'utf-8').split('\n').includes('<triage>'), false);
+    assert.match(r.stderr, /required shape/);
   });
 
   // The decision is a field, not a substring of the document. A reason that
@@ -448,7 +486,12 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
     const { home, hookScripts } = makeClaudeHome(cwd);
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
-    stubTriage(hookScripts, { decision: 'proceed', filler: 'x'.repeat(40000) });
+    stubTriage(hookScripts, {
+      lane: 'code-reviewer', range: `${base}..${head}`,
+      sdd: { bootstrapped: true, layout: 'nested' },
+      decision: 'proceed', bulkOpAudit: { checked: 0, findings: [] },
+      filler: 'x'.repeat(40000),
+    });
 
     const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
@@ -468,9 +511,11 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
     stubTriage(hookScripts, {
+      lane: 'code-reviewer', range: `${base}..${head}`,
       decision: 'proceed',
-      sdd: { layout: 'nested', triageFile: 'sdd/spec/.review-queue.md' },
+      sdd: { bootstrapped: true, layout: 'nested', triageFile: 'sdd/spec/.review-queue.md' },
       config: { mode: 'auto', enforce_tdd: true, raw: 'y'.repeat(40000) },
+      bulkOpAudit: { checked: 0, findings: [] },
     });
 
     const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
@@ -490,7 +535,11 @@ describe('run-review-lane.sh — inlined evidence is bounded', () => {
     const { home, hookScripts } = makeClaudeHome(cwd);
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
-    stubTriage(hookScripts, { decision: 'proceed', marker: 'TRIAGE_MARKER' });
+    stubTriage(hookScripts, {
+      lane: 'code-reviewer', range: `${base}..${head}`,
+      sdd: { bootstrapped: true, layout: 'nested' },
+      decision: 'proceed', bulkOpAudit: { checked: 0, findings: [] }, marker: 'TRIAGE_MARKER',
+    });
 
     runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
@@ -759,6 +808,40 @@ describe('run-review-lane.sh — model and effort passthrough', () => {
     assert.equal(argv[argv.indexOf('--tools') + 1], 'Bash');
     assert.match(readFileSync(`${witness}.sysprompt`, 'utf-8'), /You are the code-reviewer lane\./,
       'the system prompt must be the lane document body, not a default');
+  });
+});
+
+// REQ-AGENT-102 AC4: absence of the supervisor must refuse the lane rather
+// than silently launching an unbounded model process.
+describe('run-review-lane.sh — supervisor availability', () => {
+  it('refuses to launch when timeout(1) is unavailable', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    const seededRunner = join(hookScripts, 'run-review-lane.sh');
+    writeFileSync(seededRunner, readFileSync(RUNNER, 'utf-8'));
+
+    const r = spawnSync('/bin/bash', [seededRunner, '--lane', 'code-reviewer', '--range', `${base}..${head}`], {
+      cwd, encoding: 'utf-8',
+      env: { ...process.env, PATH: binDir, CLAUDE_CONFIG_DIR: home },
+    });
+
+    assert.equal(r.status, 3);
+    assert.equal(existsSync(witness), false);
+    assert.match(r.stderr, /timeout\(1\).*required/);
+  });
+});
+
+// REQ-AGENT-105 AC4: a demanded lane without either scope form fails instead
+// of widening itself to an unpacketized full-PR review.
+describe('run-review-lane.sh — scope contract', () => {
+  it('rejects a lane launch with neither range nor protected base', () => {
+    const r = spawnSync('bash', [RUNNER, '--lane', 'code-reviewer'], {
+      encoding: 'utf-8', timeout: 10000,
+    });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /--range or --base is required/);
   });
 });
 
