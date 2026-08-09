@@ -256,6 +256,29 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(mockStorage.transaction).toHaveBeenCalledTimes(2);
     });
 
+    it('serializes simultaneous ownership claims so exactly one colliding identity wins', async () => {
+      let owner: string | undefined;
+      let transactionTail = Promise.resolve();
+      mockStorage.get.mockImplementation(async (key: string) => key === 'bucketOwnerEmail' ? owner : null);
+      mockStorage.put.mockImplementation(async (key: string, value: string) => {
+        if (key === 'bucketOwnerEmail') owner = value;
+      });
+      mockStorage.transaction.mockImplementation((fn: (txn: { get: typeof mockStorage.get; put: typeof mockStorage.put }) => Promise<unknown>) => {
+        const result = transactionTail.then(() => fn({ get: mockStorage.get, put: mockStorage.put }));
+        transactionTail = result.then(() => undefined, () => undefined);
+        return result;
+      });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const results = await Promise.all([
+        instance.claimBucketOwner('ab@example.com', true),
+        instance.claimBucketOwner('a+b@example.com', true),
+      ]);
+
+      expect(results.sort()).toEqual(['conflict', 'owned']);
+      expect(owner).toBe('ab@example.com');
+    });
+
     it('refuses an ambiguous first claim without persisting an owner', async () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
 
