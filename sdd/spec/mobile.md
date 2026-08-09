@@ -545,12 +545,12 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 1. A live focus query reports whether browser focus currently rests on a terminal input surface; it is the single discriminator used by every per-pane keyboard-teardown site. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (reports focus resting on a terminal input iframe) -->
 2. When a terminal pane loses focus to a sibling terminal pane, the per-pane focus-loss cleanup does not disable the keyboard overlay or zero the keyboard signals, so the newly focused pane stays in keyboard mode. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::releaseKeyboardOnBlur --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
 3. A Samsung back-button keyboard dismiss still zeroes keyboard state, but a pane-to-pane focus handoff does not. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (Samsung focusout keyboard dismiss (Fix 1) / REQ-MOB-011 (Samsung keyboard state recovery)) -->
-4. When focus leaves all terminal surfaces, the shared keyboard overlay and signals are released. A live pane-to-pane focus handoff preserves them, but actual unmount of the owning terminal component releases them even if its retiring input still reports focus. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (REQ-MOB-015 AC4: retires shared keyboard state when the owning component unmounts, even while its input still has focus) -->
+4. When focus leaves all terminal surfaces, the shared keyboard overlay and signals are released. Unmount releases them only when the retiring pane owns focus or no terminal input owns focus; a sibling-pane focus handoff preserves them. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (REQ-MOB-015 AC4: preserves shared keyboard state when a sibling pane owns focus) --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (REQ-MOB-015 AC4: retires shared keyboard state when no terminal input owns focus) -->
 
 **Constraints:**
 
 - The discriminator reads live focus state, never a cached value.
-- The exit/unmount teardown path stays unconditional so overlay mode is never left enabled for subsequent non-terminal inputs.
+- Exit/unmount teardown is owner-aware: it cannot clear a sibling terminal's live keyboard state, and it resets state when no terminal input remains focused.
 
 **Priority:** P1
 

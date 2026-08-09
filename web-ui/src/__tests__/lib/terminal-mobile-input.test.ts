@@ -276,8 +276,22 @@ describe('releaseKeyboardOnBlur / REQ-MOB-015 AC2 (blur teardown handoff guard)'
     expect(disableVirtualKeyboardOverlay).not.toHaveBeenCalled();
   });
 
-  it('REQ-MOB-015 AC4: retires shared keyboard state when the owning component unmounts, even while its input still has focus', () => {
+  it('REQ-MOB-015 AC4: preserves shared keyboard state when a sibling pane owns focus', () => {
     vi.mocked(isFocusOnTerminalInput).mockReturnValue(true);
+    const cleanupMobileInput = setupMobileInput(
+      {} as Parameters<typeof setupMobileInput>[0],
+      { active: false },
+      { refreshCursorLine: vi.fn() },
+    );
+
+    cleanupMobileInput();
+
+    expect(disableVirtualKeyboardOverlay).not.toHaveBeenCalled();
+    expect(forceResetKeyboardState).not.toHaveBeenCalled();
+  });
+
+  it('REQ-MOB-015 AC4: retires shared keyboard state when no terminal input owns focus', () => {
+    vi.mocked(isFocusOnTerminalInput).mockReturnValue(false);
     const cleanupMobileInput = setupMobileInput(
       {} as Parameters<typeof setupMobileInput>[0],
       { active: true },
