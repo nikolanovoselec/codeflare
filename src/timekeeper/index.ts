@@ -17,6 +17,7 @@ import { getUserTier, getTierConfig, getEffectiveTier, isEnterpriseMode } from '
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
 import { endTrialNow } from '../lib/stripe';
+import { sendWelcomeEmail } from '../lib/email';
 
 const logger = createLogger('timekeeper');
 
@@ -58,6 +59,20 @@ interface PingBody {
   email: string;
 }
 
+const WelcomeBodySchema = z.object({
+  userEmail: z.string().email(),
+  instanceUrl: z.string().url().optional(),
+});
+
+async function getWelcomeIdempotencyKey(userEmail: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(userEmail.trim().toLowerCase()),
+  ));
+  const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `codeflare-welcome-v1-${hex}`;
+}
+
 export class Timekeeper {
   private ctx: DurableObjectState;
   private env: Env;
@@ -97,6 +112,9 @@ export class Timekeeper {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    if (request.method === 'POST' && path === '/welcome') {
+      return this.handleWelcome(request);
+    }
     if (request.method === 'POST' && path === '/ping') {
       return this.handlePing(request);
     }
@@ -138,6 +156,45 @@ export class Timekeeper {
     if (this.pendingSeconds > 0) {
       await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
     }
+  }
+
+  private async handleWelcome(request: Request): Promise<Response> {
+    const parsed = WelcomeBodySchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return new Response('Invalid welcome body', { status: 400 });
+
+    const userEmail = parsed.data.userEmail.trim().toLowerCase();
+    let response = new Response(null, { status: 503 });
+
+    // The per-user Timekeeper is the single ownership boundary. Blocking
+    // concurrency around the provider call ensures only one claim can advance,
+    // while the provider key makes an ambiguous retry deterministic.
+    await this.ctx.blockConcurrencyWhile(async () => {
+      if (this.email && this.email !== userEmail) {
+        response = new Response('Email mismatch', { status: 403 });
+        return;
+      }
+      if (!this.email) {
+        this.email = userEmail;
+        await this.ctx.storage.put('email', userEmail);
+      }
+      if (await this.ctx.storage.get<boolean>('welcomeEmailAccepted')) {
+        response = new Response(null, { status: 204 });
+        return;
+      }
+
+      const accepted = await sendWelcomeEmail({
+        userEmail,
+        instanceUrl: parsed.data.instanceUrl,
+        idempotencyKey: await getWelcomeIdempotencyKey(userEmail),
+        env: this.env,
+      });
+      if (!accepted) return;
+
+      await this.ctx.storage.put('welcomeEmailAccepted', true);
+      response = new Response(null, { status: 202 });
+    });
+
+    return response;
   }
 
   private async handlePing(request: Request): Promise<Response> {

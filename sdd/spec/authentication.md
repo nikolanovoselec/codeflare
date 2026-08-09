@@ -345,10 +345,10 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. When a user is JIT-provisioned on first login, a welcome email is sent. <!-- @impl: src/lib/email.ts::sendWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-2. Email sending is fire-and-forget; delivery failure does not block login. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-3. Email is sent only once per user (deduplicated via a per-user flag in storage). <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-4. When the email provider is not configured, the send is silently skipped. <!-- @impl: src/lib/email.ts::sendWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
+1. When a user is JIT-provisioned on first login, a welcome email is submitted through that user's existing Timekeeper ownership boundary. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+2. Provider delivery is fire-and-forget from the login path, so delivery failure does not block login. <!-- @impl: src/lib/access.ts::queueWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+3. The Timekeeper serializes each user's claim; an accepted provider response is persisted and cannot produce another send. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+4. A rejected or unconfigured-provider send remains unclaimed and retryable on a later login, using the same deterministic provider idempotency key. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/lib/email.ts::sendEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
 
 **Constraints:**
 

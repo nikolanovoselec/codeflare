@@ -267,6 +267,10 @@ flowchart TD
 
 **Key architectural choice:** CF Access handles authentication (identity), while the Worker handles authorization (access control).
 
+### Welcome delivery consistency
+
+A first-time SaaS user's welcome notification is submitted through the same per-user Timekeeper Durable Object used for usage ownership. Timekeeper serializes concurrent claims and records completion only after the provider accepts the send. Provider rejection or missing email configuration leaves the claim retryable on a later login; retries use one deterministic, hashed idempotency key, so an accepted send cannot duplicate even when the provider response was ambiguous.
+
 ### Three-Tier Auth Middleware
 
 SaaS mode uses a layered middleware stack on every request to protected routes (`src/middleware/auth.ts`):

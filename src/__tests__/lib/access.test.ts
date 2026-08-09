@@ -14,13 +14,16 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 const { mockSendWelcomeEmail } = vi.hoisted(() => ({
-  mockSendWelcomeEmail: vi.fn(async () => true),
+  mockSendWelcomeEmail: vi.fn(async (_opts: { idempotencyKey?: string }) => true),
 }));
-vi.mock('../../lib/email', () => ({
+vi.mock('../../lib/email', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/email')>(),
   sendWelcomeEmail: mockSendWelcomeEmail,
 }));
 
 import { resolveUserFromKV, getBucketName, resolveBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache, resolveOrProvisionUser } from '../../lib/access';
+import { sendEmail } from '../../lib/email';
+import { Timekeeper } from '../../timekeeper/index';
 import { AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -613,27 +616,124 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
 
   });
 
-  describe('resolveOrProvisionUser — welcome email dedup', () => {
+  describe('resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012', () => {
+    function createWelcomeTimekeeper(): Timekeeper {
+      const values = new Map<string, unknown>();
+      let concurrencyGate = Promise.resolve();
+      const storage = {
+        get: vi.fn(async (key: string) => values.get(key)),
+        put: vi.fn(async (key: string, value: unknown) => { values.set(key, value); }),
+        getAlarm: vi.fn(async () => null),
+        setAlarm: vi.fn(async () => undefined),
+      };
+      const ctx = {
+        storage,
+        waitUntil: vi.fn(),
+        blockConcurrencyWhile: vi.fn(<T>(fn: () => Promise<T>): Promise<T> => {
+          const result = concurrencyGate.then(fn);
+          concurrencyGate = result.then(() => undefined, () => undefined);
+          return result;
+        }),
+      } as unknown as DurableObjectState;
+      return new Timekeeper(ctx, { KV: mockKV } as unknown as Env);
+    }
+
+    function welcomeRequest(userEmail = 'new@example.com'): Request {
+      return new Request('http://timekeeper/welcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail, instanceUrl: 'https://codeflare.example.com' }),
+      });
+    }
+
     beforeEach(() => {
-      mockSendWelcomeEmail.mockClear();
+      mockSendWelcomeEmail.mockReset();
+      mockSendWelcomeEmail.mockResolvedValue(true);
     });
 
-    it('sends welcome email on first-time SaaS user and sets flag', async () => {
-      const env = { SAAS_MODE: 'active', KV: mockKV } as unknown as Env;
-      await resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'new@example.com', env);
+    it('routes a JIT user welcome through that user bucket\'s existing Timekeeper', async () => {
+      const requests: Promise<Response>[] = [];
+      const timekeeperStub = {
+        fetch: vi.fn((request: Request) => {
+          const response = Promise.resolve(new Response(null, { status: 202 }));
+          requests.push(response);
+          return response;
+        }),
+      };
+      const timekeeperNamespace = {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => timekeeperStub),
+      };
+      const env = {
+        SAAS_MODE: 'active',
+        KV: mockKV,
+        TIMEKEEPER: timekeeperNamespace,
+      } as unknown as Env;
 
+      await resolveOrProvisionUser(
+        mockKV as unknown as KVNamespace,
+        'new@example.com',
+        env,
+        'codeflare-new-example-com',
+      );
+      await Promise.all(requests);
+
+      expect(timekeeperNamespace.idFromName).toHaveBeenCalledWith('codeflare-new-example-com');
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      const body = await (timekeeperStub.fetch.mock.calls[0][0] as Request).json();
+      expect(body).toEqual({ userEmail: 'new@example.com' });
+      expect(mockKV._store.has('welcome-sent:new@example.com')).toBe(false);
+    });
+
+    it('serializes concurrent claims and never sends again after provider acceptance', async () => {
+      const timekeeper = createWelcomeTimekeeper();
+
+      const responses = await Promise.all([
+        timekeeper.fetch(welcomeRequest()),
+        timekeeper.fetch(welcomeRequest()),
+      ]);
+      const afterAcceptance = await timekeeper.fetch(welcomeRequest());
+
+      expect(responses.map((response) => response.status)).toEqual([202, 204]);
+      expect(afterAcceptance.status).toBe(204);
       expect(mockSendWelcomeEmail).toHaveBeenCalledTimes(1);
-      // Flag should be set in KV
-      const flag = mockKV._store.get('welcome-sent:new@example.com');
-      expect(flag).toBe('1');
     });
 
-    it('does NOT send welcome email when flag already exists', async () => {
-      mockKV._store.set('welcome-sent:existing@example.com', '1');
-      const env = { SAAS_MODE: 'active', KV: mockKV } as unknown as Env;
-      await resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'existing@example.com', env);
+    it('leaves a rejected send retryable with the same deterministic provider idempotency key', async () => {
+      mockSendWelcomeEmail.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      const timekeeper = createWelcomeTimekeeper();
 
-      expect(mockSendWelcomeEmail).not.toHaveBeenCalled();
+      expect((await timekeeper.fetch(welcomeRequest())).status).toBe(503);
+      expect((await timekeeper.fetch(welcomeRequest())).status).toBe(202);
+      expect((await timekeeper.fetch(welcomeRequest())).status).toBe(204);
+
+      expect(mockSendWelcomeEmail).toHaveBeenCalledTimes(2);
+      const firstKey = mockSendWelcomeEmail.mock.calls[0][0].idempotencyKey;
+      const retryKey = mockSendWelcomeEmail.mock.calls[1][0].idempotencyKey;
+      expect(firstKey).toMatch(/^codeflare-welcome-v1-[a-f0-9]{64}$/);
+      expect(retryKey).toBe(firstKey);
+    });
+
+    it('forwards the deterministic idempotency key to the email provider', async () => {
+      const providerFetch = vi.fn(async () => new Response(null, { status: 202 }));
+      vi.stubGlobal('fetch', providerFetch);
+
+      try {
+        await sendEmail({
+          to: ['new@example.com'],
+          subject: 'Welcome',
+          html: '<p>Welcome</p>',
+          idempotencyKey: `codeflare-welcome-v1-${'a'.repeat(64)}`,
+          env: { RESEND_API_KEY: 'test-key' },
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      const request = providerFetch.mock.calls[0][1] as RequestInit;
+      expect(request.headers).toMatchObject({
+        'Idempotency-Key': `codeflare-welcome-v1-${'a'.repeat(64)}`,
+      });
     });
   });
 });

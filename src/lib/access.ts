@@ -5,7 +5,6 @@ import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
 import { isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
-import { sendWelcomeEmail } from './email';
 import { parseUserRecord } from './user-record';
 import { getBucketOwnerKey, listAllKvKeys, SETUP_KEYS } from './kv-keys';
 
@@ -493,6 +492,29 @@ export async function resolveUserFromKV(
   };
 }
 
+async function queueWelcomeEmail(
+  kv: KVNamespace,
+  env: Env,
+  bucketName: string | undefined,
+  userEmail: string,
+): Promise<void> {
+  if (!bucketName || !env.TIMEKEEPER) return;
+  const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
+  const body = {
+    userEmail,
+    ...(customDomain ? { instanceUrl: `https://${customDomain}` } : {}),
+  };
+  const id = env.TIMEKEEPER.idFromName(bucketName);
+  const timekeeper = env.TIMEKEEPER.get(id);
+  void timekeeper.fetch(new Request('https://timekeeper/welcome', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })).catch((err) => {
+    logger.warn('Welcome email claim failed', { error: err instanceof Error ? err.message : String(err) });
+  });
+}
+
 /**
  * Resolve an existing user from KV, or auto-provision a new one in SaaS mode.
  * New users are created with 'pending' tier and can self-subscribe via /api/auth/subscribe.
@@ -502,12 +524,16 @@ export async function resolveUserFromKV(
 export async function resolveOrProvisionUser(
   kv: KVNamespace,
   email: string,
-  env: Env
+  env: Env,
+  bucketName?: string,
 ): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; subscribedMode?: 'default' | 'advanced'; billingStatus?: BillingStatus; billingPeriodEnd?: string }> {
   const normalizedEmail = normalizeEmail(email);
   const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
 
   if (kvEntry) {
+    if (kvEntry.addedBy === 'jit') {
+      await queueWelcomeEmail(kv, env, bucketName, normalizedEmail);
+    }
     return {
       role: kvEntry.role,
       accessTier: kvEntry.accessTier ?? 'advanced',
@@ -530,17 +556,9 @@ export async function resolveOrProvisionUser(
       subscriptionTier: 'pending',
     }));
 
-    // Fire-and-forget welcome email with dedup flag.
-    // Concurrent first-login requests can race past the check, but the flag
-    // narrows the window from "always doubles" to milliseconds of KV propagation.
-    const welcomeFlag = `welcome-sent:${normalizedEmail}`;
-    const alreadySent = await kv.get(welcomeFlag);
-    if (!alreadySent) {
-      await kv.put(welcomeFlag, '1', { expirationTtl: 86400 });
-      const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
-      const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
-      void sendWelcomeEmail({ userEmail: normalizedEmail, instanceUrl, env });
-    }
+    // Provider delivery remains non-blocking for login. The existing per-user
+    // Timekeeper serializes acceptance and retries rejected sends on later login.
+    await queueWelcomeEmail(kv, env, bucketName, normalizedEmail);
 
     return { role: 'user', accessTier: 'pending', subscriptionTier: 'pending', subscribedMode: 'default' };
   }
@@ -951,8 +969,8 @@ export async function authenticateRequest(
     if (!jitIdentityVerified && !(await resolveUserFromKV(env.KV, normalizedEmail))) {
       throw new ForbiddenError('Verified identity required for JIT provisioning');
     }
-    const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
     const bucketName = await resolveBucketName(env, normalizedEmail);
+    const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env, bucketName);
     return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
   }
 
