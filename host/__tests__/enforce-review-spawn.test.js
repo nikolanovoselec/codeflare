@@ -1242,31 +1242,41 @@ describe('enforce-review-spawn.sh — bypass 2: magic phrase', () => {
 });
 
 describe('enforce-review-spawn.sh — fail-safe behavior', () => {
-  it('classifies agents earlier in the transcript than the push as stale', () => {
-    // Pins the post-push line-number ordering contract.
-    // The transcript is append-only JSONL, so a subagent_type entry
-    // that appears BEFORE the push line is definitionally pre-push
-    // and must not satisfy enforcement.
-    //
-    // All three report-only lanes are demanded together in the single parallel block.
-    // Every agent spawn here precedes the push, so none counts as current-head coverage
-    // and all three are re-demanded.
+  it('does not credit pre-push agents after their in-flight suppression ends', () => {
+    // A wave launched before the latest push suppresses duplicate demands only
+    // while it is still running. It cannot cover the newer head: once those
+    // tasks end, every required lane must be demanded after the push boundary.
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main'));
-    const t = writeTranscript(cwd, [
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha, 'main'));
+    const runningLines = [
       AGENT_LINE('code-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_cr'),
       AGENT_LINE('spec-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_sr'),
       AGENT_LINE('doc-updater', '2026-05-03T11:59:59Z', 'toolu_stale_du'),
       PUSH_LINE(),
+    ];
+    const t = writeTranscript(cwd, runningLines);
+
+    const inFlight = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(inFlight.status, 0);
+    assert.equal(inFlight.stdout, '', 'a running wave is not summoned twice');
+    assert.notEqual(ackOf(cwd), headSha, 'in-flight pre-push lanes provide no current-head coverage');
+
+    writeTranscript(cwd, [
+      ...runningLines,
+      DONE_LINE('toolu_stale_cr'),
+      DONE_LINE('toolu_stale_sr'),
+      DONE_LINE('toolu_stale_du'),
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'agents earlier in the transcript than the push must not count');
-    assert.match(r.stdout, /code-reviewer/);
-    assert.match(r.stdout, /spec-reviewer/);
-    assert.match(r.stdout, /doc-updater/);
+    const ended = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ended.status, 0);
+    assert.match(ended.stdout, /"decision"\s*:\s*"block"/,
+      'completed pre-push agents must not count for the newer head');
+    assert.match(ended.stdout, /code-reviewer/);
+    assert.match(ended.stdout, /spec-reviewer/);
+    assert.match(ended.stdout, /doc-updater/);
+    assert.notEqual(ackOf(cwd), headSha);
   });
 
   it('does not match "git push" inside echo strings (regression for substring false-positive)', () => {
