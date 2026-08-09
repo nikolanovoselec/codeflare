@@ -594,7 +594,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(out).toContain('<!doctype html>');
       expect(out).toContain('<script>');
       // Flips the SB-side encryption gate
-      expect(out).toContain('localStorage.setItem("enableEncryption"');
+      expect(out).toContain("storageRef.setItem('enableEncryption'");
       // Registers our SW shim under the per-session scope
       expect(out).toContain('serviceWorker.register');
       expect(out).toContain('service_worker.js');
@@ -604,9 +604,9 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(out).toContain('AAAA-base64-key-AAAA');
       // Sets the bootstrap cookie so shell-path requests no longer redirect
       expect(out).toContain(VAULT_BOOTSTRAP_COOKIE);
-      expect(out).toContain('document.cookie');
+      expect(out).toContain('documentRef.cookie');
       // Redirects to the real shell URL
-      expect(out).toContain('location.replace');
+      expect(out).toContain('locationRef.replace');
     });
 
     it('sets the bootstrap cookie with both SameSite=Lax and Secure', () => {

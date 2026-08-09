@@ -14,6 +14,23 @@ vi.mock('../../lib/access', async (importOriginal) => {
   };
 });
 
+function createBucketOwnerNamespace(): Env['CONTAINER'] {
+  const owners = new Map<string, string>();
+  return {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+        const owner = owners.get(id);
+        if (owner === email) return 'owned';
+        if (owner) return 'conflict';
+        if (!allowInitialClaim) return 'ambiguous';
+        owners.set(id, email);
+        return 'owned';
+      },
+    }),
+  } as unknown as Env['CONTAINER'];
+}
+
 describe('Auth Middleware', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
@@ -24,11 +41,13 @@ describe('Auth Middleware', () => {
 
   function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+    const containerNamespace = createBucketOwnerNamespace();
 
     // Set up mock env
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+        CONTAINER: containerNamespace,
         ...envOverrides,
       } as Env;
       return next();

@@ -160,7 +160,7 @@ describe('Session Lifecycle Routes / REQ-SESSION-006 (user can stop, restart, de
       expect(body.code).toBe('NOT_FOUND');
     });
 
-    it('handles container.destroy() failure gracefully', async () => {
+    it('reports container.destroy() failure and preserves retry state', async () => {
       testState.container = createMockContainer();
       testState.container.destroy.mockRejectedValue(new Error('already stopped'));
       const app = createLifecycleApp(mockKV);
@@ -176,8 +176,8 @@ describe('Session Lifecycle Routes / REQ-SESSION-006 (user can stop, restart, de
 
       const res = await app.request('/sessions/sessiontostop12345/stop', { method: 'POST' });
 
-      // Should still return 200 since destroy is best-effort
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      expect(mockKV._store.get('session:test-bucket:sessiontostop12345')).toBeDefined();
     });
   });
 

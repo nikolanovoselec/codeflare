@@ -36,6 +36,23 @@ vi.mock('../../lib/access', async (importOriginal) => {
   };
 });
 
+function createBucketOwnerNamespace(): Env['CONTAINER'] {
+  const owners = new Map<string, string>();
+  return {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+        const owner = owners.get(id);
+        if (owner === email) return 'owned';
+        if (owner) return 'conflict';
+        if (!allowInitialClaim) return 'ambiguous';
+        owners.set(id, email);
+        return 'owned';
+      },
+    }),
+  } as unknown as Env['CONTAINER'];
+}
+
 const AUTH_DOMAIN = 'team.cloudflareaccess.com';
 const TOKEN = 'cf-auth-token';
 
@@ -248,7 +265,13 @@ describe('REQ-ENTERPRISE-010: Access-gated JIT provisioning', () => {
 
   describe('authenticateRequest enterprise integration', () => {
     function enterpriseEnv(overrides: Partial<Env> = {}): Env {
-      return { KV: mockKV as unknown as KVNamespace, ENTERPRISE_MODE: 'active', CLOUDFLARE_WORKER_NAME: 'codeflare', ...overrides } as Env;
+      return {
+        KV: mockKV as unknown as KVNamespace,
+        CONTAINER: createBucketOwnerNamespace(),
+        ENTERPRISE_MODE: 'active',
+        CLOUDFLARE_WORKER_NAME: 'codeflare',
+        ...overrides,
+      } as Env;
     }
 
     it('AC1 e2e: a fresh Access user (pre-setup header trust) is auto-provisioned unlimited', async () => {
