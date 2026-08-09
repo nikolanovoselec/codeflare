@@ -682,7 +682,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-022: Coverage-threshold gate fails closed on missing evidence
 
-**Intent:** A coverage run that dies before reporting, or that reports a threshold miss or a test failure, is never masked by the workerd-teardown-crash tolerance this lane needs in order to run at all.
+**Intent:** Every affected pull request runs the existing package coverage gate, and coverage evidence fails closed when it is missing, malformed, below the practical global floor, or below the bounded changed-production-line floor.
 
 **Applies To:** Operator
 
@@ -692,18 +692,20 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
-5. Pull-request runs omit the unsharded coverage lanes from their critical path; push, merge-group, scheduled, and manually dispatched full runs retain both threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: omits coverage lanes from the pull-request critical path) -->
+5. Pull requests run backend and frontend coverage when their package path is affected; push, merge-group, scheduled, and manually dispatched full runs retain both package threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: runs affected coverage lanes on pull requests) -->
+6. On pull requests, each affected package checks only changed production lines represented in LCOV against a practical package floor below 100%; renames use the destination path, deletions and test-only changes require no production evidence, and a required missing/malformed report or an unreported changed production file fails closed. Diff and LCOV processing have explicit size/line bounds. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
 
 **Constraints:**
 
 - The fingerprint appears after every passing run of the Workers pool, so it can never be the sole condition for tolerating a non-zero exit.
 - `set -o pipefail` is required: without it `npm test | tee` reports tee's status and a failed threshold check passes.
+- Changed-line enforcement is package-scoped and thresholded; it does not require 100% coverage per file and does not replace the existing global thresholds.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated test ([suite-gates](../../src/__tests__/ci/suite-gates.test.ts)); exercises coverage evidence failures and the bounded backend crash exception.
+**Verification:** Automated tests ([suite-gates](../../src/__tests__/ci/suite-gates.test.ts), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); exercise package coverage routing, coverage evidence failures, the bounded backend crash exception, and changed-line LCOV handling.
 
 **Status:** Implemented
 

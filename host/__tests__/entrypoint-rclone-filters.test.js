@@ -275,7 +275,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
   //   Representative paths: ~/.cache/** and ~/.config/rclone/** (R2 secrets),
   //   plus the per-repo graphify-out artifacts that live in git, not R2.
   // -------------------------------------------------------------------------
-  it('statically excludes ephemeral caches and the R2-secret rclone config in both modes (REQ-STOR-004 AC6)', () => {
+  it('statically excludes ephemeral caches, repo graphify-out, and R2 secrets in both modes (REQ-STOR-004 AC6 / REQ-AGENT-026 AC1)', () => {
     for (const sessionMode of ['advanced', 'default']) {
       const v = verdictUnder({ sessionMode, defaultDeny: false });
       const excluded = [

@@ -24,6 +24,12 @@ const entrypoint = readFileSync(
   resolve(__dirname, '../../entrypoint.sh'),
   'utf8'
 );
+const pythonCheck = spawnSync('bash', ['-c', 'command -v python3'], { encoding: 'utf-8' });
+assert.equal(
+  pythonCheck.status,
+  0,
+  'python3 is a required Codeflare image capability for the /dev/shm multiprocessing contract',
+);
 
 function extractDevShmBlock() {
   const startMarker = '# Ensure /dev/shm exists and is mounted as tmpfs.';
@@ -37,15 +43,6 @@ function extractDevShmBlock() {
 }
 
 describe('REQ-AGENT-023 prereq: /dev/shm tmpfs mount in entrypoint.sh', () => {
-  it('the prereq block is present in entrypoint.sh', () => {
-    const block = extractDevShmBlock();
-    // The block must source-set /dev/shm in a way the rest of the
-    // script can rely on: mkdir + mountpoint check + mount tmpfs.
-    assert.match(block, /mkdir -p \/dev\/shm/, 'block must mkdir -p /dev/shm');
-    assert.match(block, /mount -t tmpfs tmpfs \/dev\/shm/, 'block must mount tmpfs at /dev/shm');
-    assert.match(block, /mountpoint -q \/dev\/shm/, 'block must mountpoint-check /dev/shm');
-  });
-
   it('after the block runs, /dev/shm is a tmpfs mountpoint', () => {
     const block = extractDevShmBlock();
     // Run the block through bash. On CI runners that already have
@@ -58,19 +55,11 @@ describe('REQ-AGENT-023 prereq: /dev/shm tmpfs mount in entrypoint.sh', () => {
     assert.match(res.stdout, /MOUNTED/, `/dev/shm is not a mountpoint after block ran:\n${res.stdout}`);
   });
 
-  it('after the block runs, Python multiprocessing.Lock can be allocated', (t) => {
+  it('REQ-AGENT-023: after the block runs, Python multiprocessing.Lock can be allocated', () => {
     // The behaviour the block exists to guarantee: that
     // concurrent.futures.ProcessPoolExecutor can start. If /dev/shm
     // is missing or unmountable, this fails at startup. Run the
     // entrypoint snippet, then immediately try a tiny ProcessPool.
-    //
-    // Skip cleanly if python3 is not on PATH (some minimal CI runners).
-    // Codeflare prod always has python3, but the test stays portable.
-    const probeAvail = spawnSync('bash', ['-c', 'command -v python3'], { encoding: 'utf-8' });
-    if (probeAvail.status !== 0) {
-      t.skip('python3 not on PATH on this runner');
-      return;
-    }
     const block = extractDevShmBlock();
     const probe = [
       block,
@@ -91,50 +80,6 @@ describe('REQ-AGENT-023 prereq: /dev/shm tmpfs mount in entrypoint.sh', () => {
       /PYOK:\[1, 2, 3\]/,
       `ProcessPoolExecutor did not return [1,2,3]:\n${res.stdout}`
     );
-  });
-
-  // CF-047
-  // The multiprocessing.Lock test above skips ONLY when python3 is absent
-  // (`command -v python3` non-zero). That skip is environment-conditional, not
-  // an unconditional permanent skip: on any runner with python3 on PATH -
-  // including codeflare CI, which always ships python3 - the probe runs for
-  // real. This test pins that contract so a future refactor cannot silently
-  // turn the conditional skip into an always-skip: it asserts the gate
-  // expression is the python3 capability probe, and where python3 IS present
-  // it proves the real probe path is reachable (not skipped).
-  // REQ-AGENT-023 prereq: /dev/shm tmpfs mount enabling Python multiprocessing.
-  it('the multiprocessing skip is gated strictly on python3 availability (no unconditional skip)', () => {
-    const self = readFileSync(
-      resolve(__dirname, 'entrypoint-devshm-prereq.test.js'),
-      'utf8'
-    );
-    // The skip must be reached only inside the `probeAvail.status !== 0` guard,
-    // i.e. when `command -v python3` fails. An unconditional `t.skip()` with no
-    // surrounding capability check would be the antipattern this guards against.
-    assert.match(
-      self,
-      /command -v python3[\s\S]{0,200}probeAvail\.status !== 0[\s\S]{0,120}t\.skip\(/,
-      'multiprocessing test must skip only when `command -v python3` fails'
-    );
-
-    const probeAvail = spawnSync('bash', ['-c', 'command -v python3'], { encoding: 'utf-8' });
-    if (probeAvail.status === 0) {
-      // python3 IS present (codeflare CI invariant): prove the real probe path
-      // runs end-to-end here rather than being skipped, so CI exercises it.
-      const block = extractDevShmBlock();
-      const probe = [
-        block,
-        `python3 -c 'from concurrent.futures import ProcessPoolExecutor`,
-        `with ProcessPoolExecutor(max_workers=1) as p:`,
-        `    print("PYOK:" + repr(list(p.map(int, ["1"]))))`,
-        `'`,
-      ].join('\n');
-      const res = spawnSync('bash', ['-c', probe], { encoding: 'utf-8' });
-      assert.equal(res.status, 0, `real probe path failed:\nstderr=${res.stderr}`);
-      assert.match(res.stdout, /PYOK:\[1\]/, `probe did not run for real:\n${res.stdout}`);
-    }
-    // If python3 is genuinely absent, the conditional skip is the correct,
-    // documented behaviour and there is nothing further to assert.
   });
 
   it('the block is idempotent (re-running on a warm boot is a no-op)', () => {

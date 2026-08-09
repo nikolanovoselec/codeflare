@@ -3529,7 +3529,8 @@ configure_fast_start_tool_settings
 # configure_tab_autostart launches the agent, so the workspace is populated when
 # the user lands. Best-effort: a clone failure is logged but never aborts start.
 if [ -n "${GIT_CLONE_REPO:-}" ]; then
-    clone_repo="${GIT_CLONE_REPO%.git}"
+    clone_repo="$GIT_CLONE_REPO"
+    clone_remote="${GIT_CLONE_REPO%.git}"
     # Defense-in-depth: re-validate repo/ref shape here (mirrors
     # host/src/git-clone.ts) so the new-session path fails closed like the
     # running-session path; rejects an option-leading dash in the ref and a
@@ -3546,10 +3547,10 @@ if [ -n "${GIT_CLONE_REPO:-}" ]; then
         else
             echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
             if [ -n "${GIT_CLONE_REF:-}" ]; then
-                git clone --branch "$GIT_CLONE_REF" -- "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                git clone --branch "$GIT_CLONE_REF" -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
                     || echo "[entrypoint] clone failed for $clone_repo (ref $GIT_CLONE_REF); continuing startup"
             else
-                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
                     || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
             fi
         fi

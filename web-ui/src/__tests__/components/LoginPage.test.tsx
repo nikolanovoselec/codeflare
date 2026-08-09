@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
 import LoginPage from '../../components/LoginPage';
@@ -14,11 +12,6 @@ import { getAuthProviders, getAuthStatus } from '../../api/client';
 
 const mockedGetAuthProviders = vi.mocked(getAuthProviders);
 const mockedGetAuthStatus = vi.mocked(getAuthStatus);
-
-function cssBlock(selector: string): string {
-  const css = readFileSync(resolve(__dirname, '../../styles/login-page.css'), 'utf8');
-  return css.match(new RegExp(`${selector.replace('.', '\\.')}(\\s*)\\{([\\s\\S]*?)\\}`))?.[2] ?? '';
-}
 
 describe('LoginPage / REQ-AUTH-013 (branded SaaS login page)', () => {
   let mockLocation: { href: string };
@@ -48,17 +41,6 @@ describe('LoginPage / REQ-AUTH-013 (branded SaaS login page)', () => {
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
-    });
-  });
-
-  describe('First paint stability', () => {
-    it('REQ-AUTH-013: core login content is visible without entrance opacity or transform animation', () => {
-      const contentCss = cssBlock('.login-content');
-      const featureCss = cssBlock('.login-feature');
-
-      expect(contentCss).not.toMatch(/animation\s*:/);
-      expect(featureCss).not.toMatch(/opacity\s*:\s*0/);
-      expect(featureCss).not.toMatch(/animation\s*:/);
     });
   });
 

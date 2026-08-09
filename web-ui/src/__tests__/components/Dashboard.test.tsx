@@ -99,10 +99,11 @@ vi.mock('../../components/SessionLimitPopup', () => ({
   }
 }));
 
-vi.mock('../../stores/session', () => {
+vi.mock('../../stores/session', async () => {
+  const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
+  const [r2Ready, setR2Ready] = createSignal(true);
   let _isAtLimit = false;
   let _maxSessions = 3;
-  let _r2Ready = true;
   let _preseedUpgrading = false;
   let _bucketMigrating = false;
   let _bucketMigrationPercent: number | null = null;
@@ -112,7 +113,7 @@ vi.mock('../../stores/session', () => {
     sessionStore: {
       get sessions() { return []; },
       get maxSessions() { return _maxSessions; },
-      get r2Ready() { return _r2Ready; },
+      get r2Ready() { return r2Ready(); },
       get preseedUpgrading() { return _preseedUpgrading; },
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
@@ -125,7 +126,7 @@ vi.mock('../../stores/session', () => {
         _isAtLimit = atLimit;
         if (max !== undefined) _maxSessions = max;
       },
-      _setR2Ready: (ready: boolean) => { _r2Ready = ready; },
+      _setR2Ready: setR2Ready,
       _setPreseedUpgrading: (upgrading: boolean) => { _preseedUpgrading = upgrading; },
       _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
@@ -150,25 +151,30 @@ vi.mock('../../components/CreateSessionDialog', () => ({
   }
 }));
 
-vi.mock('../../stores/storage', () => ({
-  storageStore: {
-    get stats() { return null; },
-    get previewFile() { return null; },
-    get downloadsDisabled() { return false; },
-    get downloadsNoticeOpen() { return false; },
-    showDownloadsNotice: vi.fn(),
-    dismissDownloadsNotice: vi.fn(),
-    fetchStats: vi.fn(),
-    closePreview: vi.fn(),
-    searchFiles: vi.fn((query: string) => {
-      if (query === 'test-file') {
-        return { objects: [{ key: 'workspace/test-file.ts', size: 100, lastModified: '2024-01-01' }], prefixes: [] };
-      }
-      return { objects: [], prefixes: [] };
-    }),
-    browse: vi.fn(),
-  }
-}));
+vi.mock('../../stores/storage', async () => {
+  const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
+  const [stats, setStats] = createSignal<unknown>(null);
+  return {
+    storageStore: {
+      get stats() { return stats(); },
+      get previewFile() { return null; },
+      get downloadsDisabled() { return false; },
+      get downloadsNoticeOpen() { return false; },
+      showDownloadsNotice: vi.fn(),
+      dismissDownloadsNotice: vi.fn(),
+      fetchStats: vi.fn(),
+      _setStats: setStats,
+      closePreview: vi.fn(),
+      searchFiles: vi.fn((query: string) => {
+        if (query === 'test-file') {
+          return { objects: [{ key: 'workspace/test-file.ts', size: 100, lastModified: '2024-01-01' }], prefixes: [] };
+        }
+        return { objects: [], prefixes: [] };
+      }),
+      browse: vi.fn(),
+    }
+  };
+});
 
 vi.mock('../../api/storage', () => ({
   getDownloadUrl: vi.fn(() => 'https://example.com/download'),
@@ -218,6 +224,10 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     // reset loadStatus fully — otherwise an unconsumed once-impl from one test could
     // leak into the next. (The end-to-end deadlock test queues one such impl.)
     vi.mocked(githubStore.loadStatus).mockReset();
+    vi.mocked(storageStore.fetchStats).mockReset();
+    vi.mocked(sessionStore.startR2Polling).mockReset();
+    (storageStore as any)._setStats(null);
+    (sessionStore as any)._setR2Ready(true);
     viewportMock.setViewport?.('desktop');
   });
 
@@ -296,16 +306,29 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     });
   });
 
-  it('calls storageStore.fetchStats on mount', () => {
+  it('REQ-STOR-006 AC3: renders storage statistics returned by the mount refresh', () => {
+    const refreshedStats = { totalSize: 4096, objectCount: 7, folderCount: 2 };
+    vi.mocked(storageStore.fetchStats).mockImplementationOnce(async () => {
+      (storageStore as any)._setStats(refreshedStats);
+    });
+
     render(() => <Dashboard {...defaultProps} />);
 
-    expect(storageStore.fetchStats).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('stat-cards')).toHaveAttribute('data-stats', JSON.stringify(refreshedStats));
   });
 
-  it('calls sessionStore.startR2Polling on mount', () => {
+  it('REQ-STOR-001: transitions from storage setup to the browser when mount polling reports ready', async () => {
+    vi.mocked(sessionStore.startR2Polling).mockImplementationOnce(async () => {
+      (sessionStore as any)._setR2Ready(false);
+      setTimeout(() => (sessionStore as any)._setR2Ready(true), 0);
+    });
+
     render(() => <Dashboard {...defaultProps} />);
 
-    expect(sessionStore.startR2Polling).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('storage-skeleton')).toBeInTheDocument();
+    expect(screen.queryByTestId('storage-browser')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('storage-browser')).toBeInTheDocument());
+    expect(screen.queryByTestId('storage-skeleton')).not.toBeInTheDocument();
   });
 
   it('REQ-GITHUB-007: loads GitHub status from the Dashboard on mount so the enabled-gated GitHub panel is not deadlocked', () => {

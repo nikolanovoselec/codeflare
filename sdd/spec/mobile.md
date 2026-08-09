@@ -351,8 +351,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Backgrounding on a coarse-pointer device permanently retires the decorative WebGL canvas. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (retires the decorative canvas when a touch page is backgrounded) -->
-2. WebGL context loss retires the canvas on any device and leaves the app root's dark CSS surface visible. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @impl: web-ui/src/index.css::#root --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (falls back to the stable dark CSS background when the WebGL context is lost) -->
+1. Backgrounding on a coarse-pointer device permanently retires the decorative WebGL canvas. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (REQ-MOB-018 AC1: retires a coarse-pointer canvas when the page is backgrounded) -->
+2. WebGL context loss retires the canvas on any device and leaves the app root's dark CSS surface visible. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @impl: web-ui/src/index.css::#root --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (REQ-MOB-018 AC2: context loss permanently retires the canvas without requesting restoration) --> <!-- @manual -->
 
 **Constraints:**
 

@@ -284,6 +284,17 @@ describe('Storage Download Routes', () => {
       expect(res.headers.get('Content-Disposition')).toContain('attachment');
     });
 
+    it('REQ-ENTERPRISE-019 AC5: keeps downloads available when the enterprise policy KV read rejects', async () => {
+      mockKV.get.mockRejectedValueOnce(new Error('transient KV outage'));
+      const app = createTestApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+
+      const res = await app.request('/download?key=path/to/file.txt');
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Disposition')).toContain('attachment');
+      expect(await res.text()).toBe('file-content');
+    });
+
     it('leaves attachment downloads unchanged (200) in non-enterprise mode even when the key is set', async () => {
       // Gate-then-read: a non-enterprise deploy never honors the toggle.
       mockKV._store.set('setup:downloads_disabled', 'active');

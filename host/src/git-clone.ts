@@ -96,6 +96,7 @@ export function buildCloneArgs(
   dir: string,
   githubHost: string,
 ): string[] {
-  const url = `https://${githubHost}/${repo}.git`;
+  const remoteRepo = repo.endsWith('.git') ? repo : `${repo}.git`;
+  const url = `https://${githubHost}/${remoteRepo}`;
   return ['clone', ...(ref ? [`--branch=${ref}`] : []), '--', url, dir];
 }

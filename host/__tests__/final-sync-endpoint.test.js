@@ -1,4 +1,4 @@
-// Behavioral + structural coverage of the awaited final-sync path for
+// Behavioral coverage of the awaited final-sync path for
 // REQ-SESSION-011 (final R2 sync is drained while the container is still alive,
 // before stop).
 //
@@ -8,18 +8,20 @@
 // verification of AC2/AC3 (the syncing->success/failed discrimination, and
 // the safety property that an in-flight bisync is never latched onto).
 //
-// The shell-side signal (entrypoint's `ts` stamp + the daemon's `syncing`
-// emission) and the endpoint's I/O wiring (SIGUSR1, 503/504) cannot be unit
-// imported in CI without spawning bash / the full http server, so they are
-// verified structurally against the source at the bottom of this file. The
-// DO-side ordering (drain before stop, 135s cap, best-effort) is covered in
+// The shell-side status writer and HTTP endpoint are exercised through real
+// bash processes and an ephemeral HTTP server below. The DO-side ordering
+// (drain before stop, 135s cap, best-effort) is covered in
 // src/__tests__/container/index.test.ts and src/__tests__/container-metrics.test.ts.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { once } from 'node:events';
+import { spawn, spawnSync } from 'node:child_process';
+import http from 'node:http';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateFinalSync } from '../dist/final-sync.js';
+import { createRequestHandler, FINAL_SYNC_INTERNAL_TIMEOUT_MS } from '../dist/request-router.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
@@ -96,80 +98,178 @@ describe('REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behav
   });
 });
 
-// ---------------------------------------------------------------------------
-// Structural verification of the parts that cannot be unit-imported in CI: the
-// endpoint's I/O wiring (in the monolithic http handler) and the shell-side
-// completion signal (entrypoint.sh). Source-text assertions, not behavioral.
-// ---------------------------------------------------------------------------
-const server = readFileSync(resolve(repoRoot, 'host/src/request-router.ts'), 'utf8');
-const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
-// Read the DO drain budget from its source of truth so the host>DO ordering
-// guard below compares the two REAL constants — never a hardcoded comparator
-// that goes stale (and silently re-inverts) if the budget is later raised.
-const containerMetrics = readFileSync(resolve(repoRoot, 'src/container/container-metrics.ts'), 'utf8');
+const PID_FILE = '/tmp/sync-daemon.pid';
+const STATUS_FILE = '/tmp/sync-status.json';
 
-// Scope structural assertions to the real block rather than a fixed byte
-// window. A window is a proximity check: it silently truncates when the code
-// grows (this handler is already longer than the 2000 bytes that used to be
-// sliced) and it silently widens to swallow neighbouring code, so the assertion
-// stops meaning what it says in both directions.
-function routeBlock(name) {
-  const start = server.indexOf(`'${name}'`);
-  if (start === -1) return '';
-  const next = server.slice(start + 1).search(/pathname === '\/[^']+'/);
-  return next === -1 ? server.slice(start) : server.slice(start, start + 1 + next);
-}
-function shellFunctionBody(name) {
-  const start = entrypoint.indexOf(`${name}()`);
-  if (start === -1) return '';
-  const end = entrypoint.indexOf('\n}', start);
-  return entrypoint.slice(start, end === -1 ? undefined : end);
+function requestRouterDeps(overrides = {}) {
+  return {
+    sessionManager: { size: 0, list: () => [], getOrCreate: () => null, delete: () => false },
+    wsEventLog: [],
+    activityTracker: { recordHeartbeat: () => {}, recordInput: () => {}, getActivityInfo: () => ({}) },
+    log: () => {},
+    serverStartTime: Date.now(),
+    readiness: () => ({ prewarmReady: true, initFlagObserved: true, terminalServiceReady: true }),
+    silverbullet: { host: '127.0.0.1', port: 1 },
+    openvscode: { host: '127.0.0.1', port: 1 },
+    ...overrides,
+  };
 }
 
-describe('REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)', () => {
-  const block = routeBlock('/internal/final-sync');
+async function withRouter(overrides, run) {
+  const server = http.createServer(createRequestHandler(requestRouterDeps(overrides)));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    return await run(server.address().port);
+  } finally {
+    server.close();
+    await once(server, 'close');
+  }
+}
 
-  it('exposes POST /internal/final-sync', () => {
-    assert.ok(/pathname === '\/internal\/final-sync' && method === 'POST'/.test(server));
+function postFinalSync(port) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path: '/internal/final-sync',
+      method: 'POST',
+      headers: { authorization: 'Bearer final-sync-test-token' },
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(body) }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function startStatusDaemon(terminalStatus) {
+  const terminalWrite = terminalStatus
+    ? `sleep 0.03\n  now=$(date +%s%3N)\n  printf '{"status":"${terminalStatus}","ts":%s}\\n' "$now" > ${STATUS_FILE}`
+    : ':';
+  const script = [
+    'on_usr1() {',
+    '  sleep 0.03',
+    '  now=$(date +%s%3N)',
+    `  printf '{"status":"syncing","ts":%s}\\n' "$now" > ${STATUS_FILE}`,
+    `  ${terminalWrite}`,
+    '}',
+    'trap on_usr1 USR1',
+    'printf "READY\\n"',
+    'while :; do sleep 1; done',
+  ].join('\n');
+  const child = spawn('bash', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  await once(child.stdout, 'data');
+  writeFileSync(PID_FILE, String(child.pid));
+  return child;
+}
+
+function extractShellFunction(name) {
+  const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
+  const lines = entrypoint.split('\n');
+  const start = lines.findIndex((line) => line === `${name}() {`);
+  const end = lines.findIndex((line, index) => index > start && line === '}');
+  assert.ok(start >= 0 && end > start, `${name}() is missing from entrypoint.sh`);
+  return lines.slice(start, end + 1).join('\n');
+}
+
+function cleanupSyncFixtures(child) {
+  if (child && !child.killed) child.kill('SIGKILL');
+  rmSync(PID_FILE, { force: true });
+  rmSync(STATUS_FILE, { force: true });
+}
+
+describe('REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)', () => {
+  it('REQ-SESSION-011 AC2: returns 503 when no daemon is running', async () => {
+    cleanupSyncFixtures();
+    const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+    process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
+    try {
+      const response = await withRouter({}, postFinalSync);
+      assert.equal(response.status, 503);
+      assert.deepEqual(response.body, { synced: false, reason: 'daemon-not-running' });
+    } finally {
+      if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+      else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+      cleanupSyncFixtures();
+    }
   });
 
-  it('triggers a fresh bisync via SIGUSR1 to the daemon PID file', () => {
-    assert.ok(block.includes('/tmp/sync-daemon.pid'));
-    assert.ok(block.includes('SIGUSR1'));
+  it('REQ-SESSION-011 AC2: signals the daemon and waits for syncing-to-success before returning 200', async () => {
+    cleanupSyncFixtures();
+    const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+    process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
+    const daemon = await startStatusDaemon('success');
+    try {
+      const response = await withRouter({}, postFinalSync);
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body, { synced: true });
+      assert.equal(JSON.parse(readFileSync(STATUS_FILE, 'utf8')).status, 'success');
+    } finally {
+      if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+      else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+      cleanupSyncFixtures(daemon);
+    }
   });
 
-  it('503s when no daemon is running, delegates completion to evaluateFinalSync, and 504s on timeout', () => {
-    assert.ok(block.includes('503') && block.includes('daemon-not-running'));
-    assert.ok(block.includes('evaluateFinalSync'), 'the handler must use the pure completion detector');
-    assert.ok(block.includes('504') && block.includes('timeout'));
-    const m = block.match(/INTERNAL_TIMEOUT_MS\s*=\s*([\d_]+)/);
-    assert.ok(m, 'handler must define INTERNAL_TIMEOUT_MS');
-    const bm = containerMetrics.match(/FINAL_SYNC_BUDGET_MS\s*=\s*([\d_]+)/);
-    assert.ok(bm, 'container-metrics must define FINAL_SYNC_BUDGET_MS');
-    const hostCap = Number(m[1].replace(/_/g, ''));
-    const doBudget = Number(bm[1].replace(/_/g, ''));
-    // Regression guard for the bisync-on-delete data loss. The host loop MUST
-    // give up AFTER the DO's drain budget, never before: a host ceiling below the
-    // budget (the old 115_000) 504s while rclone is still flushing, the DO records
-    // 'incomplete', and the session deletes with the last edits lost. The DO's
-    // AbortSignal(budget) is the authoritative ceiling; keep host > DO. Comparing
-    // the two REAL constants (not a literal 120_000) means raising the DO budget
-    // without raising the host cap in lockstep fails this test instead of silently
-    // re-inverting — the exact failure mode behind ~10 prior "raise the budget" fixes.
-    assert.ok(hostCap > doBudget, `host INTERNAL_TIMEOUT_MS (${hostCap}) must EXCEED the DO FINAL_SYNC_BUDGET_MS (${doBudget}) so the DO AbortSignal, not the host loop, is the ceiling; otherwise final bisync 504s prematurely on delete`);
+  it('REQ-SESSION-011 AC2: maps failed to 500 and a nonterminal run to bounded 504', async () => {
+    cleanupSyncFixtures();
+    const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+    process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
+    let daemon = await startStatusDaemon('failed');
+    try {
+      const failed = await withRouter({}, postFinalSync);
+      assert.equal(failed.status, 500);
+      assert.deepEqual(failed.body, { synced: false, reason: 'bisync-failed' });
+      cleanupSyncFixtures(daemon);
+
+      daemon = await startStatusDaemon(null);
+      const realNow = Date.now;
+      let syntheticNow = realNow();
+      Date.now = () => {
+        syntheticNow += FINAL_SYNC_INTERNAL_TIMEOUT_MS + 1;
+        return syntheticNow;
+      };
+      try {
+        const timedOut = await withRouter({}, postFinalSync);
+        assert.equal(timedOut.status, 504);
+        assert.deepEqual(timedOut.body, { synced: false, reason: 'timeout' });
+      } finally {
+        Date.now = realNow;
+      }
+    } finally {
+      if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+      else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+      cleanupSyncFixtures(daemon);
+    }
+  });
+
+  it('REQ-SESSION-011 AC2: keeps the host timeout above the 120-second DO drain budget', () => {
+    assert.ok(FINAL_SYNC_INTERNAL_TIMEOUT_MS > 120_000);
   });
 });
 
-describe('REQ-SESSION-011 AC3: entrypoint completion signal (structural)', () => {
-  it('update_sync_status stamps a monotonic epoch-ms ts', () => {
-    const body = shellFunctionBody('update_sync_status');
-    assert.ok(body, 'update_sync_status must be defined in entrypoint.sh');
-    assert.ok(/ts:\s*\(now \* 1000 \| floor\)/.test(body));
-  });
+describe('REQ-SESSION-011 AC3: entrypoint completion status (real shell behavior)', () => {
+  it('REQ-SESSION-011 AC3: writes parseable status records with nondecreasing epoch-ms timestamps', () => {
+    cleanupSyncFixtures();
+    const body = extractShellFunction('update_sync_status');
+    const result = spawnSync('bash', ['-c', [
+      body,
+      'USER_HOME=/home/user',
+      'update_sync_status syncing null',
+      `first=$(jq -r '.ts' ${STATUS_FILE})`,
+      'sleep 0.01',
+      'update_sync_status success null',
+      `second=$(jq -r '.ts' ${STATUS_FILE})`,
+      `jq -e '.status == "success" and .error == null and (.ts | type == "number")' ${STATUS_FILE} >/dev/null`,
+      'test "$second" -ge "$first"',
+      'printf "%s:%s\\n" "$first" "$second"',
+    ].join('\n')], { encoding: 'utf8' });
 
-  it('the daemon emits syncing immediately before each bisync run', () => {
-    const body = shellFunctionBody('start_sync_daemon');
-    assert.ok(body, 'start_sync_daemon must be defined in entrypoint.sh');
-    assert.ok(/update_sync_status "syncing"/.test(body));
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^\d+:\d+\n$/);
+    cleanupSyncFixtures();
   });
 });

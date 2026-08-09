@@ -170,6 +170,25 @@ describe('User Profile Routes', () => {
       expect(body.downloadsDisabled).toBe(true);
     });
 
+    it('REQ-ENTERPRISE-019 AC5: reports downloadsDisabled false when the policy KV read rejects', async () => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: { email: 'test@example.com', authenticated: true, role: 'user' },
+        bucketName: 'codeflare-abc123',
+      });
+      const getFromFixture = mockKV.get.getMockImplementation()!;
+      mockKV.get.mockImplementation(async (key: string, type?: string) => {
+        if (key === 'setup:downloads_disabled') throw new Error('transient KV outage');
+        return getFromFixture(key, type);
+      });
+
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/user');
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { downloadsDisabled: boolean };
+      expect(body.downloadsDisabled).toBe(false);
+    });
+
     it('returns 401 when not authenticated', async () => {
       mockAuthenticateRequest.mockRejectedValue(new AuthError('Not authenticated'));
 

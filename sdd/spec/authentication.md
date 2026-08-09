@@ -376,7 +376,7 @@ None. Authentication is foundational; other domains depend on it.
 1. The SaaS login page shows Codeflare branding with an animated logo. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 (branded SaaS login page)) -->
 2. A "Continue with <provider>" button is displayed for the configured identity provider. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 (branded SaaS login page)) -->
 3. Available auth providers are listed. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 (branded SaaS login page)) -->
-4. Core login content is visible at first paint and is not hidden behind entrance opacity or transform animation. <!-- @impl: web-ui/src/styles/login-page.css::.login-content --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (REQ-AUTH-013: core login content is visible without entrance opacity or transform animation) -->
+4. Core login content is visible at first paint and is not hidden behind entrance opacity or transform animation. <!-- @impl: web-ui/src/styles/login-page.css::.login-content --> <!-- @manual -->
 
 **Constraints:**
 
@@ -386,7 +386,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/components/LoginPage.test.tsx))
+**Verification:** Automated component test ([LoginPage](../../web-ui/src/__tests__/components/LoginPage.test.tsx)); first-paint visibility is verified against the protected deployment through the agent-driven browser-e2e lane.
 
 **Status:** Implemented
 

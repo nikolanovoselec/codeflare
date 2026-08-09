@@ -39,6 +39,10 @@ import type { ActivityTracker, Logger, WsEvent } from './types.js';
  */
 let vscodeWarmingSince: number | undefined;
 
+const GIT_CLONE_TIMEOUT_MS = 120_000;
+export const FINAL_SYNC_INTERNAL_TIMEOUT_MS = 125_000;
+const FINAL_SYNC_POLL_MS = 500;
+
 /** A localhost upstream the host proxies to (SilverBullet / code-server). */
 export interface ProxyTarget {
   host: string;
@@ -379,7 +383,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           child.kill('SIGKILL');
           res.writeHead(504, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Clone timed out', code: 'CLONE_TIMEOUT' }));
-        }, 120_000);
+        }, GIT_CLONE_TIMEOUT_MS);
         child.on('error', () => {
           if (settled) return;
           settled = true;
@@ -441,13 +445,13 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       // the last edits unsynced. The previous value (115_000, < 120s) inverted
       // exactly that: every final bisync landing in the 115-120s band was lost -
       // the root cause behind ~10 failed "raise the budget" fixes. Keep host > DO.
-      const INTERNAL_TIMEOUT_MS = 125_000;
-      const POLL_MS = 500;
+      const timeoutMs = FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+      const pollMs = FINAL_SYNC_POLL_MS;
       // Two-phase completion detection lives in the pure evaluateFinalSync state
       // machine (final-sync.ts) so the syncing->success/failed discrimination is
       // unit-testable without spawning the daemon; this loop owns only the I/O.
       let runStartedTs = -1;
-      while (Date.now() - triggerTs < INTERNAL_TIMEOUT_MS) {
+      while (Date.now() - triggerTs < timeoutMs) {
         const ev = evaluateFinalSync(readStatus(), triggerTs, runStartedTs);
         runStartedTs = ev.runStartedTs;
         if (ev.result === 'success') {
@@ -460,7 +464,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           res.end(JSON.stringify({ synced: false, reason: 'bisync-failed' }));
           return;
         }
-        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
       }
       res.writeHead(504, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ synced: false, reason: 'timeout' }));
