@@ -215,11 +215,18 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
       tool_input: {},
     }).status, 2);
 
-    // Claude's harness supplies the parent tool_use_id as the spawned child's
-    // agent_id. Only that exact identity can atomically claim the authorization.
+    // The authoritative child-start event binds the parent invocation to the
+    // independently assigned child id; no identifier-equality assumption.
+    assert.equal(runHook(fx, {
+      hook_event_name: 'SubagentStart',
+      session_id: sessionId,
+      tool_use_id: 'spawn-private-id',
+      agent_id: 'actual-capture-child',
+      agent_type: 'memory-capture',
+    }).status, 0);
     const accepted = runHook(fx, {
       session_id: sessionId,
-      agent_id: 'spawn-private-id',
+      agent_id: 'actual-capture-child',
       agent_type: 'memory-capture',
       tool_name: 'Read',
       tool_input: {},
@@ -236,11 +243,12 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
       const result = runHook(fx, { session_id: sessionId, ...payload });
       assert.equal(result.status, 2);
       assert.ok(!result.stderr.includes('spawn-private-id'));
+      assert.ok(!result.stderr.includes('actual-capture-child'));
     }
 
     const acceptedAgain = runHook(fx, {
       session_id: sessionId,
-      agent_id: 'spawn-private-id',
+      agent_id: 'actual-capture-child',
       agent_type: 'memory-capture',
       tool_name: 'Write',
       tool_input: {},
@@ -313,15 +321,29 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
     assert.ok(winner);
     const loser = winner === 'spawn-a' ? 'spawn-b' : 'spawn-a';
     assert.equal(runHook(fx, {
+      hook_event_name: 'SubagentStart',
       session_id: sessionId,
-      agent_id: loser,
+      tool_use_id: loser,
+      agent_id: 'wrong-child',
+      agent_type: 'memory-capture',
+    }).status, 0);
+    assert.equal(runHook(fx, {
+      session_id: sessionId,
+      agent_id: 'wrong-child',
       agent_type: 'memory-capture',
       tool_name: 'Read',
       tool_input: {},
     }).status, 2);
     assert.equal(runHook(fx, {
+      hook_event_name: 'SubagentStart',
       session_id: sessionId,
-      agent_id: winner,
+      tool_use_id: winner,
+      agent_id: 'winner-child',
+      agent_type: 'memory-capture',
+    }).status, 0);
+    assert.equal(runHook(fx, {
+      session_id: sessionId,
+      agent_id: 'winner-child',
       agent_type: 'memory-capture',
       tool_name: 'Read',
       tool_input: {},

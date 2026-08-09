@@ -36,6 +36,7 @@ COUNTER_DIR="${MEMCAP_COUNTER_DIR:-/tmp/.memory-counter}"
 
 INPUT=$(cat)
 
+HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null) || true
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null) || true
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 
@@ -78,9 +79,10 @@ if [[ ! -f "$VARS_FILE" ]]; then
     exit 0
 fi
 
-# Every create/claim/expiry transition is serialized. The harness supplies the
-# parent tool_use_id and the exact child's matching agent_id; no prompt token or
-# first-arriving-child guess participates in authorization.
+# Every create/bind/claim/expiry transition is serialized. PreToolUse records
+# the parent spawn's tool_use_id; the authoritative SubagentStart event binds
+# that pending invocation to the actual child agent_id. No identifier-equality
+# assumption, prompt token, or first-arriving-child guess authorizes a caller.
 exec 9>"$AUTH_LOCK"
 AUTH_LOCKED=0
 flock -w 2 -x 9 || AUTH_LOCKED=$?
@@ -107,12 +109,24 @@ if (( AUTH_LOCKED == 0 )) && [[ "$TOOL_NAME" == "Task" || "$TOOL_NAME" == "Agent
     fi
 fi
 
-# The child may claim only the pending spawn whose harness id is its own agent
-# id. Atomic lock ownership prevents two first calls or an unrelated capture
-# child from racing the transition. Subsequent calls require the exact claim.
+# Bind the actual child only from the authoritative child-start event. The
+# event carries both the parent invocation and the newly assigned child id.
+if [[ "$HOOK_EVENT" == "SubagentStart" ]]; then
+    if (( AUTH_LOCKED == 0 )) && [[ -n "$TOOL_USE_ID" && -n "$AGENT_ID" && "$AGENT_TYPE" == "memory-capture" && -f "$AUTH_FILE" ]]; then
+        AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || true)
+        if [[ "$AUTH_STATE" == "pending:$TOOL_USE_ID" ]]; then
+            write_auth "bound:$AGENT_ID"
+        fi
+    fi
+    exit 0
+fi
+
+# The child may claim only its exact bound identity. Atomic lock ownership
+# prevents two first calls or an unrelated capture child from racing the
+# transition. Subsequent calls require the exact consumed claim.
 if (( AUTH_LOCKED == 0 )) && [[ -n "$AGENT_ID" && "$AGENT_TYPE" == "memory-capture" && -f "$AUTH_FILE" ]]; then
     AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || true)
-    if [[ "$AUTH_STATE" == "pending:$AGENT_ID" ]]; then
+    if [[ "$AUTH_STATE" == "bound:$AGENT_ID" ]]; then
         write_auth "claimed:$AGENT_ID"
         exit 0
     fi
