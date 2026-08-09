@@ -292,6 +292,19 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       expect(stored?.sessionMode).toBe('advanced');
     });
 
+    it('DEEP-18-007/008: a failed new-bucket reconcile leaves Pro unstamped for retry', async () => {
+      testState.createBucketResult = { success: true, created: true };
+      vi.mocked(reconcileAgentConfigs).mockRejectedValueOnce(new Error('r2 down'));
+      const fetch = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+
+      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      expect(reconcileAgentConfigs).toHaveBeenCalledTimes(1);
+      const stored = await mockKV.get('user-prefs:test-bucket', 'json') as { sessionMode?: string } | null;
+      expect(stored?.sessionMode).toBeUndefined();
+    });
+
     it('REQ-ENTERPRISE-001 constraint: enterprise upgrade preserves preferences changed while reconciliation is running', async () => {
       testState.createBucketResult = { success: true, created: false };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default', workspaceSyncEnabled: false });

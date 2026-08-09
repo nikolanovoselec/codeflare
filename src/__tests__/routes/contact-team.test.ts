@@ -4,7 +4,7 @@
  * Covers:
  *   AC2: Clicking sends an inquiry email to admins via POST /api/auth/contact-team
  *   AC4: Rate-limited to 1 request per hour per user
- *   AC5: When RESEND_API_KEY is not configured, endpoint returns success but no email is sent
+ *   AC5: Provider rejection or failure returns a retryable non-2xx response
  *   (AC1/AC3 are frontend-only; AC3 tested via disabled-state mutation, not covered here)
  *
  * Deleting the contact-team route or removing sendAccessRequestNotification wiring breaks
@@ -183,22 +183,31 @@ describe('POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow'
     expect(res2.status).toBe(429);
   });
 
-  // AC5: returns success even when email delivery fails (RESEND_API_KEY not set)
-  it('REQ-SUB-017 AC5: returns success even when email notification throws (no RESEND key)', async () => {
-    mockSendAccessRequestNotification.mockRejectedValueOnce(new Error('Resend not configured'));
-
+  it('REQ-SUB-017 AC5: returns retryable failure when notification is rejected', async () => {
+    mockSendAccessRequestNotification.mockResolvedValueOnce(false);
     const { app } = createApp();
 
     const res = await app.request('/auth/contact-team', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan: 'Custom' }),
     });
 
-    // Must still return 200 — email failure is non-fatal
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ success: false, error: 'Inquiry delivery failed. Please retry.' });
+  });
+
+  it('REQ-SUB-017 AC5: returns retryable failure when notification throws', async () => {
+    mockSendAccessRequestNotification.mockRejectedValueOnce(new Error('Resend unavailable'));
+    const { app } = createApp();
+
+    const res = await app.request('/auth/contact-team', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: 'Custom' }),
+    });
+
+    expect(res.status).toBe(503);
     const body = await res.json() as { success: boolean };
-    expect(body.success).toBe(true);
+    expect(body.success).toBe(false);
   });
 
   // Authentication requirement

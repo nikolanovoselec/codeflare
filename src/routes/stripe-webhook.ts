@@ -52,14 +52,15 @@ const webhookRateLimiter = createRateLimiter({
 });
 
 // POST /webhook
-app.post('/webhook', webhookRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: enterprise deployments have no Stripe integration. Acknowledge
-  // and discard so a stray/late event can never mutate a user's tier/billing in KV.
-  // No-op when ENTERPRISE_MODE is unset — SaaS webhook handling is unchanged.
+app.post('/webhook', async (c, next) => {
+  // Enterprise acknowledgement precedes the SaaS limiter so late events stay
+  // inert even when that limiter is exhausted or unavailable.
   if (isEnterpriseMode(c.env)) {
     logger.warn('Stripe webhook received in enterprise mode — discarding');
     return c.json({ received: true });
   }
+  await next();
+}, webhookRateLimiter, async (c) => {
   if (!isStripeConfigured(c.env) || !c.env.STRIPE_WEBHOOK_SECRET) {
     throw new ValidationError('Stripe webhook not configured.');
   }

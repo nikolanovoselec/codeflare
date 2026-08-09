@@ -285,6 +285,25 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
   });
 });
 
+describe('DEEP-22-004: enterprise billing guards precede action limiters', () => {
+  it('keeps checkout, portal, and switch at 403 beyond their SaaS limiter budgets', async () => {
+    const { app } = createApp({ ENTERPRISE_MODE: 'active' });
+    for (const path of ['/billing/checkout', '/billing/portal', '/billing/switch']) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const res = await app.request(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+        });
+        expect(res.status).toBe(403);
+      }
+    }
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    expect(createPortalSession).not.toHaveBeenCalled();
+    expect(createSwitchPortalSession).not.toHaveBeenCalled();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // GET /billing/status
 // ---------------------------------------------------------------------------

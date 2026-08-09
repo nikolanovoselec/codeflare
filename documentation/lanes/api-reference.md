@@ -147,7 +147,7 @@ For `GET /api/user`, current workers return `allowedAgents`. During a rolling up
 | GET | `/api/auth/onboarding-config` | varies | [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) | Onboarding page config (turnstile key) |
 | POST | `/api/auth/subscribe` | varies | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) | Self-service tier selection (rate-limited 3/min) |
 | POST | `/api/auth/request-access` | varies | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Request access with Turnstile (rate-limited 3/hr) |
-| POST | `/api/auth/contact-team` | varies | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Enterprise tier inquiry email (rate-limited 1/hr) |
+| POST | `/api/auth/contact-team` | varies | [REQ-SUB-017](../../sdd/spec/subscription.md#req-sub-017-enterprise-tier-contact-flow), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Deliver an enterprise-tier inquiry email (rate-limited 1/hr). Returns `200 { success: true }` only after provider acceptance; provider rejection, missing configuration, or network failure returns retryable `503 { success: false, error }`. |
 
 ## Usage
 

@@ -96,7 +96,7 @@ Tiers, billing, usage tracking, and quotas.
 1. The subscribe endpoint activates the free tier directly without any payment-provider interaction. <!-- @manual -->
 2. The free tier has a zero monthly price. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
 3. Even when the payment provider is configured, the free tier still bypasses external checkout. <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) --> <!-- @manual -->
-4. Free-tier users have no billing-state fields populated. <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) --> <!-- @manual -->
+4. Free-tier activation removes all provider-owned billing-state fields while preserving unrelated user fields; persisted records contain no `undefined` patch values. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-18-001/004: payment-less activation removes stale billing state without undefined values) -->
 
 **Constraints:**
 
@@ -331,7 +331,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. When the payment provider is not configured, all tiers can be activated via the direct-subscribe endpoint without an external payment step. <!-- @test: src/__tests__/lib/stripe.test.ts (isStripeConfigured / REQ-SUB-011 (graceful degradation without Stripe: when STRIPE_SECRET_KEY unset, free tier remains usable, paid tiers are hidden)) --> <!-- @manual -->
-2. Billing-state fields remain unset in user records on payment-less activation. <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-011 AC2: billing fields returned by getEffectiveTier are tier strings, not billing objects) --> <!-- @manual -->
+2. Payment-less activation removes all provider-owned billing-state fields while preserving unrelated user fields; persisted records contain no `undefined` patch values. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-18-001/004: payment-less activation removes stale billing state without undefined values) -->
 3. The effective-tier resolver does not downgrade paid tiers when billing fields are absent and the payment provider is not configured. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-011 AC3: getEffectiveTier does not downgrade paid tier when billingStatus is null) -->
 4. The subscribe page renders normally, showing tier comparisons without payment buttons. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: src/__tests__/lib/stripe.test.ts (isStripeConfigured / REQ-SUB-011 (graceful degradation without Stripe: when STRIPE_SECRET_KEY unset, free tier remains usable, paid tiers are hidden)) -->
 
@@ -509,10 +509,10 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. The subscribe page shows a contact-style call-to-action for the Custom tier in place of a checkout button. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC1: selecting the Custom tier renders a contact CTA, not a checkout button) -->
-2. Activating the call-to-action sends an inquiry email to admins through a dedicated contact-team endpoint. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow) -->
-3. After activation, the control switches to a disabled confirmation state to prevent duplicate submissions. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC3: after activation the Custom-tier CTA switches to a disabled confirmation state) -->
-4. The endpoint is rate-limited to one inquiry per hour per user. <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow) --> <!-- @manual -->
-5. When the email-provider integration is not configured, the endpoint still returns success and the inquiry is silently dropped. <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow) --> <!-- @manual -->
+2. Activating the call-to-action sends an inquiry through the dedicated contact-team endpoint, which returns success only after the admin notification provider accepts delivery. <!-- @impl: src/routes/auth.ts --> <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: src/__tests__/routes/contact-team.test.ts (REQ-SUB-017 AC2: returns { success: true } and calls sendAccessRequestNotification) -->
+3. The frontend awaits the endpoint response and switches to a disabled confirmation state only on success; non-2xx or network failure retains an actionable retry state. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC3: confirms and disables only after successful delivery; AC3/AC5: non-2xx delivery keeps an actionable retry state; AC3/AC5: network failure keeps the inquiry retryable) -->
+4. The endpoint is rate-limited to one inquiry per hour per user. <!-- @test: src/__tests__/routes/contact-team.test.ts (REQ-SUB-017 AC4: returns 429 on second request within rate-limit window) -->
+5. Provider rejection, missing provider configuration, or provider failure returns a retryable non-2xx response and never reports inquiry success. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/routes/contact-team.test.ts (REQ-SUB-017 AC5: returns retryable failure when notification is rejected; REQ-SUB-017 AC5: returns retryable failure when notification throws) -->
 
 **Constraints:**
 

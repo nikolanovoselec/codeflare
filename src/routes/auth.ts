@@ -5,7 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError, toError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
-import { getTierConfig, getEffectiveTier, isActiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots, isEnterpriseMode } from '../lib/subscription';
+import { getTierConfig, getEffectiveTier, isActiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots, isEnterpriseMode, withoutBillingState } from '../lib/subscription';
 import { isSaasModeActive } from '../lib/onboarding';
 import { getAllUsers, getAdminEmails } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
@@ -167,12 +167,14 @@ const RequestAccessSchema = z.object({
 
 
 // POST /api/auth/request-access - pending users request access with Turnstile captcha (SaaS mode)
-app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: no access requests in enterprise mode — access is granted by
-  // Cloudflare Access and users are JIT-provisioned. No-op when ENTERPRISE_MODE is unset.
+app.post('/request-access', requireIdentity, async (c, next) => {
+  // Enterprise guards precede route-specific limiting so the disabled contract
+  // cannot be replaced by an exhausted or unavailable limiter.
   if (isEnterpriseMode(c.env)) {
     throw new ForbiddenError('Access requests are not available in enterprise mode');
   }
+  await next();
+}, requestAccessRateLimiter, async (c) => {
   const user = c.get('user');
   // Default to 'advanced' if tier is unset (pre-setup or service auth)
   const effectiveTier = user.subscriptionTier ?? user.accessTier ?? 'advanced';
@@ -254,12 +256,12 @@ const SubscribeSchema = z.object({
 });
 
 // POST /api/auth/subscribe - self-service tier selection for pending users
-app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: no self-service subscription in enterprise mode — all users are
-  // provisioned unlimited via Cloudflare Access. No-op when ENTERPRISE_MODE is unset.
+app.post('/subscribe', requireIdentity, async (c, next) => {
   if (isEnterpriseMode(c.env)) {
     throw new ForbiddenError('Subscriptions are not available in enterprise mode');
   }
+  await next();
+}, subscribeRateLimiter, async (c) => {
   const user = c.get('user');
   const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
   if (effectiveTier === 'blocked') {
@@ -342,13 +344,17 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const now = new Date();
   // Mark trial as used on first subscription so plan switches don't grant new trials
   const trialUsed = existingRaw?.trialUsed === true || isAlreadySubscribed;
-  await updateUserRecord(c.env.KV, user.email, {
+  // Every activation handled here is payment-less: free bypasses Stripe, and
+  // other tiers reach this route only when Stripe is absent. Remove stale
+  // provider-owned state rather than serializing undefined patch values.
+  await c.env.KV.put(`user:${user.email}`, JSON.stringify({
+    ...withoutBillingState(existingRaw ?? {}),
     subscriptionTier: body.tier,
     accessTier: body.tier, // backward compat
     subscribedMode: body.mode,
     subscribedAt: now.toISOString(),
     trialUsed,
-  });
+  }));
 
   // Save session mode preference when subscribing/switching (non-fatal)
   try {
@@ -448,7 +454,7 @@ app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => 
   } catch { /* body parsing is best-effort */ }
   try {
     const adminEmails = await getAdminEmails(c.env.KV);
-    await sendAccessRequestNotification({
+    const delivered = await sendAccessRequestNotification({
       userEmail: user.email,
       requestedAt: new Date().toISOString(),
       remoteIp: c.req.header('CF-Connecting-IP') || null,
@@ -456,10 +462,15 @@ app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => 
       adminEmails,
       env: c.env,
     });
+    if (!delivered) {
+      logger.warn('Team contact email was not accepted', { email: user.email });
+      return c.json({ success: false, error: 'Inquiry delivery failed. Please retry.' }, 503);
+    }
   } catch (err) {
     logger.error('Failed to send team contact email', toError(err));
+    return c.json({ success: false, error: 'Inquiry delivery failed. Please retry.' }, 503);
   }
-  logger.info('Team access inquiry', { email: user.email, plan });
+  logger.info('Team access inquiry delivered', { email: user.email, plan });
   return c.json({ success: true });
 });
 

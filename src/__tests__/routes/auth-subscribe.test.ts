@@ -418,6 +418,28 @@ describe('POST /auth/subscribe', () => {
     expect(userData.subscriptionTier).toBe('standard');
   });
 
+  it('DEEP-18-001/004: payment-less activation removes stale billing state without undefined values', async () => {
+    mockTurnstileSuccess();
+    mockKV._set('user:pending@example.com', {
+      role: 'user', accessTier: 'standard', subscriptionTier: 'standard',
+      stripeCustomerId: 'cus_old', stripeSubscriptionId: 'sub_old', stripePriceId: 'price_old',
+      billingStatus: 'canceled', billingPeriodEnd: '2026-01-01T00:00:00.000Z',
+      checkoutSessionId: 'cs_old', cancelAtPeriodEnd: true, lastSyncedAt: '2025-01-01T00:00:00.000Z',
+    });
+
+    const app = createApp({ TURNSTILE_SECRET_KEY: undefined } as unknown as Partial<Env>);
+    const res = await postSubscribe(app, { tier: 'free' });
+
+    expect(res.status).toBe(200);
+    const userData = await mockKV.get('user:pending@example.com', 'json') as Record<string, unknown>;
+    expect(userData.subscriptionTier).toBe('free');
+    expect(userData.role).toBe('user');
+    for (const field of ['stripeCustomerId', 'stripeSubscriptionId', 'stripePriceId', 'billingStatus', 'billingPeriodEnd', 'checkoutSessionId', 'cancelAtPeriodEnd', 'lastSyncedAt']) {
+      expect(userData[field]).toBeUndefined();
+    }
+    expect(Object.values(userData)).not.toContain(undefined);
+  });
+
   it('sets subscribedAt timestamp on user KV record', async () => {
     mockTurnstileSuccess();
     mockKV._set('user:pending@example.com', {
@@ -539,6 +561,30 @@ describe('POST /auth/subscribe', () => {
     expect(body).toHaveProperty('trialQuotaHours');
     expect(typeof body.trialQuotaHours).toBe('number');
     expect(body).toHaveProperty('onboardingComplete');
+  });
+
+  it('DEEP-22-005: SaaS subscribe requests remain rate-limited', async () => {
+    const app = createApp({ TURNSTILE_SECRET_KEY: undefined } as unknown as Partial<Env>);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect((await postSubscribe(app, { tier: 'free' })).status).toBe(200);
+    }
+    expect((await postSubscribe(app, { tier: 'free' })).status).toBe(429);
+  });
+
+  it('DEEP-22-005: enterprise subscribe guard remains 403 after the SaaS limiter budget', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const res = await postSubscribe(app, { tier: 'free' });
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it('DEEP-22-005: enterprise request-access guard runs before its fail-closed limiter', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active', KV: undefined } as unknown as Partial<Env>);
+    const res = await app.request('/auth/request-access', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    expect(res.status).toBe(403);
   });
 
   // ---------------------------------------------------------------------------

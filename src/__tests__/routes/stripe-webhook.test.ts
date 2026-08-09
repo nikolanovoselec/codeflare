@@ -63,13 +63,14 @@ vi.mock('../../lib/access', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 let mockKV: ReturnType<typeof createMockKV>;
 
-function createApp() {
+function createApp(envOverrides: Partial<Env> = {}) {
   const app = new Hono<{ Bindings: Env }>();
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
       STRIPE_SECRET_KEY: 'sk_test_123',
       STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
+      ...envOverrides,
     } as Env;
     return next();
   });
@@ -129,6 +130,30 @@ beforeEach(() => {
   vi.mocked(parseStripeEvent).mockImplementation((body: string) => JSON.parse(body));
   vi.mocked(isStripeConfigured).mockReturnValue(true);
   vi.mocked(fetchSubscription).mockResolvedValue(null);
+});
+
+describe('DEEP-22-006: enterprise webhook acknowledgement precedes limiter', () => {
+  it('preserves the normal SaaS webhook limit', async () => {
+    const app = createApp();
+    for (let attempt = 0; attempt < 30; attempt++) {
+      expect((await postWebhook(app, buildEvent('unhandled.test', {}))).status).toBe(200);
+    }
+    expect((await postWebhook(app, buildEvent('unhandled.test', {}))).status).toBe(429);
+  });
+
+  it('acknowledges beyond the SaaS limit without verification or mutation', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    mockKV._set('user:enterprise@example.com', { subscriptionTier: 'unlimited' });
+
+    for (let attempt = 0; attempt < 31; attempt++) {
+      const response = await postWebhook(app, buildEvent('customer.subscription.deleted', { customer: 'cus_1' }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ received: true });
+    }
+
+    expect(verifyWebhookSignature).not.toHaveBeenCalled();
+    expect(await mockKV.get('user:enterprise@example.com', 'json')).toEqual({ subscriptionTier: 'unlimited' });
+  });
 });
 
 // ---------------------------------------------------------------------------

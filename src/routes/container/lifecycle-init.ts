@@ -162,9 +162,10 @@ export async function ensureBucketAndSeed(params: {
   // every seed write below and is forwarded to the container so rclone matches the bucket's regime.
   const r2SseDisabled = await resolveBucketSseOnEnsure(env, bucketName, bucketResult.created === true);
 
-  // Seed agent configs once, when the bucket is newly created. Agent configs have
-  // additional reseed paths (the Recreate button, mode-change reconcile, and the
-  // REQ-AGENT-049 preseed-hash upgrade), so the create-time gate keeps them healthy.
+  // Seed agent configs once, when the bucket is newly created. Track provider
+  // success separately: enterprise must not stamp Pro when this initial
+  // reconciliation failed, because the unstamped preference is the retry marker.
+  let initialAgentConfigReady = bucketResult.created !== true;
   if (bucketResult.created) {
     try {
       const agentResult = await reconcileAgentConfigs(env, bucketName, r2Config.endpoint, sessionMode, {
@@ -173,6 +174,7 @@ export async function ensureBucketAndSeed(params: {
         contextModeEnabled,
         r2SseDisabled,
       });
+      initialAgentConfigReady = true;
       logger.info('Seeded initial agent configs', {
         bucketName,
         mode: sessionMode,
@@ -245,8 +247,10 @@ export async function ensureBucketAndSeed(params: {
             deletedCount: upgradeResult.deleted.length,
           });
         }
-        const latestPrefs = await env.KV.get<UserPreferences>(enterprisePrefsKey, 'json');
-        await env.KV.put(enterprisePrefsKey, JSON.stringify({ ...latestPrefs, sessionMode: 'advanced' }));
+        if (initialAgentConfigReady) {
+          const latestPrefs = await env.KV.get<UserPreferences>(enterprisePrefsKey, 'json');
+          await env.KV.put(enterprisePrefsKey, JSON.stringify({ ...latestPrefs, sessionMode: 'advanced' }));
+        }
       }
     } catch (error) {
       logger.warn('Enterprise advanced-mode upgrade failed; will retry next session', {

@@ -45,11 +45,12 @@ const CheckoutSchema = z.object({
 });
 
 // POST /billing/checkout
-app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: no self-serve billing in enterprise mode (no-op when flag unset).
+app.post('/checkout', requireIdentity, async (c, next) => {
   if (isEnterpriseMode(c.env)) {
     throw new ForbiddenError('Billing is not available in enterprise mode');
   }
+  await next();
+}, checkoutRateLimiter, async (c) => {
   // CF-006: Explicit null check instead of non-null assertion
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
@@ -219,11 +220,12 @@ const portalRateLimiter = createRateLimiter({
 });
 
 // POST /billing/portal — create a Stripe Customer Portal session
-app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: no customer portal in enterprise mode (no-op when flag unset).
+app.post('/portal', requireIdentity, async (c, next) => {
   if (isEnterpriseMode(c.env)) {
     throw new ForbiddenError('Billing portal is not available in enterprise mode');
   }
+  await next();
+}, portalRateLimiter, async (c) => {
   // CF-006: Explicit null check instead of non-null assertion
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
@@ -265,11 +267,12 @@ const SwitchSchema = z.object({
 });
 
 // POST /billing/switch — deep-link portal to plan change confirmation
-app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: no plan switching in enterprise mode (no-op when flag unset).
+app.post('/switch', requireIdentity, async (c, next) => {
   if (isEnterpriseMode(c.env)) {
     throw new ForbiddenError('Plan switching is not available in enterprise mode');
   }
+  await next();
+}, switchRateLimiter, async (c) => {
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
     throw new ValidationError('Stripe is not configured.');
