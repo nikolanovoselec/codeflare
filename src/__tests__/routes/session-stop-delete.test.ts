@@ -139,17 +139,16 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
       expect(res.status).toBe(400);
     });
 
-    it('succeeds even when container.destroy() throws (best-effort)', async () => {
+    it('returns failure and preserves retryable state when destruction is unconfirmed', async () => {
       seedSession({ status: 'running' });
-      containerState.container!.destroy.mockRejectedValue(new Error('Container already gone'));
+      containerState.container!.destroy.mockRejectedValue(new Error('destruction unconfirmed'));
       const app = createLifecycleApp();
 
       const res = await app.request(`/sessions/${SESSION_ID}/stop`, { method: 'POST' });
 
-      // Stop is best-effort on container side; KV update still succeeds
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       const stored = await mockKV.get(`session:${BUCKET}:${SESSION_ID}`, 'json') as Session;
-      expect(stored.status).toBe('stopped');
+      expect(stored.status).toBe('running');
     });
   });
 
@@ -176,6 +175,17 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
       expect(res.status).toBe(200);
       const stored = await mockKV.get(`session:${BUCKET}:${SESSION_ID}`, 'json');
       expect(stored).toBeNull();
+    });
+
+    it('returns failure and preserves the session record when destruction is unconfirmed', async () => {
+      seedSession({ status: 'stopped' });
+      containerState.container!.destroy.mockRejectedValue(new Error('destruction unconfirmed'));
+      const app = createCrudApp();
+
+      const res = await app.request(`/sessions/${SESSION_ID}`, { method: 'DELETE' });
+
+      expect(res.status).toBe(500);
+      expect(await mockKV.get(`session:${BUCKET}:${SESSION_ID}`, 'json')).not.toBeNull();
     });
 
     it('returns 404 when deleting non-existent session', async () => {
