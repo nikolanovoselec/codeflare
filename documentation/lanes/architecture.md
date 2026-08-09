@@ -795,19 +795,115 @@ Architectural principles and design rationale.
 
 **Implements:** [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)
 
-| Component | Responsibility | Inputs | Outputs | Source |
-|---|---|---|---|---|
-| Page composition | Orders the enterprise narrative and folds subordinate bands into their parent sections. | Typed section content | Static HTML section tree | `landing/src/pages/index.astro` |
-| Content model | Keeps proof identifiers, links, navigation, and copy in one typed source. | Authored landing data | Component-ready content | `landing/src/content/site.ts` |
-| Shared sections | Applies one structure to peer sections and subordinate substations. | Heading, lead, tag, slots | Responsive section markup | `landing/src/components/Section.astro`, `SectionHead.astro` |
-| Shared terminals | Applies one terminal frame, proof hook surface, and resting-state contract. | Transcript and status data | Server-rendered proof artifact | `landing/src/components/Terminal.astro`, `Transcript.astro` |
-| Proof animation | Rolls resolved proof rows only after the artifact becomes visible. | Server-rendered final rows | Optional animated sequence | `landing/src/scripts/proof.ts` |
-| Feature reels | Types, holds, deletes, loops, and optionally shuffles authored terminal beats. | Serialized beat arrays | Mutated command slot | `landing/src/scripts/feature-terminals.ts` |
-| Reveal motion | Arms below-fold entrances while leaving above-fold content visible immediately. | Intersection events | One-shot entrance state | `landing/src/scripts/reveal.ts` |
-| Scramble motion | Paints changing glyphs over a resting-width ghost so text never reflows. | Authored target words | Footprint-stable churn | `landing/src/scripts/scramble.ts` |
-| Orchestration proof | Advances per-agent activity and counters from the authored orchestration model. | Agent rows | Live proof feed | `landing/src/scripts/orch.ts` |
-| Design tokens | Centralizes type, spacing, color, terminal rhythm, breakpoints, and reduced-motion behavior. | Global design values | Shared responsive styling | `landing/src/styles/global.css` |
-| Navigation and trust | Renders the typed pillar links, sign-in route, social proof, FAQ, and footer controls. | Typed links and content | Accessible navigation and disclosures | `landing/src/components/Header.astro`, `landing/src/pages/index.astro` |
+### Page composition
+
+**Responsibility:** Orders the enterprise narrative and folds subordinate bands into their parent sections.
+
+**Inputs:** Typed section content
+
+**Outputs:** Static HTML section tree
+
+**Source:** `landing/src/pages/index.astro`
+
+### Content model
+
+**Responsibility:** Keeps proof identifiers, links, navigation, and copy in one typed source.
+
+**Inputs:** Authored landing data
+
+**Outputs:** Component-ready content
+
+**Source:** `landing/src/content/site.ts`
+
+### Shared sections
+
+**Responsibility:** Applies one structure to peer sections and subordinate substations.
+
+**Inputs:** Heading, lead, tag, slots
+
+**Outputs:** Responsive section markup
+
+**Source:** `landing/src/components/Section.astro`, `SectionHead.astro`
+
+### Shared terminals
+
+**Responsibility:** Applies one terminal frame, proof hook surface, and resting-state contract.
+
+**Inputs:** Transcript and status data
+
+**Outputs:** Server-rendered proof artifact
+
+**Source:** `landing/src/components/Terminal.astro`, `Transcript.astro`
+
+### Proof animation
+
+**Responsibility:** Rolls resolved proof rows only after the artifact becomes visible.
+
+**Inputs:** Server-rendered final rows
+
+**Outputs:** Optional animated sequence
+
+**Source:** `landing/src/scripts/proof.ts`
+
+### Feature reels
+
+**Responsibility:** Types, holds, deletes, loops, and optionally shuffles authored terminal beats.
+
+**Inputs:** Serialized beat arrays
+
+**Outputs:** Mutated command slot
+
+**Source:** `landing/src/scripts/feature-terminals.ts`
+
+### Reveal motion
+
+**Responsibility:** Arms below-fold entrances while leaving above-fold content visible immediately.
+
+**Inputs:** Intersection events
+
+**Outputs:** One-shot entrance state
+
+**Source:** `landing/src/scripts/reveal.ts`
+
+### Scramble motion
+
+**Responsibility:** Paints changing glyphs over a resting-width ghost so text never reflows.
+
+**Inputs:** Authored target words
+
+**Outputs:** Footprint-stable churn
+
+**Source:** `landing/src/scripts/scramble.ts`
+
+### Orchestration proof
+
+**Responsibility:** Advances per-agent activity and counters from the authored orchestration model.
+
+**Inputs:** Agent rows
+
+**Outputs:** Live proof feed
+
+**Source:** `landing/src/scripts/orch.ts`
+
+### Design tokens
+
+**Responsibility:** Centralizes type, spacing, color, terminal rhythm, breakpoints, and reduced-motion behavior.
+
+**Inputs:** Global design values
+
+**Outputs:** Shared responsive styling
+
+**Source:** `landing/src/styles/global.css`
+
+### Navigation and trust
+
+**Responsibility:** Renders the typed pillar links, sign-in route, social proof, FAQ, and footer controls.
+
+**Inputs:** Typed links and content
+
+**Outputs:** Accessible navigation and disclosures
+
+**Source:** `landing/src/components/Header.astro`, `landing/src/pages/index.astro`
 
 The server output is the complete resting state. Client scripts only enhance it, and reduced-motion users retain the same content and controls without animated transitions.
 

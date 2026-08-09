@@ -62,7 +62,7 @@ The `pi-extensions` bump is data-driven: `pi-extensions-discover` lists every de
 
 Each package version also appears in `entrypoint.sh`, pinned-version tests, and the generated seed. Dependabot intentionally skips the Pi preseed directory, so Shadow Pins updates every owning copy together.
 
-### Keyless release signing
+### Keyless release signing ([REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility), [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts))
 
 Published `vMAJOR.MINOR.PATCH` releases receive a deterministic `codeflare-vMAJOR.MINOR.PATCH.tar.gz`, `SHA256SUMS`, and a `.sigstore.json` bundle for each file. The workflow delegates validation, archive construction, signing, and upload to the executable `scripts/ci/sign-release.sh` boundary, whose observable exits and artifacts are tested with controlled command dependencies. The signing job rejects drafts, malformed tags, and commits not reachable from `main`. A manual dispatch must run from `main`, accepts only an existing release tag, and reruns the same deterministic path, so recovery does not create or retarget releases.
 
