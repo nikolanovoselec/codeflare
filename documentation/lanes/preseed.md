@@ -419,7 +419,10 @@ Graphify tools ship as the native extension `extensions/graphify-native.ts` rath
 than through the MCP adapter — a Pi-native first-class choice. Pi still consumes
 MCP servers through the `pi-mcp-adapter`: it reaches `consult-llm` and
 `chrome-devtools` through the `mcp` proxy, wired into `~/.pi/agent/mcp.json` by
-`entrypoint.sh`.
+`entrypoint.sh`. A default or token-less start removes restored Codeflare-owned
+Browser Run registrations from Claude and Pi while preserving unrelated user MCP
+servers, so an old bearer-bearing configuration cannot survive a mode or credential
+change.
 
 Extension files deploy Pi-specific runtime behavior. `codeflare-commands.ts`
 provides `/debug`, `/deploy`, and `/brainstorm`; `review-enforcement.ts` and

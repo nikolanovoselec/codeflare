@@ -3102,6 +3102,24 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 #   2. CLOUDFLARE_API_TOKEN non-empty - no token, no remote browser; the
 #      registration would no-op (and CLOUDFLARE_ACCOUNT_ID is needed for the
 #      endpoint URL), so we require both before wiring it up.
+remove_owned_browser_mcp_servers() {
+    local config_path="$1"
+    local owned_names="$2"
+    [ -f "$config_path" ] || return 0
+
+    local tmp_json
+    tmp_json=$(mktemp)
+    if jq --argjson names "$owned_names" '
+        reduce $names[] as $name (. ; del(.mcpServers[$name]))
+        | if ((.mcpServers // {}) | length) == 0 then del(.mcpServers) else . end
+    ' "$config_path" > "$tmp_json" 2>/dev/null; then
+        mv "$tmp_json" "$config_path"
+    else
+        echo "[entrypoint] WARNING: Could not remove disabled Browser Run MCP config from $config_path (malformed JSON?)"
+        rm -f "$tmp_json"
+    fi
+}
+
 if [ "${SESSION_MODE:-default}" = "advanced" ] \
    && [ -n "${CLOUDFLARE_API_TOKEN:-}" ] \
    && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
@@ -3173,15 +3191,15 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     fi
     echo "[entrypoint] browser-run MCP server registered in .claude.json (Cloudflare Browser Run markdown/content/scrape)"
 else
-    # No Browser Run token configured (or not an advanced session): do not leave the
-    # agents holding skills for browser tools they cannot use (REQ-BROWSER-007). The
-    # MCP servers above already self-gate on the token and Pi's browser-run extension
-    # registers nothing without it; but the browser-run / browser-e2e SKILL.md files
-    # are seeded unconditionally by the agent-config sync, so strip them here. Mirrors
-    # the consult-llm skill removal in configure_consult_llm.
+    # No Browser Run token configured (or not an advanced session): remove restored
+    # Codeflare-owned registrations as well as skills. User-defined MCP servers stay
+    # untouched, while stale bearer-bearing Browser Run entries cannot survive a mode
+    # or credential change.
+    remove_owned_browser_mcp_servers "$USER_CLAUDE_JSON" '["chrome-devtools","browser-run"]'
+    remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp.json" '["chrome-devtools"]'
     rm -rf "$USER_HOME/.claude/skills/browser-run" "$USER_HOME/.claude/skills/browser-e2e" \
            "$USER_HOME/.pi/agent/skills/browser-run" "$USER_HOME/.pi/agent/skills/browser-e2e" 2>/dev/null || true
-    echo "[entrypoint] Browser Run not configured; browser-run/browser-e2e skills not seeded"
+    echo "[entrypoint] Browser Run not configured; owned MCP registrations and browser skills removed"
 fi
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)

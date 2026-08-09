@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
+- **Disabled Browser Run starts remove restored bearer-bearing registrations** ([REQ-BROWSER-001](browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp) AC1 and [REQ-BROWSER-006](browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter) AC4 remain Implemented). Default-mode and token-less starts now delete only Codeflare-owned Claude `chrome-devtools`/`browser-run` and Pi `chrome-devtools` entries while preserving unrelated user MCP servers, so a prior advanced session cannot retain Browser Rendering bearer credentials after its gate turns off.
+
 - **Merged-head review notices now reflect the exact acknowledgement checkpoint** ([REQ-AGENT-041](agents.md#req-agent-041-pr-boundary-review-bypass-surfaces), [REQ-AGENT-058](agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-098](agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), [REQ-AGENT-104](agents.md#req-agent-104-review-acknowledgement-requires-a-published-verdict), and [REQ-AGENT-120](agents.md#req-agent-120-claude-authoritative-branch-review-boundary); all remain Implemented). Pi and Claude stay silent when a merged head was already acknowledged, while a genuinely unacknowledged closed head receives one visibility notice without consuming the one-shot bypass. Clean review rounds still publish one gate-matching triage row per required lane, so acknowledgement has structural evidence instead of depending on prose.
 
 ## 2026-08-06
