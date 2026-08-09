@@ -195,12 +195,52 @@ candidate_line_numbers() {
 const fs = require('node:fs');
 const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
 const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
+function heredocDeclarations(line) {
+  const declarations = [];
+  let quote = '';
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index] || '';
+    if (quote) {
+      if (char === '\\' && quote === '"') index++;
+      else if (char === quote) quote = '';
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (char === '\\') { index++; continue; }
+    if (char !== '<' || line[index + 1] !== '<' || line[index + 2] === '<') continue;
+    let cursor = index + 2;
+    const stripTabs = line[cursor] === '-';
+    if (stripTabs) cursor++;
+    while (line[cursor] === ' ' || line[cursor] === '\t') cursor++;
+    let delimiter = '', delimiterQuote = '';
+    while (cursor < line.length) {
+      const token = line[cursor] || '';
+      if (delimiterQuote) {
+        if (token === delimiterQuote) delimiterQuote = '';
+        else if (token === '\\' && delimiterQuote === '"' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
+        else delimiter += token;
+      } else if (token === "'" || token === '"') delimiterQuote = token;
+      else if (token === '\\' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
+      else if (/\s/.test(token) || ';&|<>'.includes(token)) break;
+      else delimiter += token;
+      cursor++;
+    }
+    if (delimiter) declarations.push({ delimiter, stripTabs });
+    index = cursor - 1;
+  }
+  return declarations;
+}
 function stripHeredocs(text) {
   const out = [], pending = [];
   for (const line of text.split(/\r?\n/)) {
-    if (pending.length) { if (line.replace(/^\t+/, '') === pending[0]) pending.shift(); continue; }
+    if (pending.length) {
+      const active = pending[0];
+      const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
+      if (candidate === active.delimiter) pending.shift();
+      continue;
+    }
     out.push(line);
-    for (const match of line.matchAll(/<<-?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g)) pending.push(match[1] || match[2] || match[3]);
+    pending.push(...heredocDeclarations(line));
   }
   return out.join('\n');
 }

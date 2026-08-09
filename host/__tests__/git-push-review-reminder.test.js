@@ -167,6 +167,20 @@ describe('git-push-review-reminder.sh — structural shell boundaries', () => {
       assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
     });
   }
+
+  for (const command of [
+    "printf '%s\\n' '<<EOF'\ngit status --short",
+    'printf "%s\\n" "<<EOF"\ngit status --short',
+    'printf "%s\\n" \\<\\<EOF\ngit status --short',
+  ]) {
+    it(`does not treat quoted or escaped << as a heredoc declaration in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+    });
+  }
 });
 
 describe('git-push-review-reminder.sh — vibe-coding gate', () => {

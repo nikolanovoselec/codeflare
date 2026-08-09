@@ -753,22 +753,34 @@ describe('lane-evidence.mjs — the recorded dispositions reach every lane', () 
     }
   });
 
-  it('sheds the config with a marker rather than losing the whole block', () => {
+  it('sheds only the oversized disposition, measured as emitted UTF-8 bytes', () => {
     const { cwd, base } = makeRepo();
-    write(cwd, 'sdd/spec/config.yml', `mode: interactive\n${'# filler disposition line\n'.repeat(40000)}`);
+    write(cwd, 'sdd/spec/config.yml', `mode: interactive\n${'# 界 disposition\n'.repeat(10000)}`);
+    write(cwd, 'sdd/spec/pending.md', 'compact pending decision\n');
     // The ledger is what the shed exists to protect, so it has to be present and
     // non-empty for its survival to mean anything.
     write(cwd, 'documentation/decisions/README.md', '### AD001: Keep the ledger\n\n**Status:** Accepted\n');
     write(cwd, 'src/thing.ts', 'export const x = 1;\n');
     const head = commit(cwd, 'feat: an oversized config');
 
-    const out = run(cwd, 'code-reviewer', `${base}..${head}`);
+    const configHeavy = run(cwd, 'spec-reviewer', `${base}..${head}`);
 
-    assert.ok(out.omitted?.includes('config'), 'a config too large to carry must name itself');
-    assert.ok(JSON.stringify(out, null, 1).length <= 65536,
-      'an unsheddable field would push the block over the cap and blank every resolution');
-    assert.deepEqual(out.adrs, ['AD001|Keep the ledger|Accepted'],
+    assert.ok(configHeavy.omitted?.includes('config'), 'a config too large to carry must name itself');
+    assert.equal(configHeavy.pending, 'compact pending decision\n', 'the compact sibling must survive');
+    assert.ok(Buffer.byteLength(JSON.stringify(configHeavy, null, 1)) <= 65536,
+      'multibyte content must not push the emitted block over the byte cap');
+    assert.deepEqual(configHeavy.adrs, ['AD001|Keep the ledger|Accepted'],
       'the resolutions survive the shed');
+
+    write(cwd, 'sdd/spec/config.yml', 'mode: interactive\n');
+    write(cwd, 'sdd/spec/pending.md', `compact header\n${'界'.repeat(70000)}`);
+    const pendingHead = commit(cwd, 'docs: an oversized pending backlog');
+    const pendingHeavy = run(cwd, 'spec-reviewer', `${base}..${pendingHead}`);
+
+    assert.ok(pendingHeavy.omitted?.includes('pending'), 'an oversized pending field must name itself');
+    assert.equal(pendingHeavy.config, 'mode: interactive\n', 'a compact config must remain available');
+    assert.ok(Buffer.byteLength(JSON.stringify(pendingHeavy, null, 1)) <= 65536,
+      'the byte cap applies regardless of which disposition is oversized');
   });
 });
 
@@ -1026,6 +1038,21 @@ describe('lane-evidence.mjs — a bounded list says so', () => {
 });
 
 describe('lane-evidence.mjs — the weakest resolution is reported as such', () => {
+  it('prefers a source declaration when the same name is an exact dependency', () => {
+    const { cwd, base } = makeRepo();
+    write(cwd, 'src/app.ts', 'export const dualEvidenceName = 1;\n');
+    write(cwd, 'package.json', '{"dependencies":{"dualEvidenceName":"1.0.0"}}\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'feat: dual-form name');
+
+    write(cwd, 'documentation/x.md', 'Uses `dualEvidenceName`.\n');
+    const out = run(cwd, 'doc-updater', `${base}..${commit(cwd, 'docs: x')}`).references;
+
+    assert.deepEqual(out.unresolved, []);
+    assert.deepEqual(out.resolvedBy, { symbol: 1 },
+      'a source declaration must outrank the same name in an exact dependency field');
+  });
+
   it('separates a name kept alive only by a quoted string from a declared one', () => {
     const { cwd, base } = makeRepo();
     // A quoted string is real evidence and the weakest this resolver accepts:

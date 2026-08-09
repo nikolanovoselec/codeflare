@@ -56,6 +56,13 @@ test('REQ-AGENT-052/REQ-AGENT-063: Pi structurally finds executable Git across s
   assert.deepEqual(executable('printf "%s" "$(gh pr view)"'), ['gh', 'printf']);
   assert.deepEqual(executable("printf '%s' '$(git status)'"), ['printf']);
   assert.deepEqual(executable("cat <<'EOF'\ngit status\nEOF"), ['cat']);
+  for (const command of [
+    "printf '%s\\n' '<<EOF'\ngit status",
+    'printf "%s\\n" "<<EOF"\ngit status',
+    'printf "%s\\n" \\<\\<EOF\ngit status',
+  ]) {
+    assert.deepEqual(executable(command), ['printf', 'git'], command);
+  }
   assert.ok(attributionBlockReason('git -C /repo commit -m "Generated with Claude"'));
   assert.ok(attributionBlockReason('env GH_HOST=x gh --repo acme/app pr create --body "Co-Authored-By: bot"'));
 });

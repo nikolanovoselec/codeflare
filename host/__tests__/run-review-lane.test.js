@@ -345,7 +345,11 @@ describe('run-review-lane.sh — triage no-op short-circuit', () => {
     const { home, hookScripts } = makeClaudeHome(cwd);
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
-    stubTriage(hookScripts, { decision: 'exit-no-op', reason: 'an SDD transition is active' });
+    stubTriage(hookScripts, {
+      decision: 'exit-no-op',
+      reason: 'an SDD transition is active',
+      transition: { active: true, corrupt: false },
+    });
 
     const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
 
@@ -353,6 +357,20 @@ describe('run-review-lane.sh — triage no-op short-circuit', () => {
       'the lane owns the changed file, so only triage can have stopped it -- and it must stop it before the model');
     assert.match(r.stdout, /NO-OP/);
     assert.match(r.stdout, /an SDD transition is active/);
+  });
+
+  it('reviews when exit-no-op has only a placeholder reason and no supported evidence', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    stubTriage(hookScripts, { decision: 'exit-no-op', reason: 'placeholder' });
+
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+
+    assert.equal(existsSync(witness), true,
+      'an asserted no-op without positive bootstrap, transition, or round-limit evidence must fail open to review');
+    assert.match(r.stderr, /required shape/);
   });
 
   it('discards malformed triage instead of presenting it as authoritative', () => {

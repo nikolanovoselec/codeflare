@@ -79,6 +79,10 @@ function summarise(rows, inputTruncated = false, passes) {
   const failed = rows.filter((row) => !row.resolved);
   const weak = rows.filter((row) => row.resolved && row.as === 'literal');
   const weakManifest = rows.filter((row) => row.resolved && row.as === 'manifest');
+  const resolvedBy = rows.filter((row) => row.resolved && row.as).reduce((counts, row) => ({
+    ...counts,
+    [row.as]: (counts[row.as] ?? 0) + 1,
+  }), {});
   // Both emitted lists are bounded, so both have to be able to raise the flag.
   // Marking only the failure list reintroduced the exact false clean this
   // function documents, in the field added to prevent one.
@@ -97,6 +101,10 @@ function summarise(rows, inputTruncated = false, passes) {
     // Same reason, weaker evidence: this name is a token in a dependency
     // manifest and nothing stronger. It is a resolution, not a clean.
     ...(weakManifest.length ? { resolvedOnlyByDependencyManifest: weakManifest.slice(0, MAX_UNRESOLVED) } : {}),
+    // Compact classification counts make evidence precedence observable without
+    // carrying every successful row. In particular, a name that is both a
+    // source declaration and a dependency must count as a symbol.
+    ...(Object.keys(resolvedBy).length ? { resolvedBy } : {}),
     // How many passes over the tree the answers cost. Constant against the
     // number of names asked about -- which is the contract, and is otherwise
     // only checkable with a stopwatch.
@@ -919,7 +927,19 @@ function bound(out) {
     if (kept.length !== out.adrs.length) {
       out.adrs = kept;
       out.omitted = [...new Set([...(out.omitted ?? []), 'adrs:superseded'])];
+      if (size() <= MAX_TOTAL) return out;
     }
+  }
+
+  // Config and pending carry dispositions that should survive when compact, but
+  // either may itself exceed the transport cap. Shed the larger value first so
+  // a compact sibling remains available, and name every omission.
+  const dispositionFields = ['config', 'pending']
+    .filter((field) => out[field] !== undefined && out[field] !== null)
+    .sort((left, right) => Buffer.byteLength(JSON.stringify(out[right]))
+      - Buffer.byteLength(JSON.stringify(out[left])));
+  for (const field of dispositionFields) {
+    if (omit(field) && size() <= MAX_TOTAL) return out;
   }
   return out;
 }

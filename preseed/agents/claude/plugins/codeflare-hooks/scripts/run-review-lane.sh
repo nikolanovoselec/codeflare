@@ -293,7 +293,14 @@ if [ -n "$REPO_ROOT" ] && [ -f "$TRIAGE_SCRIPT" ] && command -v node >/dev/null 
     and (.sdd.layout == "nested" or .sdd.layout == "flat")
     and (.decision == "proceed" or .decision == "exit-no-op")
     and (.reason == null or (.reason | type == "string"))
-    and (if .decision == "exit-no-op" then (.reason | type == "string" and length > 0)
+    and (if .decision == "exit-no-op" then
+           (.reason | type == "string" and length > 0)
+           and (
+             ((.sdd.bootstrapped == false) and ($lane == "spec-reviewer" or $lane == "doc-updater"))
+             or ((.transition | type == "object") and .transition.active == true and .transition.corrupt == false)
+             or ((.roundLimit | type == "object") and .roundLimit.action == "stop"
+                 and (.roundLimit.counted | type == "number") and .roundLimit.counted >= 5)
+           )
          else (.bulkOpAudit | type == "object")
            and (.bulkOpAudit.checked | type == "number")
            and (.bulkOpAudit.findings | type == "array")

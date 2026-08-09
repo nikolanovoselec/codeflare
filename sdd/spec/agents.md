@@ -1661,7 +1661,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A lane already at its round limit costs no model invocation in either runtime. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::roundLimitReached --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (drops a lane at its round limit instead of demanding it) -->
+1. A lane already at its round limit costs no model invocation in either runtime. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::roundLimitReached --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (drops a lane at its round limit instead of demanding it) --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — round counter) -->
 
 **Constraints:**
 
@@ -1802,7 +1802,7 @@ None.
 **Acceptance Criteria:**
 
 1. Every Import-Mode triage entry carries concrete Context, Recommendation, and Rationale fields. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
-2. The enforce pass rejects missing, placeholder, or nonspecific Context, Recommendation, and Rationale guidance before an imported scaffold can commit. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Import-triage content gate --> <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
+2. The enforce pass rejects missing, placeholder, or nonspecific Context, Recommendation, and Rationale guidance before an imported scaffold can commit. <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/validate-import-triage.mjs::main --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Import-triage substantive guidance --> <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @test: host/__tests__/spec-enforce-import-triage.test.js (spec-enforce import-triage substantive validator) -->
 3. A lost triage entry carries a one-line Reason. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @manual -->
 
 **Constraints:**
@@ -1819,7 +1819,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** Manual check
+**Verification:** Automated test ([Import-triage validator tests](../../host/__tests__/spec-enforce-import-triage.test.js))
 
 **Status:** Implemented
 
@@ -3210,7 +3210,7 @@ None.
 
 1. Each lane's Phase 0 triage is resolved deterministically before the subprocess starts and handed to it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — transition gate) --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — round counter) -->
 2. The pre-computed triage reproduces the bulk-op audit and round-limit gates the reviewer prose defines. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::bulkOpAudit --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — bulk-op audit) -->
-3. A lane whose triage resolves to a no-op returns without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_DECISION --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
+3. A lane whose triage resolves to a no-op returns without invoking a model only when the result carries positive evidence for a supported bootstrap, transition, or round-limit no-op. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
 4. Every triage condition that cannot be resolved, including malformed JSON or a wrong lane/decision/layout shape, resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — fail-safe direction) --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
 
 5. A config that never mentions `enforce_tdd` resolves to on, not to a silent opt-out. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @test: host/__tests__/lane-triage.test.js (lane-triage.mjs — config defaults) -->

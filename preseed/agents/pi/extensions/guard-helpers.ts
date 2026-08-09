@@ -10,12 +10,56 @@
 
 export const LOCAL_BUILD_BYPASS = "/tmp/local-build-bypass";
 
-function withoutHeredocBodies(command: string): string {
-  const lines = command.split('\n');
-  const executableLines: string[] = [];
-  const pendingDelimiters: Array<{ value: string; stripTabs: boolean }> = [];
+type Heredoc = { value: string; stripTabs: boolean };
 
-  for (const line of lines) {
+function heredocDeclarations(line: string): Heredoc[] {
+  const declarations: Heredoc[] = [];
+  let quote = "";
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index] ?? "";
+    if (quote) {
+      if (char === "\\" && quote === '"') index += 1;
+      else if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (char === "\\") { index += 1; continue; }
+    if (char !== "<" || line[index + 1] !== "<" || line[index + 2] === "<") continue;
+
+    let cursor = index + 2;
+    const stripTabs = line[cursor] === "-";
+    if (stripTabs) cursor += 1;
+    while (line[cursor] === " " || line[cursor] === "\t") cursor += 1;
+
+    let value = "";
+    let delimiterQuote = "";
+    while (cursor < line.length) {
+      const token = line[cursor] ?? "";
+      if (delimiterQuote) {
+        if (token === delimiterQuote) delimiterQuote = "";
+        else if (token === "\\" && delimiterQuote === '"' && cursor + 1 < line.length) {
+          cursor += 1;
+          value += line[cursor] ?? "";
+        } else value += token;
+      } else if (token === "'" || token === '"') delimiterQuote = token;
+      else if (token === "\\" && cursor + 1 < line.length) {
+        cursor += 1;
+        value += line[cursor] ?? "";
+      } else if (/\s/.test(token) || ";&|<>".includes(token)) break;
+      else value += token;
+      cursor += 1;
+    }
+    if (value) declarations.push({ value, stripTabs });
+    index = cursor - 1;
+  }
+  return declarations;
+}
+
+function withoutHeredocBodies(command: string): string {
+  const executableLines: string[] = [];
+  const pendingDelimiters: Heredoc[] = [];
+
+  for (const line of command.split(/\r?\n/)) {
     const active = pendingDelimiters[0];
     if (active) {
       const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
@@ -24,12 +68,7 @@ function withoutHeredocBodies(command: string): string {
     }
 
     executableLines.push(line);
-    const declarations = line.matchAll(/<<(-)?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g);
-    for (const declaration of declarations) {
-      const value = declaration[2] ?? declaration[3] ?? declaration[4];
-      if (!value) continue;
-      pendingDelimiters.push({ value, stripTabs: declaration[1] === '-' });
-    }
+    pendingDelimiters.push(...heredocDeclarations(line));
   }
 
   return executableLines.join('\n');

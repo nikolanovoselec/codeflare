@@ -1613,6 +1613,24 @@ describe('enforce-review-spawn.sh - structural shell boundaries', () => {
       assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
     });
   }
+
+  for (const command of [
+    "printf '%s\\n' '<<EOF'\ngit status --short",
+    'printf "%s\\n" "<<EOF"\ngit status --short',
+    'printf "%s\\n" \\<\\<EOF\ngit status --short',
+  ]) {
+    it(`does not treat quoted or escaped << as a heredoc declaration in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const t = writeTranscript(cwd, [COMMAND_LINE(command)]);
+      const r = runHook(cwd, {
+        transcriptPath: t,
+        binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
+      });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    });
+  }
 });
 
 // REQ-AGENT-092 + REQ-AGENT-047: while triage items remain open the entire review pipeline is suspended
