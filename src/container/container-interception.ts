@@ -51,6 +51,8 @@ interface InterceptorRegistration {
   props: Record<string, unknown>;
   /** Host patterns to claim (`'*'` = strict-egress catch-all). */
   hosts: readonly string[];
+  /** Mandatory registrations fail startup rather than allowing provider bypass. */
+  mandatory?: boolean;
   wiredLog: string;
   wiredLogData?: Record<string, unknown>;
   failLog: string;
@@ -104,8 +106,7 @@ const llm: InterceptorSpec = {
   async resolve(host) {
     const aig = await getAigConfig(host.env);
     if (!aig.gatewayUrl) {
-      host.logger.warn('Enterprise mode active but AI Gateway URL unset (wizard + env); skipping LLM interception');
-      return null;
+      host.logger.warn('Enterprise mode active but AI Gateway URL unset (wizard + env); LLM requests will fail closed');
     }
     if (!aig.token) {
       // Wire interception anyway, but warn loudly: without the gateway token the
@@ -124,6 +125,7 @@ const llm: InterceptorSpec = {
         token: aig.token,
       },
       hosts: INTERCEPTED_LLM_HOSTS,
+      mandatory: true,
       wiredLog: 'Enterprise LLM interception wired',
       wiredLogData: { hostCount: INTERCEPTED_LLM_HOSTS.length },
       failLog: 'Failed to wire enterprise LLM interception',
@@ -246,6 +248,7 @@ function applyInterception(host: InterceptionHost, reg: InterceptorRegistration)
     }
   } catch (err) {
     host.logger.error(reg.failLog, toError(err));
+    if (reg.mandatory) throw err;
   }
 }
 

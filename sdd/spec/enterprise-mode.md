@@ -368,6 +368,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Interception is registered before container start so the platform CA mounts before entrypoint installs trust; post-boot wiring would make intercepted TLS fail. <!-- @impl: src/container/index.ts::startAndWaitForPorts --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 2. When `ENTERPRISE_MODE` is unset, no interception work is performed and the container start path is byte-identical to current behavior. <!-- @impl: src/container/index.ts::startAndWaitForPorts --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (enterprise LLM interception wiring (REQ-ENTERPRISE-011)) -->
+3. Enterprise LLM provider hosts are always registered before startup, including when Gateway configuration is missing; missing or malformed configuration fails requests with 503, while a mandatory LLM registration exception aborts startup. <!-- @impl: src/container/container-interception.ts::llm --> <!-- @impl: src/container/container-interception.ts::applyInterception --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (enterprise LLM interception wiring (REQ-ENTERPRISE-011)) -->
 
 **Constraints:**
 
