@@ -23,6 +23,7 @@ vi.mock('../../lib/mobile', () => ({
   needsHomeScreenInstallForNotifications: () => mobileState.iosInstall,
 }));
 
+const mockGetUser = vi.hoisted(() => vi.fn());
 const mockGetLlmKeys = vi.hoisted(() => vi.fn());
 const mockUpdateLlmKeys = vi.hoisted(() => vi.fn());
 const mockGetDeployKeys = vi.hoisted(() => vi.fn());
@@ -33,6 +34,7 @@ const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(
 ));
 
 // Defaults
+mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
 mockGetLlmKeys.mockResolvedValue({});
 mockUpdateLlmKeys.mockResolvedValue({});
 mockGetDeployKeys.mockResolvedValue({});
@@ -44,7 +46,7 @@ vi.mock('../../api/client', () => ({
   getDeployKeys: () => mockGetDeployKeys(),
   updateDeployKeys: (body: unknown) => mockUpdateDeployKeys(body),
   deleteDeployKeys: vi.fn(async () => undefined),
-  getUser: vi.fn(async () => ({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true })),
+  getUser: () => mockGetUser(),
 }));
 
 vi.mock('../../api/storage', () => ({
@@ -111,6 +113,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     });
     sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
+    mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
     mockGetLlmKeys.mockResolvedValue({});
     mockUpdateLlmKeys.mockResolvedValue({});
     mockAgentNotificationPermission.mockReturnValue('default');
@@ -608,6 +611,18 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       const header = screen.getByTestId('accordion-header-session');
       const titleSpan = header.querySelector('.settings-group-title');
       expect(titleSpan).toHaveTextContent('Session Defaults');
+    });
+
+    it('lets an administrator change auto-sleep even when the account tier is free', async () => {
+      mockGetUser.mockResolvedValue({
+        email: 'admin@example.com', authenticated: true, bucketName: 'test',
+        accessTier: 'free', subscribedMode: 'default', hasSubscribed: false,
+      });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="admin" />);
+
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      const select = await screen.findByTestId('settings-sleep-after-select');
+      expect(select).not.toBeDisabled();
     });
 
     it('renders "Administration" group heading for admins', () => {

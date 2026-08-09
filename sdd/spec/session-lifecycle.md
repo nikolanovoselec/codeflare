@@ -423,7 +423,7 @@ None.
 
 1. Settings dropdown with 5 options (15m, 30m, 1h, 2h, 4h). <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
 2. Free tier locked to 15m with upgrade hint. <!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC2: free tier locked to 15m idle timeout) -->
-3. Admins and paying users can change. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC3: admins and paying users can change sleepAfter) -->
+3. Admins can change the timeout regardless of subscription tier; non-admin paying users can change it while free users remain locked. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::canChangeSleepAfter --> <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC3: admins and paying users can change sleepAfter) -->
 4. Value saved to KV preferences and applied on next session start. <!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
 
 **Constraints:**
