@@ -28,6 +28,13 @@ import { ForbiddenError } from '../../lib/error-types';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 const AUTH_DOMAIN = 'team.cloudflareaccess.com';
 const TOKEN = 'cf-auth-token';

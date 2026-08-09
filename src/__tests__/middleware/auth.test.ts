@@ -6,6 +6,13 @@ import { AppError, AuthError, ForbiddenError } from '../../lib/error-types';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 describe('Auth Middleware', () => {
   let mockKV: ReturnType<typeof createMockKV>;

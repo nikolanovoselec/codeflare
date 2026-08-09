@@ -23,7 +23,7 @@ import {
   VAULT_PREWARM_FOCUS_GUARD_MARKER,
   VAULT_PREWARM_REQUIRED_FILES,
   injectVaultControlledReload,
-  injectVaultBootstrapHopHtml,
+  completeVaultBootstrap,
   installVaultControlledReload,
   VAULT_CONTROLLED_RELOAD_MARKER,
 } from '../../lib/vault-view';
@@ -126,49 +126,29 @@ describe('CF-045: vault-html direct unit tests', () => {
     });
   });
 
-  describe('injectVaultBootstrapHopHtml / REQ-VAULT-024', () => {
-    it('does not mark bootstrap complete when encryption enablement cannot persist', async () => {
-      const html = injectVaultBootstrapHopHtml('aabbccdd11223344', 'KEY123');
-      const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
-      expect(script).toBeDefined();
-
+  describe('completeVaultBootstrap / REQ-VAULT-024', () => {
+    it('does not mark bootstrap complete when encryption enablement cannot persist', () => {
       let cookie = '';
-      let redirect = '';
-      const status = { textContent: '' };
-      const serviceWorker = {
-        state: 'activated',
-        postMessage: vi.fn(),
-      };
-      const navigator = {
-        serviceWorker: {
-          register: vi.fn(async () => ({ active: serviceWorker, update: vi.fn(async () => undefined) })),
-        },
-      };
-      const document = {
-        getElementById: vi.fn(() => status),
+      const documentRef = {
         get cookie() { return cookie; },
         set cookie(value: string) { cookie = value; },
       };
-      const localStorage = {
+      const locationRef = { replace: vi.fn() };
+      const storageRef = {
         setItem: vi.fn(() => { throw new Error('storage denied'); }),
       };
-      const location = {
-        replace: vi.fn((value: string) => { redirect = value; }),
-      };
-      const console = { log: vi.fn(), warn: vi.fn() };
 
-      Function('navigator', 'document', 'localStorage', 'location', 'console', script!)(
-        navigator,
-        document,
-        localStorage,
-        location,
-        console,
-      );
-      await vi.waitFor(() => expect(status.textContent).toContain('storage denied'));
+      expect(() => completeVaultBootstrap(
+        storageRef,
+        documentRef,
+        locationRef,
+        VAULT_BOOTSTRAP_COOKIE,
+        '/api/vault/aabbccdd11223344/',
+        '',
+      )).toThrow('storage denied');
 
       expect(cookie).toBe('');
-      expect(redirect).toBe('');
-      expect(serviceWorker.postMessage).toHaveBeenCalledWith({ type: 'set-encryption-key', key: 'KEY123' });
+      expect(locationRef.replace).not.toHaveBeenCalled();
     });
   });
 

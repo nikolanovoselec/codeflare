@@ -6,6 +6,13 @@ import type { Env, Session } from '../../types';
 import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 // Mock container
 function createMockContainer(healthy = true) {

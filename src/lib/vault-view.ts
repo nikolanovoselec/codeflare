@@ -706,6 +706,20 @@ export function injectVaultControlledReload(html: string): string {
 export const VAULT_BOOTSTRAP_COOKIE = 'codeflare_vault_bootstrap';
 export const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;
 
+/** Persist the encryption gate before marking the bootstrap complete. */
+export function completeVaultBootstrap(
+  storageRef: Pick<Storage, 'setItem'>,
+  documentRef: { cookie: string },
+  locationRef: Pick<Location, 'replace'>,
+  cookieName: string,
+  scope: string,
+  redirectSearch: string,
+): void {
+  storageRef.setItem('enableEncryption', 'true');
+  documentRef.cookie = `${cookieName}=1; Path=${scope}; SameSite=Lax; Secure`;
+  locationRef.replace(scope + redirectSearch);
+}
+
 export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKey: string, redirectSearch = ''): string {
   if (!vaultEncryptionKey) {
     throw new Error('injectVaultBootstrapHopHtml: vaultEncryptionKey must be non-empty');
@@ -727,6 +741,10 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
   const escapedSid = escape(sessionId);
   const escapedCookie = escape(VAULT_BOOTSTRAP_COOKIE);
   const escapedRedirectSearch = escape(redirectSearch);
+  const completeBootstrapSource = completeVaultBootstrap.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   // The cookie and redirect run ONLY inside the SW-success branch.
   // If SW registration or the postMessage handoff fails (private mode,
   // SW disabled, exotic browser), we must NOT set the cookie or redirect
@@ -745,6 +763,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'var key = ' + escapedKey + ';' +
     'var cookieName = ' + escapedCookie + ';' +
     'var scope = "/api/vault/" + sid + "/";' +
+    'var completeBootstrap = ' + completeBootstrapSource + ';' +
     'var el = document.getElementById("status");' +
     'function fail(msg) {' +
     'if (el) el.textContent = "Vault could not start encryption: " + msg + ". Reload to retry.";' +
@@ -773,14 +792,12 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     '}' +
     'step("Posting encryption key...");' +
     'sw.postMessage({ type: "set-encryption-key", key: key });' +
-    'localStorage.setItem("enableEncryption", "true");' +
     'step("Redirecting...");' +
+    'completeBootstrap(localStorage, document, location, cookieName, scope, ' + escapedRedirectSearch + ');' +
     '} catch (e) {' +
     'fail(e && e.message ? e.message : String(e));' +
     'return;' +
     '}' +
-    'document.cookie = cookieName + "=1; Path=" + scope + "; SameSite=Lax; Secure";' +
-    'location.replace(scope + ' + escapedRedirectSearch + ');' +
     '})();' +
     '</script></body></html>';
 }

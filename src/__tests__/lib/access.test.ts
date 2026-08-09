@@ -375,13 +375,6 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
   // CF-019: independent double-submit CSRF token gating in authenticateRequest
   // ===========================================================================
   describe('authenticateRequest() CSRF double-submit / CF-019 (cookie+header token, mismatch rejects, absence falls back to X-Requested-With)', () => {
-    function makeEnv(overrides: Partial<Env> = {}): Env {
-      return {
-        KV: mockKV as unknown as KVNamespace,
-        ...overrides,
-      } as Env;
-    }
-
     // Pre-setup header trust authenticates the email; the KV record makes the
     // allowlist lookup pass so we reach the end of authenticateRequest. The
     // CSRF gate runs FIRST, so rejection tests do not even need a KV record.

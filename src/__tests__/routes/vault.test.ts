@@ -661,21 +661,14 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       // a removeItem here; pinning the absence catches that drift.
       expect(catchBody).not.toContain('localStorage.setItem("enableEncryption"');
       expect(catchBody).not.toContain('localStorage.removeItem("enableEncryption"');
-      // Ordering: setItem("enableEncryption") MUST appear after the
-      // sw.postMessage call and before document.cookie. This is the
-      // load-bearing invariant the bootstrap-hop race fix enforces.
+      // The completion helper runs only after the key handoff and inside
+      // the guarded try. Its direct behavioral test proves that persistence
+      // precedes cookie+redirect and a storage rejection emits neither.
       const postIdx = out.indexOf('sw.postMessage');
-      const setItemIdx = out.indexOf('localStorage.setItem("enableEncryption"');
-      const cookieIdx = out.indexOf('document.cookie');
-      const replaceIdx = out.indexOf('location.replace');
+      const completionCallIdx = out.lastIndexOf('completeBootstrap(');
       expect(postIdx).toBeGreaterThanOrEqual(0);
-      expect(setItemIdx).toBeGreaterThan(postIdx);
-      expect(cookieIdx).toBeGreaterThan(setItemIdx);
-      expect(replaceIdx).toBeGreaterThan(cookieIdx);
-      // All three side-effects live after the catch block closes.
-      expect(setItemIdx).toBeGreaterThan(catchBodyEndIdx);
-      expect(cookieIdx).toBeGreaterThan(catchBodyEndIdx);
-      expect(replaceIdx).toBeGreaterThan(catchBodyEndIdx);
+      expect(completionCallIdx).toBeGreaterThan(postIdx);
+      expect(completionCallIdx).toBeLessThan(catchOpenIdx);
     });
 
     it('aborts (no cookie, no redirect, no enableEncryption=true) when reg.active/installing/waiting are all null', () => {

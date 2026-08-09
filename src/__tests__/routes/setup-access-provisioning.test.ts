@@ -7,6 +7,13 @@ import { ValidationError, AuthError, SetupError, ForbiddenError } from '../../li
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 // REQ-ENTERPRISE-022: per-route context windows persist, validate, and round-trip through setup.
 // URL-based mock fetch factory - routes requests by URL pattern (and optionally method)
