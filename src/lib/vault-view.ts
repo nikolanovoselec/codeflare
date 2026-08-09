@@ -710,7 +710,7 @@ export const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;
 export function completeVaultBootstrap(
   storageRef: Pick<Storage, 'setItem'>,
   documentRef: { cookie: string },
-  locationRef: Pick<Location, 'replace'>,
+  locationRef: { replace(url: string): void },
   cookieName: string,
   scope: string,
   redirectSearch: string,
