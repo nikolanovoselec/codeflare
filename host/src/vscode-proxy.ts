@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 
 /** Default lazy-start trigger path the Browser IDE supervisor waits on. */
-export const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
+const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
 export const CODEFLARE_WORKSPACE_ROOT = '/home/user/workspace';
 const WORKSPACE_SELECTOR_KEYS = Object.freeze(['folder', 'workspace', 'ew']);
 

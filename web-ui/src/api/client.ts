@@ -287,7 +287,7 @@ export async function updateLlmKeys(keys: { openaiApiKey?: string | null; gemini
   }, LlmKeysResponseSchema);
 }
 
-export async function deleteLlmKeys(): Promise<void> {
+async function deleteLlmKeys(): Promise<void> {
   await fetchApi('/llm-keys', {
     method: 'DELETE',
   });

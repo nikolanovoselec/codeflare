@@ -9,7 +9,7 @@ const BASE_URL = '/api';
 // navigation (the Worker 302s to Cloudflare and returns to the app), so the caller
 // assigns window.location.href to cloudflareConnectUrl() rather than calling fetch.
 
-export type CloudflareStatus = z.infer<typeof CloudflareStatusResponseSchema>;
+type CloudflareStatus = z.infer<typeof CloudflareStatusResponseSchema>;
 
 async function cloudflareFetch<T>(endpoint: string, options: RequestInit, schema: z.ZodType<T>): Promise<T> {
   return baseFetch<T>(`${BASE_URL}${endpoint}`, options, { credentials: 'same-origin', schema });

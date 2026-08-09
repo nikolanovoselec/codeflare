@@ -12,7 +12,7 @@
  */
 import crypto from 'crypto';
 
-export const AUTH_EXEMPT_PATHS = new Set(['/health', '/activity']);
+const AUTH_EXEMPT_PATHS = new Set(['/health', '/activity']);
 
 export type AuthOutcome =
   | { allowed: true }

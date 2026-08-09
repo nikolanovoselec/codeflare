@@ -338,7 +338,7 @@ export function getEffectiveTier(
 }
 
 /** Billing-derived entitlements resolved from a user record. */
-export interface EffectiveEntitlements {
+interface EffectiveEntitlements {
   effectiveTier: string;
   allowedModes: SessionMode[];
   maxSessions: number;
