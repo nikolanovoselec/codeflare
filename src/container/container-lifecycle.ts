@@ -97,6 +97,8 @@ type FinalSyncResult = { outcome: FinalSyncOutcome; httpStatus?: number; reason?
 // genuinely-dead container makes port.fetch error/timeout, which is swallowed
 // and reported as 'errored' (still best-effort, still bounded by budgetMs).
 async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number, authToken: string | null): Promise<FinalSyncResult> {
+  if (!authToken) return { outcome: 'errored', reason: 'missing-auth-token' };
+  if (budgetMs <= 0) return { outcome: 'errored', reason: 'teardown-deadline-exhausted' };
   if (!host.ctx.container?.running) {
     // We still attempt: a not-running reading at the start is worth recording as
     // the likely transient the #516 fix exists to survive.
@@ -115,7 +117,7 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number, auth
     // real but unreachable behind this 401).
     const res = await port.fetch('http://localhost/internal/final-sync', {
       method: 'POST',
-      ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}),
+      headers: { Authorization: `Bearer ${authToken}` },
       signal: AbortSignal.timeout(budgetMs),
     });
     // The host reports its own reason in the body ({ synced, reason }); capture
@@ -159,6 +161,24 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
  * resurrect the KV entry (REQ-SESSION-009).
  */
 export async function destroy(host: LifecycleHost): Promise<void> {
+  const hardKillMs = 135_000;
+  host._shutdownStartedAt = Date.now();
+  const start = host._shutdownStartedAt;
+  const withinDeadline = async <T>(operation: Promise<T>): Promise<T> => {
+    const remaining = hardKillMs - (Date.now() - start);
+    if (remaining <= 0) throw new Error('teardown deadline exceeded');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('teardown deadline exceeded')), remaining);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
   host.logger.info('Destroying container, clearing operational storage');
   // Capture the session id BEFORE the storage-clear below nulls host._sessionId,
   // so the final-sync audit (recorded after the drain) stays correlatable.
@@ -170,7 +190,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // re-created for this delete and never hydrated the in-memory field.
   let auditAuthToken: string | null = host._containerAuthToken;
   if (!auditAuthToken) {
-    try { auditAuthToken = (await host.ctx.storage.get<string>('containerAuthToken')) ?? null; } catch { auditAuthToken = null; }
+    try { auditAuthToken = (await withinDeadline(host.ctx.storage.get<string>('containerAuthToken'))) ?? null; } catch { auditAuthToken = null; }
   }
   // Persist the deliberate-stop marker and drop the metrics alarm BEFORE
   // clearing identifiers. If a DO eviction interrupts this teardown, the
@@ -178,7 +198,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // persisted marker, so the surviving collectMetrics alarm cannot self-heal a
   // session the user is deliberately stopping back to running (REQ-SESSION-018
   // AC4). onStart() clears the marker on the next fresh start.
-  try { await host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now()); } catch { /* storage racing teardown */ }
+  try { await withinDeadline(host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now())); } catch { /* storage racing teardown */ }
   // Record the stop while the identifiers that write still needs are in hand.
   // onStop() cannot: the clear below nulls _bucketName, so its updateKvStatus
   // hits the missing-identifiers guard and writes nothing, leaving a torn-down
@@ -200,30 +220,25 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // (REQ-SESSION-009), and the stop route already wrote the same value before
   // calling in. Best-effort, like every other step of teardown.
   try {
-    await updateKvStatus(host.ctx, host.env, host._bucketName, 'stopped', 'lastActiveAt');
+    await withinDeadline(updateKvStatus(host.ctx, host.env, host._bucketName, 'stopped', 'lastActiveAt'));
   } catch { /* teardown proceeds regardless */ }
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   // Recovery residue must not survive teardown even when another operational
   // key deletion fails below.
-  try { await host.ctx.storage.delete(TRANSPORT_RECOVERY_KEY); } catch { /* best-effort */ }
+  try { await withinDeadline(host.ctx.storage.delete(TRANSPORT_RECOVERY_KEY)); } catch { /* best-effort */ }
   try {
-    await host.ctx.storage.delete(SESSION_ID_KEY);
-    await host.ctx.storage.delete('bucketName');
-    await host.ctx.storage.delete('workspaceSyncEnabled');
-    await host.ctx.storage.delete('fastStartEnabled');
-    await host.ctx.storage.delete('tabConfig');
-    await host.ctx.storage.delete('sleepAfter');
-    await host.ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY);
-    // Drop the persisted auth token: the next session under this DO ID will
-    // be a different container instance with a fresh token, so reusing the
-    // old one would let an unrelated request out of a previous lifecycle
-    // authenticate against the new container.
-    await host.ctx.storage.delete('containerAuthToken');
-    // REQ-VAULT-008 AC1: wipe the vault key so deletion is
-    // forward-secret. The browser's IDB ciphertext (if not yet
-    // cleaned by the frontend lifecycle hook) becomes permanently
-    // unrecoverable once this delete commits.
-    await host.ctx.storage.delete('vaultKey');
+    await withinDeadline(Promise.all([
+      host.ctx.storage.delete(SESSION_ID_KEY),
+      host.ctx.storage.delete('bucketName'),
+      host.ctx.storage.delete('workspaceSyncEnabled'),
+      host.ctx.storage.delete('fastStartEnabled'),
+      host.ctx.storage.delete('tabConfig'),
+      host.ctx.storage.delete('sleepAfter'),
+      host.ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY),
+      // Drop auth and vault keys before the next lifecycle can reuse this DO.
+      host.ctx.storage.delete('containerAuthToken'),
+      host.ctx.storage.delete('vaultKey'),
+    ]));
     host._bucketName = null;
     host._sessionId = null;
     host._r2AccessKeyId = null;
@@ -256,23 +271,24 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // (AD56) - so the trap was cut off and the last edits never reached R2 (data
   // loss on stop/delete). Syncing here removes the kill-grace dependency; the
   // trap remains a best-effort backstop. See AD57.
-  host._shutdownStartedAt = Date.now();
-  const hardKillMs = 135_000;
   const warnThresholdMs = 110_000;
   const pollMs = 250;
-  const start = host._shutdownStartedAt;
   let warned = false;
 
   // Authoritative final sync (bounded). Best-effort: the drain swallows
   // failure/timeout so we always fall through to stop. Emit a durable audit
   // event recording the outcome so a skipped/failed final sync on delete is
   // never silent (#516).
-  const syncResult = await drainFinalSyncAudited(host, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start)), auditAuthToken);
-  await recordFinalSyncAudit(host, syncResult, auditSessionId);
+  const syncResult = await withinDeadline(drainFinalSyncAudited(
+    host,
+    Math.max(1, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start))),
+    auditAuthToken,
+  ));
+  await withinDeadline(recordFinalSyncAudit(host, syncResult, auditSessionId));
 
   if (host.ctx.container?.running) {
     try {
-      await host.stop('SIGTERM');
+      await withinDeadline(host.stop('SIGTERM'));
       while (host.ctx.container?.running && Date.now() - start < hardKillMs) {
         await new Promise((resolve) => setTimeout(resolve, pollMs));
         if (!warned && Date.now() - start >= warnThresholdMs) {
@@ -295,7 +311,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     }
   }
 
-  return host.superDestroy();
+  return withinDeadline(host.superDestroy());
 }
 
 /** Called when the container stops. */

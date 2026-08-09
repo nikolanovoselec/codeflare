@@ -969,6 +969,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     it('REQ-SESSION-011: drains a final R2 sync (POST /internal/final-sync) BEFORE signalling stop', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
         return null;
       });
       mockContainerRuntime.running = true;
@@ -1032,9 +1033,22 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect((drainInit?.headers as Record<string, string> | undefined)?.Authorization).toBe('Bearer tok-teardown-456');
     });
 
+    it('REQ-SESSION-011: missing auth token records the reason and makes zero final-sync requests', async () => {
+      mockStorage.get.mockResolvedValue(null);
+      mockContainerRuntime.running = true;
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      vi.spyOn(instance, 'stop' as any).mockImplementation(async () => { mockContainerRuntime.running = false; });
+
+      await instance.destroy();
+
+      expect(mockTcpPortFetch).not.toHaveBeenCalledWith(expect.stringContaining('/internal/final-sync'), expect.anything());
+      expect(mockStorage.put).toHaveBeenCalledWith('finalSyncAudit', expect.objectContaining({ reason: 'missing-auth-token' }));
+    });
+
     it('REQ-SESSION-011: still stops when the final-sync drain fails (best-effort, no throw)', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
         return null;
       });
       mockContainerRuntime.running = true;
