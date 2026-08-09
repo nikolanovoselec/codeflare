@@ -507,7 +507,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Constraints:**
 
-- These workflows run independently of the per-PR quality gates in [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit). CodeQL also supplies its required status to pull requests for both protected branches.
+- These workflows run independently of the per-PR quality gates in [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit).
+- CodeQL supplies its required status to pull requests for both protected branches.
 
 **Priority:** P1
 
@@ -935,10 +936,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Constraints:**
 
-- GitHub still permits creating other pull requests; the required status blocks their merge.
+- GitHub permits creating other pull requests.
+- The required status blocks noncanonical promotions from merging.
 - A fork branch named `develop` cannot satisfy the promotion check.
 - The validation command consumes pull-request metadata through environment variables and never executes branch or repository names as shell code.
-- The policy check receives no repository permission because it uses only event metadata. <!-- @test: host/__tests__/ci-workflow-hardening.test.js (least-privilege workflow boundaries) -->
+- The policy check uses only event metadata and receives no repository permission. <!-- @test: host/__tests__/ci-workflow-hardening.test.js (least-privilege workflow boundaries) -->
 
 **Priority:** P0
 

@@ -295,7 +295,10 @@ Multi-agent support, preseed system, and session modes.
 4. Within one active session, an existing launch plan or acknowledgement for the unchanged authoritative head remains inert, so later Git and GitHub CLI commands cannot duplicate review or CI. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::PLAN_FILE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (does not repeat the launch reminder for the same unacknowledged head) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert) -->
 5. The first genuinely new authoritative candidate after session resume may recover one same-head launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-112/REQ-AGENT-121: resumed sessions recover once through FIX and restore Goal pause) -->
 
-**Constraints:** The user workflow uses a normal checked-out branch. Detached HEAD and linked-worktree execution are unsupported and inert.
+**Constraints:**
+
+- The user workflow uses a normal checked-out branch.
+- Detached HEAD and linked-worktree execution are unsupported and inert.
 
 **Priority:** P1
 
@@ -322,7 +325,10 @@ Multi-agent support, preseed system, and session modes.
 4. A valid legacy repository-global acknowledgement remains readable as a migration fallback. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::readAck --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::LAST_ACK_PR_HEAD --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert) -->
 5. New acknowledgements write only the PR-specific checkpoint. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledge --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::ACK_FILE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: consumes a one-shot bypass and acknowledges the exact PR head) -->
 
-**Constraints:** Checkpoints do not support detached or linked worktrees. Accounting never acknowledges an unreviewed head.
+**Constraints:**
+
+- Checkpoints do not support detached or linked worktrees.
+- Accounting never acknowledges an unreviewed head.
 
 **Priority:** P1
 
@@ -379,7 +385,12 @@ Multi-agent support, preseed system, and session modes.
 4. Last-agent preference writes reject an agent whose launcher is omitted. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (REQ-AGENT-123 AC4: lastAgentType is rejected when its CLI is omitted from the image) -->
 5. Starting a persisted session whose launcher is omitted fails before container startup. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container/lifecycle.test.ts (REQ-AGENT-123 AC5: rejects starting a persisted session whose CLI is omitted from the image) -->
 
-**Constraints:** Bash remains available because it requires no coding-agent package. An absent installed-agent value preserves every supported agent for backward compatibility; a present malformed value fails closed to Bash. Every narrower policy is intersected with that resolved installed set.
+**Constraints:**
+
+- Bash remains available without a coding-agent package.
+- An absent installed-agent value preserves every supported agent for backward compatibility.
+- A malformed installed-agent value fails closed to Bash.
+- Every narrower policy intersects with the resolved installed set.
 
 **Priority:** P1
 
@@ -406,7 +417,10 @@ Multi-agent support, preseed system, and session modes.
 5. A successful legacy non-enterprise profile without `allowedAgents` hydrates to the full catalog. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (REQ-AGENT-124: legacy profile agent fallback) -->
 6. A successful legacy enterprise profile without `allowedAgents` hydrates to the enterprise catalog. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (REQ-AGENT-124: legacy profile agent fallback) -->
 
-**Constraints:** `null` denotes only unresolved hydration. Legacy defaults apply only after a successful profile response omits the optional field.
+**Constraints:**
+
+- `null` denotes only unresolved hydration.
+- Legacy defaults apply only after a successful profile response omits the optional field.
 
 **Priority:** P1
 
@@ -1076,7 +1090,8 @@ None.
 2. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) --> <!-- @manual -->
 3. The skill documents the safe build path for large repos (more than 2000 files). <!-- @manual -->
 4. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @manual -->
-5. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, and an optional wiki tree; `.graphify_labels.json` is included only when the user requests community naming, and skipping labels never blocks graph publication. The owned Pi AST, architecture, semantic-merge, and label-apply HTML generation paths pass `GRAPHIFY_VIZ_NODE_LIMIT` to Graphify's exporter, default it to `100000`, and reject non-positive or non-integer values before publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi semantic graph publication produces HTML without community labels) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi architecture build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi AST build rejects an invalid visualization limit) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi label apply rejects an invalid limit before publication) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi labeled graph publication forwards the visualization limit) --> <!-- @manual -->
+5. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, and an optional wiki tree; `.graphify_labels.json` is included only when the user requests community naming, and skipping labels never blocks graph publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi semantic graph publication produces HTML without community labels) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi architecture build writes a portable manifest and unlabeled HTML) --> <!-- @manual -->
+6. The owned Pi graph builders and label-apply path pass `GRAPHIFY_VIZ_NODE_LIMIT` to Graphify's exporter, default it to `100000`, and reject non-positive or non-integer values before publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi AST build rejects an invalid visualization limit) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi label apply rejects an invalid limit before publication) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi labeled graph publication forwards the visualization limit) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1444,7 +1459,11 @@ None.
 6. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 7. Each candidate remains paired with its executable shell segment and resolved repository. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: binds git -C review and acknowledgement to the boundary repository) -->
 
-**Constraints:** Command parsing is only candidate detection as defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection). Eligibility comes from authoritative branch and PR state. Draft protected-base PRs remain eligible.
+**Constraints:**
+
+- Command parsing only detects candidates as defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection).
+- Authoritative branch and PR state determine eligibility.
+- Draft protected-base PRs remain eligible.
 
 **Priority:** P1
 
@@ -2140,7 +2159,10 @@ None.
 4. Candidate detection never decides PR eligibility; [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization) performs the authoritative branch-and-head check. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: checks authoritative current-branch state after any git or gh command) -->
 5. Supported shell surfaces are Bash, shell `ctx_execute`, and `ctx_batch_execute`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces) -->
 
-**Constraints:** Candidate detection is intentionally broad and cheap. GitHub PR state, the checked-out branch, and exact local-head equality are the only eligibility evidence.
+**Constraints:**
+
+- Candidate detection remains broad and cheap.
+- Eligibility evidence consists only of GitHub PR state, the checked-out branch, and exact local-head equality.
 
 **Priority:** P1
 
@@ -2557,7 +2579,7 @@ None.
 **Constraints:**
 
 - Codeflare owns the preserved librarian bytes and manifest entry; package installation no longer supplies a second copy.
-- `auto-summary` remains the default because the container is headless, not because the corrected 0.14 curator fallback still crashes.
+- `auto-summary` remains the default for headless containers.
 
 **Priority:** P1
 
