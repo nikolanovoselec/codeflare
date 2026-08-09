@@ -811,23 +811,27 @@ wait
 ${extractKillHelpers()}
 setsid bash -c '_openvscode_supervise_loop' >/dev/null 2>&1 &
 supervisor=$!
+supervisor_start="$(_process_start_time "$supervisor")"
 printf '%s\\n' "$supervisor" > "$OPENVSCODE_PIDFILE"
 for _ in $(seq 1 50); do [ -s "$MANAGED_PID_FILE" ] && break; sleep 0.02; done
 read -r managed < "$MANAGED_PID_FILE"
+managed_start="$(_process_start_time "$managed")"
 kill_pidfile_subtree "$OPENVSCODE_GENERATION_PIDFILE"
 kill_pidfile_subtree "$OPENVSCODE_PIDFILE"
-# kill -0 also succeeds for a terminated process that briefly remains a zombie
-# while CI's init process catches up. Assert that neither process is runnable.
-is_running() {
+# A busy shared runner can reuse a terminated PID while the assertion waits.
+# Match the original process identity and reject zombies, as production cleanup does.
+is_running_original() {
   [ -r "/proc/$1/stat" ] || return 1
+  [ "$(_process_start_time "$1")" = "$2" ] || return 1
   [ "$(awk '{print $3}' "/proc/$1/stat")" != Z ]
 }
 for _ in $(seq 1 50); do
-  if ! is_running "$supervisor" && ! is_running "$managed"; then break; fi
+  if ! is_running_original "$supervisor" "$supervisor_start" \\
+     && ! is_running_original "$managed" "$managed_start"; then break; fi
   sleep 0.02
 done
-if is_running "$supervisor"; then supervisor_state=alive; else supervisor_state=dead; fi
-if is_running "$managed"; then managed_state=alive; else managed_state=dead; fi
+if is_running_original "$supervisor" "$supervisor_start"; then supervisor_state=alive; else supervisor_state=dead; fi
+if is_running_original "$managed" "$managed_start"; then managed_state=alive; else managed_state=dead; fi
 printf 'supervisor=%s managed=%s\\n' "$supervisor_state" "$managed_state"
 pkill -KILL -P "$managed" 2>/dev/null || true
 kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
