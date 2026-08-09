@@ -1090,8 +1090,6 @@ None.
 2. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) --> <!-- @manual -->
 3. The skill documents the safe build path for large repos (more than 2000 files). <!-- @manual -->
 4. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @manual -->
-5. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, and an optional wiki tree; `.graphify_labels.json` is included only when the user requests community naming, and skipping labels never blocks graph publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::graphify-out/graph.json --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify-out/graph.json --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi semantic graph publication produces HTML without community labels) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi architecture build writes a portable manifest and unlabeled HTML) --> <!-- @manual -->
-6. The owned Pi graph builders and label-apply path pass `GRAPHIFY_VIZ_NODE_LIMIT` to Graphify's exporter, default it to `100000`, and reject non-positive or non-integer values before publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi AST build rejects an invalid visualization limit) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi label apply rejects an invalid limit before publication) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-024 AC5: Pi labeled graph publication forwards the visualization limit) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1103,6 +1101,36 @@ None.
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
 **Verification:** Behavioral tests and manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-127: Graph publication artifacts and visualization limits
+
+**Intent:** Graph publication keeps its durable artifacts available with or without optional community labels while bounding visualization export work.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. The published graph surface includes the queryable graph, human-readable report, visual exploration page, generated callflow, and optional wiki tree. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::graphify-out/graph.json --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify-out/graph.json --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi architecture build writes a portable manifest and unlabeled HTML) --> <!-- @manual -->
+2. Community labels are published only when the user requests community naming. <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::validate_labels --> <!-- @manual -->
+3. Skipping community labels never blocks graph publication. <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::community labels --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC3: Pi semantic graph publication produces HTML without community labels) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi architecture build writes a portable manifest and unlabeled HTML) -->
+4. Graph publication honors the configured visualization node limit across AST, architecture, semantic-merge, and label-apply paths. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC4: Pi labeled graph publication forwards the visualization limit) -->
+5. An absent visualization node-limit setting defaults to `100000`. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) -->
+6. Non-positive or non-integer visualization node limits reject publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC6: Pi AST build rejects an invalid visualization limit) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC6: Pi label apply rejects an invalid limit before publication) -->
+
+**Constraints:**
+
+- Publication limits never remove the durable queryable graph.
+- Exact configuration and exporter wiring remain documented outside the behavioral criteria.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch)
+
+**Verification:** Automated tests and manual check
 
 **Status:** Implemented
 
@@ -2574,7 +2602,7 @@ None.
 
 1. The owned `pi-web-access` skill documents the default `source_check` claim-verification tool. <!-- @impl: preseed/agents/pi/skills/pi-web-access/SKILL.md::source_check --> <!-- @manual -->
 2. The owned `pi-web-access` skill directs callers to retrieve stored content as bounded `offset`/`limit` slices rather than claiming a full-result response. <!-- @impl: preseed/agents/pi/skills/pi-web-access/SKILL.md::get_search_content --> <!-- @manual -->
-3. The former upstream `librarian` skill remains an owned Codeflare skill delivered in both Pi modes after upstream removes its bundled copy. <!-- @impl: preseed/agents/pi/skills/librarian/SKILL.md::Librarian --> <!-- @impl: preseed/agents/pi/manifest.json::skills/librarian/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions) -->
+3. The former upstream `librarian` skill remains an owned Codeflare skill delivered in both Pi modes after upstream removes its bundled copy. <!-- @impl: preseed/agents/pi/skills/librarian/SKILL.md::Librarian --> <!-- @impl: preseed/agents/pi/manifest.json::skills/librarian/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-115 AC3: librarian skill ships in both Pi modes) -->
 
 **Constraints:**
 

@@ -992,7 +992,7 @@ docs/images:
 - Graphify's cache helpers persist those chunks, with each write restricted to the current `.graphify_uncached.txt` file set so an out-of-scope model attribution cannot replace another file's cache entry.
 - Local Graphify module flows merge, build, cluster, and report output.
 
-Community naming is optional in both Pi and Claude. When requested, the active
+Community naming is optional in both Pi and Claude ([REQ-AGENT-127](../../sdd/spec/agents.md#req-agent-127-graph-publication-artifacts-and-visualization-limits)). When requested, the active
 agent session writes `.graphify_labels.json` and regenerates report/html from the
 existing community assignments, never `graphify label` or provider backends. When
 skipped, Graphify's official report/html remain publishable and no labels file is
@@ -1293,6 +1293,7 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 - [REQ-AGENT-019](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui) - Branded settings UI
 - [REQ-AGENT-020](../../sdd/spec/agents.md#req-agent-020-llm-api-key-management-ui) - LLM API key management UI
 - [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) - Advanced-Session-Mode Graph-First Discipline
+- [REQ-AGENT-127](../../sdd/spec/agents.md#req-agent-127-graph-publication-artifacts-and-visualization-limits) - Graph Publication Artifacts and Visualization Limits
 - [REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) - Advanced-Session Graph-First Runtime Reminders
 - [REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage) - Post-Clone Graph Triage
 - [REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git) - Knowledge-Graph Persistence via Git

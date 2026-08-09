@@ -458,6 +458,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
+  it('REQ-AGENT-115 AC3: librarian skill ships in both Pi modes', () => {
+    const librarianSkill = AGENTS_SEEDED_CONFIGS.find(
+      (doc) => doc.key === '.pi/agent/skills/librarian/SKILL.md',
+    );
+    expect(librarianSkill?.modes).toEqual(['default', 'advanced']);
+  });
+
   it('REQ-AGENT-021: every Pi extension exports a default factory (Pi rejects a non-factory .ts at load)', () => {
     // Pi's extension scanner loads EVERY .ts under .pi/agent/extensions/ and throws
     // "Extension does not export a valid factory function" if a file has no default
