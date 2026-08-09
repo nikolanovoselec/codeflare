@@ -391,7 +391,7 @@ describe('Graphify build preseed', () => {
     }
   });
 
-  it('REQ-AGENT-127 AC3: Pi semantic graph publication produces HTML without community labels', () => {
+  it('REQ-AGENT-127 AC3 / REQ-AGENT-128 AC3: Pi semantic publication works unlabeled and forwards the visualization limit', () => {
     const cwd = runPiSemanticBuildStep();
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');
@@ -411,12 +411,17 @@ describe('Graphify build preseed', () => {
     assert.equal(calls[0].manifest_path, 'graphify-out/manifest.json');
   });
 
-  it('REQ-AGENT-127 AC6: Pi AST build rejects an invalid visualization limit', () => {
+  it('REQ-AGENT-128 AC1: Pi AST build forwards the configured visualization limit', () => {
+    const { cwd } = runBuildScript('build-graphify-ast.sh', { GRAPHIFY_VIZ_NODE_LIMIT: '7' });
+    assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '7');
+  });
+
+  it('REQ-AGENT-128 AC6: Pi AST build rejects an invalid visualization limit', () => {
     const { result } = runBuildScript('build-graphify-ast.sh', { GRAPHIFY_VIZ_NODE_LIMIT: '0' }, 1);
     assert.match(result.stderr, /GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer/);
   });
 
-  it('REQ-AGENT-127 AC6: Pi label apply rejects an invalid limit before publication', () => {
+  it('REQ-AGENT-128 AC6: Pi label apply rejects an invalid limit before publication', () => {
     const { cwd, result } = runPiLabelApply('invalid', 1);
     assert.match(result.stderr, /GRAPHIFY_VIZ_NODE_LIMIT must be a positive integer/);
     assert.equal(readFileSync(join(cwd, 'graphify-out/GRAPH_REPORT.md'), 'utf-8'), 'prior report');
@@ -424,14 +429,14 @@ describe('Graphify build preseed', () => {
     assert.equal(existsSync(join(cwd, 'graphify-out/callflow.html')), false);
   });
 
-  it('REQ-AGENT-127 AC4: Pi labeled graph publication forwards the visualization limit', () => {
+  it('REQ-AGENT-128 AC4: Pi labeled graph publication forwards the visualization limit', () => {
     const { cwd } = runPiLabelApply();
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');
     assert.equal(readFileSync(join(cwd, 'graphify-out/callflow.html'), 'utf-8'), '<html>callflow</html>');
   });
 
-  it('Pi architecture build writes a portable manifest and unlabeled HTML', () => {
+  it('REQ-AGENT-128 AC2: Pi architecture build forwards the visualization limit and writes a portable manifest', () => {
     const { cwd, calls } = runBuildScript('build-graphify-architecture.sh');
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html'), 'utf-8'), '<html>graph</html>');
     assert.equal(readFileSync(join(cwd, 'graphify-out/graph.html.node-limit'), 'utf-8'), '1');

@@ -1106,29 +1106,50 @@ None.
 
 ---
 
-### REQ-AGENT-127: Graph publication artifacts and visualization limits
+### REQ-AGENT-127: Graph publication artifacts and optional labels
 
-**Intent:** Graph publication keeps its durable artifacts available with or without optional community labels while bounding visualization export work.
+**Intent:** Graph publication keeps its durable artifacts available with or without optional community labels.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. The published graph surface includes the queryable graph, human-readable report, visual exploration page, generated callflow, and optional wiki tree. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::graphify-out/graph.json --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify-out/graph.json --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi architecture build writes a portable manifest and unlabeled HTML) --> <!-- @manual -->
-2. Community labels are published only when the user requests community naming. <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::validate_labels --> <!-- @manual -->
-3. Skipping community labels never blocks graph publication. <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::community labels --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC3: Pi semantic graph publication produces HTML without community labels) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi architecture build writes a portable manifest and unlabeled HTML) -->
-4. Graph publication honors the configured visualization node limit across AST, architecture, semantic-merge, and label-apply paths. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC4: Pi labeled graph publication forwards the visualization limit) -->
-5. An absent visualization node-limit setting defaults to `100000`. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) -->
-6. Non-positive or non-integer visualization node limits reject publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC6: Pi AST build rejects an invalid visualization limit) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC6: Pi label apply rejects an invalid limit before publication) -->
+1. The published graph surface includes the queryable graph, human-readable report, visual exploration page, generated callflow, and optional wiki tree. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::graphify-out/graph.json --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify-out/graph.json --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-128 AC2: Pi architecture build forwards the visualization limit and writes a portable manifest) --> <!-- @manual -->
+2. Community labels are published only when the user requests community naming. <!-- @manual -->
+3. Skipping community labels never blocks graph publication. <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify_labels --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC3 / REQ-AGENT-128 AC3: Pi semantic publication works unlabeled and forwards the visualization limit) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-128 AC2: Pi architecture build forwards the visualization limit and writes a portable manifest) -->
 
-**Constraints:**
-
-- Publication limits never remove the durable queryable graph.
-- Exact configuration and exporter wiring remain documented outside the behavioral criteria.
+**Constraints:** Optional labels never replace the official graph artifacts.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch)
+
+**Verification:** Automated tests and manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-128: Graph visualization node limits
+
+**Intent:** Graph publication bounds visualization export work consistently across every owned publication path.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. AST publication honors the configured visualization node limit. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-128 AC1: Pi AST build forwards the configured visualization limit) -->
+2. Architecture publication honors the configured visualization node limit. <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-128 AC2: Pi architecture build forwards the visualization limit and writes a portable manifest) -->
+3. Semantic-merge publication honors the configured visualization node limit. <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-127 AC3 / REQ-AGENT-128 AC3: Pi semantic publication works unlabeled and forwards the visualization limit) -->
+4. Label-apply publication honors the configured visualization node limit. <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-128 AC4: Pi labeled graph publication forwards the visualization limit) -->
+5. An absent visualization node-limit setting defaults to `100000`. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi AST-only build writes a portable manifest and unlabeled HTML) -->
+6. Non-positive or non-integer visualization node limits reject publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-128 AC6: Pi AST build rejects an invalid visualization limit) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-128 AC6: Pi label apply rejects an invalid limit before publication) -->
+
+**Constraints:** Publication limits never remove the durable queryable graph.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch), [REQ-AGENT-127](#req-agent-127-graph-publication-artifacts-and-optional-labels)
 
 **Verification:** Automated tests and manual check
 
