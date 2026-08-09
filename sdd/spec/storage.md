@@ -248,7 +248,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. The multipart initiate endpoint creates a multipart upload and returns an upload identifier. <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) --> <!-- @manual -->
 2. The multipart part endpoint uploads a single part for a given upload identifier. <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) --> <!-- @manual -->
 3. The multipart complete endpoint finalizes the upload by assembling the recorded parts into the final object. <!-- @impl: src/routes/storage/upload.ts::CompleteUploadBodySchema --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) -->
-4. The multipart abort endpoint cancels an in-progress multipart upload and releases any retained parts. <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) --> <!-- @manual -->
+4. The authenticated, bucket-scoped multipart abort endpoint reports success only when R2 accepts the abort; non-2xx responses fail the request rather than claiming cleanup. <!-- @impl: src/routes/storage/upload.ts::default --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) -->
 5. All multipart endpoints share a single rate-limit bucket so an attacker cannot bypass the upload limit by interleaving phases. <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-STOR-008 AC5: shared rate limit across multipart endpoints) --> <!-- @manual -->
 
 **Constraints:**

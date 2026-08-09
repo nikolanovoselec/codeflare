@@ -224,7 +224,10 @@ app.post('/abort', async (c) => {
   const { endpoint } = await getR2Config(c.env);
 
   const url = `${getR2Url(endpoint, bucketName, sanitizedKey)}?uploadId=${encodeURIComponent(body.uploadId)}`;
-  await r2Client.fetch(url, { method: 'DELETE' });
+  const response = await r2Client.fetch(url, { method: 'DELETE' });
+  if (!response.ok) {
+    throw new ContainerError('upload', `R2 AbortMultipartUpload failed: ${response.status}`);
+  }
 
   return c.json({ success: true });
 });

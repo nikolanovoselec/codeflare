@@ -1,5 +1,6 @@
 import { Component, Show, Accessor } from 'solid-js';
 import { storageStore } from '../../stores/storage';
+import { sessionStore } from '../../stores/session';
 import Icon from '../Icon';
 import {
   // SEARCH UI DISABLED 2026-05-18 (REQ-STOR-015 + sync-v2 PR):
@@ -32,6 +33,11 @@ interface StorageToolbarProps {
 }
 
 const StorageToolbar: Component<StorageToolbarProps> = (props) => {
+  const authoritativeSessionSyncing = () => sessionStore.sessions.some(
+    (session) => sessionStore.getMetricsForSession(session.id)?.syncStatus === 'syncing',
+  );
+  const syncDisabled = () => storageStore.syncing || authoritativeSessionSyncing();
+
   const syncTooltip = () => {
     if (storageStore.syncing) {
       const r = storageStore.syncResult;
@@ -59,7 +65,7 @@ const StorageToolbar: Component<StorageToolbarProps> = (props) => {
         class="storage-icon-btn"
         data-testid="storage-sync-now-btn"
         title={syncTooltip()}
-        disabled={storageStore.syncing}
+        disabled={syncDisabled()}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
