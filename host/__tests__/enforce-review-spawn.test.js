@@ -32,6 +32,10 @@ function makeFixture() {
   return cwd;
 }
 
+function currentHead(cwd) {
+  return spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf-8' }).stdout.trim();
+}
+
 function withSdd(cwd) {
   mkdirSync(join(cwd, 'sdd'), { recursive: true });
   writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
@@ -93,10 +97,10 @@ function writeTranscript(cwd, lines) {
 function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
-  // Per-test sentinel path keeps tests hermetic from production /tmp/review-bypass.
-  if (bypassFile) env.REVIEW_BYPASS_FILE = bypassFile;
-  // Per-test TMPDIR keeps the PreToolUse gate's strike/clear state hermetic.
-  if (tmpDir) env.TMPDIR = tmpDir;
+  // Always isolate hook state from the live Claude session. Tests exercising a
+  // sentinel can override the default path explicitly.
+  env.REVIEW_BYPASS_FILE = bypassFile ?? join(cwd, '.review-bypass');
+  env.TMPDIR = tmpDir ?? cwd;
   // Prevent the hook from finding a real gh in PATH if we want it absent
   return spawnSync('bash', [HOOK], {
     cwd,
@@ -899,7 +903,8 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('drives the FIX phase once the verdict is published', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'fixphasesha'));
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
@@ -911,7 +916,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       TRIAGE_LINE(),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(ackOf(cwd), 'fixphasesha');
+    assert.equal(ackOf(cwd), headSha);
     assert.match(r.stdout, /FIX phase/,
       'the ack alone does not apply anything; the fix phase must be driven, not remembered');
   });
@@ -967,11 +972,12 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('does not spend the lane-demand budget on the verdict escape hatch', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'exhaustedsha'));
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf-8' })
       .stdout.trim();
     // This head already cost four Stop events to get its lanes running.
-    writeFileSync(join(cwd, gcd, 'sdd-review-count-pr-42'), 'exhaustedsha:4\n');
+    writeFileSync(join(cwd, gcd, 'sdd-review-count-pr-42'), `${headSha}:4\n`);
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
@@ -984,9 +990,9 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
 
     for (let i = 0; i < 3; i += 1) {
       const r = runHook(cwd, { transcriptPath: t, binDir });
-      assert.match(r.stdout, /no triage verdict was published/,
+      assert.match(r.stdout, /MINIMAL DECISION/,
         'the verdict demand must keep being shown; a demand silenced by the lane breaker can never be answered');
-      assert.notEqual(ackOf(cwd), 'exhaustedsha',
+      assert.notEqual(ackOf(cwd), headSha,
         'the lane-demand budget is not payment for the verdict hatch: these findings have still never been triaged');
     }
   });
@@ -998,7 +1004,8 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('acknowledges after repeated unanswered demands instead of staying wedged', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'wedgedsha'));
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const lanes = [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
@@ -1011,13 +1018,13 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     const t = writeTranscript(cwd, lanes);
 
     runHook(cwd, { transcriptPath: t, binDir });
-    assert.notEqual(ackOf(cwd), 'wedgedsha',
+    assert.notEqual(ackOf(cwd), headSha,
       'the very first unanswered demand must not acknowledge: no verdict has been asked for yet');
 
     let acked = false;
     for (let i = 0; i < 6 && !acked; i += 1) {
       runHook(cwd, { transcriptPath: t, binDir });
-      acked = ackOf(cwd) === 'wedgedsha';
+      acked = ackOf(cwd) === headSha;
     }
     assert.equal(acked, true,
       'repeated unanswered demands must acknowledge; a permanently wedged checkpoint is the failure being removed');
@@ -1056,7 +1063,8 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('applies the verdict requirement on the retroactive scan path, not just the live path', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'retroactivesha'));
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
@@ -1068,9 +1076,9 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /no triage verdict was published/,
+    assert.match(r.stdout, /MINIMAL DECISION/,
       'the requirement must be APPLIED here, not merely un-met: a crashed hook also leaves the ack alone');
-    assert.notEqual(ackOf(cwd), 'retroactivesha',
+    assert.notEqual(ackOf(cwd), headSha,
       'the retroactive scan is a second acknowledgement path and must not bypass the verdict requirement');
   });
 
@@ -1168,7 +1176,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('credits a lane whose runner path is quoted', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const sha = 'quotedpathsha';
+    const sha = currentHead(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', sha));
     const quoted = (lane, id) =>
       JSON.stringify({
@@ -1245,7 +1253,7 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
     // and all three are re-demanded.
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const binDir = fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main'));
     const t = writeTranscript(cwd, [
       AGENT_LINE('code-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_cr'),
       AGENT_LINE('spec-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_sr'),
@@ -1524,18 +1532,18 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     }
   });
 
-  it('does NOT classify non-protected or metadata-only gh pr edit commands', () => {
+  it('evaluates authoritative state after non-protected and metadata-only gh pr edit commands', () => {
     for (const command of [
       'gh pr edit 394 --base develop',
       'gh pr edit 394 --title metadata-only',
     ]) {
       const cwd = makeFixture();
       withSdd(cwd);
-      const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+      const binDir = fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main'));
       const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.equal(r.stdout, '', command);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/, command);
     }
   });
 
@@ -1928,7 +1936,7 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
       'sdd-only push must NOT demand code-reviewer');
   });
 
-  it('behavioral push (src/): requires all three lanes', () => {
+  it('behavioral push (src/): requires only lanes with owned surfaces', () => {
     const { cwd, baseSha } = makeLaneFixture();
     ackBase(cwd, baseSha);
     const tip = advanceWith(cwd, () => {
@@ -1939,14 +1947,15 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /code-reviewer/);
-    assert.match(r.stdout, /spec-reviewer/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/);
+    assert.doesNotMatch(r.stdout, /doc-updater/);
   });
 
-  it('rename bypass attempt (src -> documentation) is REJECTED — still all three', () => {
+  it('rename bypass attempt (src -> documentation) keeps code and documentation review', () => {
     // Adversarial: a user might rename src/foo.ts -> documentation/poison.md
     // to make the diff look like a pure docs change and skip code-reviewer.
-    // The hook MUST use --no-renames so both old and new paths appear, and
-    // the source path triggers behavioral classification.
+    // The hook MUST use --no-renames so both old and new paths appear: the
+    // source path preserves code review and the destination preserves docs review.
     const { cwd, baseSha } = makeLaneFixture();
     ackBase(cwd, baseSha);
     const tip = advanceWith(cwd, () => {
@@ -1958,7 +1967,9 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     assert.equal(r.status, 0);
     assert.match(r.stdout, /code-reviewer/,
       'cross-category rename must trigger code-reviewer (--no-renames defense)');
-    assert.match(r.stdout, /spec-reviewer/);
+    assert.match(r.stdout, /doc-updater/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'an untouched, unanchored specification surface owns no work in this range');
   });
 
   it('force-push / unrelated lineage: merge-base guard falls through to all three', () => {

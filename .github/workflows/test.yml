@@ -768,9 +768,9 @@ jobs:
         # here. It used to hold 14 entries under one blanket rationale (graphify
         # CLI, python3 graphify module, rclone state, gh-in-PR-context) that was
         # accurate for a couple of them and inherited by proximity for the rest.
-        # Six are back in the lane; each of the seven that remain now carries
+        # Seven are back in the lane; each of the five that remain now carries
         # its own reason in the file, so the list is auditable rather than
-        # inherited. An eighth, skill-sdd-init-contract.test.js, was excluded
+        # inherited. Another, skill-sdd-init-contract.test.js, was excluded
         # because it FAILED — it pinned SKILL.md prose that had since been
         # reworded, so it went red against its own staleness while the skill
         # behaviour it claimed to cover was intact. Deleted rather than repaired;
