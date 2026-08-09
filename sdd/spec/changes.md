@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
+- **Vault bootstrap success now requires browser encryption state to persist** ([REQ-VAULT-024](vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1/AC2 remain Implemented). A rejected `localStorage` write now enters the existing visible bootstrap failure path; the page emits neither its completion cookie nor its shell redirect, so a later attempt can retry instead of entering SilverBullet after falsely marking encryption setup complete.
+
 - **Unconfirmed session destruction no longer reports success or erases retry state** ([REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) AC2/AC5 remain Implemented). Stop now records `stopped` only after `destroy()` confirms graceful teardown and final sync. Delete retains the session record when destruction fails, so operators and users keep a retry handle instead of losing the only durable reference to a possibly running, unsynced container.
 
 - **Disabled Browser Run starts remove restored bearer-bearing registrations** ([REQ-BROWSER-001](browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp) AC1 and [REQ-BROWSER-006](browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter) AC4 remain Implemented). Default-mode and token-less starts now delete only Codeflare-owned Claude `chrome-devtools`/`browser-run` and Pi `chrome-devtools` entries while preserving unrelated user MCP servers, so a prior advanced session cannot retain Browser Rendering bearer credentials after its gate turns off.

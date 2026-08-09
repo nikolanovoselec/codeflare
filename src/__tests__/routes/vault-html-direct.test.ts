@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // CF-045
 // Direct unit tests for src/lib/vault-view.ts. These pure helpers were
@@ -23,6 +23,7 @@ import {
   VAULT_PREWARM_FOCUS_GUARD_MARKER,
   VAULT_PREWARM_REQUIRED_FILES,
   injectVaultControlledReload,
+  injectVaultBootstrapHopHtml,
   installVaultControlledReload,
   VAULT_CONTROLLED_RELOAD_MARKER,
 } from '../../lib/vault-view';
@@ -122,6 +123,52 @@ describe('CF-045: vault-html direct unit tests', () => {
     it('returns false when the cookie has a non-1 value', () => {
       const req = new Request('https://x/', { headers: { Cookie: `${VAULT_BOOTSTRAP_COOKIE}=0` } });
       expect(hasVaultBootstrapCookie(req)).toBe(false);
+    });
+  });
+
+  describe('injectVaultBootstrapHopHtml / REQ-VAULT-024', () => {
+    it('does not mark bootstrap complete when encryption enablement cannot persist', async () => {
+      const html = injectVaultBootstrapHopHtml('aabbccdd11223344', 'KEY123');
+      const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+      expect(script).toBeDefined();
+
+      let cookie = '';
+      let redirect = '';
+      const status = { textContent: '' };
+      const serviceWorker = {
+        state: 'activated',
+        postMessage: vi.fn(),
+      };
+      const navigator = {
+        serviceWorker: {
+          register: vi.fn(async () => ({ active: serviceWorker, update: vi.fn(async () => undefined) })),
+        },
+      };
+      const document = {
+        getElementById: vi.fn(() => status),
+        get cookie() { return cookie; },
+        set cookie(value: string) { cookie = value; },
+      };
+      const localStorage = {
+        setItem: vi.fn(() => { throw new Error('storage denied'); }),
+      };
+      const location = {
+        replace: vi.fn((value: string) => { redirect = value; }),
+      };
+      const console = { log: vi.fn(), warn: vi.fn() };
+
+      Function('navigator', 'document', 'localStorage', 'location', 'console', script!)(
+        navigator,
+        document,
+        localStorage,
+        location,
+        console,
+      );
+      await vi.waitFor(() => expect(status.textContent).toContain('storage denied'));
+
+      expect(cookie).toBe('');
+      expect(redirect).toBe('');
+      expect(serviceWorker.postMessage).toHaveBeenCalledWith({ type: 'set-encryption-key', key: 'KEY123' });
     });
   });
 

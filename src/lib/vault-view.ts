@@ -773,12 +773,12 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     '}' +
     'step("Posting encryption key...");' +
     'sw.postMessage({ type: "set-encryption-key", key: key });' +
+    'localStorage.setItem("enableEncryption", "true");' +
     'step("Redirecting...");' +
     '} catch (e) {' +
     'fail(e && e.message ? e.message : String(e));' +
     'return;' +
     '}' +
-    'try { localStorage.setItem("enableEncryption", "true"); } catch (_) {}' +
     'document.cookie = cookieName + "=1; Path=" + scope + "; SameSite=Lax; Secure";' +
     'location.replace(scope + ' + escapedRedirectSearch + ');' +
     '})();' +
