@@ -11,7 +11,7 @@ const EUR_COUNTRIES = new Set([
   'BG', 'CZ', 'DK', 'HU', 'PL', 'RO', 'SE',
   // Non-EU European
   'AD', 'AL', 'AX', 'BA', 'BY', 'FO', 'IS', 'MC', 'MD', 'ME',
-  'MK', 'NO', 'RS', 'SJ', 'SM', 'TR', 'UA', 'VA', 'XK',
+  'MK', 'NO', 'RS', 'RU', 'SJ', 'SM', 'TR', 'UA', 'VA', 'XK',
 ]);
 
 /** Map a 2-letter ISO country code to a supported currency. */

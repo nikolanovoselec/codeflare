@@ -10,6 +10,7 @@ import { z } from 'zod';
 import type { Env, SubscriptionTierConfig } from '../types';
 import { AppError } from './error-types';
 import { firstZodError } from './request-helpers';
+import { getNextUtcMonthStart } from './kv-keys';
 
 // ---------------------------------------------------------------------------
 // CF-022: Runtime Zod schemas for Stripe API responses
@@ -435,9 +436,13 @@ export async function createSwitchPortalSession(opts: {
  * Called when Timekeeper detects trial compute quota (e.g., 4h) is consumed.
  */
 export async function endTrialNow(subscriptionId: string, secretKey: string): Promise<void> {
+  const billingCycleAnchor = getNextUtcMonthStart(new Date());
   await stripeRequest(
     `/v1/subscriptions/${subscriptionId}`,
-    { trial_end: 'now' },
+    {
+      trial_end: 'now',
+      billing_cycle_anchor: String(billingCycleAnchor),
+    },
     secretKey,
   );
 }

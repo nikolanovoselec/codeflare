@@ -367,8 +367,12 @@ describe('handleSubscriptionUpdated', () => {
 // customer.subscription.deleted - direct write (CF-004)
 // ---------------------------------------------------------------------------
 describe('handleSubscriptionDeleted', () => {
-  it('resets subscriptionTier and accessTier to free and sets billingStatus to canceled', async () => {
-    seedCustomer('cus_del_1', 'del@example.com', { subscriptionTier: 'advanced', accessTier: 'advanced' });
+  it('resets tiers and removes stale provider fields on deletion', async () => {
+    seedCustomer('cus_del_1', 'del@example.com', {
+      subscriptionTier: 'advanced', accessTier: 'advanced',
+      stripeSubscriptionId: 'sub_del_1', stripePriceId: 'price_old',
+      billingPeriodEnd: '2026-09-01T00:00:00.000Z', checkoutSessionId: 'cs_old',
+    });
 
     const body = buildEvent('customer.subscription.deleted', {
       id: 'sub_del_1',
@@ -382,6 +386,10 @@ describe('handleSubscriptionDeleted', () => {
     expect(user.subscriptionTier).toBe('free');
     expect(user.accessTier).toBe('free');
     expect(user.billingStatus).toBe('canceled');
+    expect(user.stripeSubscriptionId).toBeUndefined();
+    expect(user.stripePriceId).toBeUndefined();
+    expect(user.billingPeriodEnd).toBeUndefined();
+    expect(user.checkoutSessionId).toBeUndefined();
   });
 
   it('resets a max-tier user to free on subscription deletion', async () => {

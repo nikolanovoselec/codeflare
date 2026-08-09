@@ -28,7 +28,7 @@ import { getPreferencesKey } from '../lib/kv-keys';
 import { getAdminEmails } from '../lib/access-policy';
 import { sendSubscriptionAdminNotification, sendSubscriptionEmail } from '../lib/email';
 import { getBaseUrl } from '../lib/kv-keys';
-import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode, withoutBillingState } from '../lib/subscription';
 import { resolveUserFromKV } from '../lib/access';
 
 const logger = createLogger('stripe-webhook');
@@ -275,12 +275,14 @@ async function handleSubscriptionDeleted(
   // CF-004: Reset tiers to 'free' so all enforcement paths (including raw field reads) deny access.
   // Also reset subscribedMode to 'default' so code reading subscribedMode from KV
   // doesn't see stale 'advanced' after the subscription is gone.
-  await updateUserRecord(env.KV, email, {
+  const currentUser = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
+  await env.KV.put(`user:${email}`, JSON.stringify({
+    ...withoutBillingState(currentUser ?? {}),
     billingStatus: BILLING_STATUS.CANCELED,
     subscriptionTier: 'free',
     accessTier: 'free',
     subscribedMode: 'default',
-  });
+  }));
 
   // Auto-reconcile preseed to default mode - subscription actually terminated
   // (period ended after cancel, or immediate revocation). This does NOT fire
@@ -338,16 +340,20 @@ export async function syncSubscriptionState(
     logger.warn('syncSubscriptionState: STRIPE_SECRET_KEY not configured', { subscriptionId });
     return;
   }
+  // Capture ordering before the provider fetch. A slower, older fetch must not
+  // receive a newer completion timestamp and overwrite a sync that started later.
+  const syncStartedAt = new Date().toISOString();
   const snapshot = await fetchSubscription(subscriptionId, env.STRIPE_SECRET_KEY);
   if (!snapshot) {
     logger.warn('syncSubscriptionState: subscription not found', { subscriptionId });
     return;
   }
 
-  // 3. Timestamp guard: skip if KV's lastSyncedAt >= now
+  // 3. Start-version guard: skip when a later-started sync already persisted.
+  // Strict ordering intentionally permits an equal token, preserving the AC's
+  // equal-timestamp behavior.
   const existing = parseUserRecord(await env.KV.get(`user:${email}`, 'json'));
-  const now = new Date().toISOString();
-  if (existing?.lastSyncedAt && existing.lastSyncedAt > now) {
+  if (existing?.lastSyncedAt && existing.lastSyncedAt > syncStartedAt) {
     logger.info('syncSubscriptionState: skipped (KV lastSyncedAt is newer)', {
       email, kvLastSynced: existing.lastSyncedAt,
     });
@@ -360,7 +366,7 @@ export async function syncSubscriptionState(
     stripeCustomerId: snapshot.customerId,
     billingStatus: snapshot.status,
     cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
-    lastSyncedAt: now,
+    lastSyncedAt: syncStartedAt,
   };
 
   if (snapshot.tier !== null) {

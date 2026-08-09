@@ -122,6 +122,38 @@ describe('syncSubscriptionState', () => {
     expect(user.subscriptionTier).toBe('standard');
   });
 
+  it('DEEP-22-002: an older in-flight provider result cannot overwrite a later-started sync', async () => {
+    mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
+    mockKV._set('user:sync@example.com', {
+      subscriptionTier: 'standard', accessTier: 'standard', billingStatus: 'active',
+    });
+
+    let resolveOlder!: (snapshot: StripeSubscriptionSnapshot) => void;
+    vi.mocked(fetchSubscription)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOlder = resolve; }))
+      .mockResolvedValueOnce(makeSnapshot({ tier: 'max' }));
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+    try {
+      const olderSync = syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      vi.setSystemTime(new Date('2026-01-01T00:00:01.000Z'));
+      await syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
+
+      resolveOlder(makeSnapshot({ tier: 'advanced' }));
+      await olderSync;
+
+      const user = JSON.parse(mockKV._store.get('user:sync@example.com')!);
+      expect(user.subscriptionTier).toBe('max');
+      expect(user.lastSyncedAt).toBe('2026-01-01T00:00:01.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('overwrites when no lastSyncedAt in KV', async () => {
     mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
     mockKV._set('user:sync@example.com', {

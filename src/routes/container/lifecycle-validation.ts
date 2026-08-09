@@ -12,6 +12,11 @@ import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getSessionKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, type SessionListMetadata } from '../../lib/kv-keys';
 
+/** Running and in-flight starts both consume a concurrent-session slot. */
+export function countsTowardSessionLimit(status: string | undefined): boolean {
+  return status === 'running' || status === 'initializing' || status === 'r' || status === 'i';
+}
+
 /**
  * Resolve the effective per-session idle-timeout value from the user's tier
  * and stored preference.
@@ -82,16 +87,17 @@ export async function validateSessionAndCheckLimits(params: {
     // writes 'stopped' on exit, so no read-side staleness reconciliation).
     let runningCount = 0;
     for (const key of sessionKeys) {
-      const rawMeta = key.metadata as SessionListMetadata | null;
+      const rawMeta = key.metadata as (SessionListMetadata & { s?: string }) | null;
       if (rawMeta && rawMeta.s) {
-        // Fast path: read status from list metadata
+        // Fast path: read status from list metadata. `i` is retained for
+        // initializing records written by concurrent start paths.
         const keySessionId = key.name.split(':').pop();
-        if (rawMeta.s === 'r' && keySessionId !== sessionId) runningCount++;
+        if (countsTowardSessionLimit(rawMeta.s) && keySessionId !== sessionId) runningCount++;
       } else {
         // Fallback: pre-migration key without metadata
         const s = await env.KV.get<Session>(key.name, 'json');
         if (!s || s.id === sessionId) continue;
-        if (s.status === 'running') runningCount++;
+        if (countsTowardSessionLimit(s.status as string | undefined)) runningCount++;
       }
     }
 

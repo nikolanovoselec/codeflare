@@ -13,7 +13,7 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord, updateUserRecord } from '../lib/user-record';
-import { getTierConfig, countPaidSlots, isEnterpriseMode } from '../lib/subscription';
+import { getTierConfig, countPaidSlots, isEnterpriseMode, withoutBillingState } from '../lib/subscription';
 import { getBaseUrl, getNextUtcMonthStart, SETUP_KEYS } from '../lib/kv-keys';
 import { getAllUsers } from '../lib/access-policy';
 import {
@@ -170,14 +170,13 @@ app.get('/status', requireIdentity, async (c) => {
     try {
       const snapshot = await fetchSubscription(subscriptionId, secretKey);
       if (!snapshot) {
-        // Subscription gone from Stripe — return cleared state
-        // Clean up billing fields in KV (non-blocking). Only reset billing
-        // fields — never touch identity fields (addedBy, addedAt, role).
-        void updateUserRecord(c.env.KV, user.email, {
+        // Subscription gone from Stripe — remove every provider-owned field
+        // before returning. Keep identity and product-owned fields intact.
+        await c.env.KV.put(`user:${user.email}`, JSON.stringify({
+          ...withoutBillingState(userData as Record<string, unknown>),
           subscriptionTier: 'pending',
           accessTier: 'pending',
-          billingStatus: BILLING_STATUS.CANCELED,
-        });
+        }));
         return c.json({
           stripeCustomerId: null,
           stripeSubscriptionId: null,
@@ -303,14 +302,14 @@ app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
   // Fetch subscription to get the subscription item ID (si_xxx)
   const snapshot = await fetchSubscription(subscriptionId, secretKey);
   if (!snapshot) {
-    // Subscription no longer exists on Stripe — clean up billing fields in KV.
-    // Only reset billing fields — never touch identity fields (addedBy, addedAt, role).
+    // Subscription no longer exists on Stripe — remove every stale provider
+    // field while preserving identity, then reuse the existing checkout restart.
     logger.warn('Stale subscription in KV, cleaning up', { email: user.email, subscriptionId });
-    await updateUserRecord(c.env.KV, user.email, {
+    await c.env.KV.put(`user:${user.email}`, JSON.stringify({
+      ...withoutBillingState(userData as Record<string, unknown>),
       subscriptionTier: 'pending',
       accessTier: 'pending',
-      billingStatus: BILLING_STATUS.CANCELED,
-    });
+    }));
     throw new ValidationError('Subscription expired. Redirecting to checkout.');
   }
   if (!snapshot.subscriptionItemId) {
